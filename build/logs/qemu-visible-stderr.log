@@ -1,0 +1,1 @@
+qemu-system-x86_64.exe: -drive if=pflash,format=raw,readonly=on,file=/mnt/e/KuroganeOS/tools/qemu/share/edk2-x86_64-code.fd: Could not open '/mnt/e/KuroganeOS/tools/qemu/share/edk2-x86_64-code.fd': System nie może odnaleźć określonej ścieżki.

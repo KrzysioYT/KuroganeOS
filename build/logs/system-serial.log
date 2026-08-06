@@ -1,0 +1,91 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+KuroganeOS loader 1.0
+Press S or F8 for safe mode...
+Exiting boot services...
+[INFO][BOOT][CPU0][PID0:TID0] KuroganeOS kernel entry
+
+[terminal cleared]
+KUROGANE OS
+x86-64 UEFI kernel 1.0
+boot protocol: v2 (memory map + boot flags)
+[INFO][KERNEL][CPU0][PID0:TID0] GDT, TSS and IST stacks initialized
+[INFO][KERNEL][CPU0][PID0:TID0] IDT initialized
+[INFO][KERNEL][CPU0][PID0:TID0] CPU exception handlers installed
+[INFO][MEMORY][CPU0][PID0:TID0] kernel heap bytes=2097120
+[INFO][MEMORY][CPU0][PID0:TID0] cloning active UEFI four-level page-table root
+[INFO][MEMORY][CPU0][PID0:TID0] page-table backend initialized; running CPU mapping test
+[INFO][MEMORY][CPU0][PID0:TID0] virtual memory manager ready, CR3=0x1780000
+[TEST] paging: PASS
+[TEST] memory_allocator: PASS
+[TEST] ramfs_bootstrap: PASS
+[INFO][FS][CPU0][PID0:TID0] root RAMFS mounted
+[INFO][SCHED][CPU0][PID0:TID0] scheduler initialized
+[INFO][TIME][CPU0][PID0:TID0] PIT monotonic clock ready
+[INFO][INTERRUPTS][CPU0][PID0:TID0] PIC, PIT and keyboard ready
+interrupts/timer/keyboard: READY
+PS/2 controller: configured
+PCI devices: 5
+network loopback: PASS (127.0.0.1)
+[TEST] network_loopback: PASS
+[TEST] ALL_REQUIRED_TESTS_PASSED
+Type 'help' for commands.
+
+kurogane:/ $ version
+KuroganeOS 1.0 x86_64 UEFI
+kurogane:/ $ abi
+application ABI 1.0 descriptor=48 page=4096 features=0x0
+transport: unavailable (ring-3/syscalls not implemented)
+kurogane:/ $ free
+heap total=2097120 used=1453 free=2094848 allocations=14
+frames total=42988 used=1 free=42987 reserved=0
+kurogane:/ $ pwd
+/
+kurogane:/ $ cd home
+kurogane:/home $ pwd
+/home
+kurogane:/home $ mkdir smoke
+kurogane:/home $ write smoke/source.txt shelltestdata
+kurogane:/home $ cp smoke/source.txt smoke/copy.txt
+kurogane:/home $ mv smoke/copy.txt smoke/moved.txt
+kurogane:/home $ cat smoke/moved.txt
+shelltestdata
+kurogane:/home $ stat smoke/moved.txt
+/home/smoke/moved.txt type=file size=13
+kurogane:/home $ mkdir /tmp/remove
+kurogane:/home $ rmdir /tmp/remove
+kurogane:/home $ whoami
+kernel
+kurogane:/home $ uptime
+515 ticks
+kurogane:/home $ net ping
+reply from 127.0.0.1: sequence=1 bytes=4
+kurogane:/home $ apps
+  desktop - graphical application launcher
+  monitor - live memory and hardware monitor
+  files - RAMFS file browser
+  about - KuroganeOS information
+kurogane:/home $ gui
+
+[terminal cleared]
+KuroganeOS application closed.
+kurogane:/home $ history
+1  cd home
+2  pwd
+3  mkdir smoke
+4  write smoke/source.txt shelltestdata
+5  cp smoke/source.txt smoke/copy.txt
+6  mv smoke/copy.txt smoke/moved.txt
+7  cat smoke/moved.txt
+8  stat smoke/moved.txt
+9  mkdir /tmp/remove
+10  rmdir /tmp/remove
+11  whoami
+12  uptime
+13  net ping
+14  apps
+15  gui
+16  history
+kurogane:/home $ echo shelltestpass
+shelltestpass
+kurogane:/home $ 

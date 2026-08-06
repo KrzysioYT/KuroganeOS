@@ -25,6 +25,8 @@ $VirtualBoxScript = Join-Path $PSScriptRoot 'run-virtualbox.ps1'
 $ImagePath = Join-Path $RepoRoot 'kurogane.img'
 $IsoPath = Join-Path $RepoRoot 'kurogane.iso'
 $LogRoot = Join-Path $RepoRoot 'build\logs'
+$LogRoot = [System.IO.Path]::GetFullPath($LogRoot)
+[System.IO.Directory]::CreateDirectory($LogRoot) | Out-Null
 
 $RunId = '{0}-{1}' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), ([Guid]::NewGuid().ToString('N').Substring(0, 8))
 $LogStem = if ($KeepLogs) { "verify-$RunId" } else { 'verify-latest' }
@@ -73,6 +75,9 @@ function Write-Status {
 
     $line = '[{0}] [{1,-5}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $State, $Message
     Write-Host $line
+    [System.IO.Directory]::CreateDirectory(
+        [System.IO.Path]::GetDirectoryName($StatusLog)
+    ) | Out-Null
     [System.IO.File]::AppendAllText($StatusLog, "$line`r`n", $Utf8NoBom)
 }
 
@@ -84,6 +89,18 @@ function Get-StepLogPath {
     )
 
     return Join-Path $LogRoot "$LogStem-$Slug.log"
+}
+
+function Ensure-Directory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DirectoryPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DirectoryPath)) {
+        throw 'Directory path is required.'
+    }
+    [System.IO.Directory]::CreateDirectory($DirectoryPath) | Out-Null
 }
 
 function Invoke-Step {
@@ -137,6 +154,8 @@ function Invoke-Step {
     foreach ($item in $output) {
         $logLines.Add([string]$item)
     }
+    $stepDir = [System.IO.Path]::GetDirectoryName($stepLog)
+    Ensure-Directory -DirectoryPath $stepDir
     [System.IO.File]::WriteAllLines($stepLog, $logLines, $Utf8NoBom)
 
     if ($failure -or $exitCode -ne 0) {
@@ -287,7 +306,10 @@ bash ./scripts/test.sh
     } | Out-Null
 
     Invoke-Step -Name 'FAT image validation (read-only)' -Slug 'fat-fsck' -Action {
-        & $WslExe --exec fsck.fat -vn $WslImagePath
+        $script = New-WslRepositoryScript -WslRepositoryPath $WslRepoRoot -Body @"
+fsck.fat -vn "$WslImagePath"
+"@
+        Invoke-WslBash -WslExecutable $WslExe -Script $script
     } | Out-Null
 
     $diskPort = Get-FreeMonitorPort

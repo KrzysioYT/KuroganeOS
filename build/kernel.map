@@ -5,307 +5,87 @@ Discarded input sections
                 0x0000000000000000        0x0 build/obj/arch/x86_64/entry.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/arch/x86_64/interrupt_stubs.o
- .group         0x0000000000000000        0xc build/obj/abi/service.o
- .group         0x0000000000000000        0xc build/obj/abi/service.o
- .group         0x0000000000000000        0xc build/obj/abi/service.o
- .group         0x0000000000000000        0xc build/obj/abi/service.o
- .group         0x0000000000000000        0xc build/obj/abi/service.o
  .comment       0x0000000000000000       0x13 build/obj/abi/service.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/abi/service.o
- .group         0x0000000000000000        0xc build/obj/apps/builtin.o
- .group         0x0000000000000000        0xc build/obj/apps/builtin.o
- .group         0x0000000000000000        0xc build/obj/apps/builtin.o
- .group         0x0000000000000000        0xc build/obj/apps/builtin.o
- .group         0x0000000000000000        0xc build/obj/apps/builtin.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/apps/builtin.o
- .debug_macro   0x0000000000000000      0x197 build/obj/apps/builtin.o
- .debug_macro   0x0000000000000000      0x34e build/obj/apps/builtin.o
  .comment       0x0000000000000000       0x13 build/obj/apps/builtin.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/apps/builtin.o
- .group         0x0000000000000000        0xc build/obj/apps/framework.o
- .group         0x0000000000000000        0xc build/obj/apps/framework.o
- .group         0x0000000000000000        0xc build/obj/apps/framework.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/apps/framework.o
- .debug_macro   0x0000000000000000      0x197 build/obj/apps/framework.o
- .debug_macro   0x0000000000000000      0x34e build/obj/apps/framework.o
  .comment       0x0000000000000000       0x13 build/obj/apps/framework.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/apps/framework.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/gdt.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/gdt.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/gdt.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/arch/x86_64/gdt.o
- .debug_macro   0x0000000000000000      0x34e build/obj/arch/x86_64/gdt.o
- .debug_macro   0x0000000000000000      0x197 build/obj/arch/x86_64/gdt.o
  .comment       0x0000000000000000       0x13 build/obj/arch/x86_64/gdt.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/arch/x86_64/gdt.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/interrupts.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/interrupts.o
- .group         0x0000000000000000        0xc build/obj/arch/x86_64/interrupts.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/arch/x86_64/interrupts.o
- .debug_macro   0x0000000000000000      0x197 build/obj/arch/x86_64/interrupts.o
- .debug_macro   0x0000000000000000      0x34e build/obj/arch/x86_64/interrupts.o
  .comment       0x0000000000000000       0x13 build/obj/arch/x86_64/interrupts.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/arch/x86_64/interrupts.o
- .group         0x0000000000000000        0xc build/obj/core/log.o
- .group         0x0000000000000000        0xc build/obj/core/log.o
- .group         0x0000000000000000        0xc build/obj/core/log.o
- .group         0x0000000000000000        0xc build/obj/core/log.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/core/log.o
- .debug_macro   0x0000000000000000      0x34e build/obj/core/log.o
- .debug_macro   0x0000000000000000      0x197 build/obj/core/log.o
- .debug_macro   0x0000000000000000       0x2e build/obj/core/log.o
  .comment       0x0000000000000000       0x13 build/obj/core/log.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/core/log.o
- .group         0x0000000000000000        0xc build/obj/core/memory.o
- .group         0x0000000000000000        0xc build/obj/core/memory.o
- .group         0x0000000000000000        0xc build/obj/core/memory.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/core/memory.o
- .debug_macro   0x0000000000000000      0x197 build/obj/core/memory.o
- .debug_macro   0x0000000000000000      0x34e build/obj/core/memory.o
  .comment       0x0000000000000000       0x13 build/obj/core/memory.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/core/memory.o
- .group         0x0000000000000000        0xc build/obj/core/string.o
- .group         0x0000000000000000        0xc build/obj/core/string.o
- .group         0x0000000000000000        0xc build/obj/core/string.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/core/string.o
- .debug_macro   0x0000000000000000      0x197 build/obj/core/string.o
- .debug_macro   0x0000000000000000      0x34e build/obj/core/string.o
  .comment       0x0000000000000000       0x13 build/obj/core/string.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/core/string.o
- .group         0x0000000000000000        0xc build/obj/diagnostics/profiler.o
- .group         0x0000000000000000        0xc build/obj/diagnostics/profiler.o
- .group         0x0000000000000000        0xc build/obj/diagnostics/profiler.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/diagnostics/profiler.o
- .debug_macro   0x0000000000000000      0x197 build/obj/diagnostics/profiler.o
- .debug_macro   0x0000000000000000      0x34e build/obj/diagnostics/profiler.o
  .comment       0x0000000000000000       0x13 build/obj/diagnostics/profiler.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/diagnostics/profiler.o
- .group         0x0000000000000000        0xc build/obj/drivers/framebuffer.o
- .group         0x0000000000000000        0xc build/obj/drivers/framebuffer.o
- .group         0x0000000000000000        0xc build/obj/drivers/framebuffer.o
- .group         0x0000000000000000        0xc build/obj/drivers/framebuffer.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/framebuffer.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/framebuffer.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/framebuffer.o
- .debug_macro   0x0000000000000000       0x2e build/obj/drivers/framebuffer.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/framebuffer.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/framebuffer.o
- .group         0x0000000000000000        0xc build/obj/drivers/keyboard.o
- .group         0x0000000000000000        0xc build/obj/drivers/keyboard.o
- .group         0x0000000000000000        0xc build/obj/drivers/keyboard.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/keyboard.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/keyboard.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/keyboard.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/keyboard.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/keyboard.o
- .group         0x0000000000000000        0x8 build/obj/drivers/pci.o
- .group         0x0000000000000000        0x8 build/obj/drivers/pci.o
- .group         0x0000000000000000        0xc build/obj/drivers/pci.o
- .group         0x0000000000000000        0xc build/obj/drivers/pci.o
- .group         0x0000000000000000        0xc build/obj/drivers/pci.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/pci.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/pci.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/pci.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/pci.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/pci.o
- .group         0x0000000000000000        0xc build/obj/drivers/pic.o
- .group         0x0000000000000000        0xc build/obj/drivers/pic.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/pic.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/pic.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/pic.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/pic.o
- .group         0x0000000000000000        0xc build/obj/drivers/pit.o
- .group         0x0000000000000000        0xc build/obj/drivers/pit.o
- .group         0x0000000000000000        0xc build/obj/drivers/pit.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/pit.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/pit.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/pit.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/pit.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/pit.o
- .group         0x0000000000000000        0x8 build/obj/drivers/rtc.o
- .group         0x0000000000000000        0x8 build/obj/drivers/rtc.o
- .group         0x0000000000000000        0x8 build/obj/drivers/rtc.o
- .group         0x0000000000000000        0xc build/obj/drivers/rtc.o
- .group         0x0000000000000000        0xc build/obj/drivers/rtc.o
- .group         0x0000000000000000        0xc build/obj/drivers/rtc.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/rtc.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/rtc.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/rtc.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/rtc.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/rtc.o
- .group         0x0000000000000000        0x8 build/obj/drivers/serial.o
- .group         0x0000000000000000        0x8 build/obj/drivers/serial.o
- .group         0x0000000000000000        0x8 build/obj/drivers/serial.o
- .group         0x0000000000000000        0xc build/obj/drivers/serial.o
- .group         0x0000000000000000        0xc build/obj/drivers/serial.o
- .group         0x0000000000000000        0xc build/obj/drivers/serial.o
- .text._ZN4arch4out8Eth
-                0x0000000000000000       0x1f build/obj/drivers/serial.o
- .text._ZN4arch3in8Et
-                0x0000000000000000       0x1e build/obj/drivers/serial.o
- .text._ZN4arch5pauseEv
-                0x0000000000000000        0x9 build/obj/drivers/serial.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/drivers/serial.o
- .debug_macro   0x0000000000000000      0x34e build/obj/drivers/serial.o
- .debug_macro   0x0000000000000000      0x197 build/obj/drivers/serial.o
  .comment       0x0000000000000000       0x13 build/obj/drivers/serial.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/drivers/serial.o
- .group         0x0000000000000000        0xc build/obj/fs/ramfs.o
- .group         0x0000000000000000        0xc build/obj/fs/ramfs.o
- .group         0x0000000000000000        0xc build/obj/fs/ramfs.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/fs/ramfs.o
- .debug_macro   0x0000000000000000      0x197 build/obj/fs/ramfs.o
- .debug_macro   0x0000000000000000      0x34e build/obj/fs/ramfs.o
  .comment       0x0000000000000000       0x13 build/obj/fs/ramfs.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/fs/ramfs.o
- .group         0x0000000000000000        0x8 build/obj/main.o
- .group         0x0000000000000000        0x8 build/obj/main.o
- .group         0x0000000000000000        0x8 build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/main.o
- .text._ZN4arch5pauseEv
-                0x0000000000000000        0x9 build/obj/main.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/main.o
- .debug_macro   0x0000000000000000      0x197 build/obj/main.o
- .debug_macro   0x0000000000000000      0x34e build/obj/main.o
- .debug_macro   0x0000000000000000       0x2e build/obj/main.o
- .debug_macro   0x0000000000000000       0x28 build/obj/main.o
  .comment       0x0000000000000000       0x13 build/obj/main.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/main.o
- .group         0x0000000000000000        0xc build/obj/memory/allocator.o
- .group         0x0000000000000000        0xc build/obj/memory/allocator.o
- .group         0x0000000000000000        0xc build/obj/memory/allocator.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/memory/allocator.o
- .debug_macro   0x0000000000000000      0x197 build/obj/memory/allocator.o
- .debug_macro   0x0000000000000000      0x34e build/obj/memory/allocator.o
  .comment       0x0000000000000000       0x13 build/obj/memory/allocator.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/memory/allocator.o
- .group         0x0000000000000000        0xc build/obj/memory/kernel_virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/kernel_virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/kernel_virtual_memory.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/memory/kernel_virtual_memory.o
- .debug_macro   0x0000000000000000      0x34e build/obj/memory/kernel_virtual_memory.o
- .debug_macro   0x0000000000000000      0x197 build/obj/memory/kernel_virtual_memory.o
  .comment       0x0000000000000000       0x13 build/obj/memory/kernel_virtual_memory.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/memory/kernel_virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/physical_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/physical_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/physical_memory.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/memory/physical_memory.o
- .debug_macro   0x0000000000000000      0x197 build/obj/memory/physical_memory.o
- .debug_macro   0x0000000000000000      0x34e build/obj/memory/physical_memory.o
  .comment       0x0000000000000000       0x13 build/obj/memory/physical_memory.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/memory/physical_memory.o
- .group         0x0000000000000000        0x8 build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0x8 build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/memory/virtual_memory.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/memory/virtual_memory.o
- .debug_macro   0x0000000000000000      0x197 build/obj/memory/virtual_memory.o
- .debug_macro   0x0000000000000000      0x34e build/obj/memory/virtual_memory.o
  .comment       0x0000000000000000       0x13 build/obj/memory/virtual_memory.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/memory/virtual_memory.o
- .group         0x0000000000000000        0xc build/obj/net/network.o
- .group         0x0000000000000000        0xc build/obj/net/network.o
- .group         0x0000000000000000        0xc build/obj/net/network.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/net/network.o
- .debug_macro   0x0000000000000000      0x197 build/obj/net/network.o
- .debug_macro   0x0000000000000000      0x34e build/obj/net/network.o
  .comment       0x0000000000000000       0x13 build/obj/net/network.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/net/network.o
- .group         0x0000000000000000        0xc build/obj/net/service.o
- .group         0x0000000000000000        0xc build/obj/net/service.o
- .group         0x0000000000000000        0xc build/obj/net/service.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/net/service.o
- .debug_macro   0x0000000000000000      0x197 build/obj/net/service.o
- .debug_macro   0x0000000000000000      0x34e build/obj/net/service.o
  .comment       0x0000000000000000       0x13 build/obj/net/service.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/net/service.o
- .group         0x0000000000000000        0x8 build/obj/shell/shell.o
- .group         0x0000000000000000        0x8 build/obj/shell/shell.o
- .group         0x0000000000000000        0x8 build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0x8 build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/shell/shell.o
- .text._ZN4arch4out8Eth
-                0x0000000000000000       0x1f build/obj/shell/shell.o
- .text._ZN4arch3in8Et
-                0x0000000000000000       0x1e build/obj/shell/shell.o
- .text._ZN4arch5pauseEv
-                0x0000000000000000        0x9 build/obj/shell/shell.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/shell/shell.o
- .debug_macro   0x0000000000000000      0x197 build/obj/shell/shell.o
- .debug_macro   0x0000000000000000      0x34e build/obj/shell/shell.o
- .debug_macro   0x0000000000000000       0x16 build/obj/shell/shell.o
- .debug_macro   0x0000000000000000       0x16 build/obj/shell/shell.o
- .debug_macro   0x0000000000000000       0x2e build/obj/shell/shell.o
- .debug_macro   0x0000000000000000       0x28 build/obj/shell/shell.o
  .comment       0x0000000000000000       0x13 build/obj/shell/shell.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/shell/shell.o
- .group         0x0000000000000000        0xc build/obj/task/scheduler.o
- .group         0x0000000000000000        0xc build/obj/task/scheduler.o
- .group         0x0000000000000000        0xc build/obj/task/scheduler.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/task/scheduler.o
- .debug_macro   0x0000000000000000      0x197 build/obj/task/scheduler.o
- .debug_macro   0x0000000000000000      0x34e build/obj/task/scheduler.o
  .comment       0x0000000000000000       0x13 build/obj/task/scheduler.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/task/scheduler.o
- .group         0x0000000000000000        0xc build/obj/terminal.o
- .group         0x0000000000000000        0xc build/obj/terminal.o
- .group         0x0000000000000000        0xc build/obj/terminal.o
- .group         0x0000000000000000        0xc build/obj/terminal.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/terminal.o
- .debug_macro   0x0000000000000000      0x197 build/obj/terminal.o
- .debug_macro   0x0000000000000000      0x34e build/obj/terminal.o
- .debug_macro   0x0000000000000000       0x2e build/obj/terminal.o
  .comment       0x0000000000000000       0x13 build/obj/terminal.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/terminal.o
- .group         0x0000000000000000        0xc build/obj/ui/ui.o
- .group         0x0000000000000000        0xc build/obj/ui/ui.o
- .group         0x0000000000000000        0xc build/obj/ui/ui.o
- .group         0x0000000000000000        0xc build/obj/ui/ui.o
- .debug_macro   0x0000000000000000      0x9ca build/obj/ui/ui.o
- .debug_macro   0x0000000000000000      0x197 build/obj/ui/ui.o
- .debug_macro   0x0000000000000000      0x34e build/obj/ui/ui.o
- .debug_macro   0x0000000000000000       0x2e build/obj/ui/ui.o
  .comment       0x0000000000000000       0x13 build/obj/ui/ui.o
  .note.GNU-stack
                 0x0000000000000000        0x0 build/obj/ui/ui.o
@@ -320,7 +100,7 @@ Linker script and memory map
                 0x0000000000001000                . = 0x1000
                 0x0000000000001000                __kernel_start = .
 
-.text           0x0000000000001000    0x17318
+.text           0x0000000000001000    0x11592
                 0x0000000000001000                __text_start = .
  *(.text._start)
  .text._start   0x0000000000001000       0x17 build/obj/arch/x86_64/entry.o
@@ -587,550 +367,576 @@ Linker script and memory map
                 0x0000000000001a44                interrupt_stub_254
                 0x0000000000001a4d                interrupt_stub_255
                 0x0000000000001a56                interrupt_common_entry
- .text          0x0000000000001a9d       0x18 build/obj/abi/service.o
-                0x0000000000001a9d                abi::descriptor()
-                0x0000000000001aaa                abi::application_transport_available()
- .text          0x0000000000001ab5      0xf0e build/obj/apps/builtin.o
-                0x00000000000027ed                builtin_apps::register_all()
- .text          0x00000000000029c3      0x5bb build/obj/apps/framework.o
-                0x0000000000002a77                applications::initialize()
-                0x0000000000002a9b                applications::register_application(applications::Definition const&)
-                0x0000000000002ba7                applications::launch(char const*, char const*)
-                0x0000000000002c48                applications::stop()
-                0x0000000000002cc5                applications::running()
-                0x0000000000002cdf                applications::active_name()
-                0x0000000000002d17                applications::dispatch_key(char)
-                0x0000000000002d91                applications::dispatch_tick(unsigned long)
-                0x0000000000002e0b                applications::list(bool (*)(applications::Definition const&, void*), void*)
-                0x0000000000002e78                applications::status_message(applications::Status)
- .text          0x0000000000002f7e      0x157 build/obj/arch/x86_64/gdt.o
-                0x0000000000003007                arch::x86_64::gdt::initialize()
-                0x00000000000030c8                arch::x86_64::gdt::initialized()
- .text          0x00000000000030d5      0x4e2 build/obj/arch/x86_64/interrupts.o
-                0x00000000000031f3                arch::x86_64::interrupts::initialize()
-                0x00000000000032d9                arch::x86_64::interrupts::initialized()
-                0x00000000000032e6                arch::x86_64::interrupts::register_handler(unsigned char, void (*)(arch::x86_64::interrupts::InterruptFrame&))
-                0x0000000000003329                arch::x86_64::interrupts::unregister_handler(unsigned char)
-                0x0000000000003356                arch::x86_64::interrupts::register_irq_handler(unsigned char, void (*)())
-                0x000000000000339f                arch::x86_64::interrupts::unregister_irq_handler(unsigned char)
-                0x00000000000033d2                arch::x86_64::interrupts::enable()
-                0x00000000000033da                arch::x86_64::interrupts::disable()
-                0x00000000000033e2                arch::x86_64::interrupts::enabled()
-                0x000000000000340a                arch::x86_64::interrupts::interrupt_count(unsigned char)
-                0x0000000000003434                arch::x86_64::interrupts::last_exception_vector()
-                0x0000000000003441                arch::x86_64::interrupts::last_exception_error_code()
-                0x000000000000344e                arch::x86_64::interrupts::last_page_fault_address()
-                0x000000000000345b                arch::x86_64::interrupts::halt()
-                0x0000000000003467                x86_64_interrupt_dispatch
- .text          0x00000000000035b7      0x412 build/obj/core/log.o
-                0x0000000000003895                log::set_minimum_level(log::Level)
-                0x00000000000038af                log::minimum_level()
-                0x00000000000038bc                log::write(log::Level, char const*, char const*)
-                0x000000000000390b                log::write_u64(log::Level, char const*, char const*, unsigned long)
-                0x000000000000396a                log::write_hex(log::Level, char const*, char const*, unsigned long)
- .text          0x00000000000039c9      0x1e1 build/obj/core/memory.o
-                0x00000000000039c9                memset
-                0x0000000000003a13                memcpy
-                0x0000000000003a71                memmove
-                0x0000000000003b1e                memcmp
- .text          0x0000000000003baa      0x75d build/obj/core/string.o
-                0x0000000000003baa                kstd::strlen(char const*)
-                0x0000000000003beb                kstd::strnlen(char const*, unsigned long)
-                0x0000000000003c3a                kstd::strcmp(char const*, char const*)
-                0x0000000000003cc3                kstd::strncmp(char const*, char const*, unsigned long)
-                0x0000000000003d6e                kstd::streq(char const*, char const*)
-                0x0000000000003d98                kstd::copy(char*, unsigned long, char const*)
-                0x0000000000003e26                kstd::append(char*, unsigned long, char const*)
-                0x0000000000003eb7                kstd::starts_with(char const*, char const*)
-                0x0000000000003f1c                kstd::ascii_to_lower(char)
-                0x0000000000003f44                kstd::parse_u64(char const*, unsigned long&, unsigned int)
-                0x000000000000410e                kstd::format_u64(char*, unsigned long, unsigned long, unsigned int, bool)
-                0x0000000000004248                kstd::format_i64(char*, unsigned long, long)
-                0x00000000000042ed                strlen
- .text          0x0000000000004307      0x5a5 build/obj/diagnostics/profiler.o
-                0x000000000000450f                diagnostics::profiler::set_enabled(bool)
-                0x0000000000004537                diagnostics::profiler::is_enabled()
-                0x0000000000004549                diagnostics::profiler::reset_sequence()
-                0x000000000000455c                diagnostics::profiler::capture(diagnostics::profiler::Snapshot*)
-                0x0000000000004836                diagnostics::profiler::implemented_capabilities()
-                0x0000000000004841                diagnostics::profiler::known_unimplemented_capabilities()
-                0x000000000000484c                diagnostics::profiler::status_message(diagnostics::profiler::Status)
- .text          0x00000000000048ac      0x96d build/obj/drivers/framebuffer.o
-                0x0000000000004999                graphics::init(KuroganeFramebuffer const&)
-                0x0000000000004a80                graphics::available()
-                0x0000000000004a8d                graphics::info()
-                0x0000000000004a9a                graphics::width()
-                0x0000000000004aa6                graphics::height()
-                0x0000000000004ab2                graphics::put_pixel(int, int, unsigned int)
-                0x0000000000004b3d                graphics::clear(unsigned int)
-                0x0000000000004b70                graphics::fill_rect(int, int, int, int, unsigned int)
-                0x0000000000004cfe                graphics::draw_rect(int, int, int, int, unsigned int, unsigned int)
-                0x0000000000004de7                graphics::draw_char(int, int, char, unsigned int, unsigned int, unsigned int, bool)
-                0x0000000000005006                graphics::draw_text(int, int, char const*, unsigned int, unsigned int, unsigned int, bool)
-                0x0000000000005158                graphics::scroll_up(unsigned int, unsigned int)
- .text          0x0000000000005219     0x1b7a build/obj/drivers/keyboard.o
-                0x000000000000682c                drivers::keyboard::initialize()
-                0x00000000000068cb                drivers::keyboard::shutdown()
-                0x00000000000068f6                drivers::keyboard::initialized()
-                0x0000000000006903                drivers::keyboard::controller_configured()
-                0x0000000000006910                drivers::keyboard::handle_irq()
-                0x000000000000691c                drivers::keyboard::poll()
-                0x000000000000694e                drivers::keyboard::process_scancode(unsigned char)
-                0x0000000000006b9c                drivers::keyboard::try_read_event(drivers::keyboard::KeyEvent&)
-                0x0000000000006c46                drivers::keyboard::try_read_char(char&)
-                0x0000000000006c9a                drivers::keyboard::pending_events()
-                0x0000000000006cc5                drivers::keyboard::dropped_events()
-                0x0000000000006cd2                drivers::keyboard::clear_events()
-                0x0000000000006d0e                drivers::keyboard::shift_active()
-                0x0000000000006d36                drivers::keyboard::caps_lock_active()
-                0x0000000000006d43                drivers::keyboard::control_active()
-                0x0000000000006d6b                drivers::keyboard::alt_active()
- .text          0x0000000000006d93      0x95a build/obj/drivers/pci.o
-                0x0000000000007019                pci::read32(pci::Address, unsigned char)
-                0x000000000000706a                pci::read16(pci::Address, unsigned char)
-                0x00000000000070bb                pci::read8(pci::Address, unsigned char)
-                0x000000000000710c                pci::write32(pci::Address, unsigned char, unsigned int)
-                0x0000000000007166                pci::write16(pci::Address, unsigned char, unsigned short)
-                0x0000000000007212                pci::scan()
-                0x000000000000732c                pci::device_count()
-                0x0000000000007339                pci::device_at(unsigned long)
-                0x000000000000736d                pci::find(unsigned short, unsigned short, unsigned long)
-                0x00000000000073fc                pci::find_class(unsigned char, unsigned char, unsigned long)
-                0x0000000000007487                pci::visit(bool (*)(pci::Device const&, void*), void*)
-                0x00000000000074eb                pci::bar_address(pci::Device const&, unsigned char, bool*)
-                0x0000000000007693                pci::enable_bus_mastering(pci::Device const&)
- .text._ZN4arch5out32Etj
-                0x00000000000076ed       0x1c build/obj/drivers/pci.o
-                0x00000000000076ed                arch::out32(unsigned short, unsigned int)
- .text._ZN4arch4in32Et
-                0x0000000000007709       0x1d build/obj/drivers/pci.o
-                0x0000000000007709                arch::in32(unsigned short)
- .text          0x0000000000007726      0x486 build/obj/drivers/pic.o
-                0x0000000000007817                drivers::pic::initialize()
-                0x00000000000078e4                drivers::pic::initialized()
-                0x00000000000078f1                drivers::pic::mask_all()
-                0x0000000000007916                drivers::pic::mask(unsigned char)
-                0x00000000000079d3                drivers::pic::unmask(unsigned char)
-                0x0000000000007a8c                drivers::pic::is_masked(unsigned char)
-                0x0000000000007af7                drivers::pic::current_mask()
-                0x0000000000007b21                drivers::pic::begin_irq(unsigned char)
-                0x0000000000007b70                drivers::pic::send_eoi(unsigned char)
- .text          0x0000000000007bac      0x1c1 build/obj/drivers/pit.o
-                0x0000000000007bcb                drivers::pit::initialize(unsigned int)
-                0x0000000000007ce0                drivers::pit::shutdown()
-                0x0000000000007d17                drivers::pit::initialized()
-                0x0000000000007d24                drivers::pit::frequency_hz()
-                0x0000000000007d30                drivers::pit::divisor()
-                0x0000000000007d3d                drivers::pit::ticks()
-                0x0000000000007d4a                drivers::pit::reset_ticks()
-                0x0000000000007d5d                drivers::pit::handle_irq()
- .text          0x0000000000007d6d      0x3ef build/obj/drivers/rtc.o
-                0x000000000000804f                rtc::read(rtc::DateTime&)
-                0x00000000000080ee                rtc::is_leap_year(unsigned short)
- .text._ZN4arch4out8Eth
-                0x000000000000815c       0x1f build/obj/drivers/rtc.o
-                0x000000000000815c                arch::out8(unsigned short, unsigned char)
- .text._ZN4arch3in8Et
-                0x000000000000817b       0x1e build/obj/drivers/rtc.o
-                0x000000000000817b                arch::in8(unsigned short)
- .text._ZN4arch5pauseEv
-                0x0000000000008199        0x9 build/obj/drivers/rtc.o
-                0x0000000000008199                arch::pause()
- .text          0x00000000000081a2      0x291 build/obj/drivers/serial.o
-                0x00000000000081c8                serial::init(unsigned short)
-                0x00000000000082fa                serial::ready()
-                0x0000000000008307                serial::put(char)
-                0x0000000000008384                serial::write(char const*)
-                0x00000000000083d7                serial::write_hex(unsigned long)
- .text          0x0000000000008433     0x2759 build/obj/fs/ramfs.o
-                0x00000000000099bf                fs::initialize_ramfs()
-                0x0000000000009a6f                fs::create_file_at(char const*, fs::FileEntry**)
-                0x0000000000009a9d                fs::create_directory_at(char const*, fs::FileEntry**)
-                0x0000000000009acb                fs::read_file_data(char const*, void*, unsigned long, unsigned long*)
-                0x0000000000009c21                fs::write_file_data(char const*, void const*, unsigned long, bool)
-                0x0000000000009da2                fs::stat_path(char const*, fs::FileStat*)
-                0x0000000000009e89                fs::list_directory(char const*, bool (*)(char const*, fs::FileStat const*, void*), void*)
-                0x000000000000a000                fs::remove_path(char const*, bool)
-                0x000000000000a111                fs::copy_file(char const*, char const*)
-                0x000000000000a39e                fs::move_path(char const*, char const*)
-                0x000000000000a6a9                fs::rename_path(char const*, char const*)
-                0x000000000000a6ce                fs::last_status()
-                0x000000000000a6db                fs::status_message(fs::Status)
-                0x000000000000a944                fs::init_ramfs()
-                0x000000000000a950                fs::create_file(char const*)
-                0x000000000000a9a9                fs::create_directory(char const*)
-                0x000000000000aa02                fs::read_file(char const*)
-                0x000000000000aac1                fs::write_file(char const*, char const*)
-                0x000000000000ab67                fs::list_files()
- .text          0x000000000000ab8c     0x1758 build/obj/main.o
-                0x000000000000bd42                kmain
- .text._ZN4arch18disable_interruptsEv
-                0x000000000000c2e4        0x8 build/obj/main.o
-                0x000000000000c2e4                arch::disable_interrupts()
- .text._ZN4arch4haltEv
-                0x000000000000c2ec        0x8 build/obj/main.o
-                0x000000000000c2ec                arch::halt()
- .text          0x000000000000c2f4      0xa6a build/obj/memory/allocator.o
-                0x000000000000c79a                memory::init_kernel_heap(void*, unsigned long)
-                0x000000000000c8cb                memory::kmalloc(unsigned long, unsigned long)
-                0x000000000000ca75                memory::kfree(void*)
-                0x000000000000ccc4                memory::kernel_heap_initialized()
-                0x000000000000ccd7                memory::total_bytes()
-                0x000000000000ccf4                memory::used_bytes()
-                0x000000000000cd01                memory::free_bytes()
-                0x000000000000cd51                memory::allocation_count()
- .text          0x000000000000cd5e      0x8aa build/obj/memory/kernel_virtual_memory.o
-                0x000000000000cf47                memory::kernel_virtual_memory::initialize()
-                0x000000000000d16f                memory::kernel_virtual_memory::self_test()
-                0x000000000000d462                memory::kernel_virtual_memory::initialized()
-                0x000000000000d48b                memory::kernel_virtual_memory::root_table_physical()
-                0x000000000000d498                memory::kernel_virtual_memory::physical_address_bits()
-                0x000000000000d4a5                memory::kernel_virtual_memory::address_space()
-                0x000000000000d4c4                memory::kernel_virtual_memory::status_message(memory::kernel_virtual_memory::Status)
- .text          0x000000000000d608      0x88c build/obj/memory/physical_memory.o
-                0x000000000000dbbf                memory::init_physical_memory(unsigned long, unsigned long, unsigned long)
-                0x000000000000dbf7                memory::init_physical_memory_with_bitmap(unsigned long, unsigned long, unsigned long, void*, unsigned long)
-                0x000000000000dc34                memory::alloc_frame()
-                0x000000000000dd16                memory::free_frame(void*)
-                0x000000000000dd31                memory::try_free_frame(void*)
-                0x000000000000ddd2                memory::is_frame_allocated(void*)
-                0x000000000000de1b                memory::physical_memory_initialized()
-                0x000000000000de2e                memory::physical_memory_base()
-                0x000000000000de3b                memory::physical_frame_size()
-                0x000000000000de48                memory::total_frames()
-                0x000000000000de55                memory::used_frames()
-                0x000000000000de62                memory::free_frames()
-                0x000000000000de7c                memory::reserved_frames()
-                0x000000000000de89                memory::static_bitmap_capacity_frames()
- .text          0x000000000000de94     0x1770 build/obj/memory/virtual_memory.o
-                0x000000000000e928                memory::virtual_memory::initialize(memory::virtual_memory::AddressSpace*, unsigned long, memory::virtual_memory::Backend const*)
-                0x000000000000eb05                memory::virtual_memory::map_page(memory::virtual_memory::AddressSpace*, unsigned long, unsigned long, memory::virtual_memory::MapFlags)
-                0x000000000000ef51                memory::virtual_memory::unmap_page(memory::virtual_memory::AddressSpace*, unsigned long, memory::virtual_memory::Mapping*)
-                0x000000000000f25c                memory::virtual_memory::query_page(memory::virtual_memory::AddressSpace const*, unsigned long, memory::virtual_memory::Mapping*)
-                0x000000000000f3a5                memory::virtual_memory::translate(memory::virtual_memory::AddressSpace const*, unsigned long, unsigned long*)
-                0x000000000000f45f                memory::virtual_memory::status_message(memory::virtual_memory::Status)
- .text._ZN6memory14virtual_memoryorENS0_8MapFlagsES1_
-                0x000000000000f604       0x1a build/obj/memory/virtual_memory.o
-                0x000000000000f604                memory::virtual_memory::operator|(memory::virtual_memory::MapFlags, memory::virtual_memory::MapFlags)
- .text._ZN6memory14virtual_memoryoRERNS0_8MapFlagsES1_
-                0x000000000000f61e       0x33 build/obj/memory/virtual_memory.o
-                0x000000000000f61e                memory::virtual_memory::operator|=(memory::virtual_memory::MapFlags&, memory::virtual_memory::MapFlags)
- .text._ZN6memory14virtual_memory8has_flagENS0_8MapFlagsES1_
-                0x000000000000f651       0x20 build/obj/memory/virtual_memory.o
-                0x000000000000f651                memory::virtual_memory::has_flag(memory::virtual_memory::MapFlags, memory::virtual_memory::MapFlags)
- .text          0x000000000000f671     0x311c build/obj/net/network.o
-                0x00000000000109fe                net::mac_equal(net::MacAddress const&, net::MacAddress const&)
-                0x0000000000010a52                net::mac_is_zero(net::MacAddress const&)
-                0x0000000000010a94                net::mac_is_broadcast(net::MacAddress const&)
-                0x0000000000010ab8                net::mac_is_multicast(net::MacAddress const&)
-                0x0000000000010ad6                net::ipv4_equal(net::IPv4Address const&, net::IPv4Address const&)
-                0x0000000000010b2a                net::ipv4_is_zero(net::IPv4Address const&)
-                0x0000000000010b49                net::ipv4_is_multicast(net::IPv4Address const&)
-                0x0000000000010b79                net::ipv4_is_limited_broadcast(net::IPv4Address const&)
-                0x0000000000010b99                net::read_be16(unsigned char const*)
-                0x0000000000010bd4                net::read_be32(unsigned char const*)
-                0x0000000000010c35                net::write_be16(unsigned char*, unsigned short)
-                0x0000000000010c71                net::write_be32(unsigned char*, unsigned int)
-                0x0000000000010ccb                net::internet_checksum(unsigned char const*, unsigned long)
-                0x0000000000010d86                net::parse_ethernet(unsigned char const*, unsigned long, net::EthernetFrameView*)
-                0x0000000000010e74                net::serialize_ethernet(net::MacAddress const&, net::MacAddress const&, unsigned short, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
-                0x0000000000010fde                net::parse_arp(unsigned char const*, unsigned long, net::ArpPacket*)
-                0x000000000001114a                net::serialize_arp(net::ArpPacket const&, unsigned char*, unsigned long, unsigned long*)
-                0x00000000000112b6                net::parse_ipv4(unsigned char const*, unsigned long, net::IPv4PacketView*)
-                0x00000000000114e4                net::serialize_ipv4(net::IPv4Header const&, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
-                0x0000000000011707                net::parse_icmp_echo(unsigned char const*, unsigned long, net::IcmpEchoView*)
-                0x000000000001180c                net::serialize_icmp_echo(net::IcmpEchoType, unsigned short, unsigned short, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
-                0x00000000000119a5                net::interface_transmit(net::NetworkInterface*, unsigned char const*, unsigned long)
-                0x0000000000011a5a                net::interface_receive(net::NetworkInterface*, unsigned char*, unsigned long, unsigned long*)
-                0x0000000000011b1b                net::initialize_loopback(net::LoopbackInterface*, net::MacAddress const&)
-                0x0000000000011bc9                net::loopback_queued_frames(net::LoopbackInterface const*)
-                0x0000000000011bff                net::initialize_stack(net::NetworkStack*, net::NetworkInterface*)
-                0x0000000000011cc8                net::configure_ipv4(net::NetworkStack*, net::IPv4Config const&)
-                0x0000000000011e79                net::receive(net::NetworkStack*, unsigned char const*, unsigned long)
-                0x0000000000012038                net::poll(net::NetworkStack*, unsigned long, unsigned long*)
-                0x0000000000012168                net::send_ping(net::NetworkStack*, net::IPv4Address const&, unsigned short, unsigned short, unsigned char const*, unsigned long)
-                0x00000000000122ee                net::lookup_neighbor(net::NetworkStack const*, net::IPv4Address const&, net::NeighborEntry*)
-                0x000000000001238b                net::list_neighbors(net::NetworkStack const*, bool (*)(net::NeighborEntry const*, void*), void*)
-                0x0000000000012461                net::get_stats(net::NetworkStack const*, net::NetworkStats*)
-                0x00000000000124c5                net::get_last_ping_reply(net::NetworkStack const*, net::PingReply*)
-                0x0000000000012544                net::status_message(net::Status)
- .text          0x000000000001278d      0x2b9 build/obj/net/service.o
-                0x000000000001278d                net::service::initialize()
-                0x0000000000012830                net::service::ready()
-                0x000000000001283d                net::service::poll(unsigned long, unsigned long*)
-                0x0000000000012892                net::service::ping_loopback(unsigned short, net::PingReply*)
-                0x0000000000012a02                net::service::stats(net::NetworkStats*)
-                0x0000000000012a27                net::service::configuration()
- .text          0x0000000000012a46     0x2f3a build/obj/shell/shell.o
-                0x00000000000156e1                shell::initialize()
-                0x0000000000015727                shell::feed(char)
-                0x0000000000015894                shell::execute(char const*)
-                0x000000000001592f                shell::show_prompt()
-                0x0000000000015966                shell::initialized()
-                0x0000000000015973                shell::current_directory()
- .text._ZN4arch5out16Ett
-                0x0000000000015980       0x21 build/obj/shell/shell.o
-                0x0000000000015980                arch::out16(unsigned short, unsigned short)
- .text._ZN4arch7io_waitEv
-                0x00000000000159a1       0x16 build/obj/shell/shell.o
-                0x00000000000159a1                arch::io_wait()
- .text          0x00000000000159b7     0x1de1 build/obj/task/scheduler.o
-                0x00000000000163a9                scheduler::initialize(unsigned long)
-                0x000000000001646a                scheduler::reset(unsigned long)
-                0x000000000001656f                scheduler::create(char const*, void (*)(void*), void*, unsigned long, unsigned long*)
-                0x0000000000016826                scheduler::cancel(unsigned long)
-                0x000000000001696b                scheduler::suspend(unsigned long)
-                0x0000000000016aba                scheduler::resume(unsigned long)
-                0x0000000000016ca1                scheduler::tick(unsigned long)
-                0x0000000000016d7d                scheduler::run_pending(unsigned long, scheduler::RunResult*)
-                0x00000000000170b6                scheduler::yield()
-                0x000000000001719d                scheduler::stat(unsigned long, scheduler::TaskStat*)
-                0x0000000000017266                scheduler::list(bool (*)(scheduler::TaskStat const*, void*), void*)
-                0x00000000000173e2                scheduler::get_metrics(scheduler::SchedulerMetrics*)
-                0x000000000001753b                scheduler::current_task()
-                0x000000000001757a                scheduler::now()
-                0x000000000001758f                scheduler::status_message(scheduler::Status)
- .text          0x0000000000017798      0x5c3 build/obj/terminal.o
-                0x00000000000178a4                terminal::configure(KuroganeFramebuffer const&)
-                0x0000000000017981                terminal::init()
-                0x00000000000179a0                terminal::ready()
-                0x00000000000179ad                terminal::put(char)
-                0x0000000000017b0d                terminal::write(char const*)
-                0x0000000000017b4b                terminal::println(char const*)
-                0x0000000000017b77                terminal::clear()
-                0x0000000000017bbc                terminal::backspace()
-                0x0000000000017c4d                terminal::set_colors(unsigned int, unsigned int)
-                0x0000000000017c70                terminal::reset_colors()
-                0x0000000000017c8b                terminal::write_u64(unsigned long)
-                0x0000000000017cc7                terminal::write_hex(unsigned long)
-                0x0000000000017d27                terminal::columns()
-                0x0000000000017d34                terminal::rows()
-                0x0000000000017d41                terminal::cursor_column()
-                0x0000000000017d4e                terminal::cursor_row()
- .text          0x0000000000017d5b      0x5bd build/obj/ui/ui.o
-                0x0000000000017d5b                ui::default_theme()
-                0x0000000000017d68                ui::contains(ui::Rect const&, int, int)
-                0x0000000000017dc8                ui::desktop(char const*)
-                0x0000000000017e8c                ui::panel(ui::Rect const&, bool)
-                0x0000000000017f09                ui::window(ui::Rect const&, char const*)
-                0x0000000000017fd0                ui::label(ui::Rect const&, char const*, unsigned int, unsigned int)
-                0x000000000001802c                ui::button(ui::Rect const&, char const*, bool)
-                0x0000000000018113                ui::progress(ui::Rect const&, unsigned int, unsigned int)
-                0x0000000000018209                ui::separator(int, int, int)
-                0x000000000001823b                ui::taskbar(char const*)
-                0x0000000000018318                __text_end = .
+ *fill*         0x0000000000001a9d        0x3 
+ .text          0x0000000000001aa0       0x13 build/obj/abi/service.o
+                0x0000000000001aa0                abi::descriptor()
+                0x0000000000001ab0                abi::application_transport_available()
+ *fill*         0x0000000000001ab3        0xd 
+ .text          0x0000000000001ac0      0xac6 build/obj/apps/builtin.o
+                0x0000000000002440                builtin_apps::register_all()
+ *fill*         0x0000000000002586        0xa 
+ .text          0x0000000000002590      0x4d0 build/obj/apps/framework.o
+                0x0000000000002590                applications::initialize()
+                0x00000000000025b0                applications::register_application(applications::Definition const&)
+                0x0000000000002710                applications::launch(char const*, char const*)
+                0x0000000000002800                applications::stop()
+                0x0000000000002860                applications::running()
+                0x0000000000002880                applications::active_name()
+                0x00000000000028b0                applications::dispatch_key(char)
+                0x00000000000028f0                applications::dispatch_tick(unsigned long)
+                0x0000000000002930                applications::list(bool (*)(applications::Definition const&, void*), void*)
+                0x00000000000029a0                applications::status_message(applications::Status)
+ .text          0x0000000000002a60       0xe8 build/obj/arch/x86_64/gdt.o
+                0x0000000000002a60                arch::x86_64::gdt::initialize()
+                0x0000000000002b40                arch::x86_64::gdt::initialized()
+ *fill*         0x0000000000002b48       0x18 
+ .text          0x0000000000002b60      0x374 build/obj/arch/x86_64/interrupts.o
+                0x0000000000002b60                arch::x86_64::interrupts::initialize()
+                0x0000000000002cc0                arch::x86_64::interrupts::initialized()
+                0x0000000000002cd0                arch::x86_64::interrupts::register_handler(unsigned char, void (*)(arch::x86_64::interrupts::InterruptFrame&))
+                0x0000000000002d00                arch::x86_64::interrupts::unregister_handler(unsigned char)
+                0x0000000000002d20                arch::x86_64::interrupts::register_irq_handler(unsigned char, void (*)())
+                0x0000000000002d50                arch::x86_64::interrupts::unregister_irq_handler(unsigned char)
+                0x0000000000002d70                arch::x86_64::interrupts::enable()
+                0x0000000000002d80                arch::x86_64::interrupts::disable()
+                0x0000000000002d90                arch::x86_64::interrupts::enabled()
+                0x0000000000002da0                arch::x86_64::interrupts::interrupt_count(unsigned char)
+                0x0000000000002db0                arch::x86_64::interrupts::last_exception_vector()
+                0x0000000000002dc0                arch::x86_64::interrupts::last_exception_error_code()
+                0x0000000000002dd0                arch::x86_64::interrupts::last_page_fault_address()
+                0x0000000000002de0                arch::x86_64::interrupts::halt()
+                0x0000000000002e00                x86_64_interrupt_dispatch
+ *fill*         0x0000000000002ed4       0x2c 
+ .text          0x0000000000002f00      0x4ee build/obj/core/log.o
+                0x0000000000003180                log::set_minimum_level(log::Level)
+                0x0000000000003190                log::minimum_level()
+                0x00000000000031a0                log::write(log::Level, char const*, char const*)
+                0x0000000000003230                log::write_u64(log::Level, char const*, char const*, unsigned long)
+                0x00000000000032c0                log::write_hex(log::Level, char const*, char const*, unsigned long)
+ *fill*         0x00000000000033ee       0x12 
+ .text          0x0000000000003400      0x123 build/obj/core/memory.o
+                0x0000000000003400                memset
+                0x0000000000003450                memcpy
+                0x0000000000003480                memmove
+                0x00000000000034e0                memcmp
+ *fill*         0x0000000000003523       0x1d 
+ .text          0x0000000000003540      0x5d9 build/obj/core/string.o
+                0x0000000000003540                kstd::strlen(char const*)
+                0x0000000000003570                kstd::strnlen(char const*, unsigned long)
+                0x00000000000035a0                kstd::strcmp(char const*, char const*)
+                0x0000000000003610                kstd::strncmp(char const*, char const*, unsigned long)
+                0x0000000000003670                kstd::streq(char const*, char const*)
+                0x00000000000036f0                kstd::copy(char*, unsigned long, char const*)
+                0x0000000000003760                kstd::append(char*, unsigned long, char const*)
+                0x00000000000037f0                kstd::starts_with(char const*, char const*)
+                0x0000000000003850                kstd::ascii_to_lower(char)
+                0x0000000000003860                kstd::parse_u64(char const*, unsigned long&, unsigned int)
+                0x0000000000003980                kstd::format_u64(char*, unsigned long, unsigned long, unsigned int, bool)
+                0x0000000000003a90                kstd::format_i64(char*, unsigned long, long)
+                0x0000000000003af0                strlen
+ *fill*         0x0000000000003b19        0x7 
+ .text          0x0000000000003b20      0x488 build/obj/diagnostics/profiler.o
+                0x0000000000003bc0                diagnostics::profiler::set_enabled(bool)
+                0x0000000000003bd0                diagnostics::profiler::is_enabled()
+                0x0000000000003be0                diagnostics::profiler::reset_sequence()
+                0x0000000000003bf0                diagnostics::profiler::capture(diagnostics::profiler::Snapshot*)
+                0x0000000000003f40                diagnostics::profiler::implemented_capabilities()
+                0x0000000000003f50                diagnostics::profiler::known_unimplemented_capabilities()
+                0x0000000000003f60                diagnostics::profiler::status_message(diagnostics::profiler::Status)
+ *fill*         0x0000000000003fa8        0x8 
+ .text          0x0000000000003fb0      0x8ea build/obj/drivers/framebuffer.o
+                0x0000000000003fb0                graphics::init(KuroganeFramebuffer const&)
+                0x0000000000004040                graphics::available()
+                0x0000000000004050                graphics::info()
+                0x0000000000004060                graphics::width()
+                0x0000000000004070                graphics::height()
+                0x0000000000004080                graphics::put_pixel(int, int, unsigned int)
+                0x00000000000040e0                graphics::fill_rect(int, int, int, int, unsigned int)
+                0x00000000000041f0                graphics::clear(unsigned int)
+                0x0000000000004450                graphics::draw_rect(int, int, int, int, unsigned int, unsigned int)
+                0x00000000000045e0                graphics::draw_char(int, int, char, unsigned int, unsigned int, unsigned int, bool)
+                0x0000000000004610                graphics::draw_text(int, int, char const*, unsigned int, unsigned int, unsigned int, bool)
+                0x0000000000004810                graphics::scroll_up(unsigned int, unsigned int)
+ *fill*         0x000000000000489a        0x6 
+ .text          0x00000000000048a0     0x1053 build/obj/drivers/keyboard.o
+                0x00000000000053c0                drivers::keyboard::handle_irq()
+                0x00000000000053d0                drivers::keyboard::initialize()
+                0x0000000000005630                drivers::keyboard::shutdown()
+                0x0000000000005660                drivers::keyboard::initialized()
+                0x0000000000005670                drivers::keyboard::controller_configured()
+                0x0000000000005680                drivers::keyboard::poll()
+                0x00000000000056d0                drivers::keyboard::process_scancode(unsigned char)
+                0x0000000000005720                drivers::keyboard::try_read_event(drivers::keyboard::KeyEvent&)
+                0x00000000000057d0                drivers::keyboard::try_read_char(char&)
+                0x0000000000005820                drivers::keyboard::pending_events()
+                0x0000000000005840                drivers::keyboard::dropped_events()
+                0x0000000000005850                drivers::keyboard::clear_events()
+                0x0000000000005890                drivers::keyboard::shift_active()
+                0x00000000000058b0                drivers::keyboard::caps_lock_active()
+                0x00000000000058c0                drivers::keyboard::control_active()
+                0x00000000000058e0                drivers::keyboard::alt_active()
+ *fill*         0x00000000000058f3        0xd 
+ .text          0x0000000000005900      0x6ba build/obj/drivers/pci.o
+                0x0000000000005a40                pci::read32(pci::Address, unsigned char)
+                0x0000000000005a80                pci::read16(pci::Address, unsigned char)
+                0x0000000000005ad0                pci::read8(pci::Address, unsigned char)
+                0x0000000000005b20                pci::write32(pci::Address, unsigned char, unsigned int)
+                0x0000000000005b60                pci::write16(pci::Address, unsigned char, unsigned short)
+                0x0000000000005bd0                pci::scan()
+                0x0000000000005cd0                pci::device_count()
+                0x0000000000005ce0                pci::device_at(unsigned long)
+                0x0000000000005d00                pci::find(unsigned short, unsigned short, unsigned long)
+                0x0000000000005d60                pci::find_class(unsigned char, unsigned char, unsigned long)
+                0x0000000000005dc0                pci::visit(bool (*)(pci::Device const&, void*), void*)
+                0x0000000000005e30                pci::bar_address(pci::Device const&, unsigned char, bool*)
+                0x0000000000005f60                pci::enable_bus_mastering(pci::Device const&)
+ *fill*         0x0000000000005fba        0x6 
+ .text          0x0000000000005fc0      0x1db build/obj/drivers/pic.o
+                0x0000000000005fc0                drivers::pic::initialize()
+                0x0000000000006040                drivers::pic::initialized()
+                0x0000000000006050                drivers::pic::mask_all()
+                0x0000000000006060                drivers::pic::mask(unsigned char)
+                0x00000000000060b0                drivers::pic::unmask(unsigned char)
+                0x00000000000060f0                drivers::pic::is_masked(unsigned char)
+                0x0000000000006120                drivers::pic::current_mask()
+                0x0000000000006130                drivers::pic::begin_irq(unsigned char)
+                0x0000000000006180                drivers::pic::send_eoi(unsigned char)
+ *fill*         0x000000000000619b        0x5 
+ .text          0x00000000000061a0      0x14c build/obj/drivers/pit.o
+                0x00000000000061a0                drivers::pit::handle_irq()
+                0x00000000000061b0                drivers::pit::initialize(unsigned int)
+                0x0000000000006270                drivers::pit::shutdown()
+                0x00000000000062a0                drivers::pit::initialized()
+                0x00000000000062b0                drivers::pit::frequency_hz()
+                0x00000000000062c0                drivers::pit::divisor()
+                0x00000000000062d0                drivers::pit::ticks()
+                0x00000000000062e0                drivers::pit::reset_ticks()
+ *fill*         0x00000000000062ec        0x4 
+ .text          0x00000000000062f0      0x2b2 build/obj/drivers/rtc.o
+                0x0000000000006490                rtc::read(rtc::DateTime&)
+                0x0000000000006570                rtc::is_leap_year(unsigned short)
+ *fill*         0x00000000000065a2        0xe 
+ .text          0x00000000000065b0      0x1e2 build/obj/drivers/serial.o
+                0x0000000000006660                serial::init(unsigned short)
+                0x00000000000066d0                serial::ready()
+                0x00000000000066e0                serial::put(char)
+                0x0000000000006700                serial::write(char const*)
+                0x0000000000006720                serial::write_hex(unsigned long)
+ *fill*         0x0000000000006792        0xe 
+ .text          0x00000000000067a0     0x1e95 build/obj/fs/ramfs.o
+                0x00000000000076d0                fs::initialize_ramfs()
+                0x0000000000007760                fs::create_file_at(char const*, fs::FileEntry**)
+                0x00000000000077a0                fs::create_directory_at(char const*, fs::FileEntry**)
+                0x00000000000077e0                fs::read_file_data(char const*, void*, unsigned long, unsigned long*)
+                0x00000000000078d0                fs::write_file_data(char const*, void const*, unsigned long, bool)
+                0x0000000000007930                fs::stat_path(char const*, fs::FileStat*)
+                0x00000000000079d0                fs::list_directory(char const*, bool (*)(char const*, fs::FileStat const*, void*), void*)
+                0x00000000000079f0                fs::remove_path(char const*, bool)
+                0x0000000000007ab0                fs::copy_file(char const*, char const*)
+                0x0000000000007d30                fs::move_path(char const*, char const*)
+                0x0000000000008140                fs::rename_path(char const*, char const*)
+                0x0000000000008150                fs::last_status()
+                0x0000000000008160                fs::status_message(fs::Status)
+                0x00000000000082d0                fs::init_ramfs()
+                0x0000000000008360                fs::create_file(char const*)
+                0x00000000000083e0                fs::create_directory(char const*)
+                0x0000000000008460                fs::read_file(char const*)
+                0x0000000000008530                fs::write_file(char const*, char const*)
+                0x0000000000008620                fs::list_files()
+ *fill*         0x0000000000008635        0xb 
+ .text          0x0000000000008640      0xfae build/obj/main.o
+                0x0000000000008af0                kmain
+ *fill*         0x00000000000095ee       0x12 
+ .text          0x0000000000009600      0x428 build/obj/memory/allocator.o
+                0x0000000000009650                memory::init_kernel_heap(void*, unsigned long)
+                0x0000000000009700                memory::kmalloc(unsigned long, unsigned long)
+                0x0000000000009880                memory::kfree(void*)
+                0x00000000000099b0                memory::kernel_heap_initialized()
+                0x00000000000099c0                memory::total_bytes()
+                0x00000000000099e0                memory::used_bytes()
+                0x00000000000099f0                memory::free_bytes()
+                0x0000000000009a20                memory::allocation_count()
+ *fill*         0x0000000000009a28        0x8 
+ .text          0x0000000000009a30      0x600 build/obj/memory/kernel_virtual_memory.o
+                0x0000000000009ab0                memory::kernel_virtual_memory::initialize()
+                0x0000000000009c50                memory::kernel_virtual_memory::self_test()
+                0x0000000000009ef0                memory::kernel_virtual_memory::initialized()
+                0x0000000000009f10                memory::kernel_virtual_memory::root_table_physical()
+                0x0000000000009f20                memory::kernel_virtual_memory::physical_address_bits()
+                0x0000000000009f30                memory::kernel_virtual_memory::address_space()
+                0x0000000000009f50                memory::kernel_virtual_memory::status_message(memory::kernel_virtual_memory::Status)
+ *fill*         0x000000000000a030       0x10 
+ .text          0x000000000000a040      0x4f6 build/obj/memory/physical_memory.o
+                0x000000000000a2a0                memory::init_physical_memory(unsigned long, unsigned long, unsigned long)
+                0x000000000000a2c0                memory::init_physical_memory_with_bitmap(unsigned long, unsigned long, unsigned long, void*, unsigned long)
+                0x000000000000a2d0                memory::alloc_frame()
+                0x000000000000a360                memory::try_free_frame(void*)
+                0x000000000000a440                memory::free_frame(void*)
+                0x000000000000a450                memory::is_frame_allocated(void*)
+                0x000000000000a4c0                memory::physical_memory_initialized()
+                0x000000000000a4d0                memory::physical_memory_base()
+                0x000000000000a4e0                memory::physical_frame_size()
+                0x000000000000a4f0                memory::total_frames()
+                0x000000000000a500                memory::used_frames()
+                0x000000000000a510                memory::free_frames()
+                0x000000000000a520                memory::reserved_frames()
+                0x000000000000a530                memory::static_bitmap_capacity_frames()
+ *fill*         0x000000000000a536        0xa 
+ .text          0x000000000000a540      0xea0 build/obj/memory/virtual_memory.o
+                0x000000000000a8b0                memory::virtual_memory::initialize(memory::virtual_memory::AddressSpace*, unsigned long, memory::virtual_memory::Backend const*)
+                0x000000000000aa10                memory::virtual_memory::map_page(memory::virtual_memory::AddressSpace*, unsigned long, unsigned long, memory::virtual_memory::MapFlags)
+                0x000000000000aea0                memory::virtual_memory::unmap_page(memory::virtual_memory::AddressSpace*, unsigned long, memory::virtual_memory::Mapping*)
+                0x000000000000b0c0                memory::virtual_memory::query_page(memory::virtual_memory::AddressSpace const*, unsigned long, memory::virtual_memory::Mapping*)
+                0x000000000000b1c0                memory::virtual_memory::translate(memory::virtual_memory::AddressSpace const*, unsigned long, unsigned long*)
+                0x000000000000b2d0                memory::virtual_memory::status_message(memory::virtual_memory::Status)
+ *fill*         0x000000000000b3e0       0x20 
+ .text          0x000000000000b400     0x2bf0 build/obj/net/network.o
+                0x000000000000bb10                net::mac_equal(net::MacAddress const&, net::MacAddress const&)
+                0x000000000000bb40                net::mac_is_zero(net::MacAddress const&)
+                0x000000000000bb70                net::mac_is_broadcast(net::MacAddress const&)
+                0x000000000000bba0                net::mac_is_multicast(net::MacAddress const&)
+                0x000000000000bbb0                net::ipv4_equal(net::IPv4Address const&, net::IPv4Address const&)
+                0x000000000000bbe0                net::ipv4_is_zero(net::IPv4Address const&)
+                0x000000000000bbf0                net::ipv4_is_multicast(net::IPv4Address const&)
+                0x000000000000bc00                net::ipv4_is_limited_broadcast(net::IPv4Address const&)
+                0x000000000000bc10                net::read_be16(unsigned char const*)
+                0x000000000000bc30                net::read_be32(unsigned char const*)
+                0x000000000000bc50                net::write_be16(unsigned char*, unsigned short)
+                0x000000000000bc60                net::write_be32(unsigned char*, unsigned int)
+                0x000000000000bc70                net::internet_checksum(unsigned char const*, unsigned long)
+                0x000000000000bd30                net::parse_ethernet(unsigned char const*, unsigned long, net::EthernetFrameView*)
+                0x000000000000be80                net::serialize_ethernet(net::MacAddress const&, net::MacAddress const&, unsigned short, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
+                0x000000000000c2f0                net::parse_arp(unsigned char const*, unsigned long, net::ArpPacket*)
+                0x000000000000c520                net::serialize_arp(net::ArpPacket const&, unsigned char*, unsigned long, unsigned long*)
+                0x000000000000c740                net::parse_ipv4(unsigned char const*, unsigned long, net::IPv4PacketView*)
+                0x000000000000c980                net::serialize_ipv4(net::IPv4Header const&, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
+                0x000000000000cbe0                net::parse_icmp_echo(unsigned char const*, unsigned long, net::IcmpEchoView*)
+                0x000000000000ccc0                net::serialize_icmp_echo(net::IcmpEchoType, unsigned short, unsigned short, unsigned char const*, unsigned long, unsigned char*, unsigned long, unsigned long*)
+                0x000000000000d000                net::interface_transmit(net::NetworkInterface*, unsigned char const*, unsigned long)
+                0x000000000000d070                net::interface_receive(net::NetworkInterface*, unsigned char*, unsigned long, unsigned long*)
+                0x000000000000d0f0                net::initialize_loopback(net::LoopbackInterface*, net::MacAddress const&)
+                0x000000000000d180                net::loopback_queued_frames(net::LoopbackInterface const*)
+                0x000000000000d1a0                net::initialize_stack(net::NetworkStack*, net::NetworkInterface*)
+                0x000000000000d230                net::configure_ipv4(net::NetworkStack*, net::IPv4Config const&)
+                0x000000000000d400                net::receive(net::NetworkStack*, unsigned char const*, unsigned long)
+                0x000000000000d980                net::poll(net::NetworkStack*, unsigned long, unsigned long*)
+                0x000000000000da80                net::send_ping(net::NetworkStack*, net::IPv4Address const&, unsigned short, unsigned short, unsigned char const*, unsigned long)
+                0x000000000000dc90                net::lookup_neighbor(net::NetworkStack const*, net::IPv4Address const&, net::NeighborEntry*)
+                0x000000000000dd50                net::list_neighbors(net::NetworkStack const*, bool (*)(net::NeighborEntry const*, void*), void*)
+                0x000000000000ddf0                net::get_stats(net::NetworkStack const*, net::NetworkStats*)
+                0x000000000000de30                net::get_last_ping_reply(net::NetworkStack const*, net::PingReply*)
+                0x000000000000de90                net::status_message(net::Status)
+ .text          0x000000000000dff0      0x223 build/obj/net/service.o
+                0x000000000000dff0                net::service::initialize()
+                0x000000000000e070                net::service::ready()
+                0x000000000000e080                net::service::poll(unsigned long, unsigned long*)
+                0x000000000000e0c0                net::service::ping_loopback(unsigned short, net::PingReply*)
+                0x000000000000e1f0                net::service::stats(net::NetworkStats*)
+                0x000000000000e200                net::service::configuration()
+ *fill*         0x000000000000e213        0xd 
+ .text          0x000000000000e220     0x24e8 build/obj/shell/shell.o
+                0x0000000000010470                shell::initialize()
+                0x0000000000010520                shell::feed(char)
+                0x00000000000106a0                shell::execute(char const*)
+                0x00000000000106c0                shell::show_prompt()
+                0x00000000000106f0                shell::initialized()
+                0x0000000000010700                shell::current_directory()
+ *fill*         0x0000000000010708       0x18 
+ .text          0x0000000000010720     0x13a0 build/obj/task/scheduler.o
+                0x0000000000010840                scheduler::initialize(unsigned long)
+                0x0000000000010940                scheduler::reset(unsigned long)
+                0x0000000000010a50                scheduler::create(char const*, void (*)(void*), void*, unsigned long, unsigned long*)
+                0x0000000000010cc0                scheduler::cancel(unsigned long)
+                0x0000000000010df0                scheduler::suspend(unsigned long)
+                0x0000000000010ee0                scheduler::resume(unsigned long)
+                0x0000000000011050                scheduler::tick(unsigned long)
+                0x0000000000011110                scheduler::run_pending(unsigned long, scheduler::RunResult*)
+                0x0000000000011520                scheduler::yield()
+                0x00000000000115d0                scheduler::stat(unsigned long, scheduler::TaskStat*)
+                0x0000000000011770                scheduler::list(bool (*)(scheduler::TaskStat const*, void*), void*)
+                0x0000000000011890                scheduler::get_metrics(scheduler::SchedulerMetrics*)
+                0x0000000000011940                scheduler::current_task()
+                0x0000000000011970                scheduler::now()
+                0x0000000000011980                scheduler::status_message(scheduler::Status)
+ .text          0x0000000000011ac0      0x648 build/obj/terminal.o
+                0x0000000000011ac0                terminal::configure(KuroganeFramebuffer const&)
+                0x0000000000011bd0                terminal::init()
+                0x0000000000011bf0                terminal::ready()
+                0x0000000000011c00                terminal::clear()
+                0x0000000000011c50                terminal::backspace()
+                0x0000000000011d00                terminal::put(char)
+                0x0000000000011f20                terminal::println(char const*)
+                0x0000000000011f80                terminal::write(char const*)
+                0x0000000000011fd0                terminal::set_colors(unsigned int, unsigned int)
+                0x0000000000011fe0                terminal::reset_colors()
+                0x0000000000012000                terminal::write_u64(unsigned long)
+                0x0000000000012050                terminal::write_hex(unsigned long)
+                0x00000000000120d0                terminal::columns()
+                0x00000000000120e0                terminal::rows()
+                0x00000000000120f0                terminal::cursor_column()
+                0x0000000000012100                terminal::cursor_row()
+ *fill*         0x0000000000012108        0x8 
+ .text          0x0000000000012110      0x482 build/obj/ui/ui.o
+                0x0000000000012110                ui::default_theme()
+                0x0000000000012120                ui::contains(ui::Rect const&, int, int)
+                0x0000000000012150                ui::desktop(char const*)
+                0x0000000000012200                ui::panel(ui::Rect const&, bool)
+                0x0000000000012260                ui::window(ui::Rect const&, char const*)
+                0x0000000000012320                ui::label(ui::Rect const&, char const*, unsigned int, unsigned int)
+                0x0000000000012350                ui::button(ui::Rect const&, char const*, bool)
+                0x0000000000012400                ui::progress(ui::Rect const&, unsigned int, unsigned int)
+                0x00000000000124b0                ui::separator(int, int, int)
+                0x00000000000124d0                ui::taskbar(char const*)
+                0x0000000000012592                __text_end = .
 
-.plt            0x0000000000018320        0x0
- .plt           0x0000000000018320        0x0 build/obj/arch/x86_64/entry.o
+.plt            0x00000000000125a0        0x0
+ .plt           0x00000000000125a0        0x0 build/obj/arch/x86_64/entry.o
 
-.plt.got        0x0000000000018318        0x0
- .plt.got       0x0000000000018318        0x0 build/obj/arch/x86_64/entry.o
-                0x0000000000019000                . = ALIGN (0x1000)
+.plt.got        0x0000000000012598        0x0
+ .plt.got       0x0000000000012598        0x0 build/obj/arch/x86_64/entry.o
+                0x0000000000013000                . = ALIGN (0x1000)
 
-.rodata         0x0000000000019000     0x2488
-                0x0000000000019000                __rodata_start = .
-                0x0000000000019000        0x4 LONG 0x0
-                0x0000000000019004                __rodata_payload_start = .
+.rodata         0x0000000000013000     0x21f0
+                0x0000000000013000                __rodata_start = .
+                0x0000000000013000        0x4 LONG 0x0
+                0x0000000000013004                __rodata_payload_start = .
  *(.rodata .rodata.*)
- *fill*         0x0000000000019004       0x1c 
- .rodata        0x0000000000019020       0x30 build/obj/abi/service.o
- .rodata        0x0000000000019050      0x30b build/obj/apps/builtin.o
- *fill*         0x000000000001935b        0x5 
- .rodata        0x0000000000019360       0xfd build/obj/apps/framework.o
- *fill*         0x000000000001945d        0x3 
- .rodata        0x0000000000019460       0x18 build/obj/arch/x86_64/gdt.o
- .rodata        0x0000000000019478       0x1a build/obj/arch/x86_64/interrupts.o
- *fill*         0x0000000000019492        0xe 
- .rodata        0x00000000000194a0       0x94 build/obj/core/log.o
- .rodata        0x0000000000019534       0x22 build/obj/core/string.o
- *fill*         0x0000000000019556        0x2 
- .rodata        0x0000000000019558      0x17e build/obj/diagnostics/profiler.o
- *fill*         0x00000000000196d6        0xa 
- .rodata        0x00000000000196e0      0x208 build/obj/drivers/framebuffer.o
- .rodata        0x00000000000198e8       0x40 build/obj/drivers/keyboard.o
- .rodata        0x0000000000019928        0x8 build/obj/drivers/pci.o
- .rodata        0x0000000000019930       0x11 build/obj/drivers/pic.o
- *fill*         0x0000000000019941        0x7 
- .rodata        0x0000000000019948       0x1b build/obj/drivers/pit.o
- *fill*         0x0000000000019963        0xd 
- .rodata        0x0000000000019970       0x14 build/obj/drivers/serial.o
- *fill*         0x0000000000019984        0x4 
- .rodata        0x0000000000019988      0x1af build/obj/fs/ramfs.o
- *fill*         0x0000000000019b37        0x1 
- .rodata        0x0000000000019b38      0xac3 build/obj/main.o
- *fill*         0x000000000001a5fb        0x5 
- .rodata        0x000000000001a600        0x8 build/obj/memory/allocator.o
- .rodata        0x000000000001a608      0x1a9 build/obj/memory/kernel_virtual_memory.o
- *fill*         0x000000000001a7b1        0x7 
- .rodata        0x000000000001a7b8        0x8 build/obj/memory/physical_memory.o
- .rodata        0x000000000001a7c0      0x196 build/obj/memory/virtual_memory.o
- *fill*         0x000000000001a956        0x2 
- .rodata        0x000000000001a958      0x1c9 build/obj/net/network.o
- *fill*         0x000000000001ab21        0x7 
- .rodata        0x000000000001ab28       0x7b build/obj/net/service.o
- *fill*         0x000000000001aba3        0x5 
- .rodata        0x000000000001aba8      0x6f1 build/obj/shell/shell.o
- *fill*         0x000000000001b299        0x7 
- .rodata        0x000000000001b2a0      0x15c build/obj/task/scheduler.o
- .rodata        0x000000000001b3fc       0x1d build/obj/terminal.o
- *fill*         0x000000000001b419        0x7 
- .rodata        0x000000000001b420       0x32 build/obj/ui/ui.o
+ *fill*         0x0000000000013004       0x1c 
+ .rodata        0x0000000000013020       0x30 build/obj/abi/service.o
+ .rodata.str1.1
+                0x0000000000013050      0xfa6 build/obj/apps/builtin.o
+                                        0x1a2 (size before relaxing)
+ *fill*         0x0000000000013ff6        0x2 
+ .rodata.str1.8
+                0x0000000000013ff8      0x942 build/obj/apps/builtin.o
+                                        0x131 (size before relaxing)
+ .rodata.str1.1
+                0x000000000001493a        0x0 build/obj/apps/framework.o
+                                         0xb2 (size before relaxing)
+ .rodata.str1.8
+                0x000000000001493a        0x0 build/obj/apps/framework.o
+                                         0x3f (size before relaxing)
+ *fill*         0x000000000001493a        0x2 
+ .rodata        0x000000000001493c       0x28 build/obj/apps/framework.o
+ .rodata.str1.1
+                0x0000000000014964        0x0 build/obj/core/log.o
+                                         0x54 (size before relaxing)
+ *fill*         0x0000000000014964        0xc 
+ .rodata        0x0000000000014970       0x31 build/obj/core/log.o
+ .rodata.str1.1
+                0x00000000000149a1        0x0 build/obj/core/string.o
+                                         0x22 (size before relaxing)
+ .rodata.str1.1
+                0x00000000000149a1        0x0 build/obj/diagnostics/profiler.o
+                                         0x46 (size before relaxing)
+ *fill*         0x00000000000149a1       0x1f 
+ .rodata        0x00000000000149c0      0x208 build/obj/drivers/framebuffer.o
+ *fill*         0x0000000000014bc8       0x18 
+ .rodata        0x0000000000014be0      0x3c3 build/obj/drivers/keyboard.o
+ .rodata.str1.1
+                0x0000000000014fa3        0x0 build/obj/drivers/serial.o
+                                          0x3 (size before relaxing)
+ *fill*         0x0000000000014fa3        0xd 
+ .rodata        0x0000000000014fb0       0x11 build/obj/drivers/serial.o
+ .rodata.str1.1
+                0x0000000000014fc1        0x0 build/obj/fs/ramfs.o
+                                        0x141 (size before relaxing)
+ .rodata.str1.8
+                0x0000000000014fc1        0x0 build/obj/fs/ramfs.o
+                                         0x24 (size before relaxing)
+ *fill*         0x0000000000014fc1        0x3 
+ .rodata        0x0000000000014fc4       0x54 build/obj/fs/ramfs.o
+ .rodata.str1.8
+                0x0000000000015018        0x0 build/obj/main.o
+                                        0x3e7 (size before relaxing)
+ .rodata.str1.1
+                0x0000000000015018        0x0 build/obj/main.o
+                                        0x609 (size before relaxing)
+ .rodata.str1.1
+                0x0000000000015018        0x0 build/obj/memory/kernel_virtual_memory.o
+                                         0x9f (size before relaxing)
+ .rodata.str1.8
+                0x0000000000015018        0x0 build/obj/memory/kernel_virtual_memory.o
+                                         0xf3 (size before relaxing)
+ .rodata        0x0000000000015018       0x30 build/obj/memory/kernel_virtual_memory.o
+ .rodata.str1.1
+                0x0000000000015048        0x0 build/obj/memory/virtual_memory.o
+                                        0x10a (size before relaxing)
+ .rodata        0x0000000000015048       0x40 build/obj/memory/virtual_memory.o
+ .rodata        0x0000000000015088       0x8e build/obj/net/network.o
+ .rodata.str1.1
+                0x0000000000015116        0x0 build/obj/net/network.o
+                                        0x158 (size before relaxing)
+ .rodata        0x0000000000015116        0xe build/obj/net/service.o
+ .rodata.str1.1
+                0x0000000000015124        0x0 build/obj/shell/shell.o
+                                        0x34b (size before relaxing)
+ .rodata.str1.8
+                0x0000000000015124        0x0 build/obj/shell/shell.o
+                                        0x2c2 (size before relaxing)
+ .rodata        0x0000000000015124       0x2c build/obj/shell/shell.o
+ .rodata.cst2   0x0000000000015150        0x2 build/obj/shell/shell.o
+ .rodata.str1.1
+                0x0000000000015152        0x0 build/obj/task/scheduler.o
+                                        0x124 (size before relaxing)
+ *fill*         0x0000000000015152        0x2 
+ .rodata        0x0000000000015154       0x48 build/obj/task/scheduler.o
+ .rodata.str1.1
+                0x000000000001519c        0x0 build/obj/terminal.o
+                                         0x15 (size before relaxing)
+ .rodata.str1.1
+                0x000000000001519c        0x0 build/obj/ui/ui.o
+                                         0x12 (size before relaxing)
+ *fill*         0x000000000001519c        0x4 
+ .rodata        0x00000000000151a0       0x20 build/obj/ui/ui.o
  *(.gcc_except_table .gcc_except_table.*)
  *(.eh_frame_hdr)
  *(.eh_frame)
- *fill*         0x000000000001b452        0x0 
- .eh_frame      0x000000000001b452        0x0 build/obj/arch/x86_64/entry.o
- .eh_frame      0x000000000001b452        0x0 build/obj/arch/x86_64/entry.o
+ .eh_frame      0x00000000000151c0        0x0 build/obj/arch/x86_64/entry.o
+ .eh_frame      0x00000000000151c0        0x0 build/obj/arch/x86_64/entry.o
  *(.dynsym)
- *fill*         0x000000000001b452        0x6 
- .dynsym        0x000000000001b458       0x18 build/obj/arch/x86_64/entry.o
+ .dynsym        0x00000000000151c0       0x18 build/obj/arch/x86_64/entry.o
  *(.dynstr)
- .dynstr        0x000000000001b470        0x1 build/obj/arch/x86_64/entry.o
+ .dynstr        0x00000000000151d8        0x1 build/obj/arch/x86_64/entry.o
  *(.hash)
- *fill*         0x000000000001b471        0x7 
- .hash          0x000000000001b478       0x10 build/obj/arch/x86_64/entry.o
+ *fill*         0x00000000000151d9        0x7 
+ .hash          0x00000000000151e0       0x10 build/obj/arch/x86_64/entry.o
  *(.gnu.hash)
  *(.rela.dyn)
-                0x000000000001b488                __rodata_end = .
+                0x00000000000151f0                __rodata_end = .
 
-.gnu.version_d  0x000000000001b488        0x0
+.gnu.version_d  0x00000000000151f0        0x0
  .gnu.version_d
-                0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+                0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
 
-.gnu.version    0x000000000001b488        0x0
- .gnu.version   0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+.gnu.version    0x00000000000151f0        0x0
+ .gnu.version   0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
 
-.gnu.version_r  0x000000000001b488        0x0
+.gnu.version_r  0x00000000000151f0        0x0
  .gnu.version_r
-                0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+                0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
 
-.sframe         0x000000000001b488        0x0
- .sframe        0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
- .sframe        0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+.sframe         0x00000000000151f0        0x0
+ .sframe        0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
+ .sframe        0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
 
-.rela.dyn       0x000000000001b488     0x1b00
- .rela.plt      0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
- .rela.got      0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
- .rela.bss      0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+.rela.dyn       0x00000000000151f0     0x1b18
+ .rela.plt      0x00000000000151f0        0x0 build/obj/arch/x86_64/entry.o
+ .rela.got      0x00000000000151f0       0x18 build/obj/arch/x86_64/entry.o
+ .rela.bss      0x0000000000015208        0x0 build/obj/arch/x86_64/entry.o
  .rela.data.rel.ro
-                0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
- .rela.ifunc    0x000000000001b488        0x0 build/obj/arch/x86_64/entry.o
+                0x0000000000015208        0x0 build/obj/arch/x86_64/entry.o
+ .rela.ifunc    0x0000000000015208        0x0 build/obj/arch/x86_64/entry.o
  .rela.data.rel.ro.interrupts
-                0x000000000001b488     0x1800 build/obj/arch/x86_64/entry.o
+                0x0000000000015208     0x1800 build/obj/arch/x86_64/entry.o
  .rela.data.rel.ro.local
-                0x000000000001cc88      0x300 build/obj/arch/x86_64/entry.o
-                0x000000000001d000                . = ALIGN (0x1000)
+                0x0000000000016a08      0x300 build/obj/arch/x86_64/entry.o
+                0x0000000000017000                . = ALIGN (0x1000)
 
-.data           0x000000000001d000      0xa9c
-                0x000000000001d000                __data_start = .
+.data           0x0000000000017000      0xad8
+                0x0000000000017000                __data_start = .
  *(.data .data.*)
- .data          0x000000000001d000        0x0 build/obj/arch/x86_64/entry.o
- .data.rel.ro   0x000000000001d000        0x0 build/obj/arch/x86_64/entry.o
- .data          0x000000000001d000        0x0 build/obj/arch/x86_64/interrupt_stubs.o
+ .data          0x0000000000017000        0x0 build/obj/arch/x86_64/entry.o
+ .data.rel.ro   0x0000000000017000        0x0 build/obj/arch/x86_64/entry.o
+ .data          0x0000000000017000        0x0 build/obj/arch/x86_64/interrupt_stubs.o
  .data.rel.ro.interrupts
-                0x000000000001d000      0x800 build/obj/arch/x86_64/interrupt_stubs.o
-                0x000000000001d000                interrupt_stub_table
- .data          0x000000000001d800        0x0 build/obj/abi/service.o
- .data          0x000000000001d800        0x0 build/obj/apps/builtin.o
- .data          0x000000000001d800        0x8 build/obj/apps/framework.o
- *fill*         0x000000000001d808        0x8 
- .data          0x000000000001d810       0x38 build/obj/arch/x86_64/gdt.o
- .data          0x000000000001d848        0x1 build/obj/arch/x86_64/interrupts.o
- .data          0x000000000001d849        0x1 build/obj/core/log.o
- .data          0x000000000001d84a        0x0 build/obj/core/memory.o
- .data          0x000000000001d84a        0x0 build/obj/core/string.o
- .data          0x000000000001d84a        0x0 build/obj/diagnostics/profiler.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/framebuffer.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/keyboard.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/pci.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/pic.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/pit.o
- .data          0x000000000001d84a        0x0 build/obj/drivers/rtc.o
- .data          0x000000000001d84a        0x2 build/obj/drivers/serial.o
- .data          0x000000000001d84c        0x1 build/obj/fs/ramfs.o
- .data          0x000000000001d84d        0x0 build/obj/main.o
- *fill*         0x000000000001d84d       0x13 
+                0x0000000000017000      0x800 build/obj/arch/x86_64/interrupt_stubs.o
+                0x0000000000017000                interrupt_stub_table
+ .data          0x0000000000017800        0x0 build/obj/abi/service.o
+ .data          0x0000000000017800        0x0 build/obj/apps/builtin.o
+ .data          0x0000000000017800        0x8 build/obj/apps/framework.o
+ *fill*         0x0000000000017808        0x8 
+ .data          0x0000000000017810       0x38 build/obj/arch/x86_64/gdt.o
+ .data          0x0000000000017848        0x1 build/obj/arch/x86_64/interrupts.o
+ .data          0x0000000000017849        0x1 build/obj/core/log.o
+ .data          0x000000000001784a        0x0 build/obj/core/memory.o
+ .data          0x000000000001784a        0x0 build/obj/core/string.o
+ .data          0x000000000001784a        0x0 build/obj/diagnostics/profiler.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/framebuffer.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/keyboard.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/pci.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/pic.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/pit.o
+ .data          0x000000000001784a        0x0 build/obj/drivers/rtc.o
+ .data          0x000000000001784a        0x2 build/obj/drivers/serial.o
+ .data          0x000000000001784c        0x1 build/obj/fs/ramfs.o
+ .data          0x000000000001784d        0x0 build/obj/main.o
+ *fill*         0x000000000001784d       0x13 
  .data.rel.ro.local
-                0x000000000001d860      0x100 build/obj/main.o
- .data          0x000000000001d960        0x0 build/obj/memory/allocator.o
- .data          0x000000000001d960        0x0 build/obj/memory/kernel_virtual_memory.o
- .data          0x000000000001d960        0x8 build/obj/memory/physical_memory.o
- .data          0x000000000001d968        0x0 build/obj/memory/virtual_memory.o
- .data          0x000000000001d968        0x0 build/obj/net/network.o
- .data          0x000000000001d968        0x0 build/obj/net/service.o
- *fill*         0x000000000001d968       0x18 
- .data          0x000000000001d980      0x102 build/obj/shell/shell.o
- *fill*         0x000000000001da82        0x6 
- .data          0x000000000001da88        0x8 build/obj/task/scheduler.o
- .data          0x000000000001da90        0xc build/obj/terminal.o
- .data          0x000000000001da9c        0x0 build/obj/ui/ui.o
+                0x0000000000017860      0x100 build/obj/main.o
+ .data          0x0000000000017960        0x0 build/obj/memory/allocator.o
+ .data          0x0000000000017960        0x0 build/obj/memory/kernel_virtual_memory.o
+ .data          0x0000000000017960        0x8 build/obj/memory/physical_memory.o
+ .data          0x0000000000017968        0x0 build/obj/memory/virtual_memory.o
+ .data          0x0000000000017968        0x0 build/obj/net/network.o
+ .data          0x0000000000017968        0x0 build/obj/net/service.o
+ *fill*         0x0000000000017968       0x18 
+ .data          0x0000000000017980      0x120 build/obj/shell/shell.o
+ .data          0x0000000000017aa0        0x8 build/obj/task/scheduler.o
+ .data          0x0000000000017aa8        0xc build/obj/terminal.o
+ .data          0x0000000000017ab4        0x0 build/obj/ui/ui.o
  *(.got .got.*)
- .got           0x000000000001da9c        0x0 build/obj/arch/x86_64/entry.o
- .got.plt       0x000000000001da9c        0x0 build/obj/arch/x86_64/entry.o
+ *fill*         0x0000000000017ab4        0x4 
+ .got           0x0000000000017ab8        0x8 build/obj/arch/x86_64/entry.o
+ .got.plt       0x0000000000017ac0       0x18 build/obj/arch/x86_64/entry.o
+                0x0000000000017ac0                _GLOBAL_OFFSET_TABLE_
  *(.init_array .init_array.*)
  *(.fini_array .fini_array.*)
-                0x000000000001da9c                __data_end = .
+                0x0000000000017ad8                __data_end = .
 
-.dynamic        0x000000000001daa0      0x100
+.dynamic        0x0000000000017ad8      0x100
  *(.dynamic)
- .dynamic       0x000000000001daa0      0x100 build/obj/arch/x86_64/entry.o
-                0x000000000001daa0                _DYNAMIC
+ .dynamic       0x0000000000017ad8      0x100 build/obj/arch/x86_64/entry.o
+                0x0000000000017ad8                _DYNAMIC
 
-.bss            0x000000000001dbc0   0x245200
-                0x000000000001dbc0                __bss_start = .
+.bss            0x0000000000017c00   0x2452a1
+                0x0000000000017c00                __bss_start = .
  *(.bss .bss.*)
- .bss           0x000000000001dbc0    0x10000 build/obj/arch/x86_64/entry.o
-                0x000000000001dbc0                kernel_stack_bottom
-                0x000000000002dbc0                kernel_stack_top
- .bss           0x000000000002dbc0        0x0 build/obj/arch/x86_64/interrupt_stubs.o
- .bss           0x000000000002dbc0        0x0 build/obj/abi/service.o
- .bss           0x000000000002dbc0        0x8 build/obj/apps/builtin.o
- *fill*         0x000000000002dbc8       0x18 
- .bss           0x000000000002dbe0      0x309 build/obj/apps/framework.o
- *fill*         0x000000000002dee9        0x7 
- .bss           0x000000000002def0     0xc069 build/obj/arch/x86_64/gdt.o
- *fill*         0x0000000000039f59        0x7 
- .bss           0x0000000000039f60     0x2098 build/obj/arch/x86_64/interrupts.o
- .bss           0x000000000003bff8        0x0 build/obj/core/log.o
- .bss           0x000000000003bff8        0x0 build/obj/core/memory.o
- .bss           0x000000000003bff8        0x0 build/obj/core/string.o
- .bss           0x000000000003bff8       0x10 build/obj/diagnostics/profiler.o
- *fill*         0x000000000003c008       0x18 
- .bss           0x000000000003c020       0x21 build/obj/drivers/framebuffer.o
- *fill*         0x000000000003c041       0x1f 
- .bss           0x000000000003c060      0x51c build/obj/drivers/keyboard.o
- *fill*         0x000000000003c57c        0x4 
- .bss           0x000000000003c580      0x708 build/obj/drivers/pci.o
- .bss           0x000000000003cc88        0x1 build/obj/drivers/pic.o
- *fill*         0x000000000003cc89        0x7 
- .bss           0x000000000003cc90        0xf build/obj/drivers/pit.o
- .bss           0x000000000003cc9f        0x0 build/obj/drivers/rtc.o
- .bss           0x000000000003cc9f        0x1 build/obj/drivers/serial.o
- .bss           0x000000000003cca0       0x19 build/obj/fs/ramfs.o
- *fill*         0x000000000003ccb9        0x7 
- .bss           0x000000000003ccc0   0x200004 build/obj/main.o
- *fill*         0x000000000023ccc4        0x4 
- .bss           0x000000000023ccc8       0x30 build/obj/memory/allocator.o
- *fill*         0x000000000023ccf8        0x8 
- .bss           0x000000000023cd00       0x58 build/obj/memory/kernel_virtual_memory.o
- .bss           0x000000000023cd58    0x20049 build/obj/memory/physical_memory.o
- .bss           0x000000000025cda1        0x0 build/obj/memory/virtual_memory.o
- .bss           0x000000000025cda1        0x0 build/obj/net/network.o
- *fill*         0x000000000025cda1       0x1f 
- .bss           0x000000000025cdc0     0x3e11 build/obj/net/service.o
- *fill*         0x0000000000260bd1        0xf 
- .bss           0x0000000000260be0     0x1130 build/obj/shell/shell.o
- *fill*         0x0000000000261d10       0x10 
- .bss           0x0000000000261d20     0x1078 build/obj/task/scheduler.o
- .bss           0x0000000000262d98       0x28 build/obj/terminal.o
- .bss           0x0000000000262dc0        0x0 build/obj/ui/ui.o
+ .bss           0x0000000000017c00    0x10000 build/obj/arch/x86_64/entry.o
+                0x0000000000017c00                kernel_stack_bottom
+                0x0000000000027c00                kernel_stack_top
+ .bss           0x0000000000027c00        0x0 build/obj/arch/x86_64/interrupt_stubs.o
+ .bss           0x0000000000027c00        0x0 build/obj/abi/service.o
+ .bss           0x0000000000027c00       0x10 build/obj/apps/builtin.o
+ *fill*         0x0000000000027c10       0x10 
+ .bss           0x0000000000027c20      0x320 build/obj/apps/framework.o
+ .bss           0x0000000000027f40     0xc080 build/obj/arch/x86_64/gdt.o
+ .bss           0x0000000000033fc0     0x20a0 build/obj/arch/x86_64/interrupts.o
+ .bss           0x0000000000036060        0x0 build/obj/core/log.o
+ .bss           0x0000000000036060        0x0 build/obj/core/memory.o
+ .bss           0x0000000000036060        0x0 build/obj/core/string.o
+ .bss           0x0000000000036060        0x9 build/obj/diagnostics/profiler.o
+ *fill*         0x0000000000036069       0x17 
+ .bss           0x0000000000036080       0x40 build/obj/drivers/framebuffer.o
+ .bss           0x00000000000360c0      0x520 build/obj/drivers/keyboard.o
+ .bss           0x00000000000365e0      0x720 build/obj/drivers/pci.o
+ .bss           0x0000000000036d00        0x1 build/obj/drivers/pic.o
+ *fill*         0x0000000000036d01        0x7 
+ .bss           0x0000000000036d08       0x10 build/obj/drivers/pit.o
+ .bss           0x0000000000036d18        0x0 build/obj/drivers/rtc.o
+ .bss           0x0000000000036d18        0x1 build/obj/drivers/serial.o
+ *fill*         0x0000000000036d19        0x7 
+ .bss           0x0000000000036d20       0x20 build/obj/fs/ramfs.o
+ .bss           0x0000000000036d40   0x200040 build/obj/main.o
+ .bss           0x0000000000236d80       0x30 build/obj/memory/allocator.o
+ *fill*         0x0000000000236db0       0x10 
+ .bss           0x0000000000236dc0       0x68 build/obj/memory/kernel_virtual_memory.o
+ .bss           0x0000000000236e28    0x20048 build/obj/memory/physical_memory.o
+ .bss           0x0000000000256e70        0x0 build/obj/memory/virtual_memory.o
+ .bss           0x0000000000256e70        0x0 build/obj/net/network.o
+ *fill*         0x0000000000256e70       0x10 
+ .bss           0x0000000000256e80     0x3e40 build/obj/net/service.o
+ .bss           0x000000000025acc0     0x1140 build/obj/shell/shell.o
+ .bss           0x000000000025be00     0x1080 build/obj/task/scheduler.o
+ .bss           0x000000000025ce80       0x21 build/obj/terminal.o
+ .bss           0x000000000025cea1        0x0 build/obj/ui/ui.o
  *(COMMON)
-                0x0000000000262dc0                __bss_end = .
+                0x000000000025cea1                __bss_end = .
 
-.dynbss         0x0000000000262dc0        0x0
- .dynbss        0x0000000000262dc0        0x0 build/obj/arch/x86_64/entry.o
-                0x0000000000263000                . = ALIGN (0x1000)
-                0x0000000000263000                __kernel_end = .
+.dynbss         0x000000000025cea1        0x0
+ .dynbss        0x000000000025cea1        0x0 build/obj/arch/x86_64/entry.o
+                0x000000000025d000                . = ALIGN (0x1000)
+                0x000000000025d000                __kernel_end = .
 
 /DISCARD/
  *(.interp)
@@ -1175,67 +981,67 @@ LOAD build/obj/terminal.o
 LOAD build/obj/ui/ui.o
 OUTPUT(build/kernel.elf elf64-x86-64)
 
-.debug_info     0x0000000000000000    0x1874f
- .debug_info    0x0000000000000000      0x1db build/obj/abi/service.o
- .debug_info    0x00000000000001db     0x1504 build/obj/apps/builtin.o
- .debug_info    0x00000000000016df      0x60d build/obj/apps/framework.o
- .debug_info    0x0000000000001cec      0x431 build/obj/arch/x86_64/gdt.o
- .debug_info    0x000000000000211d      0xa57 build/obj/arch/x86_64/interrupts.o
- .debug_info    0x0000000000002b74      0x80b build/obj/core/log.o
- .debug_info    0x000000000000337f      0x2d9 build/obj/core/memory.o
- .debug_info    0x0000000000003658      0x6cb build/obj/core/string.o
- .debug_info    0x0000000000003d23     0x117a build/obj/diagnostics/profiler.o
- .debug_info    0x0000000000004e9d      0xd3f build/obj/drivers/framebuffer.o
- .debug_info    0x0000000000005bdc     0x111b build/obj/drivers/keyboard.o
- .debug_info    0x0000000000006cf7      0x9eb build/obj/drivers/pci.o
- .debug_info    0x00000000000076e2      0x5d1 build/obj/drivers/pic.o
- .debug_info    0x0000000000007cb3      0x48f build/obj/drivers/pit.o
- .debug_info    0x0000000000008142      0x484 build/obj/drivers/rtc.o
- .debug_info    0x00000000000085c6      0x38e build/obj/drivers/serial.o
- .debug_info    0x0000000000008954     0x1b99 build/obj/fs/ramfs.o
- .debug_info    0x000000000000a4ed     0x22d8 build/obj/main.o
- .debug_info    0x000000000000c7c5      0x91a build/obj/memory/allocator.o
- .debug_info    0x000000000000d0df      0xc75 build/obj/memory/kernel_virtual_memory.o
- .debug_info    0x000000000000dd54      0x92c build/obj/memory/physical_memory.o
- .debug_info    0x000000000000e680     0x12b9 build/obj/memory/virtual_memory.o
- .debug_info    0x000000000000f939     0x2556 build/obj/net/network.o
- .debug_info    0x0000000000011e8f      0xb34 build/obj/net/service.o
- .debug_info    0x00000000000129c3     0x33c6 build/obj/shell/shell.o
- .debug_info    0x0000000000015d89     0x1723 build/obj/task/scheduler.o
- .debug_info    0x00000000000174ac      0x983 build/obj/terminal.o
- .debug_info    0x0000000000017e2f      0x920 build/obj/ui/ui.o
+.debug_info     0x0000000000000000     0x9f4b
+ .debug_info    0x0000000000000000       0x6e build/obj/abi/service.o
+ .debug_info    0x000000000000006e      0x410 build/obj/apps/builtin.o
+ .debug_info    0x000000000000047e      0x26d build/obj/apps/framework.o
+ .debug_info    0x00000000000006eb       0x9f build/obj/arch/x86_64/gdt.o
+ .debug_info    0x000000000000078a      0x2ba build/obj/arch/x86_64/interrupts.o
+ .debug_info    0x0000000000000a44      0x301 build/obj/core/log.o
+ .debug_info    0x0000000000000d45       0x98 build/obj/core/memory.o
+ .debug_info    0x0000000000000ddd      0x319 build/obj/core/string.o
+ .debug_info    0x00000000000010f6      0x297 build/obj/diagnostics/profiler.o
+ .debug_info    0x000000000000138d      0x2f6 build/obj/drivers/framebuffer.o
+ .debug_info    0x0000000000001683      0x94a build/obj/drivers/keyboard.o
+ .debug_info    0x0000000000001fcd      0xa08 build/obj/drivers/pci.o
+ .debug_info    0x00000000000029d5      0x6d1 build/obj/drivers/pic.o
+ .debug_info    0x00000000000030a6      0x19a build/obj/drivers/pit.o
+ .debug_info    0x0000000000003240      0x3ce build/obj/drivers/rtc.o
+ .debug_info    0x000000000000360e      0x323 build/obj/drivers/serial.o
+ .debug_info    0x0000000000003931      0xd69 build/obj/fs/ramfs.o
+ .debug_info    0x000000000000469a      0x551 build/obj/main.o
+ .debug_info    0x0000000000004beb      0x2d6 build/obj/memory/allocator.o
+ .debug_info    0x0000000000004ec1      0x2bc build/obj/memory/kernel_virtual_memory.o
+ .debug_info    0x000000000000517d      0x361 build/obj/memory/physical_memory.o
+ .debug_info    0x00000000000054de      0x674 build/obj/memory/virtual_memory.o
+ .debug_info    0x0000000000005b52     0x17e8 build/obj/net/network.o
+ .debug_info    0x000000000000733a      0x136 build/obj/net/service.o
+ .debug_info    0x0000000000007470      0xcb5 build/obj/shell/shell.o
+ .debug_info    0x0000000000008125     0x17c8 build/obj/task/scheduler.o
+ .debug_info    0x00000000000098ed      0x49c build/obj/terminal.o
+ .debug_info    0x0000000000009d89      0x1c2 build/obj/ui/ui.o
 
-.debug_abbrev   0x0000000000000000     0x45fa
- .debug_abbrev  0x0000000000000000       0xff build/obj/abi/service.o
- .debug_abbrev  0x00000000000000ff      0x319 build/obj/apps/builtin.o
- .debug_abbrev  0x0000000000000418      0x26f build/obj/apps/framework.o
- .debug_abbrev  0x0000000000000687      0x1f1 build/obj/arch/x86_64/gdt.o
- .debug_abbrev  0x0000000000000878      0x2f3 build/obj/arch/x86_64/interrupts.o
- .debug_abbrev  0x0000000000000b6b      0x26a build/obj/core/log.o
- .debug_abbrev  0x0000000000000dd5       0xdd build/obj/core/memory.o
- .debug_abbrev  0x0000000000000eb2      0x13b build/obj/core/string.o
- .debug_abbrev  0x0000000000000fed      0x32f build/obj/diagnostics/profiler.o
- .debug_abbrev  0x000000000000131c      0x29f build/obj/drivers/framebuffer.o
- .debug_abbrev  0x00000000000015bb      0x3c5 build/obj/drivers/keyboard.o
- .debug_abbrev  0x0000000000001980      0x252 build/obj/drivers/pci.o
- .debug_abbrev  0x0000000000001bd2      0x23a build/obj/drivers/pic.o
- .debug_abbrev  0x0000000000001e0c      0x202 build/obj/drivers/pit.o
- .debug_abbrev  0x000000000000200e      0x1cb build/obj/drivers/rtc.o
- .debug_abbrev  0x00000000000021d9      0x1d1 build/obj/drivers/serial.o
- .debug_abbrev  0x00000000000023aa      0x354 build/obj/fs/ramfs.o
- .debug_abbrev  0x00000000000026fe      0x415 build/obj/main.o
- .debug_abbrev  0x0000000000002b13      0x21a build/obj/memory/allocator.o
- .debug_abbrev  0x0000000000002d2d      0x30c build/obj/memory/kernel_virtual_memory.o
- .debug_abbrev  0x0000000000003039      0x230 build/obj/memory/physical_memory.o
- .debug_abbrev  0x0000000000003269      0x27f build/obj/memory/virtual_memory.o
- .debug_abbrev  0x00000000000034e8      0x33d build/obj/net/network.o
- .debug_abbrev  0x0000000000003825      0x2a2 build/obj/net/service.o
- .debug_abbrev  0x0000000000003ac7      0x43c build/obj/shell/shell.o
- .debug_abbrev  0x0000000000003f03      0x315 build/obj/task/scheduler.o
- .debug_abbrev  0x0000000000004218      0x245 build/obj/terminal.o
- .debug_abbrev  0x000000000000445d      0x19d build/obj/ui/ui.o
+.debug_abbrev   0x0000000000000000     0x1ff2
+ .debug_abbrev  0x0000000000000000       0x34 build/obj/abi/service.o
+ .debug_abbrev  0x0000000000000034      0x116 build/obj/apps/builtin.o
+ .debug_abbrev  0x000000000000014a      0x10f build/obj/apps/framework.o
+ .debug_abbrev  0x0000000000000259       0x81 build/obj/arch/x86_64/gdt.o
+ .debug_abbrev  0x00000000000002da      0x103 build/obj/arch/x86_64/interrupts.o
+ .debug_abbrev  0x00000000000003dd       0xeb build/obj/core/log.o
+ .debug_abbrev  0x00000000000004c8       0x32 build/obj/core/memory.o
+ .debug_abbrev  0x00000000000004fa      0x113 build/obj/core/string.o
+ .debug_abbrev  0x000000000000060d       0xe2 build/obj/diagnostics/profiler.o
+ .debug_abbrev  0x00000000000006ef      0x161 build/obj/drivers/framebuffer.o
+ .debug_abbrev  0x0000000000000850      0x1cc build/obj/drivers/keyboard.o
+ .debug_abbrev  0x0000000000000a1c      0x152 build/obj/drivers/pci.o
+ .debug_abbrev  0x0000000000000b6e       0xe8 build/obj/drivers/pic.o
+ .debug_abbrev  0x0000000000000c56       0x9e build/obj/drivers/pit.o
+ .debug_abbrev  0x0000000000000cf4       0xfc build/obj/drivers/rtc.o
+ .debug_abbrev  0x0000000000000df0      0x119 build/obj/drivers/serial.o
+ .debug_abbrev  0x0000000000000f09      0x22b build/obj/fs/ramfs.o
+ .debug_abbrev  0x0000000000001134      0x144 build/obj/main.o
+ .debug_abbrev  0x0000000000001278      0x10e build/obj/memory/allocator.o
+ .debug_abbrev  0x0000000000001386      0x100 build/obj/memory/kernel_virtual_memory.o
+ .debug_abbrev  0x0000000000001486       0xee build/obj/memory/physical_memory.o
+ .debug_abbrev  0x0000000000001574      0x186 build/obj/memory/virtual_memory.o
+ .debug_abbrev  0x00000000000016fa      0x249 build/obj/net/network.o
+ .debug_abbrev  0x0000000000001943       0x91 build/obj/net/service.o
+ .debug_abbrev  0x00000000000019d4      0x20c build/obj/shell/shell.o
+ .debug_abbrev  0x0000000000001be0      0x1c6 build/obj/task/scheduler.o
+ .debug_abbrev  0x0000000000001da6      0x182 build/obj/terminal.o
+ .debug_abbrev  0x0000000000001f28       0xca build/obj/ui/ui.o
 
-.debug_aranges  0x0000000000000000      0x670
+.debug_aranges  0x0000000000000000      0x540
  .debug_aranges
                 0x0000000000000000       0x30 build/obj/abi/service.o
  .debug_aranges
@@ -1259,305 +1065,292 @@ OUTPUT(build/kernel.elf elf64-x86-64)
  .debug_aranges
                 0x00000000000001e0       0x30 build/obj/drivers/keyboard.o
  .debug_aranges
-                0x0000000000000210       0x50 build/obj/drivers/pci.o
+                0x0000000000000210       0x30 build/obj/drivers/pci.o
  .debug_aranges
-                0x0000000000000260       0x30 build/obj/drivers/pic.o
+                0x0000000000000240       0x30 build/obj/drivers/pic.o
  .debug_aranges
-                0x0000000000000290       0x30 build/obj/drivers/pit.o
+                0x0000000000000270       0x30 build/obj/drivers/pit.o
  .debug_aranges
-                0x00000000000002c0       0x60 build/obj/drivers/rtc.o
+                0x00000000000002a0       0x30 build/obj/drivers/rtc.o
  .debug_aranges
-                0x0000000000000320       0x60 build/obj/drivers/serial.o
+                0x00000000000002d0       0x30 build/obj/drivers/serial.o
  .debug_aranges
-                0x0000000000000380       0x30 build/obj/fs/ramfs.o
+                0x0000000000000300       0x30 build/obj/fs/ramfs.o
  .debug_aranges
-                0x00000000000003b0       0x60 build/obj/main.o
+                0x0000000000000330       0x30 build/obj/main.o
  .debug_aranges
-                0x0000000000000410       0x30 build/obj/memory/allocator.o
+                0x0000000000000360       0x30 build/obj/memory/allocator.o
  .debug_aranges
-                0x0000000000000440       0x30 build/obj/memory/kernel_virtual_memory.o
+                0x0000000000000390       0x30 build/obj/memory/kernel_virtual_memory.o
  .debug_aranges
-                0x0000000000000470       0x30 build/obj/memory/physical_memory.o
+                0x00000000000003c0       0x30 build/obj/memory/physical_memory.o
  .debug_aranges
-                0x00000000000004a0       0x60 build/obj/memory/virtual_memory.o
+                0x00000000000003f0       0x30 build/obj/memory/virtual_memory.o
  .debug_aranges
-                0x0000000000000500       0x30 build/obj/net/network.o
+                0x0000000000000420       0x30 build/obj/net/network.o
  .debug_aranges
-                0x0000000000000530       0x30 build/obj/net/service.o
+                0x0000000000000450       0x30 build/obj/net/service.o
  .debug_aranges
-                0x0000000000000560       0x80 build/obj/shell/shell.o
+                0x0000000000000480       0x30 build/obj/shell/shell.o
  .debug_aranges
-                0x00000000000005e0       0x30 build/obj/task/scheduler.o
+                0x00000000000004b0       0x30 build/obj/task/scheduler.o
  .debug_aranges
-                0x0000000000000610       0x30 build/obj/terminal.o
+                0x00000000000004e0       0x30 build/obj/terminal.o
  .debug_aranges
-                0x0000000000000640       0x30 build/obj/ui/ui.o
+                0x0000000000000510       0x30 build/obj/ui/ui.o
 
-.debug_macro    0x0000000000000000     0x1726
- .debug_macro   0x0000000000000000       0x59 build/obj/abi/service.o
- .debug_macro   0x0000000000000059      0x9ca build/obj/abi/service.o
- .debug_macro   0x0000000000000a23      0x197 build/obj/abi/service.o
- .debug_macro   0x0000000000000bba      0x34e build/obj/abi/service.o
- .debug_macro   0x0000000000000f08       0x16 build/obj/abi/service.o
- .debug_macro   0x0000000000000f1e       0x16 build/obj/abi/service.o
- .debug_macro   0x0000000000000f34       0x8b build/obj/apps/builtin.o
- .debug_macro   0x0000000000000fbf       0x2e build/obj/apps/builtin.o
- .debug_macro   0x0000000000000fed       0x28 build/obj/apps/builtin.o
- .debug_macro   0x0000000000001015       0x39 build/obj/apps/framework.o
- .debug_macro   0x000000000000104e       0x31 build/obj/arch/x86_64/gdt.o
- .debug_macro   0x000000000000107f       0x39 build/obj/arch/x86_64/interrupts.o
- .debug_macro   0x00000000000010b8       0x4e build/obj/core/log.o
- .debug_macro   0x0000000000001106       0x31 build/obj/core/memory.o
- .debug_macro   0x0000000000001137       0x31 build/obj/core/string.o
- .debug_macro   0x0000000000001168       0x61 build/obj/diagnostics/profiler.o
- .debug_macro   0x00000000000011c9       0x46 build/obj/drivers/framebuffer.o
- .debug_macro   0x000000000000120f       0x3d build/obj/drivers/keyboard.o
- .debug_macro   0x000000000000124c       0x35 build/obj/drivers/pci.o
- .debug_macro   0x0000000000001281       0x28 build/obj/drivers/pic.o
- .debug_macro   0x00000000000012a9       0x39 build/obj/drivers/pit.o
- .debug_macro   0x00000000000012e2       0x35 build/obj/drivers/rtc.o
- .debug_macro   0x0000000000001317       0x35 build/obj/drivers/serial.o
- .debug_macro   0x000000000000134c       0x39 build/obj/fs/ramfs.o
- .debug_macro   0x0000000000001385       0xd3 build/obj/main.o
- .debug_macro   0x0000000000001458       0x31 build/obj/memory/allocator.o
- .debug_macro   0x0000000000001489       0x3d build/obj/memory/kernel_virtual_memory.o
- .debug_macro   0x00000000000014c6       0x31 build/obj/memory/physical_memory.o
- .debug_macro   0x00000000000014f7       0x31 build/obj/memory/virtual_memory.o
- .debug_macro   0x0000000000001528       0x31 build/obj/net/network.o
- .debug_macro   0x0000000000001559       0x39 build/obj/net/service.o
- .debug_macro   0x0000000000001592       0xcf build/obj/shell/shell.o
- .debug_macro   0x0000000000001661       0x31 build/obj/task/scheduler.o
- .debug_macro   0x0000000000001692       0x52 build/obj/terminal.o
- .debug_macro   0x00000000000016e4       0x42 build/obj/ui/ui.o
+.debug_line     0x0000000000000000     0x94e4
+ .debug_line    0x0000000000000000       0x58 build/obj/abi/service.o
+ .debug_line    0x0000000000000058      0x509 build/obj/apps/builtin.o
+ .debug_line    0x0000000000000561      0x2a7 build/obj/apps/framework.o
+ .debug_line    0x0000000000000808       0xe6 build/obj/arch/x86_64/gdt.o
+ .debug_line    0x00000000000008ee      0x234 build/obj/arch/x86_64/interrupts.o
+ .debug_line    0x0000000000000b22      0x2f4 build/obj/core/log.o
+ .debug_line    0x0000000000000e16      0x117 build/obj/core/memory.o
+ .debug_line    0x0000000000000f2d      0x3fd build/obj/core/string.o
+ .debug_line    0x000000000000132a      0x2e8 build/obj/diagnostics/profiler.o
+ .debug_line    0x0000000000001612      0x49b build/obj/drivers/framebuffer.o
+ .debug_line    0x0000000000001aad      0x6ab build/obj/drivers/keyboard.o
+ .debug_line    0x0000000000002158      0x5e0 build/obj/drivers/pci.o
+ .debug_line    0x0000000000002738      0x1f5 build/obj/drivers/pic.o
+ .debug_line    0x000000000000292d      0x12e build/obj/drivers/pit.o
+ .debug_line    0x0000000000002a5b      0x284 build/obj/drivers/rtc.o
+ .debug_line    0x0000000000002cdf      0x187 build/obj/drivers/serial.o
+ .debug_line    0x0000000000002e66     0x103a build/obj/fs/ramfs.o
+ .debug_line    0x0000000000003ea0      0x729 build/obj/main.o
+ .debug_line    0x00000000000045c9      0x2e5 build/obj/memory/allocator.o
+ .debug_line    0x00000000000048ae      0x2f1 build/obj/memory/kernel_virtual_memory.o
+ .debug_line    0x0000000000004b9f      0x370 build/obj/memory/physical_memory.o
+ .debug_line    0x0000000000004f0f      0x770 build/obj/memory/virtual_memory.o
+ .debug_line    0x000000000000567f     0x194f build/obj/net/network.o
+ .debug_line    0x0000000000006fce      0x139 build/obj/net/service.o
+ .debug_line    0x0000000000007107      0xfa5 build/obj/shell/shell.o
+ .debug_line    0x00000000000080ac      0xe4d build/obj/task/scheduler.o
+ .debug_line    0x0000000000008ef9      0x371 build/obj/terminal.o
+ .debug_line    0x000000000000926a      0x27a build/obj/ui/ui.o
 
-.debug_line     0x0000000000000000     0x9f66
- .debug_line    0x0000000000000000       0x89 build/obj/abi/service.o
- .debug_line    0x0000000000000089      0x64a build/obj/apps/builtin.o
- .debug_line    0x00000000000006d3      0x2d6 build/obj/apps/framework.o
- .debug_line    0x00000000000009a9       0xde build/obj/arch/x86_64/gdt.o
- .debug_line    0x0000000000000a87      0x278 build/obj/arch/x86_64/interrupts.o
- .debug_line    0x0000000000000cff      0x21d build/obj/core/log.o
- .debug_line    0x0000000000000f1c      0x14b build/obj/core/memory.o
- .debug_line    0x0000000000001067      0x43e build/obj/core/string.o
- .debug_line    0x00000000000014a5      0x337 build/obj/diagnostics/profiler.o
- .debug_line    0x00000000000017dc      0x4d4 build/obj/drivers/framebuffer.o
- .debug_line    0x0000000000001cb0      0x894 build/obj/drivers/keyboard.o
- .debug_line    0x0000000000002544      0x441 build/obj/drivers/pci.o
- .debug_line    0x0000000000002985      0x26d build/obj/drivers/pic.o
- .debug_line    0x0000000000002bf2      0x135 build/obj/drivers/pit.o
- .debug_line    0x0000000000002d27      0x2e2 build/obj/drivers/rtc.o
- .debug_line    0x0000000000003009      0x1e0 build/obj/drivers/serial.o
- .debug_line    0x00000000000031e9      0xf94 build/obj/fs/ramfs.o
- .debug_line    0x000000000000417d      0xa5a build/obj/main.o
- .debug_line    0x0000000000004bd7      0x560 build/obj/memory/allocator.o
- .debug_line    0x0000000000005137      0x35c build/obj/memory/kernel_virtual_memory.o
- .debug_line    0x0000000000005493      0x422 build/obj/memory/physical_memory.o
- .debug_line    0x00000000000058b5      0x8ea build/obj/memory/virtual_memory.o
- .debug_line    0x000000000000619f     0x14de build/obj/net/network.o
- .debug_line    0x000000000000767d      0x170 build/obj/net/service.o
- .debug_line    0x00000000000077ed     0x14b6 build/obj/shell/shell.o
- .debug_line    0x0000000000008ca3      0xc37 build/obj/task/scheduler.o
- .debug_line    0x00000000000098da      0x312 build/obj/terminal.o
- .debug_line    0x0000000000009bec      0x37a build/obj/ui/ui.o
-
-.debug_str      0x0000000000000000     0xd6a5
- .debug_str     0x0000000000000000     0xd6a5 build/obj/abi/service.o
-                                       0x42a6 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/apps/builtin.o
-                                       0x4c7d (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/apps/framework.o
-                                       0x4406 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/arch/x86_64/gdt.o
-                                       0x429a (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/arch/x86_64/interrupts.o
-                                       0x4703 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/core/log.o
-                                       0x4548 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/core/memory.o
-                                       0x4089 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/core/string.o
-                                       0x4277 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/diagnostics/profiler.o
-                                       0x518a (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/framebuffer.o
-                                       0x46b5 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/keyboard.o
-                                       0x4b18 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/pci.o
-                                       0x4405 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/pic.o
-                                       0x3f6c (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/pit.o
-                                       0x4390 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/rtc.o
-                                       0x416a (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/drivers/serial.o
-                                       0x4163 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/fs/ramfs.o
-                                       0x4af8 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/main.o
-                                       0x5c24 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/memory/allocator.o
-                                       0x4474 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/memory/kernel_virtual_memory.o
-                                       0x4ad1 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/memory/physical_memory.o
-                                       0x455c (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/memory/virtual_memory.o
-                                       0x49cc (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/net/network.o
-                                       0x544e (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/net/service.o
-                                       0x4a1c (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/shell/shell.o
-                                       0x5c92 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/task/scheduler.o
-                                       0x49c9 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/terminal.o
-                                       0x46e9 (size before relaxing)
- .debug_str     0x000000000000d6a5        0x0 build/obj/ui/ui.o
-                                       0x4574 (size before relaxing)
+.debug_str      0x0000000000000000     0x65e4
+ .debug_str     0x0000000000000000     0x65e4 build/obj/abi/service.o
+                                        0x1dc (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/apps/builtin.o
+                                        0x620 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/apps/framework.o
+                                        0x3a9 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/arch/x86_64/gdt.o
+                                        0x20c (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/arch/x86_64/interrupts.o
+                                        0x5a8 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/core/log.o
+                                        0x330 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/core/memory.o
+                                        0x18d (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/core/string.o
+                                        0x2ff (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/diagnostics/profiler.o
+                                        0x710 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/framebuffer.o
+                                        0x34f (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/keyboard.o
+                                        0x705 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/pci.o
+                                        0x3b9 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/pic.o
+                                        0x2ef (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/pit.o
+                                        0x385 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/rtc.o
+                                        0x22c (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/drivers/serial.o
+                                        0x23b (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/fs/ramfs.o
+                                        0x66e (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/main.o
+                                        0xd53 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/memory/allocator.o
+                                        0x359 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/memory/kernel_virtual_memory.o
+                                        0x6b5 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/memory/physical_memory.o
+                                        0x4e1 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/memory/virtual_memory.o
+                                        0x526 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/net/network.o
+                                        0xbb1 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/net/service.o
+                                        0x4ad (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/shell/shell.o
+                                        0xc9e (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/task/scheduler.o
+                                        0x544 (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/terminal.o
+                                        0x4db (size before relaxing)
+ .debug_str     0x00000000000065e4        0x0 build/obj/ui/ui.o
+                                        0x3b0 (size before relaxing)
 
 .debug_line_str
-                0x0000000000000000      0x7bb
+                0x0000000000000000      0x6b0
  .debug_line_str
-                0x0000000000000000      0x7bb build/obj/abi/service.o
-                                         0xf7 (size before relaxing)
+                0x0000000000000000      0x6b0 build/obj/abi/service.o
+                                         0x56 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/apps/builtin.o
-                                        0x1e9 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/apps/builtin.o
+                                        0x121 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/apps/framework.o
-                                         0xf4 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/apps/framework.o
+                                         0x7d (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/arch/x86_64/gdt.o
-                                         0xcb (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/arch/x86_64/gdt.o
+                                         0x5a (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/arch/x86_64/interrupts.o
-                                        0x114 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/arch/x86_64/interrupts.o
+                                         0x94 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/core/log.o
-                                        0x142 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/core/log.o
+                                         0xac (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/core/memory.o
-                                         0xc9 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/core/memory.o
+                                         0x55 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/core/string.o
-                                         0xc9 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/core/string.o
+                                         0x55 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/diagnostics/profiler.o
-                                        0x19e (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/diagnostics/profiler.o
+                                        0x11c (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/framebuffer.o
-                                        0x12a (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/framebuffer.o
+                                         0x8c (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/keyboard.o
-                                        0x10c (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/keyboard.o
+                                         0x96 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/pci.o
-                                         0xe8 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/pci.o
+                                         0x77 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/pic.o
-                                         0xba (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/pic.o
+                                         0x52 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/pit.o
-                                         0xf8 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/pit.o
+                                         0x87 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/rtc.o
-                                         0xe8 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/rtc.o
+                                         0x77 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/drivers/serial.o
-                                         0xf4 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/drivers/serial.o
+                                         0x80 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/fs/ramfs.o
-                                         0xe3 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/fs/ramfs.o
+                                         0x70 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/main.o
-                                        0x28f (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/main.o
+                                        0x1a2 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/memory/allocator.o
-                                         0xd9 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/memory/allocator.o
+                                         0x62 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/memory/kernel_virtual_memory.o
-                                        0x130 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/memory/kernel_virtual_memory.o
+                                         0xad (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/memory/physical_memory.o
-                                         0xf1 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/memory/physical_memory.o
+                                         0x74 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/memory/virtual_memory.o
-                                         0xed (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/memory/virtual_memory.o
+                                         0x84 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/net/network.o
-                                         0xcb (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/net/network.o
+                                         0x56 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/net/service.o
-                                         0xd7 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/net/service.o
+                                         0x62 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/shell/shell.o
-                                        0x292 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/shell/shell.o
+                                        0x1c4 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/task/scheduler.o
-                                         0xd5 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/task/scheduler.o
+                                         0x5e (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/terminal.o
-                                        0x129 (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/terminal.o
+                                         0x92 (size before relaxing)
  .debug_line_str
-                0x00000000000007bb        0x0 build/obj/ui/ui.o
-                                         0xff (size before relaxing)
+                0x00000000000006b0        0x0 build/obj/ui/ui.o
+                                         0x6a (size before relaxing)
 
-.debug_frame    0x0000000000000000     0x5628
- .debug_frame   0x0000000000000000       0x68 build/obj/abi/service.o
- .debug_frame   0x0000000000000068      0x308 build/obj/apps/builtin.o
- .debug_frame   0x0000000000000370      0x1f8 build/obj/apps/framework.o
- .debug_frame   0x0000000000000568       0xb8 build/obj/arch/x86_64/gdt.o
- .debug_frame   0x0000000000000620      0x308 build/obj/arch/x86_64/interrupts.o
- .debug_frame   0x0000000000000928      0x220 build/obj/core/log.o
- .debug_frame   0x0000000000000b48       0xb8 build/obj/core/memory.o
- .debug_frame   0x0000000000000c00      0x220 build/obj/core/string.o
- .debug_frame   0x0000000000000e20      0x1d0 build/obj/diagnostics/profiler.o
- .debug_frame   0x0000000000000ff0      0x290 build/obj/drivers/framebuffer.o
- .debug_frame   0x0000000000001280      0x540 build/obj/drivers/keyboard.o
- .debug_frame   0x00000000000017c0      0x2e8 build/obj/drivers/pci.o
- .debug_frame   0x0000000000001aa8      0x278 build/obj/drivers/pic.o
- .debug_frame   0x0000000000001d20      0x180 build/obj/drivers/pit.o
- .debug_frame   0x0000000000001ea0      0x1a8 build/obj/drivers/rtc.o
- .debug_frame   0x0000000000002048      0x180 build/obj/drivers/serial.o
- .debug_frame   0x00000000000021c8      0x720 build/obj/fs/ramfs.o
- .debug_frame   0x00000000000028e8      0x2c8 build/obj/main.o
- .debug_frame   0x0000000000002bb0      0x2f0 build/obj/memory/allocator.o
- .debug_frame   0x0000000000002ea0      0x2a0 build/obj/memory/kernel_virtual_memory.o
- .debug_frame   0x0000000000003140      0x3b0 build/obj/memory/physical_memory.o
- .debug_frame   0x00000000000034f0      0x420 build/obj/memory/virtual_memory.o
- .debug_frame   0x0000000000003910      0x958 build/obj/net/network.o
- .debug_frame   0x0000000000004268      0x108 build/obj/net/service.o
- .debug_frame   0x0000000000004370      0x748 build/obj/shell/shell.o
- .debug_frame   0x0000000000004ab8      0x658 build/obj/task/scheduler.o
- .debug_frame   0x0000000000005110      0x360 build/obj/terminal.o
- .debug_frame   0x0000000000005470      0x1b8 build/obj/ui/ui.o
+.debug_frame    0x0000000000000000     0x3680
+ .debug_frame   0x0000000000000000       0x48 build/obj/abi/service.o
+ .debug_frame   0x0000000000000048      0x320 build/obj/apps/builtin.o
+ .debug_frame   0x0000000000000368      0x1c8 build/obj/apps/framework.o
+ .debug_frame   0x0000000000000530       0x58 build/obj/arch/x86_64/gdt.o
+ .debug_frame   0x0000000000000588      0x1b8 build/obj/arch/x86_64/interrupts.o
+ .debug_frame   0x0000000000000740      0x170 build/obj/core/log.o
+ .debug_frame   0x00000000000008b0       0x78 build/obj/core/memory.o
+ .debug_frame   0x0000000000000928      0x178 build/obj/core/string.o
+ .debug_frame   0x0000000000000aa0      0x128 build/obj/diagnostics/profiler.o
+ .debug_frame   0x0000000000000bc8      0x240 build/obj/drivers/framebuffer.o
+ .debug_frame   0x0000000000000e08      0x2b8 build/obj/drivers/keyboard.o
+ .debug_frame   0x00000000000010c0      0x1e8 build/obj/drivers/pci.o
+ .debug_frame   0x00000000000012a8       0xf0 build/obj/drivers/pic.o
+ .debug_frame   0x0000000000001398      0x100 build/obj/drivers/pit.o
+ .debug_frame   0x0000000000001498       0xb8 build/obj/drivers/rtc.o
+ .debug_frame   0x0000000000001550       0xe0 build/obj/drivers/serial.o
+ .debug_frame   0x0000000000001630      0x6b8 build/obj/fs/ramfs.o
+ .debug_frame   0x0000000000001ce8       0x98 build/obj/main.o
+ .debug_frame   0x0000000000001d80      0x120 build/obj/memory/allocator.o
+ .debug_frame   0x0000000000001ea0      0x188 build/obj/memory/kernel_virtual_memory.o
+ .debug_frame   0x0000000000002028      0x1a0 build/obj/memory/physical_memory.o
+ .debug_frame   0x00000000000021c8      0x280 build/obj/memory/virtual_memory.o
+ .debug_frame   0x0000000000002448      0x738 build/obj/net/network.o
+ .debug_frame   0x0000000000002b80       0xe0 build/obj/net/service.o
+ .debug_frame   0x0000000000002c60      0x348 build/obj/shell/shell.o
+ .debug_frame   0x0000000000002fa8      0x260 build/obj/task/scheduler.o
+ .debug_frame   0x0000000000003208      0x2a0 build/obj/terminal.o
+ .debug_frame   0x00000000000034a8      0x1d8 build/obj/ui/ui.o
 
 .debug_rnglists
-                0x0000000000000000      0x286
+                0x0000000000000000     0x15a9
  .debug_rnglists
-                0x0000000000000000       0x17 build/obj/apps/framework.o
+                0x0000000000000000       0x59 build/obj/apps/builtin.o
  .debug_rnglists
-                0x0000000000000017       0x17 build/obj/arch/x86_64/interrupts.o
+                0x0000000000000059       0x29 build/obj/apps/framework.o
  .debug_rnglists
-                0x000000000000002e       0x17 build/obj/drivers/keyboard.o
+                0x0000000000000082       0x2b build/obj/arch/x86_64/gdt.o
  .debug_rnglists
-                0x0000000000000045       0x3c build/obj/drivers/pci.o
+                0x00000000000000ad       0x38 build/obj/arch/x86_64/interrupts.o
  .debug_rnglists
-                0x0000000000000081       0x36 build/obj/drivers/rtc.o
+                0x00000000000000e5       0xfe build/obj/core/log.o
  .debug_rnglists
-                0x00000000000000b7       0x36 build/obj/drivers/serial.o
+                0x00000000000001e3       0x51 build/obj/core/string.o
  .debug_rnglists
-                0x00000000000000ed       0x17 build/obj/fs/ramfs.o
+                0x0000000000000234       0x41 build/obj/diagnostics/profiler.o
  .debug_rnglists
-                0x0000000000000104       0x49 build/obj/main.o
+                0x0000000000000275       0x8b build/obj/drivers/framebuffer.o
  .debug_rnglists
-                0x000000000000014d       0x49 build/obj/memory/virtual_memory.o
+                0x0000000000000300       0xba build/obj/drivers/keyboard.o
  .debug_rnglists
-                0x0000000000000196       0x17 build/obj/net/network.o
+                0x00000000000003ba      0x2f6 build/obj/drivers/pci.o
  .debug_rnglists
-                0x00000000000001ad       0xa7 build/obj/shell/shell.o
+                0x00000000000006b0       0x1c build/obj/drivers/pic.o
  .debug_rnglists
-                0x0000000000000254       0x32 build/obj/task/scheduler.o
+                0x00000000000006cc       0x66 build/obj/drivers/rtc.o
+ .debug_rnglists
+                0x0000000000000732       0x54 build/obj/drivers/serial.o
+ .debug_rnglists
+                0x0000000000000786      0x2c6 build/obj/fs/ramfs.o
+ .debug_rnglists
+                0x0000000000000a4c       0x5d build/obj/main.o
+ .debug_rnglists
+                0x0000000000000aa9       0xaa build/obj/memory/allocator.o
+ .debug_rnglists
+                0x0000000000000b53       0x17 build/obj/memory/kernel_virtual_memory.o
+ .debug_rnglists
+                0x0000000000000b6a       0x75 build/obj/memory/physical_memory.o
+ .debug_rnglists
+                0x0000000000000bdf      0x129 build/obj/memory/virtual_memory.o
+ .debug_rnglists
+                0x0000000000000d08      0x3cd build/obj/net/network.o
+ .debug_rnglists
+                0x00000000000010d5      0x195 build/obj/shell/shell.o
+ .debug_rnglists
+                0x000000000000126a      0x2d0 build/obj/task/scheduler.o
+ .debug_rnglists
+                0x000000000000153a       0x58 build/obj/terminal.o
+ .debug_rnglists
+                0x0000000000001592       0x17 build/obj/ui/ui.o

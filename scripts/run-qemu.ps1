@@ -4,6 +4,7 @@ param(
     [int]$TimeoutSeconds = 12,
     [switch]$KeepRunning,
     [switch]$Display,
+    [switch]$Headless,
     [switch]$ShellTest,
     [switch]$SafeMode,
     [switch]$UseDiskImage,
@@ -266,7 +267,7 @@ if ($ShellTest -or $SafeMode) {
 } else {
     $arguments += @('-monitor', 'none')
 }
-if (-not $Display) {
+if ($Headless) {
     $arguments += @('-display', 'none')
 }
 
@@ -285,12 +286,13 @@ $success = $false
 $commandsSent = $false
 $safeKeySent = $false
 try {
+    $windowStyle = if ($Headless) { 'Hidden' } else { 'Normal' }
     $process = Start-Process `
         -FilePath $Qemu `
         -ArgumentList $arguments `
         -RedirectStandardOutput $StdoutLog `
         -RedirectStandardError $StderrLog `
-        -WindowStyle Hidden `
+        -WindowStyle $windowStyle `
         -PassThru
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)

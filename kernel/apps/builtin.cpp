@@ -44,64 +44,17 @@ void common_key(char character) {
     }
 }
 
-void draw_desktop() {
-    ui::desktop("KUROGANE OS " KUROGANE_VERSION_STRING);
-    const int32_t width = static_cast<int32_t>(graphics::width());
-    const int32_t height = static_cast<int32_t>(graphics::height());
-    const int32_t panel_width = width > 680 ? 620 : width - 40;
-    ui::Rect workspace{20, 58, panel_width, height - 110};
-    ui::panel(workspace, false);
-    ui::label({workspace.x + 18, workspace.y + 16, 300, 20},
-              "APPLICATIONS", ui::default_theme().text_muted, 2);
-    ui::button({workspace.x + 18, workspace.y + 48, 170, 46},
-               "M MONITOR");
-    ui::button({workspace.x + 206, workspace.y + 48, 170, 46},
-               "F FILES");
-    ui::button({workspace.x + 394, workspace.y + 48, 170, 46},
-               "A ABOUT");
-    ui::separator(workspace.x + 18, workspace.y + 112,
-                  workspace.width - 36);
-    ui::label({workspace.x + 18, workspace.y + 132, 500, 20},
-              "PRESS A KEY TO OPEN. Q RETURNS TO SHELL.",
-              ui::default_theme().text_muted, 2);
-
-    rtc::DateTime time{};
-    if (rtc::read(time)) {
-        char clock[32];
-        char number[8];
-        kstd::format_u64(clock, sizeof(clock), time.year);
-        kstd::append(clock, sizeof(clock), "-");
-        kstd::format_u64(number, sizeof(number), time.month);
-        if (time.month < 10) kstd::append(clock, sizeof(clock), "0");
-        kstd::append(clock, sizeof(clock), number);
-        kstd::append(clock, sizeof(clock), "-");
-        kstd::format_u64(number, sizeof(number), time.day);
-        if (time.day < 10) kstd::append(clock, sizeof(clock), "0");
-        kstd::append(clock, sizeof(clock), number);
-        kstd::append(clock, sizeof(clock), " ");
-        kstd::format_u64(number, sizeof(number), time.hour);
-        if (time.hour < 10) kstd::append(clock, sizeof(clock), "0");
-        kstd::append(clock, sizeof(clock), number);
-        kstd::append(clock, sizeof(clock), ":");
-        kstd::format_u64(number, sizeof(number), time.minute);
-        if (time.minute < 10) kstd::append(clock, sizeof(clock), "0");
-        kstd::append(clock, sizeof(clock), number);
-        ui::taskbar(clock);
-    } else {
-        ui::taskbar("DESKTOP READY");
-    }
-}
-
-bool desktop_start(const char*) {
-    if (!graphics::available()) {
-        return false;
-    }
-    draw_desktop();
-    return true;
-}
-
 void desktop_key(char character) {
     switch (character) {
+    case '1':
+        switch_to("monitor");
+        break;
+    case '2':
+        switch_to("files");
+        break;
+    case '3':
+        switch_to("about");
+        break;
     case 'm':
     case 'M':
         switch_to("monitor");
@@ -117,6 +70,57 @@ void desktop_key(char character) {
     default:
         common_key(character);
         break;
+    }
+}
+
+void draw_desktop() {
+    ui::desktop("KUROGANE OS");
+
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t button_width = 180;
+    const int32_t button_height = 60;
+    const int32_t spacing = 24;
+    const int32_t total_width = button_width * 3 + spacing * 2;
+    const int32_t start_x = (width - total_width) / 2;
+    const int32_t button_y = 90;
+
+    ui::button({start_x, button_y, button_width, button_height},
+               "1: Monitor", false);
+    ui::button({start_x + button_width + spacing, button_y,
+                button_width, button_height},
+               "2: Files", false);
+    ui::button({start_x + 2 * (button_width + spacing), button_y,
+                button_width, button_height},
+               "3: About", false);
+
+    const int32_t label_x = 32;
+    int32_t label_y = button_y + button_height + 36;
+    graphics::draw_text(label_x, label_y,
+                        "Press 1/2/3 to open an app",
+                        ui::default_theme().text,
+                        ui::default_theme().desktop, 2, true);
+    label_y += 28;
+    graphics::draw_text(label_x, label_y,
+                        "or Q to return to the shell",
+                        ui::default_theme().text_muted,
+                        ui::default_theme().desktop, 2, true);
+
+    ui::taskbar("1: Monitor  2: Files  3: About  Q: Return to shell");
+}
+
+bool desktop_start(const char*) {
+    if (!graphics::available()) {
+        return false;
+    }
+    draw_desktop();
+    return true;
+}
+
+void desktop_tick(uint64_t tick) {
+    static uint64_t last_draw = 0;
+    if (tick - last_draw >= 25) {
+        last_draw = tick;
+        draw_desktop();
     }
 }
 
@@ -277,7 +281,7 @@ bool register_all() {
     bool ok = true;
     ok = applications::register_application({
         "desktop", "graphical application launcher",
-        desktop_start, desktop_key, no_tick, no_stop
+        desktop_start, desktop_key, desktop_tick, no_stop
     }) == applications::Status::Ok && ok;
     ok = applications::register_application({
         "monitor", "live memory and hardware monitor",

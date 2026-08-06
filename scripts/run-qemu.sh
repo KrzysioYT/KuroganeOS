@@ -4,15 +4,15 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-smoke}"
 case "$mode" in
-    smoke) extra=(-LogName smoke) ;;
+    smoke) extra=(-Display -LogName smoke) ;;
     system)
-        extra=(-ShellTest -UseDiskImage -TimeoutSeconds 30 -LogName system)
+        extra=(-Display -ShellTest -UseDiskImage -TimeoutSeconds 30 -LogName system)
         ;;
     iso)
-        extra=(-UseIso -TimeoutSeconds 30 -LogName iso)
+        extra=(-Display -UseIso -TimeoutSeconds 30 -LogName iso)
         ;;
     safe)
-        extra=(-ShellTest -SafeMode -UseDiskImage -TimeoutSeconds 30 -LogName safe)
+        extra=(-Display -ShellTest -SafeMode -UseDiskImage -TimeoutSeconds 30 -LogName safe)
         ;;
     *)
         echo "usage: $0 {smoke|system|iso|safe}" >&2
