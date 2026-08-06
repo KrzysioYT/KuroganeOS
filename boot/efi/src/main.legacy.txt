@@ -1,0 +1,195 @@
+/* Archived pre-1.0 loader transcript; not part of the build. */
+
+#include <efi.h>
+#include <efilib.h>
+#include "elf.h"
+
+// Struktura przekazywana do kernela (musi być identyczna jak w kernel.hpp)
+typedef struct {
+    UINT32* base;
+    UINT32  width;
+    UINT32  height;
+    UINT32  pitch;
+    UINT32  bpp;
+} Framebuffer;
+
+// ============================================================
+//  Ładowanie pliku z ESP
+// ============================================================
+EFI_STATUS LoadFile(EFI_HANDLE ImageHandle, CHAR16* Path, VOID** Buffer, UINTN* Size) {
+    EFI_STATUS status;
+    EFI_LOADED_IMAGE* loaded_image = NULL;
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* fs = NULL;
+    EFI_FILE_PROTOCOL* root = NULL;
+    EFI_FILE_PROTOCOL* file = NULL;
+
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, ImageHandle, &LoadedImageProtocol, (void**)&loaded_image);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(BS->HandleProtocol, 3, loaded_image->DeviceHandle, &FileSystemProtocol, (void**)&fs);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(fs->OpenVolume, 2, fs, &root);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(root->Open, 5, root, &file, Path, EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR(status)) return status;
+
+    // Pobierz rozmiar
+    EFI_FILE_INFO* info;
+    UINTN info_size = sizeof(EFI_FILE_INFO) + 256;
+    status = uefi_call_wrapper(BS->AllocatePool, 3, EfiLoaderData, info_size, (void**)&info);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(file->GetInfo, 4, file, &GenericFileInfo, &info_size, info);
+    if (EFI_ERROR(status)) return status;
+
+    *Size = info->FileSize;
+
+    status = uefi_call_wrapper(BS->AllocatePool, 3, EfiLoaderData, *Size, Buffer);
+    if (EFI_ERROR(status)) return status;
+
+    status = uefi_call_wrapper(file->Read, 3, file, Size, *Buffer);
+    uefi_call_wrapper(file->Close, 1, file);
+    uefi_call_wrapper(BS->FreePool, 1, info);
+
+    return status;
+}
+
+// ============================================================
+//  Ładowanie i relokacja ELF64
+// ============================================================
+EFI_STATUS LoadKernel(VOID* FileBuffer, UINTN FileSize, Elf64_Addr* EntryPoint) {
+    Elf64_Ehdr* ehdr = (Elf64_Ehdr*)FileBuffer;
+
+    // Podstawowa walidacja
+    if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' ||
+        ehdr->e_ident[2] != 'L' || ehdr->e_ident[3] != 'F') {
+        Print(L"ERROR: Not a valid ELF file\r\n");
+        return EFI_INVALID_PARAMETER;
+    }
+
+    if (ehdr->e_machine != EM_X86_64) {
+        Print(L"ERROR: Not x86_64 ELF\r\n");
+        return EFI_INVALID_PARAMETER;
+    }
+
+    Elf64_Phdr* phdr = (Elf64_Phdr*)((UINT8*)FileBuffer + ehdr->e_phoff);
+
+    for (int i = 0; i < ehdr->e_phnum; i++) {
+        if (phdr[i].p_type != PT_LOAD) continue;
+
+        VOID* dest = (VOID*)phdr[i].p_vaddr;
+        UINTN pages = (phdr[i].p_memsz + 0xFFF) / 0x1000;
+
+        // Alokujemy strony pod segment
+        EFI_STATUS status = uefi_call_wrapper(BS->AllocatePages, 4,
+            AllocateAddress, EfiLoaderData, pages, (EFI_PHYSICAL_ADDRESS*)&dest);
+
+        if (EFI_ERROR(status)) {
+            // Jeśli nie udało się pod konkretny adres – alokujemy dowolny i kopiujemy
+            status = uefi_call_wrapper(BS->AllocatePages, 4,
+                AllocateAnyPages, EfiLoaderData, pages, (EFI_PHYSICAL_ADDRESS*)&dest);
+            if (EFI_ERROR(status)) {
+                Print(L"ERROR: Cannot allocate memory for segment\r\n");
+                return status;
+            }
+        }
+
+        // Kopiujemy dane
+        CopyMem(dest, (UINT8*)FileBuffer + phdr[i].p_offset, phdr[i].p_filesz);
+
+        // Zerujemy resztę (bss)
+        if (phdr[i].p_memsz > phdr[i].p_filesz) {
+            ZeroMem((UINT8*)dest + phdr[i].p_filesz, phdr[i].p_memsz - phdr[i].p_filesz);
+        }
+    }
+
+    *EntryPoint = ehdr->e_entry;
+    return EFI_SUCCESS;
+}
+
+// ============================================================
+//  Główna funkcja
+// ============================================================
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable) {
+    InitializeLib(ImageHandle, SystemTable);
+
+    Print(L"*** KuroganeOS v0.0.1.1 ***\r\n");
+    Print(L"Hello from UEFI bootloader!\r\n");
+    Print(L"Loading kernel...\r\n\r\n");
+
+    // ------------------------------------------------
+    // 1. Graphics Output Protocol (GOP)
+    // ------------------------------------------------
+    EFI_GUID gopGuid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* gop = NULL;
+
+    EFI_STATUS status = uefi_call_wrapper(BS->LocateProtocol, 3, &gopGuid, NULL, (void**)&gop);
+    if (EFI_ERROR(status)) {
+        Print(L"ERROR: Cannot locate GOP\r\n");
+        return status;
+    }
+
+    // Opcjonalnie: ustaw tryb (0 = native)
+    // uefi_call_wrapper(gop->SetMode, 2, gop, 0);
+
+    Print(L"Framebuffer: %dx%d @ 0x%lx\r\n",
+          gop->Mode->Info->HorizontalResolution,
+          gop->Mode->Info->VerticalResolution,
+          gop->Mode->FrameBufferBase);
+
+    // ------------------------------------------------
+    // 2. Załaduj kernel.elf
+    // ------------------------------------------------
+    VOID* kernel_buffer = NULL;
+    UINTN kernel_size = 0;
+
+    status = LoadFile(ImageHandle, L"\\kernel.elf", &kernel_buffer, &kernel_size);
+    if (EFI_ERROR(status)) {
+        Print(L"ERROR: Cannot load \\kernel.elf (status %r)\r\n", status);
+        Print(L"Make sure kernel.elf is in the root of the ESP!\r\n");
+        return status;
+    }
+
+    Print(L"Kernel loaded: %d bytes\r\n", kernel_size);
+
+    // ------------------------------------------------
+    // 3. Załaduj i zrelokuj ELF
+    // ------------------------------------------------
+    Elf64_Addr entry_point = 0;
+    status = LoadKernel(kernel_buffer, kernel_size, &entry_point);
+    if (EFI_ERROR(status)) {
+        Print(L"ERROR: Failed to load ELF\r\n");
+        return status;
+    }
+
+    Print(L"Kernel entry point: 0x%lx\r\n", entry_point);
+
+    // ------------------------------------------------
+    // 4. Przygotuj strukturę Framebuffer
+    // ------------------------------------------------
+    Framebuffer fb;
+    fb.base   = (UINT32*)gop->Mode->FrameBufferBase;
+    fb.width  = gop->Mode->Info->HorizontalResolution;
+    fb.height = gop->Mode->Info->VerticalResolution;
+    fb.pitch  = gop->Mode->Info->PixelsPerScanLine * 4; // zakładamy 32 bpp
+    fb.bpp    = 32;
+
+    // ------------------------------------------------
+    // 5. Skok do kernela
+    // ------------------------------------------------
+    Print(L"\r\nJumping to kernel...\r\n");
+
+    typedef void (*KernelEntry)(Framebuffer*);
+    KernelEntry kernel_entry = (KernelEntry)(UINT64)entry_point;
+
+    __asm__ volatile(
+        "movq %[fb], %%rdi\n"
+        "jmp *%[entry]\n"
+        :
+        : [fb] "r"(&fb), [entry] "r"(kernel_entry)
+        : "rdi", "memory"
+    );
+
+    return EFI_SUCCESS;

@@ -1,0 +1,34 @@
+.DELETE_ON_ERROR:
+
+CXX ?= g++
+KUROGANE_SYSROOT ?=
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror
+CPPFLAGS ?=
+
+TARGET := build/@PROJECT_NAME@.o
+SOURCE := src/capability_probe.cpp
+
+.PHONY: all clean check-sysroot explain
+
+all: $(TARGET)
+
+check-sysroot:
+	@test -n "$(KUROGANE_SYSROOT)" || { \
+		echo "KUROGANE_SYSROOT is required (for example: /opt/kurogane/sysroot)" >&2; \
+		exit 2; \
+	}
+	@test -f "$(KUROGANE_SYSROOT)/usr/include/kurogane/abi.h" || { \
+		echo "KuroganeOS SDK headers not found under KUROGANE_SYSROOT=$(KUROGANE_SYSROOT)" >&2; \
+		exit 2; \
+	}
+
+$(TARGET): $(SOURCE) check-sysroot
+	@mkdir -p build
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -ffreestanding -fno-exceptions -fno-rtti \
+		-I"$(KUROGANE_SYSROOT)/usr/include" -c $(SOURCE) -o $(TARGET)
+
+explain:
+	@echo "compile-only: no KuroganeOS application linker/startup/syscall runtime exists"
+
+clean:
+	rm -rf -- build

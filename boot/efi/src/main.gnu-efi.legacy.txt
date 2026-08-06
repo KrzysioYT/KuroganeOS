@@ -1,0 +1,475 @@
+/*
+ * Archived GNU-EFI prototype from before the 1.0 boot contract.
+ * It is intentionally not compiled. The canonical, ET_DYN-aware loader is
+ * boot/efi/standalone.c and is built by scripts/build.ps1.
+ */
+#include <efi.h>
+#include <efilib.h>
+
+#include "../../include/elf.h"
+#include "../../../common/boot_protocol.h"
+
+#define PAGE_MASK UINT64_C(0xFFF)
+#define MEMORY_MAP_SLACK_DESCRIPTORS 32
+
+typedef struct LoadedKernel {
+    Elf64_Addr entry;
+    EFI_PHYSICAL_ADDRESS start;
+    EFI_PHYSICAL_ADDRESS end;
+} LoadedKernel;
+
+typedef struct RawMemoryMap {
+    VOID* buffer;
+    UINTN capacity;
+    UINTN size;
+    UINTN key;
+    UINTN descriptor_size;
+    UINT32 descriptor_version;
+} RawMemoryMap;
+
+static BOOLEAN RangeInside(UINT64 offset, UINT64 length, UINT64 total) {
+    return offset <= total && length <= total - offset;
+}
+
+static EFI_STATUS LoadFile(EFI_HANDLE image_handle, CHAR16* path,
+                           VOID** output, UINTN* output_size) {
+    EFI_STATUS status;
+    EFI_LOADED_IMAGE* loaded_image = NULL;
+    EFI_SIMPLE_FILE_SYSTEM_PROTOCOL* filesystem = NULL;
+    EFI_FILE_PROTOCOL* root = NULL;
+    EFI_FILE_PROTOCOL* file = NULL;
+    EFI_FILE_INFO* information = NULL;
+    UINTN information_size = sizeof(EFI_FILE_INFO) + 512;
+
+    if (!path || !output || !output_size) {
+        return EFI_INVALID_PARAMETER;
+    }
+    *output = NULL;
+    *output_size = 0;
+
+    status = uefi_call_wrapper(
+        BS->HandleProtocol, 3, image_handle, &LoadedImageProtocol,
+        (VOID**)&loaded_image);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    status = uefi_call_wrapper(
+        BS->HandleProtocol, 3, loaded_image->DeviceHandle,
+        &FileSystemProtocol, (VOID**)&filesystem);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    status = uefi_call_wrapper(filesystem->OpenVolume, 2, filesystem, &root);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    status = uefi_call_wrapper(
+        root->Open, 5, root, &file, path, EFI_FILE_MODE_READ, 0);
+    if (EFI_ERROR(status)) {
+        uefi_call_wrapper(root->Close, 1, root);
+        return status;
+    }
+
+    status = uefi_call_wrapper(
+        BS->AllocatePool, 3, EfiLoaderData, information_size,
+        (VOID**)&information);
+    if (EFI_ERROR(status)) {
+        goto cleanup;
+    }
+    status = uefi_call_wrapper(
+        file->GetInfo, 4, file, &GenericFileInfo, &information_size,
+        information);
+    if (EFI_ERROR(status) || information->FileSize == 0 ||
+        information->FileSize > (UINT64)(~(UINTN)0)) {
+        if (!EFI_ERROR(status)) {
+            status = EFI_LOAD_ERROR;
+        }
+        goto cleanup;
+    }
+
+    *output_size = (UINTN)information->FileSize;
+    status = uefi_call_wrapper(
+        BS->AllocatePool, 3, EfiLoaderData, *output_size, output);
+    if (EFI_ERROR(status)) {
+        goto cleanup;
+    }
+
+    {
+        UINTN bytes_to_read = *output_size;
+        status = uefi_call_wrapper(file->Read, 3, file, &bytes_to_read, *output);
+        if (EFI_ERROR(status) || bytes_to_read != *output_size) {
+            if (!EFI_ERROR(status)) {
+                status = EFI_END_OF_FILE;
+            }
+            uefi_call_wrapper(BS->FreePool, 1, *output);
+            *output = NULL;
+            *output_size = 0;
+        }
+    }
+
+cleanup:
+    if (information) {
+        uefi_call_wrapper(BS->FreePool, 1, information);
+    }
+    if (file) {
+        uefi_call_wrapper(file->Close, 1, file);
+    }
+    if (root) {
+        uefi_call_wrapper(root->Close, 1, root);
+    }
+    return status;
+}
+
+static EFI_STATUS ValidateAndLoadKernel(const VOID* file_buffer,
+                                        UINTN file_size,
+                                        LoadedKernel* output) {
+    const Elf64_Ehdr* header;
+    const Elf64_Phdr* programs;
+    EFI_PHYSICAL_ADDRESS image_start = ~(EFI_PHYSICAL_ADDRESS)0;
+    EFI_PHYSICAL_ADDRESS image_end = 0;
+    BOOLEAN entry_is_executable = FALSE;
+    UINTN load_count = 0;
+    UINTN index;
+
+    if (!file_buffer || !output || file_size < sizeof(Elf64_Ehdr)) {
+        return EFI_INVALID_PARAMETER;
+    }
+    header = (const Elf64_Ehdr*)file_buffer;
+    if (header->e_ident[0] != 0x7F || header->e_ident[1] != 'E' ||
+        header->e_ident[2] != 'L' || header->e_ident[3] != 'F' ||
+        header->e_ident[4] != ELFCLASS64 ||
+        header->e_ident[5] != ELFDATA2LSB ||
+        header->e_ident[6] != EV_CURRENT ||
+        header->e_type != ET_EXEC || header->e_machine != EM_X86_64 ||
+        header->e_version != EV_CURRENT ||
+        header->e_ehsize != sizeof(Elf64_Ehdr) ||
+        header->e_phentsize != sizeof(Elf64_Phdr) ||
+        header->e_phnum == 0) {
+        return EFI_LOAD_ERROR;
+    }
+    if (!RangeInside(
+            header->e_phoff,
+            (UINT64)header->e_phnum * sizeof(Elf64_Phdr),
+            file_size)) {
+        return EFI_LOAD_ERROR;
+    }
+    programs = (const Elf64_Phdr*)(
+        (const UINT8*)file_buffer + header->e_phoff);
+
+    for (index = 0; index < header->e_phnum; ++index) {
+        const Elf64_Phdr* program = &programs[index];
+        UINT64 segment_end;
+        if (program->p_type != PT_LOAD) {
+            continue;
+        }
+        if (program->p_filesz > program->p_memsz ||
+            !RangeInside(program->p_offset, program->p_filesz, file_size) ||
+            program->p_vaddr > UINT64_MAX - program->p_memsz) {
+            return EFI_LOAD_ERROR;
+        }
+        if (program->p_align > 1 &&
+            (program->p_align & (program->p_align - 1)) != 0) {
+            return EFI_LOAD_ERROR;
+        }
+        segment_end = program->p_vaddr + program->p_memsz;
+        if ((program->p_vaddr & ~PAGE_MASK) < image_start) {
+            image_start = program->p_vaddr & ~PAGE_MASK;
+        }
+        if (segment_end > UINT64_MAX - PAGE_MASK) {
+            return EFI_LOAD_ERROR;
+        }
+        segment_end = (segment_end + PAGE_MASK) & ~PAGE_MASK;
+        if (segment_end > image_end) {
+            image_end = segment_end;
+        }
+        if ((program->p_flags & PF_X) &&
+            header->e_entry >= program->p_vaddr &&
+            header->e_entry < program->p_vaddr + program->p_memsz) {
+            entry_is_executable = TRUE;
+        }
+        ++load_count;
+    }
+
+    if (load_count == 0 || !entry_is_executable ||
+        image_start >= image_end ||
+        image_end - image_start > (UINT64)(~(UINTN)0)) {
+        return EFI_LOAD_ERROR;
+    }
+
+    {
+        EFI_PHYSICAL_ADDRESS allocation = image_start;
+        UINTN pages = (UINTN)((image_end - image_start) / KUROGANE_PAGE_SIZE);
+        EFI_STATUS status = uefi_call_wrapper(
+            BS->AllocatePages, 4, AllocateAddress, EfiLoaderData, pages,
+            &allocation);
+        if (EFI_ERROR(status) || allocation != image_start) {
+            return EFI_OUT_OF_RESOURCES;
+        }
+        SetMem((VOID*)(UINTN)image_start, pages * KUROGANE_PAGE_SIZE, 0);
+    }
+
+    for (index = 0; index < header->e_phnum; ++index) {
+        const Elf64_Phdr* program = &programs[index];
+        if (program->p_type == PT_LOAD && program->p_filesz != 0) {
+            CopyMem(
+                (VOID*)(UINTN)program->p_vaddr,
+                (const UINT8*)file_buffer + program->p_offset,
+                (UINTN)program->p_filesz);
+        }
+    }
+
+    output->entry = header->e_entry;
+    output->start = image_start;
+    output->end = image_end;
+    return EFI_SUCCESS;
+}
+
+static UINT32 NormalizeMemoryType(UINT32 type) {
+    switch ((EFI_MEMORY_TYPE)type) {
+    case EfiConventionalMemory:
+        return KUROGANE_MEMORY_USABLE;
+    case EfiACPIReclaimMemory:
+        return KUROGANE_MEMORY_ACPI_RECLAIMABLE;
+    case EfiACPIMemoryNVS:
+        return KUROGANE_MEMORY_ACPI_NVS;
+    case EfiMemoryMappedIO:
+    case EfiMemoryMappedIOPortSpace:
+        return KUROGANE_MEMORY_MMIO;
+    default:
+        return KUROGANE_MEMORY_RESERVED;
+    }
+}
+
+static BOOLEAN NormalizePixelFormat(
+    EFI_GRAPHICS_PIXEL_FORMAT format,
+    UINT32* output) {
+    if (!output) {
+        return FALSE;
+    }
+    switch (format) {
+    case PixelBlueGreenRedReserved8BitPerColor:
+        *output = KUROGANE_PIXEL_BGRX8;
+        return TRUE;
+    case PixelRedGreenBlueReserved8BitPerColor:
+        *output = KUROGANE_PIXEL_RGBX8;
+        return TRUE;
+    default:
+        /* PixelBitMask wymaga przekazania masek kanałów w protokole. */
+        return FALSE;
+    }
+}
+
+static EFI_STATUS AllocateRawMemoryMap(RawMemoryMap* map) {
+    EFI_STATUS status;
+    UINTN required = 0;
+    UINTN key = 0;
+    UINTN descriptor_size = 0;
+    UINT32 descriptor_version = 0;
+
+    if (!map) {
+        return EFI_INVALID_PARAMETER;
+    }
+    SetMem(map, sizeof(*map), 0);
+    status = uefi_call_wrapper(
+        BS->GetMemoryMap, 5, &required, NULL, &key, &descriptor_size,
+        &descriptor_version);
+    if (status != EFI_BUFFER_TOO_SMALL || descriptor_size == 0) {
+        return EFI_LOAD_ERROR;
+    }
+    if (required > (UINTN)(~(UINTN)0) -
+                       descriptor_size * MEMORY_MAP_SLACK_DESCRIPTORS) {
+        return EFI_OUT_OF_RESOURCES;
+    }
+    map->capacity =
+        required + descriptor_size * MEMORY_MAP_SLACK_DESCRIPTORS;
+    status = uefi_call_wrapper(
+        BS->AllocatePool, 3, EfiLoaderData, map->capacity, &map->buffer);
+    if (EFI_ERROR(status)) {
+        SetMem(map, sizeof(*map), 0);
+        return status;
+    }
+    map->descriptor_size = descriptor_size;
+    map->descriptor_version = descriptor_version;
+    return EFI_SUCCESS;
+}
+
+static UINTN FillNormalizedMap(const RawMemoryMap* raw,
+                               KuroganeMemoryRegion* regions,
+                               UINTN capacity) {
+    UINTN count = 0;
+    UINTN offset;
+    for (offset = 0; offset + raw->descriptor_size <= raw->size;
+         offset += raw->descriptor_size) {
+        const EFI_MEMORY_DESCRIPTOR* descriptor =
+            (const EFI_MEMORY_DESCRIPTOR*)((const UINT8*)raw->buffer + offset);
+        KuroganeMemoryRegion* region;
+        if (descriptor->NumberOfPages == 0 || count >= capacity) {
+            continue;
+        }
+        region = &regions[count++];
+        region->physical_start = descriptor->PhysicalStart;
+        region->page_count = descriptor->NumberOfPages;
+        region->type = NormalizeMemoryType(descriptor->Type);
+        region->reserved = 0;
+        region->attributes = descriptor->Attribute;
+    }
+    return count;
+}
+
+static EFI_STATUS ExitBootServicesWithMap(
+    EFI_HANDLE image_handle, RawMemoryMap* raw,
+    KuroganeMemoryRegion* regions, UINTN region_capacity,
+    UINTN* region_count) {
+    UINTN attempt;
+    for (attempt = 0; attempt < 8; ++attempt) {
+        EFI_STATUS status;
+        raw->size = raw->capacity;
+        status = uefi_call_wrapper(
+            BS->GetMemoryMap, 5, &raw->size, raw->buffer, &raw->key,
+            &raw->descriptor_size, &raw->descriptor_version);
+        if (EFI_ERROR(status)) {
+            return status;
+        }
+        *region_count = FillNormalizedMap(raw, regions, region_capacity);
+        if (*region_count == 0) {
+            return EFI_LOAD_ERROR;
+        }
+        status = uefi_call_wrapper(
+            BS->ExitBootServices, 2, image_handle, raw->key);
+        if (!EFI_ERROR(status)) {
+            return EFI_SUCCESS;
+        }
+        if (status != EFI_INVALID_PARAMETER) {
+            return status;
+        }
+    }
+    return EFI_ABORTED;
+}
+
+static UINT64 FindRsdp(EFI_SYSTEM_TABLE* system_table) {
+    EFI_GUID acpi20 = ACPI_20_TABLE_GUID;
+    EFI_GUID acpi10 = ACPI_TABLE_GUID;
+    UINTN index;
+    UINT64 fallback = 0;
+    for (index = 0; index < system_table->NumberOfTableEntries; ++index) {
+        EFI_CONFIGURATION_TABLE* table =
+            &system_table->ConfigurationTable[index];
+        if (CompareGuid(&table->VendorGuid, &acpi20) == 0) {
+            return (UINT64)(UINTN)table->VendorTable;
+        }
+        if (CompareGuid(&table->VendorGuid, &acpi10) == 0) {
+            fallback = (UINT64)(UINTN)table->VendorTable;
+        }
+    }
+    return fallback;
+}
+
+EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
+                           EFI_SYSTEM_TABLE* system_table) {
+    EFI_STATUS status;
+    EFI_GRAPHICS_OUTPUT_PROTOCOL* graphics = NULL;
+    EFI_GUID graphics_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+    VOID* kernel_file = NULL;
+    UINTN kernel_file_size = 0;
+    LoadedKernel kernel = {0, 0, 0};
+    KuroganeBootInfo* boot_info = NULL;
+    RawMemoryMap raw_map;
+    KuroganeMemoryRegion* regions = NULL;
+    UINT32 protocol_pixel_format = KUROGANE_PIXEL_BLT_ONLY;
+    UINTN region_capacity;
+    UINTN region_count = 0;
+
+    InitializeLib(image_handle, system_table);
+    Print(L"KuroganeOS loader 0.1\r\n");
+
+    status = uefi_call_wrapper(
+        BS->LocateProtocol, 3, &graphics_guid, NULL, (VOID**)&graphics);
+    if (EFI_ERROR(status) || !graphics || !graphics->Mode ||
+        !graphics->Mode->Info ||
+        !NormalizePixelFormat(
+            graphics->Mode->Info->PixelFormat,
+            &protocol_pixel_format)) {
+        Print(L"ERROR: usable GOP framebuffer not found (%r)\r\n", status);
+        return EFI_UNSUPPORTED;
+    }
+
+    status = LoadFile(image_handle, L"\\kernel.elf",
+                      &kernel_file, &kernel_file_size);
+    if (EFI_ERROR(status)) {
+        Print(L"ERROR: cannot read kernel.elf (%r)\r\n", status);
+        return status;
+    }
+    status = ValidateAndLoadKernel(kernel_file, kernel_file_size, &kernel);
+    uefi_call_wrapper(BS->FreePool, 1, kernel_file);
+    if (EFI_ERROR(status)) {
+        Print(L"ERROR: invalid or unloadable kernel ELF (%r)\r\n", status);
+        return status;
+    }
+
+    status = uefi_call_wrapper(
+        BS->AllocatePool, 3, EfiLoaderData, sizeof(KuroganeBootInfo),
+        (VOID**)&boot_info);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    SetMem(boot_info, sizeof(*boot_info), 0);
+
+    status = AllocateRawMemoryMap(&raw_map);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    region_capacity =
+        raw_map.capacity / raw_map.descriptor_size +
+        MEMORY_MAP_SLACK_DESCRIPTORS;
+    if (region_capacity > (UINTN)(~(UINTN)0) /
+                              sizeof(KuroganeMemoryRegion)) {
+        return EFI_OUT_OF_RESOURCES;
+    }
+    status = uefi_call_wrapper(
+        BS->AllocatePool, 3, EfiLoaderData,
+        region_capacity * sizeof(KuroganeMemoryRegion), (VOID**)&regions);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    SetMem(regions, region_capacity * sizeof(KuroganeMemoryRegion), 0);
+
+    boot_info->magic = KUROGANE_BOOT_MAGIC;
+    boot_info->version = KUROGANE_BOOT_PROTOCOL_VERSION;
+    boot_info->size = sizeof(*boot_info);
+    boot_info->framebuffer.base =
+        (UINT32*)(UINTN)graphics->Mode->FrameBufferBase;
+    boot_info->framebuffer.width =
+        graphics->Mode->Info->HorizontalResolution;
+    boot_info->framebuffer.height =
+        graphics->Mode->Info->VerticalResolution;
+    boot_info->framebuffer.pitch =
+        graphics->Mode->Info->PixelsPerScanLine * sizeof(UINT32);
+    boot_info->framebuffer.bpp = 32;
+    boot_info->framebuffer.pixel_format = protocol_pixel_format;
+    boot_info->memory_regions = regions;
+    boot_info->rsdp_address = FindRsdp(system_table);
+    boot_info->kernel_physical_start = kernel.start;
+    boot_info->kernel_physical_end = kernel.end;
+
+    Print(L"Kernel 0x%lx..0x%lx, entry 0x%lx\r\n",
+          kernel.start, kernel.end, kernel.entry);
+    Print(L"Framebuffer %ux%u\r\n",
+          boot_info->framebuffer.width, boot_info->framebuffer.height);
+
+    status = ExitBootServicesWithMap(
+        image_handle, &raw_map, regions, region_capacity, &region_count);
+    if (EFI_ERROR(status)) {
+        return status;
+    }
+    boot_info->memory_region_count = region_count;
+
+    {
+        KuroganeKernelEntry entry =
+            (KuroganeKernelEntry)(UINTN)kernel.entry;
+        entry(boot_info);
+    }
+
+    for (;;) {
+        __asm__ volatile("cli; hlt");
+    }
+}

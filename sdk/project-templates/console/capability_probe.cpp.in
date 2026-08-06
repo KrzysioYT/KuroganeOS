@@ -1,0 +1,21 @@
+#include <kurogane/abi.h>
+
+// Compile-only console project contract. There is deliberately no entry point:
+// KuroganeOS does not expose a user-mode startup or console syscall ABI yet.
+extern "C" uint64_t @PROJECT_SYMBOL@_required_features() {
+    return @REQUIRED_FEATURES@;
+}
+
+extern "C" ku_status_t @PROJECT_SYMBOL@_check_runtime(
+    const ku_abi_descriptor* descriptor) {
+    const ku_status_t status = ku_abi_validate_descriptor(descriptor);
+    if (!ku_status_is_success(status)) {
+        return status;
+    }
+
+    const uint64_t required = @PROJECT_SYMBOL@_required_features();
+    if ((descriptor->available_features & required) != required) {
+        return KU_STATUS_NOT_SUPPORTED;
+    }
+    return KU_STATUS_OK;
+}

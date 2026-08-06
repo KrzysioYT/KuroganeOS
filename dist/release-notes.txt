@@ -1,0 +1,12 @@
+KuroganeOS 1.0 live preview
+
+This is a bootable UEFI kernel demonstration, not an installable desktop
+release. It was tested with QEMU q35 and EDK2 at 256 MiB RAM.
+
+Verified: UEFI loader, PIE kernel, framebuffer terminal, allocator self-test,
+IDT/PIC/PIT, PS/2 keyboard, PCI enumeration, RAMFS shell, loopback network
+algorithms and kernel-resident GUI applications.
+
+Not implemented: user mode, process isolation, persistent storage, VFS,
+storage/NIC/audio drivers, installer, first boot, package manager, updates,
+recovery and Secure Boot.

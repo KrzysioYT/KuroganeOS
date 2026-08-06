@@ -1,0 +1,21 @@
+{
+  "name": "KuroganeOS",
+  "version": "1.0-live-preview",
+  "architecture": "x86_64",
+  "build_id": "sha256:ca4ebb6e4d288b3a",
+  "git_commit": null,
+  "iso_size": 67485696,
+  "iso_sha256": "ca4ebb6e4d288b3ad213239bd949c53b510656b91c9ebdcf59e1bead279875af",
+  "firmware": "UEFI",
+  "minimum_tested_ram_mib": 256,
+  "supported_storage_controllers": [],
+  "supported_network_adapters": [],
+  "secure_boot": false,
+  "artifact_kind": "live-preview",
+  "known_limitations": [
+    "No installer or persistent storage",
+    "No user mode or process isolation",
+    "No block-device or NIC driver",
+    "QEMU/EDK2 is the only tested platform"
+  ]
+}

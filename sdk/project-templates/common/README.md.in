@@ -1,0 +1,20 @@
+# @PROJECT_NAME@
+
+This is a KuroganeOS `@TEMPLATE@` SDK scaffold. At the current Developer
+checkpoint it intentionally builds **only a freestanding object file**. The
+system does not yet expose ring-3 startup code, a syscall transport, or an
+application linker contract, so this project cannot be linked or run.
+
+The generated capability probe performs real ABI validation and requires these
+future runtime features: `@REQUIRED_FEATURE_NAMES@`. It returns
+`KU_STATUS_NOT_SUPPORTED` when the supplied kernel ABI descriptor does not
+advertise all of them.
+
+Build against a generated SDK sysroot:
+
+```sh
+make KUROGANE_SYSROOT=/path/to/kurogane/sysroot
+```
+
+The only expected artifact is `build/@PROJECT_NAME@.o`. Do not treat successful
+object compilation as evidence that the template can execute on KuroganeOS.
