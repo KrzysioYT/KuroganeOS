@@ -77,7 +77,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1
 
 Test uruchamia maszynę `q35` z 256 MiB RAM, zapisuje konsolę szeregową do
 `build/qemu-serial.log`, czeka na prompt `kurogane:/ $`, a następnie zatrzymuje
-maszynę. Limit czasu można zmienić, na przykład:
+maszynę. Podczas startu loader obsługuje wybór trybu:
+- `D` uruchamia desktop bezpośrednio,
+- `S` lub `F8` wchodzi w safe mode,
+- `X` uruchamia tryb diagnostyczny.
+Limit czasu można zmienić, na przykład:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -TimeoutSeconds 30

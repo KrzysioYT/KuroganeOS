@@ -851,17 +851,18 @@ static UINT64 find_rsdp(EFI_SYSTEM_TABLE* system_table) {
     return fallback;
 }
 
-static BOOLEAN safe_mode_requested(EFI_SYSTEM_TABLE* system_table) {
+static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
     static const UINT16 scan_f8 = 0x12;
     UINTN attempt;
     if (!system_table || !system_table->BootServices ||
         !system_table->ConIn || !system_table->ConIn->ReadKeyStroke) {
-        return FALSE;
+        return 0;
     }
 
     console_write(
         system_table,
-        (const CHAR16*)L"Press S or F8 for safe mode...\r\n");
+        (const CHAR16*)L"Press D for desktop, S or F8 for safe mode, "
+                        L"X for diagnostics...\r\n");
     for (attempt = 0; attempt < 75; ++attempt) {
         EFI_INPUT_KEY key;
         EFI_STATUS status;
@@ -869,19 +870,33 @@ static BOOLEAN safe_mode_requested(EFI_SYSTEM_TABLE* system_table) {
         key.UnicodeChar = 0;
         status = system_table->ConIn->ReadKeyStroke(
             system_table->ConIn, &key);
-        if (!EFI_ERROR(status) &&
-            (key.ScanCode == scan_f8 || key.UnicodeChar == 's' ||
-             key.UnicodeChar == 'S')) {
-            console_write(
-                system_table,
-                (const CHAR16*)L"Safe mode requested\r\n");
-            return TRUE;
+        if (!EFI_ERROR(status)) {
+            if (key.ScanCode == scan_f8 || key.UnicodeChar == 's' ||
+                key.UnicodeChar == 'S') {
+                console_write(
+                    system_table,
+                    (const CHAR16*)L"Safe mode requested\r\n");
+                return KUROGANE_BOOT_FLAG_SAFE_MODE;
+            }
+            if (key.UnicodeChar == 'd' || key.UnicodeChar == 'D') {
+                console_write(
+                    system_table,
+                    (const CHAR16*)L"Desktop mode requested\r\n");
+                return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
+            }
+            if (key.UnicodeChar == 'x' || key.UnicodeChar == 'X') {
+                console_write(
+                    system_table,
+                    (const CHAR16*)L"Diagnostics mode requested\r\n");
+                return KUROGANE_BOOT_FLAG_SAFE_MODE |
+                       KUROGANE_BOOT_FLAG_DIAGNOSTICS;
+            }
         }
         if (system_table->BootServices->Stall) {
             system_table->BootServices->Stall(10000);
         }
     }
-    return FALSE;
+    return 0;
 }
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
@@ -894,7 +909,6 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     UINTN kernel_file_pages = 0;
     LoadedKernel kernel;
     EFI_STATUS status;
-    BOOLEAN safe_mode;
 
     if (!system_table || !system_table->BootServices) {
         return EFI_INVALID_PARAMETER;
@@ -903,7 +917,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     console_write(
         system_table,
         (const CHAR16*)L"KuroganeOS loader " KUROGANE_VERSION_WIDE L"\r\n");
-    safe_mode = safe_mode_requested(system_table);
+    const UINT64 boot_flags = request_boot_flags(system_table);
 
     status = services->HandleProtocol(
         system_table->ConsoleOutHandle,
@@ -955,7 +969,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     boot_info->rsdp_address = find_rsdp(system_table);
     boot_info->kernel_physical_start = kernel.start;
     boot_info->kernel_physical_end = kernel.end;
-    boot_info->flags = safe_mode ? KUROGANE_BOOT_FLAG_SAFE_MODE : 0;
+    boot_info->flags = boot_flags;
     console_write(system_table,
                   (const CHAR16*)L"Exiting boot services...\r\n");
 
