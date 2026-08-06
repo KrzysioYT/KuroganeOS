@@ -1,55 +1,98 @@
 # KuroganeOS 1.0
 
-KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym uruchamianym
-przez UEFI. Wydanie 1.0 łączy własny bootloader, kernel, terminal, podstawowe
-sterowniki, RAMFS, kooperacyjny planista, stos sieciowy z interfejsem loopback
-oraz proste aplikacje graficzne.
+KuroganeOS to edukacyjny, 64-bitowy system operacyjny uruchamiany w środowisku UEFI. Wersja 1.0 zawiera własny bootloader, jądro systemu, terminal, podstawowe sterowniki, system plików RAMFS, kooperacyjny planista zadań, podstawowy stos sieciowy z interfejsem loopback oraz proste aplikacje graficzne.
 
-Określenie „1.0” oznacza tutaj pierwszy kompletny i uruchamialny zakres
-projektu, a nie gotowość produkcyjną ani zgodność z systemami POSIX.
-Zweryfikowaną platformą referencyjną jest QEMU/EDK2 na architekturze x86-64.
+Oznaczenie **1.0** odnosi się do pierwszego kompletnego i uruchamialnego etapu projektu. Nie oznacza ono gotowości produkcyjnej ani zgodności ze standardami POSIX.
 
-Szczegóły:
+Referencyjnym i zweryfikowanym środowiskiem uruchomieniowym jest **QEMU z firmware EDK2** na architekturze **x86-64**.
 
-- [roadmap i status kamieni milowych](docs/roadmap-0.0.1.md),
-- [architektura systemu](docs/architektura.md).
+## Ważne — brakujące pliki do budowania
 
-## Co działa
+Przed rozpoczęciem budowania projektu pobierz brakujące pliki używane w obecnym środowisku kompilacji:
 
-- samodzielna aplikacja UEFI `BOOTX64.EFI`, która ładuje kernel ELF64;
-- przekazanie mapy pamięci, framebuffera GOP i danych ACPI do kernela;
-- zakończenie usług startowych UEFI przez `ExitBootServices`;
-- terminal na framebufferze z kopią wyjścia na port szeregowy;
-- sterta kernela i bitmapowy alokator ramek pamięci fizycznej;
-- IDT, obsługa wyjątków, PIC, timer PIT i klawiatura PS/2;
-- wykrywanie urządzeń PCI oraz odczyt zegara RTC;
-- hierarchiczny, zapisywalny RAMFS;
-- kooperacyjne zadania okresowe i jednorazowe;
-- Ethernet II, ARP, IPv4 i ICMP na interfejsie loopback;
-- shell oraz aplikacje `desktop`, `monitor`, `files` i `about`.
+[**Pobierz wymagane pliki z Google Drive**](https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing)
 
-## Budowanie
+Po pobraniu wypakuj lub skopiuj zawartość paczki bezpośrednio do głównego katalogu repozytorium KuroganeOS.
 
-Kanoniczny proces budowania na Windows używa PowerShella i dołączonego do
-repozytorium cross-toolchaina `x86_64-elf` z katalogu
-`tools/compiler/x86_64-elf/bin`.
+Pliki te są wymagane przez aktualny proces budowania projektu. W przyszłych aktualizacjach sposób ich dostarczania może zostać zmieniony.
 
-W katalogu głównym repozytorium uruchom:
+## Dokumentacja
+
+Dodatkowe informacje o projekcie znajdują się w dokumentacji:
+
+* [Roadmapa i status kamieni milowych](docs/roadmap-0.0.1.md)
+* [Architektura systemu](docs/architektura.md)
+
+## Aktualnie zaimplementowane funkcje
+
+KuroganeOS 1.0 oferuje obecnie:
+
+* samodzielną aplikację UEFI `BOOTX64.EFI`, która ładuje jądro w formacie ELF64;
+* przekazywanie do jądra mapy pamięci, framebuffera GOP oraz informacji ACPI;
+* poprawne zakończenie usług startowych UEFI przy użyciu `ExitBootServices`;
+* terminal renderowany bezpośrednio w framebufferze;
+* kopię wyjścia terminala przesyłaną na port szeregowy;
+* stertę jądra;
+* bitmapowy alokator ramek pamięci fizycznej;
+* tablicę IDT i obsługę wyjątków procesora;
+* obsługę kontrolera PIC;
+* timer PIT;
+* obsługę klawiatury PS/2;
+* wykrywanie urządzeń PCI;
+* odczyt czasu z zegara RTC;
+* hierarchiczny i zapisywalny system plików RAMFS;
+* kooperacyjne zadania okresowe i jednorazowe;
+* podstawową obsługę Ethernet II, ARP, IPv4 i ICMP;
+* pamięciowy interfejs sieciowy loopback;
+* powłokę systemową;
+* podstawowy pulpit graficzny;
+* aplikacje `desktop`, `monitor`, `files` oraz `about`.
+
+## Wymagania
+
+Kanoniczny proces budowania na Windows wykorzystuje:
+
+* PowerShell;
+* cross-toolchain `x86_64-elf`;
+* QEMU;
+* firmware EDK2;
+* pliki dostarczone w katalogu `tools`.
+
+Cross-toolchain powinien znajdować się w katalogu:
+
+```text
+tools/compiler/x86_64-elf/bin
+```
+
+QEMU oraz firmware EDK2 powinny znajdować się w katalogu:
+
+```text
+tools/qemu
+```
+
+## Budowanie projektu
+
+W głównym katalogu repozytorium uruchom:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
 ```
 
-Skrypt:
+Skrypt budowania wykonuje następujące operacje:
 
-1. kompiluje wszystkie źródła kernela;
-2. linkuje `build/kernel.elf`;
-3. buduje bootloader UEFI i konwertuje go do PE32+;
-4. sprawdza formaty i podstawowe właściwości bezpieczeństwa obrazów;
-5. umieszcza pliki startowe w katalogu `iso`;
-6. tworzy deterministyczny, 64 MiB obraz FAT32 `kurogane.img`.
+1. kompiluje wszystkie źródła jądra;
+2. linkuje plik `build/kernel.elf`;
+3. buduje bootloader UEFI;
+4. konwertuje bootloader do formatu PE32+;
+5. sprawdza formaty wygenerowanych plików;
+6. wykonuje podstawową kontrolę właściwości bezpieczeństwa obrazów;
+7. przygotowuje strukturę startową w katalogu `iso`;
+8. tworzy deterministyczny obraz FAT32 o rozmiarze 64 MiB;
+9. zapisuje gotowy obraz jako `kurogane.img`.
 
-Najważniejsze wyniki:
+## Wygenerowane pliki
+
+Po zakończeniu procesu budowania najważniejsze pliki powinny znajdować się w następujących lokalizacjach:
 
 ```text
 build/kernel.elf
@@ -59,124 +102,347 @@ iso/EFI/BOOT/BOOTX64.EFI
 kurogane.img
 ```
 
-Dodatkowe przełączniki skryptu:
+## Opcje skryptu budowania
 
-- `-Clean` — usuwa wyniki budowania;
-- `-NoStage` — buduje kernel bez przygotowania katalogu `iso`;
-- `-StageOnly` — ponownie buduje bootloader, przygotowuje `iso` oraz obraz
-  FAT32, korzystając z istniejącego `build/kernel.elf`.
+Skrypt `build.ps1` obsługuje dodatkowe przełączniki:
+
+* `-Clean` — usuwa wszystkie wygenerowane pliki;
+* `-Rebuild` — wykonuje pełne przebudowanie projektu;
+* `-NoStage` — buduje jądro bez przygotowywania katalogu `iso`;
+* `-StageOnly` — ponownie buduje bootloader, przygotowuje katalog `iso` i tworzy obraz FAT32, wykorzystując istniejący plik `build/kernel.elf`.
 
 ## Uruchamianie w QEMU
 
-Skrypt oczekuje QEMU i firmware EDK2 w katalogu `tools/qemu`. Automatyczny,
-bezokienkowy test startu wykonuje polecenie:
+Do uruchamiania KuroganeOS służy skrypt:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1
 ```
 
-Test uruchamia maszynę `q35` z 256 MiB RAM, zapisuje konsolę szeregową do
-`build/qemu-serial.log`, czeka na prompt `kurogane:/ $`, a następnie zatrzymuje
-maszynę. Limit czasu można zmienić, na przykład:
+Domyślnie skrypt wykonuje automatyczny test startowy bez otwierania okna QEMU.
+
+Maszyna testowa korzysta z:
+
+* chipsetu `q35`;
+* 256 MiB pamięci RAM;
+* firmware UEFI EDK2;
+* konsoli szeregowej zapisywanej do pliku;
+* automatycznego wykrywania promptu powłoki.
+
+Log konsoli szeregowej zostaje zapisany w pliku:
+
+```text
+build/qemu-serial.log
+```
+
+Skrypt oczekuje na pojawienie się promptu:
+
+```text
+kurogane:/ $
+```
+
+Po jego wykryciu test zostaje uznany za zakończony powodzeniem, a maszyna wirtualna jest zatrzymywana.
+
+## Zmiana limitu czasu testu
+
+Domyślny limit czasu można zmienić za pomocą parametru `-TimeoutSeconds`.
+
+Przykład:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -TimeoutSeconds 30
 ```
 
-Pełny test klawiatury, shella, RAMFS, sieci i uruchomienia GUI bezpośrednio
-z obrazu FAT32:
+## Rozszerzony test systemu
+
+Pełny test klawiatury, powłoki, RAMFS, sieci i interfejsu graficznego można uruchomić poleceniem:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -ShellTest -UseDiskImage -TimeoutSeconds 30
 ```
 
-Do pracy interaktywnej z ekranem i klawiaturą:
+Test uruchamia system bezpośrednio z obrazu FAT32 i automatycznie wykonuje wybrane polecenia powłoki.
+
+## Tryb interaktywny
+
+Aby uruchomić KuroganeOS z aktywnym ekranem i obsługą klawiatury, użyj:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -Display -KeepRunning
 ```
 
-## Polecenia shella
+Opcja `-Display` otwiera okno maszyny wirtualnej, natomiast `-KeepRunning` zapobiega jej automatycznemu zamknięciu po zakończeniu testu startowego.
 
-| Polecenie | Działanie |
-| --- | --- |
-| `help` | Wyświetla listę poleceń. |
-| `clear` | Czyści terminal. |
-| `version`, `uname` | Pokazuje wersję i architekturę. |
-| `echo <tekst>` | Wypisuje argumenty. |
-| `date`, `uptime` | Pokazuje czas RTC lub czas działania kernela. |
-| `mem` | Pokazuje stan sterty i ramek fizycznych. |
-| `pci` | Wyświetla wykryte funkcje PCI. |
-| `net`, `net ping` | Pokazuje konfigurację/statystyki loopback lub wykonuje ping do `127.0.0.1`. |
-| `tasks` | Wyświetla zadania planisty. |
-| `apps` | Wyświetla zarejestrowane aplikacje. |
-| `run <aplikacja>` | Uruchamia aplikację `desktop`, `monitor`, `files` albo `about`. |
-| `gui` | Uruchamia graficzny pulpit. |
-| `ls [ścieżka]`, `cat <ścieżka>` | Wyświetla katalog lub zawartość pliku RAMFS. |
-| `touch <ścieżka>`, `mkdir <ścieżka>` | Tworzy plik lub katalog RAMFS. |
-| `write <ścieżka> <tekst>` | Zapisuje tekst w pliku RAMFS. |
-| `rm [-r] <ścieżka>` | Usuwa plik albo drzewo katalogów RAMFS. |
-| `calc <liczba> <operator> <liczba>` | Wykonuje działanie `+`, `-`, `*`, `/` lub `%`. |
-| `reboot`, `poweroff` | Próbuje zrestartować lub wyłączyć maszynę. |
+## Polecenia powłoki
 
-W aplikacjach graficznych klawisz `Q` lub `Esc` wraca do shella. Na pulpicie
-klawisze `M`, `F` i `A` otwierają odpowiednio monitor, przeglądarkę plików
-i informacje o systemie.
+| Polecenie                           | Działanie                                                |
+| ----------------------------------- | -------------------------------------------------------- |
+| `help`                              | Wyświetla listę dostępnych poleceń.                      |
+| `clear`                             | Czyści zawartość terminala.                              |
+| `version`                           | Wyświetla wersję systemu.                                |
+| `uname`                             | Wyświetla wersję systemu i architekturę.                 |
+| `echo <tekst>`                      | Wyświetla podany tekst.                                  |
+| `date`                              | Wyświetla czas odczytany z zegara RTC.                   |
+| `uptime`                            | Wyświetla czas działania jądra.                          |
+| `mem`                               | Wyświetla stan sterty i ramek pamięci fizycznej.         |
+| `pci`                               | Wyświetla wykryte urządzenia i funkcje PCI.              |
+| `net`                               | Wyświetla konfigurację i statystyki interfejsu loopback. |
+| `net ping`                          | Wykonuje test ICMP do adresu `127.0.0.1`.                |
+| `tasks`                             | Wyświetla zadania zarejestrowane w planiście.            |
+| `apps`                              | Wyświetla listę dostępnych aplikacji.                    |
+| `run <aplikacja>`                   | Uruchamia wskazaną aplikację.                            |
+| `gui`                               | Uruchamia graficzny pulpit systemu.                      |
+| `ls [ścieżka]`                      | Wyświetla zawartość katalogu RAMFS.                      |
+| `cat <ścieżka>`                     | Wyświetla zawartość pliku RAMFS.                         |
+| `touch <ścieżka>`                   | Tworzy nowy plik w RAMFS.                                |
+| `mkdir <ścieżka>`                   | Tworzy nowy katalog w RAMFS.                             |
+| `write <ścieżka> <tekst>`           | Zapisuje tekst we wskazanym pliku RAMFS.                 |
+| `rm <ścieżka>`                      | Usuwa plik z RAMFS.                                      |
+| `rm -r <ścieżka>`                   | Rekurencyjnie usuwa katalog i jego zawartość.            |
+| `calc <liczba> <operator> <liczba>` | Wykonuje podstawowe działanie matematyczne.              |
+| `reboot`                            | Próbuje ponownie uruchomić maszynę.                      |
+| `poweroff`                          | Próbuje wyłączyć maszynę.                                |
+
+Polecenie `calc` obsługuje operatory:
+
+```text
++  -  *  /  %
+```
+
+## Aplikacje graficzne
+
+Dostępne są następujące aplikacje:
+
+| Aplikacja | Opis                                        |
+| --------- | ------------------------------------------- |
+| `desktop` | Uruchamia główny pulpit graficzny.          |
+| `monitor` | Wyświetla podstawowe informacje o systemie. |
+| `files`   | Otwiera prostą przeglądarkę plików RAMFS.   |
+| `about`   | Wyświetla informacje o KuroganeOS.          |
+
+Aplikację można uruchomić poleceniem:
+
+```text
+run <nazwa-aplikacji>
+```
+
+Przykład:
+
+```text
+run monitor
+```
+
+Graficzny pulpit można również uruchomić skróconym poleceniem:
+
+```text
+gui
+```
+
+## Sterowanie interfejsem graficznym
+
+W aplikacjach graficznych:
+
+* `Q` — zamyka aplikację i wraca do powłoki;
+* `Esc` — zamyka aplikację i wraca do powłoki.
+
+Na pulpicie dostępne są również skróty:
+
+* `M` — otwiera monitor systemu;
+* `F` — otwiera przeglądarkę plików;
+* `A` — otwiera informacje o systemie.
 
 ## Zweryfikowany stan wydania
 
-26 lipca 2026 r. kompletny zestaw startowy został uruchomiony w QEMU 11.0.0
-z firmware EDK2. Automatyczny test osiągnął interaktywny prompt. Konsola
-szeregowa potwierdziła:
+Dnia **26 lipca 2026 roku** kompletny zestaw startowy KuroganeOS został uruchomiony w środowisku:
 
-- wejście do kernela po `ExitBootServices`;
-- `memory self-test: PASS`;
-- `interrupts/timer/keyboard: READY`;
-- skonfigurowany kontroler PS/2;
-- zakończone skanowanie PCI;
-- `network loopback: PASS (127.0.0.1)`;
-- prompt `kurogane:/ $`.
+* QEMU 11.0.0;
+* firmware EDK2;
+* architektura x86-64;
+* maszyna `q35`.
 
-Rozszerzony test przez emulowaną klawiaturę potwierdził również polecenia
-`version`, `mem`, `cat /system/version`, `net ping`, `apps` oraz uruchomienie
-i zamknięcie pulpitu przez `gui`.
+Automatyczny test startowy osiągnął interaktywny prompt powłoki.
 
-Źródła testów modułowych alokatora pamięci, RAMFS, planisty i stosu sieciowego
-znajdują się w katalogu `tests`. Obecny `build.ps1` nie uruchamia ich
-automatycznie; test startu QEMU jest osobnym krokiem.
+Konsola szeregowa potwierdziła:
+
+* poprawne wejście do jądra po wykonaniu `ExitBootServices`;
+* zakończenie testu pamięci komunikatem `memory self-test: PASS`;
+* gotowość przerwań, timera i klawiatury komunikatem `interrupts/timer/keyboard: READY`;
+* poprawne skonfigurowanie kontrolera PS/2;
+* zakończenie skanowania magistrali PCI;
+* poprawne działanie interfejsu loopback potwierdzone komunikatem `network loopback: PASS (127.0.0.1)`;
+* wyświetlenie promptu `kurogane:/ $`.
+
+Rozszerzony test wykonywany przez emulowaną klawiaturę potwierdził również działanie poleceń:
+
+```text
+version
+mem
+cat /system/version
+net ping
+apps
+gui
+```
+
+Test potwierdził także możliwość uruchomienia i zamknięcia pulpitu graficznego.
+
+## Testy
+
+Źródła testów modułowych znajdują się w katalogu:
+
+```text
+tests
+```
+
+Obecnie dostępne są testy dotyczące:
+
+* alokatora pamięci;
+* systemu plików RAMFS;
+* planisty zadań;
+* stosu sieciowego.
+
+Aktualny skrypt `build.ps1` nie uruchamia testów modułowych automatycznie. Test startu w QEMU należy wykonać jako osobny krok.
 
 ## Eksperymentalne SDK
 
-Publiczne nagłówki ABI są oddzielone od prywatnych nagłówków kernela w
-`sdk/include`. Polecenie `./scripts/build-sdk.sh` generuje sysroot w
-`build/sdk/sysroot` i kompiluje zewnętrzny przykład w trybie freestanding.
-Komenda shella `abi` pokazuje wersję deskryptora i dostępne funkcje.
+Publiczne nagłówki ABI zostały oddzielone od prywatnych nagłówków jądra i znajdują się w katalogu:
 
-Jest to fundament ABI, nie gotowy runtime aplikacji. Transport syscalli,
-procesy ring 3, pliki startowe i linkowanie wykonywalnych aplikacji pozostają
-niezaimplementowane, dlatego deskryptor zgłasza bitmapę funkcji równą zero.
+```text
+sdk/include
+```
+
+Skrypt:
+
+```bash
+./scripts/build-sdk.sh
+```
+
+wykonuje następujące operacje:
+
+1. generuje sysroot SDK;
+2. zapisuje go w katalogu `build/sdk/sysroot`;
+3. kompiluje zewnętrzny przykład aplikacji w trybie freestanding.
+
+Polecenie powłoki:
+
+```text
+abi
+```
+
+wyświetla wersję deskryptora ABI oraz informacje o dostępnych funkcjach.
+
+SDK stanowi obecnie jedynie fundament przyszłego ABI. Nie jest jeszcze kompletnym środowiskiem uruchomieniowym aplikacji.
+
+Nadal niezaimplementowane pozostają:
+
+* transport wywołań systemowych;
+* procesy działające w ring 3;
+* pliki startowe aplikacji;
+* ładowanie wykonywalnych programów;
+* stabilne linkowanie aplikacji użytkownika;
+* pełny runtime użytkownika.
+
+Z tego powodu deskryptor ABI zgłasza obecnie bitmapę dostępnych funkcji równą zero.
 
 ## Ograniczenia
 
-KuroganeOS 1.0 pozostaje systemem demonstracyjnym:
+KuroganeOS 1.0 pozostaje projektem edukacyjnym i demonstracyjnym.
 
-- RAMFS jest ulotny: cała zawartość znika po restarcie. Limit wynosi 256
-  węzłów, 64 KiB na plik i 1 MiB danych plików łącznie;
-- nie ma sterownika trwałego nośnika ani montowania FAT, AHCI lub NVMe;
-- planista jest kooperacyjny i wykonuje callbacki w kontekście kernela; nie
-  implementuje przełączania stosów, preempcji ani procesów użytkownika;
-- aplikacje działają w jednej przestrzeni adresowej kernela, bez izolacji,
-  uprawnień i stabilnego ABI użytkownika;
-- stos Ethernet/ARP/IPv4/ICMP działa wyłącznie przez pamięciowy loopback.
-  Brakuje sterownika fizycznej karty sieciowej, DHCP, TCP, UDP, DNS i dostępu
-  do Internetu;
-- GUI to podstawowe rysowanie w framebufferze i kilka aplikacji kernela.
-  Nie ma myszy, menedżera okien, kompozytora ani akceleracji graficznej;
-- zestaw sterowników jest ograniczony do sprzętu potrzebnego dla obecnej
-  demonstracji. Nie ma między innymi USB, audio ani obsługi wielu procesorów;
-- niezawodność została sprawdzona w jednej konfiguracji QEMU/EDK2. Start na
-  rzeczywistym sprzęcie UEFI nie jest jeszcze częścią zweryfikowanego zakresu.
+### System plików
 
-Projekt jest dobrym punktem wyjścia do dalszej pracy nad pamięcią wirtualną,
-trybem użytkownika, trwałym systemem plików, sterownikami urządzeń,
-preempcją i pełną komunikacją sieciową.
+RAMFS jest systemem ulotnym. Cała jego zawartość zostaje utracona po ponownym uruchomieniu systemu.
+
+Aktualne limity wynoszą:
+
+* maksymalnie 256 węzłów;
+* maksymalnie 64 KiB danych na pojedynczy plik;
+* maksymalnie 1 MiB danych wszystkich plików łącznie.
+
+System nie posiada jeszcze:
+
+* sterownika trwałego nośnika danych;
+* obsługi montowania partycji FAT;
+* obsługi AHCI;
+* obsługi NVMe.
+
+### Zadania i procesy
+
+Planista jest kooperacyjny i wykonuje callbacki bezpośrednio w kontekście jądra.
+
+Nie zaimplementowano jeszcze:
+
+* przełączania stosów;
+* planowania z wywłaszczaniem;
+* procesów użytkownika;
+* separacji procesów;
+* izolacji pamięci;
+* poziomów uprawnień aplikacji.
+
+### Sieć
+
+Stos Ethernet, ARP, IPv4 i ICMP działa obecnie wyłącznie przez pamięciowy interfejs loopback.
+
+Nie zaimplementowano jeszcze:
+
+* sterownika fizycznej karty sieciowej;
+* DHCP;
+* TCP;
+* UDP;
+* DNS;
+* dostępu do Internetu.
+
+### Interfejs graficzny
+
+GUI wykorzystuje podstawowe rysowanie bezpośrednio w framebufferze.
+
+Nie zaimplementowano jeszcze:
+
+* obsługi myszy;
+* pełnego menedżera okien;
+* kompozytora;
+* akceleracji graficznej;
+* wielozadaniowych aplikacji użytkownika;
+* zaawansowanego systemu zdarzeń.
+
+### Sterowniki
+
+Aktualny zestaw sterowników ogranicza się do urządzeń wymaganych przez środowisko demonstracyjne.
+
+Nie zaimplementowano między innymi:
+
+* USB;
+* audio;
+* obsługi wielu procesorów;
+* nowoczesnych kontrolerów pamięci masowej;
+* fizycznych kart sieciowych;
+* zaawansowanego zarządzania energią.
+
+### Zgodność sprzętowa
+
+Niezawodność KuroganeOS została zweryfikowana wyłącznie w referencyjnej konfiguracji QEMU i EDK2.
+
+Uruchamianie systemu na rzeczywistym sprzęcie UEFI nie jest jeszcze częścią oficjalnie przetestowanego zakresu projektu.
+
+## Dalszy rozwój
+
+KuroganeOS stanowi punkt wyjścia do dalszej pracy nad:
+
+* pamięcią wirtualną;
+* stronicowaniem;
+* trybem użytkownika;
+* procesami ring 3;
+* wywołaniami systemowymi;
+* trwałym systemem plików;
+* sterownikami dysków;
+* obsługą USB;
+* obsługą myszy;
+* sterownikami sieciowymi;
+* protokołami TCP, UDP i DNS;
+* planowaniem z wywłaszczaniem;
+* izolacją aplikacji;
+* stabilnym ABI;
+* pełnym menedżerem okien;
+* bardziej rozbudowanym środowiskiem graficznym.
+
+## Status projektu
+
+KuroganeOS jest projektem eksperymentalnym i edukacyjnym. Nie powinien być obecnie używany jako system produkcyjny ani jako środowisko przechowujące ważne dane.
