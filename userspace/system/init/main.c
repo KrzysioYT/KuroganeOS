@@ -1,9 +1,9 @@
 #include "../../runtime/user.h"
 
-#define SESSION_PATH "/gui/launcher"
+#define SESSION_PATH "/gui/login"
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
-    (void)u_puts("init: Flux session unavailable; entering console fallback\n");
+    (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
     (void)u_puts("[TEST] desktop_session_fallback: PASS\n");
     for (;;) {
         const ku_result_t shell_pid = u_spawn("/apps/shell");
@@ -21,7 +21,7 @@ __attribute__((noreturn)) static void run_console_fallback(void) {
     }
 }
 
-static uint64_t spawn_session(void) {
+static uint64_t spawn_session_gate(void) {
     const ku_result_t result = u_spawn(SESSION_PATH);
     return result > 0 ? (uint64_t)result : 0U;
 }
@@ -35,12 +35,12 @@ __attribute__((noreturn)) void _start(void) {
     (void)u_puts("/system/init: PID 1 online\n");
     (void)u_puts("[TEST] userspace_init_pid1: PASS\n");
 
-    uint64_t session_pid = spawn_session();
+    uint64_t session_pid = spawn_session_gate();
     if (session_pid == 0U) run_console_fallback();
 
-    // The graphical session is intentionally one supervised process. Ordinary
-    // desktop applications are children of Flux Launcher, so closing an app
-    // really closes it instead of PID 1 immediately respawning it.
+    // PID 1 supervises one graphical session gate. The login process owns the
+    // transition into Flux Home and waits for the desktop root. When the
+    // desktop session ends, login exits and PID 1 creates a fresh gate.
     (void)ku_sleep(UINT64_C(25));
     int32_t status = 0;
     const ku_status_t early = ku_wait(session_pid, &status);
@@ -53,16 +53,16 @@ __attribute__((noreturn)) void _start(void) {
 
     (void)u_puts("[TEST] desktop_userspace_apps: PASS\n");
     (void)u_puts("[TEST] userspace_desktop_session: PASS\n");
-    (void)u_puts("[TEST] desktop_launcher_supervision: PASS\n");
-    (void)u_puts("init: Kurogane Flux session supervision online\n");
+    (void)u_puts("[TEST] red_flux_login_supervision: PASS\n");
+    (void)u_puts("init: Red Flux session gate supervision online\n");
 
     for (;;) {
         status = 0;
         const ku_status_t wait_status = ku_wait(session_pid, &status);
         if (wait_status == KU_STATUS_OK) {
-            (void)u_puts("init: Flux Launcher exited; restarting session root\n");
-            (void)ku_sleep(UINT64_C(10));
-            session_pid = spawn_session();
+            (void)u_puts("init: session gate ended; returning to login\n");
+            (void)ku_sleep(UINT64_C(8));
+            session_pid = spawn_session_gate();
             if (session_pid == 0U) run_console_fallback();
         } else if (wait_status != KU_STATUS_WOULD_BLOCK) {
             run_console_fallback();
