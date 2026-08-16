@@ -34,19 +34,32 @@ Cel: normalny userspace boot ma kończyć się realną sesją graficzną, a nie 
 - [x] markery runtime `desktop_session`, `desktop_userspace_apps` i
   `userspace_desktop_session`.
 
-## 2.4 — Flux Window Core
+## 2.4 — Flux Window Core — W TRAKCIE
 
 Cel: usunąć ostatnie elementy starego Desktop Alpha i zbudować własny język
 zarządzania oknami Kurogane Flux.
 
-- usunięcie klasycznego taskbara i kontrolek `- [] X`;
-- Signal Spine jako systemowy pionowy pas aktywności;
-- Pulse Ribbon jako dynamiczna powierzchnia aktywnych aplikacji;
-- nowe Flux window controls bez kopiowania Windows/macOS/GNOME/KDE;
-- spójne stany focus/active/background;
-- dopracowany drag, minimize, maximize i restore;
-- przygotowanie geometrii pod resize;
-- testy wejścia i focus routing dla wielu procesów GUI.
+### 2.4.0 — wykonane
+
+- [x] usunięcie klasycznego taskbara z głównego WindowManagera;
+- [x] usunięcie tekstowych kontrolek `-`, `[]`, `X` z głównej ścieżki WM;
+- [x] dynamiczny Signal Spine oparty o realny z-order i focus;
+- [x] pływający Pulse Ribbon dla aktywnych/minimalizowanych powierzchni;
+- [x] click-to-focus / click-to-restore z Pulse Ribbon;
+- [x] geometryczny Flux control rail: minimize / expand / dismiss;
+- [x] rozróżnienie focused/background surface;
+- [x] jawny `work_area` używany przez maximize i drag clamp;
+- [x] wspólne `WorkspaceGeometry` i `ChromeGeometry` dla renderingu i hit-testu;
+- [x] wydzielony resize grip jako przygotowanie pod 2.7;
+- [x] rozszerzony hosted test WindowManagera o Pulse Ribbon i control geometry.
+
+### Pozostałe 2.4.x
+
+- [ ] usunąć komunikaty `DESKTOP ALPHA` z bootloadera UEFI;
+- [ ] ujednolicić wybór desktop/console/safe/diagnostics na poziomie boot flags;
+- [ ] usunąć legacy `ui::taskbar()` z diagnostycznych Ring-0 surfaces;
+- [ ] dodać QEMU input smoke test dla Pulse Ribbon i Flux control rail;
+- [ ] potwierdzić pełny runtime build na macOS oraz Windows/WSL.
 
 ## 2.5 — Flux UI Runtime
 
