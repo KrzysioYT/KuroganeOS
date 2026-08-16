@@ -138,20 +138,26 @@ See [`GUI_APPLICATIONS.md`](GUI_APPLICATIONS.md).
 
 ## 9. Networking
 
-Use only public network SDK headers when available. Do not import
-`kernel/net/*` into applications.
+The **system/kernel** in 3.3.1 already has E1000, DHCP, IPv4, DNS and basic
+transport functionality and can use the VirtualBox 82540EM + NAT profile.
 
-The current kernel already provides E1000, DHCP, IPv4, DNS and basic transport
-functionality. 3.3.1 begins exposing a small validated Ring-3 network contract.
+The **application SDK** does not yet expose a stable socket/DNS/ping ABI. Do not
+import `kernel/net/*` into a Ring-3 application as a workaround. The public
+network API is deliberately waiting for an asynchronous handle/event design so
+a DNS request does not become a long blocking kernel syscall.
 
-See [`../NETWORKING.md`](../NETWORKING.md).
+See [`API_REFERENCE.md`](API_REFERENCE.md) and
+[`../NETWORKING.md`](../NETWORKING.md).
 
 ## 10. Audio
 
-Applications should submit PCM through the public audio API, not program PCI or
-AC'97 ports directly.
+3.3.1 ships the Intel ICH AC'97 kernel driver and a bounded PCM16 stereo DMA
+backend. It does **not** yet ship a stable Ring-3 audio stream API.
 
-Reference format for the first audio backend:
+Do not program PCI, BARs or AC'97 ports from an application. When the public
+audio stream API lands, it will sit between the application and this driver.
+
+Reference backend format:
 
 ```text
 signed PCM16 little-endian
@@ -159,7 +165,7 @@ stereo
 48000 Hz
 ```
 
-See [`../AUDIO.md`](../AUDIO.md).
+See [`API_REFERENCE.md`](API_REFERENCE.md) and [`../AUDIO.md`](../AUDIO.md).
 
 ## 11. Error handling
 
@@ -185,6 +191,7 @@ means "try again later".
 - no unresolved ELF symbols;
 - use public SDK headers in applications;
 - keep hardware-specific code in drivers/kernel services;
+- do not publish a blocking placeholder syscall just to reserve an API number;
 - document a new public API in `API_REFERENCE.md`;
 - add a test or runtime marker for new security-sensitive behavior.
 
