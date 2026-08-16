@@ -1,16 +1,13 @@
 # Graphics, input and Kurogane Flux Desktop
 
-KuroganeOS 2.3 uses the UEFI GOP framebuffer with software rendering. There is
+KuroganeOS 2.4 uses the UEFI GOP framebuffer with software rendering. There is
 no accelerated GPU driver yet. PS/2 keyboard/mouse and supported xHCI HID input
 feed the shared InputManager.
 
-## 2.3 desktop boot model
+## Desktop boot model
 
-Normal userspace boot no longer depends on manually selecting the old
-`boot=desktop` experiment. When `user::console` becomes active, the kernel
-resolves the 2.3 desktop-session hook and starts the `flux-session` application.
-Safe Mode does not initialize `user::console`, therefore it remains a text-only
-emergency environment.
+Normal userspace boot starts the Flux desktop session introduced in 2.3. Safe
+Mode remains the text-only emergency environment.
 
 The normal path is:
 
@@ -33,7 +30,7 @@ normal session is restarted. If most GUI children die immediately during the
 initial session probe, PID1 falls back to `/apps/shell` rather than spinning in
 a broken GUI respawn loop.
 
-Runtime evidence for a healthy 2.3 desktop includes:
+Runtime evidence for a healthy desktop includes:
 
 ```text
 [TEST] desktop_session: PASS
@@ -42,17 +39,33 @@ Runtime evidence for a healthy 2.3 desktop includes:
 [TEST] userspace_desktop_session: PASS
 ```
 
-## WindowManager
+## 2.4 Flux Window Core
 
-The current WindowManager supports twelve generation-checked slots containing
-bounds, restore bounds, owner PID, normal/minimized/maximized state, z-order,
-focus, title and callbacks. It implements hit testing, focus raise, title drag,
-close, minimize, maximize/restore, Alt+Tab, Alt+F4 and a software cursor.
+The WindowManager supports twelve generation-checked slots containing bounds,
+restore bounds, owner PID, normal/minimized/maximized state, z-order, focus,
+title and callbacks. It implements hit testing, focus raise, header drag, close,
+minimize, maximize/restore, Alt+Tab, Alt+F4 and a software cursor.
 
-Rendering is still immediate-mode and full-frame when invalidated. The current
-WindowManager presentation retains some legacy Desktop Alpha conventions such
-as a taskbar-like region and classic controls. Removing those remaining legacy
-conventions is the explicit goal of **2.4 Flux Window Core**.
+2.4 removes the classic desktop chrome from the main WindowManager path:
+
+- no conventional full-width taskbar;
+- no textual `-`, `[]`, `X` controls;
+- dynamic `Signal Spine` shows real window order/focus;
+- floating `Pulse Ribbon` represents active/minimized surfaces;
+- Pulse Ribbon items restore or focus windows;
+- Flux control rail uses geometric minimize/expand/dismiss controls;
+- focused/background surfaces receive distinct signal treatment;
+- maximize uses an explicit Flux `work_area`;
+- dragging is clamped to that work area;
+- a shared bottom-right resize-grip geometry is already exposed for future
+  interactive resize.
+
+`WorkspaceGeometry` and `ChromeGeometry` are the single geometry source for
+rendering, hit testing and hosted tests. This removes the old duplicated magic
+numbers for taskbar height and textual control positions.
+
+Rendering is still immediate-mode and full-frame when invalidated. Damage
+tracking/backbuffers are planned for the compositor stages later in the roadmap.
 
 ## Public ABI and libui
 
@@ -66,7 +79,7 @@ regions instead of treating an application as a fixed list of text lines.
 
 ## Ring-3 applications
 
-The 2.3 PID1 desktop set is:
+The PID1 desktop set is:
 
 | Application | Path | Current role |
 |---|---|---|
@@ -77,17 +90,19 @@ The 2.3 PID1 desktop set is:
 | About | `/gui/about` | version/platform information |
 
 The old kernel Monitor/Files/About surfaces remain diagnostic legacy code and
-are not the primary 2.3 desktop session.
+are not the primary desktop session. Their old `ui::taskbar()` compatibility
+helper remains temporarily and is scheduled for removal from those Ring-0
+surfaces during the remaining 2.4.x cleanup.
 
 ## Known GUI limitations
 
 - software framebuffer rendering only;
-- no general window resize yet;
+- no general interactive resize yet (geometry is reserved in 2.4);
 - one live UI window per process in the public ABI;
 - fixed-frame `libui` model rather than a widget tree;
 - no clipboard, Unicode text input or accessibility layer yet;
 - no multi-monitor or GPU compositor;
-- some WindowManager chrome is still legacy and is scheduled for replacement
-  in 2.4.
+- legacy bootloader strings and a few diagnostic Ring-0 surfaces still need
+  cleanup in later 2.4.x patches.
 
 See `docs/roadmap/DESKTOP_ROADMAP.md` for the 2.3 → 3.6 plan.
