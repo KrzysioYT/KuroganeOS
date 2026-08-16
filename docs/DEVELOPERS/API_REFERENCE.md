@@ -178,43 +178,63 @@ kui_flow_progress
 kui_flow_separator
 ```
 
-## Network API — 3.3.1 foundation
+## Networking — kernel available, public Ring-3 ABI pending
 
-3.3.1 introduces/defines a small application-facing contract around the kernel
-network service. The intended public operations are deliberately narrower than
-a raw network stack:
+KuroganeOS 3.3.1-dev contains a real kernel networking path:
 
 ```text
-query interface readiness/configuration
-resolve an IPv4 A record
-ping IPv4 address/gateway
-gather network stats
+E1000 82540EM
+Ethernet
+ARP
+IPv4
+ICMP
+UDP
+DHCP
+DNS A resolver
+basic TCP connect/probe
 ```
 
-Full socket handles are a later ABI step. Applications must not call
-`kernel/net/service.*` directly.
+However, **3.3.1-dev does not yet expose this stack as a stable public
+application syscall/socket API**. Current DNS/ping helpers use synchronous
+polling internally, and freezing that behavior into the public ABI would create
+blocking kernel calls that are difficult to evolve safely.
 
-## Audio API — 3.3.1 foundation
+The planned Ring-3 contract is asynchronous/handle based and will cover:
 
-The first public audio contract targets playback of bounded PCM blocks.
-Reference format:
+```text
+interface/configuration snapshots
+DNS request + completion event
+ICMP request + completion event
+socket handles for UDP/TCP
+poll/event integration
+```
+
+Applications must not include or call `kernel/net/*` directly.
+
+See [`../NETWORKING.md`](../NETWORKING.md).
+
+## Audio — kernel driver available, public Ring-3 ABI pending
+
+3.3.1-dev ships the kernel hardware backend for VirtualBox Intel ICH AC'97
+`8086:2415`.
+
+Current kernel PCM format:
 
 ```text
 PCM S16LE
 stereo
 48000 Hz
+bounded DMA32 buffer
 ```
 
-Expected operations:
+**There is no stable public Ring-3 audio header/syscall in 3.3.1-dev yet.**
+Applications must not program AC'97 ports or DMA directly.
 
-```text
-audio status/capabilities
-submit PCM frames
-stop/reset playback
-```
+The planned userspace contract will expose an audio stream/queue handle with
+bounded buffer submission and completion events rather than a blocking
+`play()` syscall.
 
-The implementation remains bounded and validates the user buffer before DMA
-submission/copy.
+See [`../AUDIO.md`](../AUDIO.md).
 
 ## Graphics API
 
@@ -237,6 +257,10 @@ source API -> SDK wrapper -> syscall transport
 allows the transport to change later without forcing every application to
 rewrite inline assembly.
 
+The 3.3.1 stable public syscall table intentionally remains at the existing UI
+entry range. Network/audio numbers are not reserved until their asynchronous
+ownership/scheduling model is ready.
+
 ## Adding a new public API
 
 For a new syscall/API:
@@ -247,7 +271,8 @@ For a new syscall/API:
 4. implement kernel validation;
 5. validate every pointer/range;
 6. reject unknown flags/version/structure sizes;
-7. add a test;
-8. update this document.
+7. decide blocking vs asynchronous scheduling behavior before freezing ABI;
+8. add a test;
+9. update this document.
 
 Never trust `size`, pointer or enum values supplied by Ring-3.
