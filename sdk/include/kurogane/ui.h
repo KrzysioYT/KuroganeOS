@@ -10,6 +10,29 @@
 typedef uint32_t ku_window_t;
 #define KU_INVALID_WINDOW UINT32_C(0)
 
+/*
+ * Public key values mirror the stable kernel KeyCode enumeration transported
+ * through ku_ui_event.key. Applications must use these names instead of PS/2
+ * scancodes or host-specific magic numbers.
+ */
+enum ku_ui_key_code {
+    KU_UI_KEY_UNKNOWN = 0,
+    KU_UI_KEY_ESCAPE = 1,
+    KU_UI_KEY_BACKSPACE = 14,
+    KU_UI_KEY_TAB = 15,
+    KU_UI_KEY_ENTER = 28,
+    KU_UI_KEY_HOME = 77,
+    KU_UI_KEY_ARROW_UP = 78,
+    KU_UI_KEY_PAGE_UP = 79,
+    KU_UI_KEY_ARROW_LEFT = 80,
+    KU_UI_KEY_ARROW_RIGHT = 81,
+    KU_UI_KEY_END = 82,
+    KU_UI_KEY_ARROW_DOWN = 83,
+    KU_UI_KEY_PAGE_DOWN = 84,
+    KU_UI_KEY_INSERT = 85,
+    KU_UI_KEY_DELETE = 86
+};
+
 typedef struct ku_ui_window_options {
     uint32_t structure_size;
     int32_t x;
