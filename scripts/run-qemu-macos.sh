@@ -6,13 +6,16 @@ image=""
 timeout_seconds=45
 display=false
 keep=false
+fullscreen=true
 
 usage() {
     cat >&2 <<'EOF'
 usage: ./scripts/run-qemu-macos.sh [options]
   --image FILE       raw GPT image (default: newest dist/*-macos-qemu.img)
   --timeout SECONDS  smoke-test timeout (default: 45)
-  --display          show QEMU window and keep it open after desktop PASS
+  --display          show a large Cocoa QEMU window; fullscreen + zoom-to-fit
+  --windowed         show a resizable Cocoa window with zoom-to-fit
+  --fullscreen       explicitly use fullscreen Cocoa display
   --keep             leave QEMU running after successful smoke markers
 EOF
     exit 2
@@ -21,7 +24,9 @@ while (($#)); do
     case "$1" in
         --image) image="${2:-}"; shift 2 ;;
         --timeout) timeout_seconds="${2:-}"; shift 2 ;;
-        --display) display=true; keep=true; shift ;;
+        --display) display=true; keep=true; fullscreen=true; shift ;;
+        --windowed) display=true; keep=true; fullscreen=false; shift ;;
+        --fullscreen) display=true; keep=true; fullscreen=true; shift ;;
         --keep) keep=true; shift ;;
         *) usage ;;
     esac
@@ -81,7 +86,8 @@ cp "$vars" "$vars_copy"
 args=(
     -machine q35,accel=tcg
     -cpu max
-    -m 512
+    -m 768
+    -vga std
     -drive "if=pflash,format=raw,unit=0,readonly=on,file=$firmware"
     -drive "if=pflash,format=raw,unit=1,file=$vars_copy"
     -drive "if=none,id=kurogane_system,format=raw,file=$image,snapshot=on,cache=writeback"
@@ -91,7 +97,18 @@ args=(
     -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01
     -no-reboot -no-shutdown
 )
-if ! $display; then args+=( -display none ); fi
+if $display; then
+    # Cocoa's zoom-to-fit scales the guest framebuffer with the host window.
+    # The visual development path defaults to fullscreen because the Flux
+    # desktop is now wider than the old console-oriented preview. Use
+    # --windowed when a normal resizable host window is preferred.
+    args+=( -display "cocoa,zoom-to-fit=on,show-cursor=on" )
+    if $fullscreen; then
+        args+=( -full-screen )
+    fi
+else
+    args+=( -display none )
+fi
 
 qemu-system-x86_64 "${args[@]}" >"$stdout_log" 2>"$stderr_log" &
 pid=$!
@@ -106,6 +123,13 @@ trap cleanup EXIT INT TERM
 echo "[qemu-macos] PID $pid"
 echo "[qemu-macos] image: $image"
 echo "[qemu-macos] serial: $serial"
+if $display; then
+    if $fullscreen; then
+        echo "[qemu-macos] display: Cocoa fullscreen + zoom-to-fit"
+    else
+        echo "[qemu-macos] display: Cocoa windowed + zoom-to-fit"
+    fi
+fi
 
 success=false
 for ((elapsed=0; elapsed<timeout_seconds*10; ++elapsed)); do
