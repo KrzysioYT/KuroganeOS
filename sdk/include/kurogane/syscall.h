@@ -4,9 +4,11 @@
 #include <kurogane/status.h>
 
 /*
- * Stable syscall numbers.  The x86-64 v1 transport is an interrupt gate at
- * vector 0x80; applications should use these wrappers instead of spelling the
+ * Stable syscall numbers. The x86-64 v1 transport is an interrupt gate at
+ * vector 0x80; applications should use SDK wrappers instead of spelling the
  * transport inline so a later SYSCALL migration does not change source code.
+ *
+ * ABI rule: append new numbers. Do not renumber released entries.
  */
 enum ku_syscall_number {
     KU_SYS_INVALID = 0,
@@ -26,7 +28,13 @@ enum ku_syscall_number {
     KU_SYS_UI_CREATE = 14,
     KU_SYS_UI_PRESENT = 15,
     KU_SYS_UI_POLL = 16,
-    KU_SYS_UI_CLOSE = 17
+    KU_SYS_UI_CLOSE = 17,
+    KU_SYS_NETWORK_INFO = 18,
+    KU_SYS_NETWORK_RESOLVE_A = 19,
+    KU_SYS_NETWORK_PING = 20,
+    KU_SYS_AUDIO_INFO = 21,
+    KU_SYS_AUDIO_PLAY_PCM16 = 22,
+    KU_SYS_AUDIO_STOP = 23
 };
 
 enum ku_open_flags {
