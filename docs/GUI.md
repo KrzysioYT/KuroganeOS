@@ -1,48 +1,93 @@
-# Graphics, input and Desktop Alpha
+# Graphics, input and Kurogane Flux Desktop
 
-UEFI supplies a GOP framebuffer. The kernel renders pixels, bitmap text,
-controls and cursor in software; there is no accelerated GPU driver.
+KuroganeOS 2.3 uses the UEFI GOP framebuffer with software rendering. There is
+no accelerated GPU driver yet. PS/2 keyboard/mouse and supported xHCI HID input
+feed the shared InputManager.
 
-PS/2 keyboard/mouse and the xHCI USB HID boot keyboard feed a unified bounded
-InputManager. Mouse packets become clamped absolute coordinates, buttons and
-wheel. Consumers receive copied events, never driver-owned buffers.
+## 2.3 desktop boot model
+
+Normal userspace boot no longer depends on manually selecting the old
+`boot=desktop` experiment. When `user::console` becomes active, the kernel
+resolves the 2.3 desktop-session hook and starts the `flux-session` application.
+Safe Mode does not initialize `user::console`, therefore it remains a text-only
+emergency environment.
+
+The normal path is:
+
+```text
+UEFI
+ -> kernel
+ -> persistent FAT32 root
+ -> scheduler/input
+ -> Flux desktop session
+ -> /system/init (PID 1)
+ -> /gui/terminal
+ -> /gui/files
+ -> /gui/sysmon
+ -> /gui/settings
+ -> /gui/about
+```
+
+PID1 supervises those Ring-3 desktop applications. A child that exits during a
+normal session is restarted. If most GUI children die immediately during the
+initial session probe, PID1 falls back to `/apps/shell` rather than spinning in
+a broken GUI respawn loop.
+
+Runtime evidence for a healthy 2.3 desktop includes:
+
+```text
+[TEST] desktop_session: PASS
+[TEST] userspace_init_spawn: PASS
+[TEST] desktop_userspace_apps: PASS
+[TEST] userspace_desktop_session: PASS
+```
 
 ## WindowManager
 
-Twelve generation-checked slots carry bounds, restore bounds, owner PID,
-normal/minimized/maximized state, z-order, focus, title and callbacks. The
-manager implements hit testing, focus raise, title dragging, close, minimize,
-maximize/restore, taskbar restore/focus, Alt+Tab, Alt+F4 and software cursor.
-Rendering is an immediate full redraw of visible windows when dirty.
+The current WindowManager supports twelve generation-checked slots containing
+bounds, restore bounds, owner PID, normal/minimized/maximized state, z-order,
+focus, title and callbacks. It implements hit testing, focus raise, title drag,
+close, minimize, maximize/restore, Alt+Tab, Alt+F4 and a software cursor.
+
+Rendering is still immediate-mode and full-frame when invalidated. The current
+WindowManager presentation retains some legacy Desktop Alpha conventions such
+as a taskbar-like region and classic controls. Removing those remaining legacy
+conventions is the explicit goal of **2.4 Flux Window Core**.
 
 ## Public ABI and libui
 
-Syscalls 14-17 create, present, poll and close. Each process owns one live
-window. The kernel copies an exact 800-byte frame with up to 12 fixed lines and
-an optional progress value. Key, pointer and close events are copied into a
-16-entry process queue; overflow discards the oldest event safely. `libui`
-initializes structures/colors, copies bounded lines and normalizes polling.
+Syscalls 14-17 currently provide create, present, poll and close. Each process
+owns one live window. The kernel copies a fixed `ku_ui_frame` and delivers key,
+pointer and close events through a bounded per-process queue.
 
-## Ring 3 applications
+This API is intentionally still small. 2.5 will evolve it toward a real Flux UI
+runtime with views/widgets, layouts, scrolling, inputs, dialogs and dirty
+regions instead of treating an application as a fixed list of text lines.
 
-Desktop mode starts five simultaneous ELF64 processes:
+## Ring-3 applications
 
-| Application | Real behavior |
-|---|---|
-| Terminal | accepts `help`, `pid`, `about`, `clear` via public ABI |
-| Files | reads real `/etc/system.cfg` through libc/VFS |
-| System Monitor | shows live PID/TID and scheduler heartbeat |
-| About | reports current 2.0 architecture |
-| Settings | toggles actual per-session frame colors |
+The 2.3 PID1 desktop set is:
 
-The legacy kernel Monitor/Files windows remain diagnostic/launcher surfaces.
-With a system window focused, `T`, `X`, `U`, `I`, `S` launch apps and `Q` closes
-that window. A key focused on a user window is delivered only to its process.
+| Application | Path | Current role |
+|---|---|---|
+| Flux Terminal | `/gui/terminal` | commands, app launch and job tracking |
+| Files | `/gui/files` | persistent-root file view |
+| System Monitor | `/gui/sysmon` | live process/system information |
+| Settings | `/gui/settings` | session visual settings preview |
+| About | `/gui/about` | version/platform information |
 
-Hosted tests cover focus, z-order, generation, controls and routing. QEMU
-injects actual PS/2 motion/button/key events and requires multiwindow, drag,
-close and all five userspace app markers.
+The old kernel Monitor/Files/About surfaces remain diagnostic legacy code and
+are not the primary 2.3 desktop session.
 
-Limitations include no GPU composition, resize, Unicode input, clipboard,
-accessibility, persistent global theme, desktop associations or multi-monitor.
-Settings is intentionally small and has no placeholder pages.
+## Known GUI limitations
+
+- software framebuffer rendering only;
+- no general window resize yet;
+- one live UI window per process in the public ABI;
+- fixed-frame `libui` model rather than a widget tree;
+- no clipboard, Unicode text input or accessibility layer yet;
+- no multi-monitor or GPU compositor;
+- some WindowManager chrome is still legacy and is scheduled for replacement
+  in 2.4.
+
+See `docs/roadmap/DESKTOP_ROADMAP.md` for the 2.3 → 3.6 plan.
