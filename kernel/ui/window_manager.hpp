@@ -39,6 +39,20 @@ struct WindowInfo {
     char title[33];
 };
 
+struct WorkspaceGeometry {
+    ui::Rect work_area;
+    ui::Rect signal_spine;
+    ui::Rect pulse_ribbon;
+};
+
+struct ChromeGeometry {
+    ui::Rect header;
+    ui::Rect minimize_control;
+    ui::Rect expand_control;
+    ui::Rect dismiss_control;
+    ui::Rect resize_grip;
+};
+
 using DrawCallback = void (*)(
     WindowId id,
     const ui::Rect& content_bounds,
@@ -68,6 +82,9 @@ Status restore(WindowId id);
 Status query(WindowId id, WindowInfo* out_info);
 Status list(ListCallback callback, void* context);
 Status dispatch(const input::Event& event);
+WorkspaceGeometry workspace_geometry();
+Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
+Status pulse_item_geometry(size_t position, ui::Rect* out_bounds);
 void invalidate();
 bool render_if_needed();
 size_t window_count();
