@@ -32,6 +32,7 @@ int main(void) {
     puts("[TEST] desktop_sysmon_ring3: PASS");
 
     uint32_t heartbeat = 0U;
+    int scene_reported = 0;
     kui_scene scene;
     for (;;) {
         build_scene(&scene, heartbeat);
@@ -39,7 +40,10 @@ int main(void) {
             (void)ku_ui_close(window);
             return 2;
         }
-        if (heartbeat == 0U) puts("[TEST] flux_scene_sysmon: PASS");
+        if (!scene_reported) {
+            puts("[TEST] flux_scene_sysmon: PASS");
+            scene_reported = 1;
+        }
 
         for (uint32_t tick = 0U; tick < 100U; ++tick) {
             ku_ui_event event;
