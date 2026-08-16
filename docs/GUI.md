@@ -1,28 +1,49 @@
 # Graphics, input and Kurogane Red Flux Desktop
 
-KuroganeOS 3.1 używa UEFI GOP framebuffer i własnego software renderera. Nie ma
+KuroganeOS 3.2 używa UEFI GOP framebuffer i własnego software renderera. Nie ma
 jeszcze akcelerowanego sterownika GPU. PS/2 keyboard/mouse oraz obsługiwane HID
 źródła zasilają wspólny InputManager.
 
-## Desktop boot model
+## Boot i model sesji
 
-Normalny boot:
+Normalny flow 3.2:
 
 ```text
 UEFI
- -> kernel
- -> persistent FAT32 root
- -> scheduler/input
- -> Red Flux WindowManager
+ -> Red Flux desktop boot (default)
+ -> graphical boot splash
+ -> kernel + persistent FAT32 root
+ -> WindowManager
  -> /system/init PID 1
- -> /gui/launcher
+ -> /gui/login
+ -> /gui/launcher (Red Flux Home)
  -> aplikacje Ring 3 uruchamiane na żądanie
 ```
 
-PID1 nadzoruje Launcher jako root sesji. Terminal, Files, System Monitor,
-Settings i About są dziećmi Launchera i mogą być normalnie zamykane bez
-natychmiastowego respawnu przez PID1. Jeżeli session root nie wystartuje,
-system zachowuje console fallback.
+UEFI zachowuje awaryjne wejścia `S`/`F8` do Safe Mode i `X` do Diagnostics.
+Normalny start nie wymaga już klawisza `D`.
+
+Podczas startu kernel utrzymuje pełne logi na serialu, a GOP pokazuje boot
+splash. Progres odpowiada faktycznym checkpointom: paging, Ring 3, filesystem,
+persistent storage, preemption/input i start PID1. Safe Mode, Diagnostics,
+Installer i fatalny boot failure przywracają framebufferową service console.
+
+## Login / session gate
+
+`/gui/login` jest specjalną userspace surface bez zwykłego window chrome.
+Enter lub kliknięcie uruchamia Red Flux Home. Login jest obecnie bramą lokalnej
+sesji deweloperskiej — 3.2 celowo nie udaje hasła bez account/credential
+service.
+
+PID1 nadzoruje:
+
+```text
+Login -> Home -> Login
+```
+
+Nowy Login czyści surfaces poprzedniej sesji i prosi process manager o
+zakończenie ich właścicieli. Zakończone orphan zombie slots są odzyskiwane przy
+kolejnych spawnach.
 
 ## Red Flux Window Core
 
@@ -34,58 +55,78 @@ WindowManager udostępnia:
 - interactive bottom-right resize;
 - minimize/maximize/restore/close;
 - Alt+Tab i Alt+F4;
-- Signal Spine;
-- Pulse Ribbon;
 - software pointer;
-- jawne workspace/chrome geometry.
+- jawne workspace/chrome geometry;
+- userspace session ownership.
 
-3.1 zmienia główną identyfikację z wcześniejszego cyan/violet preview na:
+Aplikacje GUI po wejściu do desktopu muszą należeć do drzewa procesu Red Flux
+Home. Historyczne anonimowe `/gui/*` requesty Ring-0 są kompatybilnościowym
+no-op i nie tworzą procesów ani widocznych okien.
 
-- niemal czarne tło;
+## Red Flux Dock
+
+3.2 zastępuje dawny prosty Pulse Ribbon systemowym Dockiem. Przypięte pozycje:
+
+- Home;
+- Terminal;
+- Files;
+- Monitor;
+- Settings;
+- About.
+
+Każda ma własną geometryczną ikonę KuroganeOS, running indicator i active/focus
+state. Kliknięcie przypiętej aplikacji:
+
+1. focusuje ją, jeśli już działa;
+2. przywraca ją, jeśli jest zminimalizowana;
+3. wysyła quick-launch do Home, jeśli nie działa.
+
+Po prawej stronie przypiętej części Docka znajduje się dynamiczna sekcja żywych
+okien do focus/restore. Dock nie jest klasycznym taskbarem i nie używa ikon ani
+assetów Windows/macOS/GNOME/KDE.
+
+## Pulpit i język wizualny
+
+3.2 rozwija profil Red Flux:
+
+- prawie czarne gradientowe tło;
 - grafitowe surfaces;
-- stalowe, przygaszone granice;
-- czerwony focus/active signal;
-- jaśniejszą czerwień dla danger/close.
+- czerwony focus/active/danger;
+- subtelny stalowy tekst pomocniczy;
+- duży niski-kontrast geometryczny znak Kurogane w tle;
+- top identity rail zamiast klasycznego desktop panelu;
+- odświeżony window chrome i czerwony resize signal;
+- osobne wizualne warstwy boot, login i desktop.
 
-Kształty i asymetryczne czerwone sygnały są inspirowane ostrą geometrią logo
-KuroganeOS, bez kopiowania Windows/macOS/GNOME/KDE.
+Brand geometry jest inspirowana ostrą formą logo KuroganeOS, ale renderer
+pozostaje własnym zestawem prymitywów systemu.
 
 ## Software full-frame backbuffer
 
-Problem 3.0.1 polegał na tym, że poprawny pełny repaint nadal był wykonywany
-bezpośrednio do widocznego GOP. Podczas drag/resize użytkownik mógł więc zobaczyć
-kolejne fazy:
+Pełny desktop renderuje się poza widocznym GOP dla wspieranych trybów do
+1600x1200:
 
-```text
-clear -> desktop -> część okien -> kompletna klatka
-```
+1. software cursor jest ukrywany;
+2. primitives przechodzą na backbuffer;
+3. WindowManager buduje całą klatkę;
+4. gotowa klatka jest kopiowana do GOP;
+5. cursor trafia na ukończony obraz.
 
-3.1 dodaje statyczny software backbuffer dla GOP do 1600x1200. WindowManager:
-
-1. ukrywa software cursor;
-2. przełącza primitives na backbuffer;
-3. buduje kompletny desktop poza widocznym framebufferem;
-4. kopiuje ukończoną klatkę do GOP;
-5. rysuje cursor na gotowej klatce.
-
-Dla większego trybu renderer zachowuje bezpieczny direct-render fallback.
-Pełne per-window surfaces i damage compositor pozostają etapem 3.2.
+Dla większego trybu istnieje direct-render fallback. Natywne per-window surfaces
+i damage tracking pozostają etapem 3.3.
 
 ## Content clipping i body text scale
 
-Przed wywołaniem callbacku aplikacji WindowManager ustawia clip dokładnie na
-content area okna. `put_pixel`, `fill_rect`, `draw_rect`, `draw_char` i
-`draw_text` nie mogą zapisać pikseli poza clip.
+Przed callbackiem aplikacji WindowManager ustawia clip na content area okna.
+`put_pixel`, `fill_rect`, `draw_rect`, `draw_char` i `draw_text` nie powinny
+wychodzić poza ten prostokąt.
 
-Dodatkowo legacy body text scale jest ograniczany zależnie od szerokości
-content area. Dzięki temu compatibility `ku_ui_frame` nie powinien już
-nadpisywać sąsiednich surfaces tylko dlatego, że linia tekstu jest za długa.
-
-Chrome/title renderuje się przed ustawieniem body clip/scale limitu.
+Compatibility body text ma limit skali zależny od szerokości okna. Window chrome
+i tytuły są renderowane poza tym limitem.
 
 ## Public UI key codes
 
-`sdk/include/kurogane/ui.h` publikuje nazwane wartości m.in.:
+SDK publikuje nazwane wartości m.in.:
 
 ```text
 KU_UI_KEY_ESCAPE
@@ -101,29 +142,19 @@ KU_UI_KEY_ARROW_DOWN
 KU_UI_KEY_DELETE
 ```
 
-Aplikacje nie powinny używać magicznych wartości PS/2 scan code jako
-`ku_ui_event.key`.
+Model sterowania:
 
-Domyślny model 3.1:
-
-- arrows: selection/navigation;
-- Enter: activate;
-- Escape: cancel/reset lokalnej interakcji;
-- Tab: następny focus/selection;
-- J/K mogą istnieć jako opcjonalne aliasy, ale nie są głównym UX.
+- arrows — selection/navigation;
+- Enter — activate;
+- Escape — cancel/reset lokalnej interakcji;
+- Tab — następny focus/selection;
+- mysz — focus, drag, resize, controls, Dock i Login;
+- Alt+Tab — następne okno;
+- Alt+F4 — zamknięcie aktywnego okna.
 
 ## libui scene/view runtime
 
-`kui_scene` posiada do 32 `kui_view` records. View ma:
-
-- stable non-zero ID;
-- optional parent ID;
-- type;
-- flags;
-- text;
-- optional value/maximum.
-
-Dostępne compatibility view types:
+`kui_scene` posiada do 32 `kui_view` records. Dostępne compatibility view types:
 
 - panel;
 - label;
@@ -133,55 +164,42 @@ Dostępne compatibility view types:
 - progress;
 - separator.
 
-`kui_flow` tworzy prosty pionowy flow. 3.1 pozostawia transport
-`KU_SYS_UI_PRESENT` / `ku_ui_frame`, ale upraszcza jego serializację: główne
-kontrolki nie są już przedstawiane jako `[> ... ]`, `>>` i `::`.
-
-Domyślna paleta `libui` jest Red Flux, więc również aplikacje tworzone przez SDK
-startują z tym samym profilem, jeśli nie ustawią własnej palety.
+`kui_flow` tworzy pionowy flow. Główny transport nadal wykorzystuje
+`KU_SYS_UI_PRESENT` / `ku_ui_frame`; Red Flux 3.2 nie deklaruje jeszcze
+natywnego widget compositora.
 
 ## FluxShellCore i Terminal
 
-`/apps/shell` oraz `/gui/terminal` są różnymi frontendami tego samego
-`userspace/common/flux_shell.h`.
+`/apps/shell` oraz `/gui/terminal` są frontendami tego samego
+`userspace/common/flux_shell.h`. GUI Terminal dodaje scrollback i edycję inputu,
+ale parser, commands, jobs, cwd, history semantics i capability errors pozostają
+wspólne.
 
-GUI Terminal dodaje:
+## Runtime markers 3.2
 
-- Up/Down history;
-- Left/Right cursor movement;
-- Home/End;
-- Delete/Backspace;
-- Escape/Ctrl-U clear input;
-- GUI scrollback.
-
-Parser, commands, jobs, cwd, history semantics i capability errors pozostają
-wspólne z recovery console.
-
-## Runtime markers 3.1
-
-Oczekiwane dodatkowe markery:
+Przy poprawnym przejściu session flow serial powinien zawierać m.in.:
 
 ```text
-[TEST] desktop_arrow_navigation: PASS
-[TEST] desktop_files_3_1_navigation: PASS
-[TEST] desktop_settings_arrow_navigation: PASS
-[TEST] desktop_terminal_3_1_shared_shell: PASS
-[TEST] red_flux_sysmon: PASS
-[TEST] red_flux_about: PASS
+[TEST] userspace_init_spawn: PASS
+[TEST] red_flux_login_surface: PASS
+[TEST] red_flux_session_gate: PASS
+[TEST] red_flux_login_supervision: PASS
+[TEST] red_flux_login_to_desktop: PASS
+[TEST] red_flux_dock_controller: PASS
 ```
 
-Markery oznaczają osiągnięcie odpowiedniej ścieżki kodu, a nie automatyczny
-dowód braku problemów wizualnych. Drag/resize musi zostać oceniony w QEMU.
+Markery potwierdzają ścieżkę kodu; brak flickera, poprawny Dock i wizualny flow
+muszą być ocenione runtime w QEMU.
 
 ## Known GUI limitations
 
 - software rendering only;
-- compatibility `ku_ui_frame` nadal jest transportem głównego scene backendu;
-- jeden live UI window per process w obecnym kernel ABI;
-- brak native widget pointer hit testing;
-- brak wheel routing, clipboard i context actions;
-- brak multi-monitor i GPU compositor;
-- brak publicznego `readdir/stat` dla pełnej nawigacji Files;
-- per-window surfaces/damage compositor są celem 3.2.
+- compatibility `ku_ui_frame` nadal jest głównym transportem aplikacji;
+- brak natywnych per-window surfaces i damage compositora;
+- brak native widget pointer `widget_id`;
+- brak wheel routing, clipboard, Unicode i context actions;
+- login nie posiada jeszcze realnego account/credential service;
+- brak multi-monitor i GPU compositora;
+- brak publicznego `readdir/stat` dla pełnej nawigacji Files.
 
-See `docs/roadmap/DESKTOP_ROADMAP.md` for the plan through 3.6.
+Zobacz `docs/roadmap/DESKTOP_ROADMAP.md` dla planu do 3.6.
