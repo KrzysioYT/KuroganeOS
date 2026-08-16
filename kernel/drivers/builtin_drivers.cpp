@@ -1,5 +1,6 @@
 #include "audio/ac97.hpp"
 #include "core/driver_manager.hpp"
+#include "../core/log.hpp"
 
 namespace {
 
@@ -30,6 +31,18 @@ KStatus ac97_attach(
     void*) {
     if (timeout_ticks == 0U) return KStatus::InvalidArgument;
     const auto status = drivers::audio::ac97::initialize();
+    if (status == drivers::audio::ac97::Status::Ok ||
+        status == drivers::audio::ac97::Status::AlreadyInitialized) {
+        log::write(
+            log::Level::Info,
+            "AC97",
+            "Intel ICH AC97 PCM output ready (48 kHz S16LE stereo)");
+        return KStatus::Ok;
+    }
+    log::write(
+        log::Level::Warn,
+        "AC97",
+        drivers::audio::ac97::status_message(status));
     switch (status) {
         case drivers::audio::ac97::Status::Ok:
         case drivers::audio::ac97::Status::AlreadyInitialized:
