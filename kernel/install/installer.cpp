@@ -2,13 +2,15 @@
 
 #include "disk_layout.hpp"
 #include "package.hpp"
+#include "../drivers/framebuffer.hpp"
 #include "../drivers/keyboard.hpp"
 #include "../fs/fat32.hpp"
-#include "../libk/crc.hpp"
+#include "../fs/root_volume.hpp"
 #include "../storage/ahci.hpp"
 #include "../storage/gpt.hpp"
 #include "../storage/partition_device.hpp"
 #include "../terminal.hpp"
+#include "../../common/version.h"
 
 namespace install::installer {
 namespace {
@@ -19,17 +21,64 @@ fs::fat32::FileSystem g_esp{};
 fs::fat32::FileSystem g_root{};
 uint8_t g_verify_buffer[4096]{};
 
+constexpr graphics::Color kBackground = UINT32_C(0x050608);
+constexpr graphics::Color kPanel = UINT32_C(0x111317);
+constexpr graphics::Color kPanelRaised = UINT32_C(0x191C21);
+constexpr graphics::Color kBorder = UINT32_C(0x343941);
+constexpr graphics::Color kText = UINT32_C(0xECEEF1);
+constexpr graphics::Color kMuted = UINT32_C(0x9098A3);
+constexpr graphics::Color kAccent = UINT32_C(0xE0192D);
+constexpr graphics::Color kAccentBright = UINT32_C(0xFF3347);
+constexpr graphics::Color kDanger = UINT32_C(0xFF4055);
+
+constexpr size_t kUsernameCapacity = 24U;
+constexpr size_t kPasswordCapacity = 48U;
+
+enum class Language : uint8_t {
+    English = 0,
+    Polish,
+};
+
+struct InstallProfile {
+    Language language;
+    char username[kUsernameCapacity];
+    char password[kPasswordCapacity];
+    bool password_required;
+};
+
 [[noreturn]] void halt_forever() {
     for (;;) {
         __asm__ volatile("cli; hlt");
     }
 }
 
-[[noreturn]] void fail(const char* reason) {
-    terminal::write("installer error: ");
-    terminal::println(reason);
-    terminal::println("[TEST] installer_complete: FAIL");
-    halt_forever();
+void copy_text(char* output, size_t capacity, const char* input) {
+    if (output == nullptr || capacity == 0U) return;
+    size_t index = 0U;
+    if (input != nullptr) {
+        while (index + 1U < capacity && input[index] != '\0') {
+            output[index] = input[index];
+            ++index;
+        }
+    }
+    output[index] = '\0';
+}
+
+size_t text_length(const char* value) {
+    if (value == nullptr) return 0U;
+    size_t length = 0U;
+    while (value[length] != '\0') ++length;
+    return length;
+}
+
+void append_text(char* output, size_t capacity, const char* input) {
+    if (output == nullptr || input == nullptr || capacity == 0U) return;
+    size_t used = text_length(output);
+    size_t index = 0U;
+    while (used + 1U < capacity && input[index] != '\0') {
+        output[used++] = input[index++];
+    }
+    output[used] = '\0';
 }
 
 bool strings_equal(const char* left, const char* right) {
@@ -39,51 +88,249 @@ bool strings_equal(const char* left, const char* right) {
     return left[index] == right[index];
 }
 
-size_t read_line(char* output, size_t capacity) {
-    if (output == nullptr || capacity < 2U) return 0U;
-    size_t length = 0U;
-    output[0] = '\0';
+void u64_to_decimal(uint64_t value, char* output, size_t capacity) {
+    if (output == nullptr || capacity < 2U) return;
+    char reversed[32]{};
+    size_t count = 0U;
+    do {
+        reversed[count++] = static_cast<char>('0' + (value % 10U));
+        value /= 10U;
+    } while (value != 0U && count < sizeof(reversed));
+    size_t written = 0U;
+    while (count != 0U && written + 1U < capacity) {
+        output[written++] = reversed[--count];
+    }
+    output[written] = '\0';
+}
+
+void u64_to_hex(uint64_t value, char output[17]) {
+    static constexpr char digits[] = "0123456789ABCDEF";
+    for (size_t index = 0U; index < 16U; ++index) {
+        const unsigned shift = static_cast<unsigned>((15U - index) * 4U);
+        output[index] = digits[(value >> shift) & UINT64_C(0xF)];
+    }
+    output[16] = '\0';
+}
+
+uint64_t credential_hash(const char* username, const char* password) {
+    // Dev-release credential verifier. This is deliberately identified as a
+    // non-cryptographic compatibility hash until the account service gains a
+    // real KDF/credential store in a later release.
+    uint64_t hash = UINT64_C(1469598103934665603);
+    static constexpr char domain[] = "KuroganeOS-3.3-dev:";
+    for (char value : domain) {
+        if (value == '\0') break;
+        hash ^= static_cast<uint8_t>(value);
+        hash *= UINT64_C(1099511628211);
+    }
+    const char* fields[] = {username, ":", password};
+    for (const char* field : fields) {
+        if (field == nullptr) continue;
+        for (size_t index = 0U; field[index] != '\0'; ++index) {
+            hash ^= static_cast<uint8_t>(field[index]);
+            hash *= UINT64_C(1099511628211);
+        }
+    }
+    return hash;
+}
+
+void draw_brand_header(const char* section) {
+    if (!graphics::available()) return;
+    graphics::clear(kBackground);
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    graphics::fill_rect(0, 0, width, 54, UINT32_C(0x090A0D));
+    graphics::fill_rect(0, 52, width, 2, kAccent);
+    graphics::draw_text(28, 18, "KUROGANEOS", kText, kBackground, 2U, true);
+    graphics::draw_text(190, 20, KUROGANE_VERSION_STRING " DEV BETA",
+                        kAccentBright, kBackground, 1U, true);
+    if (section != nullptr) {
+        graphics::draw_text(width - 230, 20, section,
+                            kMuted, kBackground, 1U, true);
+    }
+}
+
+void draw_footer(const char* text) {
+    if (!graphics::available() || text == nullptr) return;
+    const int32_t height = static_cast<int32_t>(graphics::height());
+    graphics::draw_text(28, height - 34, text, kMuted, kBackground, 1U, true);
+}
+
+void draw_setup_title(const char* title, const char* subtitle) {
+    draw_brand_header("RED FLUX SETUP");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t panel_x = width / 2 - 300;
+    graphics::fill_rect(panel_x, 100, 600, 390, kPanel);
+    graphics::draw_rect(panel_x, 100, 600, 390, kBorder, 1U);
+    graphics::fill_rect(panel_x, 100, 6, 390, kAccent);
+    graphics::draw_text(panel_x + 34, 130, title, kText, kPanel, 2U, true);
+    if (subtitle != nullptr) {
+        graphics::draw_text(panel_x + 34, 166, subtitle, kMuted, kPanel, 1U, true);
+    }
+}
+
+void draw_option(
+    size_t position,
+    const char* label,
+    const char* description,
+    bool selected) {
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 250;
+    const int32_t y = 220 + static_cast<int32_t>(position) * 92;
+    graphics::fill_rect(x, y, 500, 70, selected ? kPanelRaised : kPanel);
+    graphics::draw_rect(x, y, 500, 70, selected ? kAccent : kBorder,
+                        selected ? 2U : 1U);
+    if (selected) graphics::fill_rect(x, y, 5, 70, kAccent);
+    graphics::draw_text(x + 24, y + 16, label,
+                        selected ? kAccentBright : kText,
+                        kPanel, 2U, true);
+    if (description != nullptr) {
+        graphics::draw_text(x + 24, y + 46, description,
+                            kMuted, kPanel, 1U, true);
+    }
+}
+
+drivers::keyboard::KeyEvent wait_key() {
     for (;;) {
         drivers::keyboard::poll();
-        char character = 0;
-        if (!drivers::keyboard::try_read_char(character)) {
-            __asm__ volatile("pause");
-            continue;
+        drivers::keyboard::KeyEvent event{};
+        if (drivers::keyboard::try_read_event(event) && event.pressed) {
+            return event;
         }
-        if (character == '\r' || character == '\n') {
-            terminal::println();
-            output[length] = '\0';
-            return length;
-        }
-        if (character == '\b') {
-            if (length != 0U) {
-                --length;
-                output[length] = '\0';
-                terminal::backspace();
-            }
-            continue;
-        }
-        if (character >= 0x20 && character <= 0x7E &&
-            length + 1U < capacity) {
-            output[length++] = character;
-            output[length] = '\0';
-            terminal::put(character);
+        __asm__ volatile("pause");
+    }
+}
+
+size_t choose_two(
+    const char* title,
+    const char* subtitle,
+    const char* first,
+    const char* first_description,
+    const char* second,
+    const char* second_description,
+    size_t initial = 0U) {
+    size_t selected = initial > 1U ? 0U : initial;
+    for (;;) {
+        draw_setup_title(title, subtitle);
+        draw_option(0U, first, first_description, selected == 0U);
+        draw_option(1U, second, second_description, selected == 1U);
+        draw_footer("ARROWS: SELECT   ENTER: CONTINUE");
+        const auto event = wait_key();
+        if (event.key == drivers::keyboard::KeyCode::ArrowUp ||
+            event.key == drivers::keyboard::KeyCode::ArrowLeft) {
+            selected = 0U;
+        } else if (event.key == drivers::keyboard::KeyCode::ArrowDown ||
+                   event.key == drivers::keyboard::KeyCode::ArrowRight ||
+                   event.key == drivers::keyboard::KeyCode::Tab) {
+            selected = 1U;
+        } else if (event.key == drivers::keyboard::KeyCode::Enter ||
+                   event.key == drivers::keyboard::KeyCode::KeypadEnter) {
+            return selected;
         }
     }
 }
 
-bool parse_index(const char* text, size_t count, size_t* output) {
-    if (text == nullptr || output == nullptr || text[0] == '\0') return false;
-    size_t value = 0U;
-    for (size_t index = 0U; text[index] != '\0'; ++index) {
-        if (text[index] < '0' || text[index] > '9') return false;
-        const size_t digit = static_cast<size_t>(text[index] - '0');
-        if (value > (SIZE_MAX - digit) / 10U) return false;
-        value = value * 10U + digit;
+void draw_input_page(
+    const char* title,
+    const char* subtitle,
+    const char* value,
+    bool masked,
+    const char* error) {
+    draw_setup_title(title, subtitle);
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 250;
+    graphics::fill_rect(x, 230, 500, 64, kPanelRaised);
+    graphics::draw_rect(x, 230, 500, 64, kAccent, 2U);
+    char display[64]{};
+    if (masked) {
+        const size_t length = text_length(value);
+        size_t count = length < sizeof(display) - 1U
+            ? length : sizeof(display) - 1U;
+        for (size_t index = 0U; index < count; ++index) display[index] = '*';
+        display[count] = '\0';
+    } else {
+        copy_text(display, sizeof(display), value);
     }
-    if (value >= count) return false;
-    *output = value;
+    graphics::draw_text(x + 22, 252,
+                        display[0] == '\0' ? "_" : display,
+                        kText, kPanelRaised, 2U, true);
+    if (error != nullptr) {
+        graphics::draw_text(x, 320, error, kDanger, kPanel, 1U, true);
+    }
+    draw_footer("TYPE VALUE   BACKSPACE: ERASE   ENTER: CONTINUE");
+}
+
+bool valid_username(const char* value) {
+    const size_t length = text_length(value);
+    if (length == 0U || length >= kUsernameCapacity) return false;
+    for (size_t index = 0U; index < length; ++index) {
+        const char ch = value[index];
+        const bool alpha = (ch >= 'A' && ch <= 'Z') ||
+            (ch >= 'a' && ch <= 'z');
+        const bool digit = ch >= '0' && ch <= '9';
+        if (!alpha && !digit && ch != '_' && ch != '-') return false;
+    }
     return true;
+}
+
+bool read_input(
+    const char* title,
+    const char* subtitle,
+    char* output,
+    size_t capacity,
+    bool masked,
+    bool username_rules) {
+    if (output == nullptr || capacity < 2U) return false;
+    size_t length = text_length(output);
+    const char* error = nullptr;
+    for (;;) {
+        draw_input_page(title, subtitle, output, masked, error);
+        const auto event = wait_key();
+        error = nullptr;
+        if (event.key == drivers::keyboard::KeyCode::Escape) return false;
+        if (event.key == drivers::keyboard::KeyCode::Backspace) {
+            if (length != 0U) output[--length] = '\0';
+            continue;
+        }
+        if (event.key == drivers::keyboard::KeyCode::Enter ||
+            event.key == drivers::keyboard::KeyCode::KeypadEnter) {
+            if (length == 0U) {
+                error = "VALUE CANNOT BE EMPTY";
+                continue;
+            }
+            if (username_rules && !valid_username(output)) {
+                error = "USE LETTERS, DIGITS, _ OR - ONLY";
+                continue;
+            }
+            return true;
+        }
+        const char ch = event.character;
+        if (ch >= 0x20 && ch <= 0x7E && length + 1U < capacity) {
+            output[length++] = ch;
+            output[length] = '\0';
+        }
+    }
+}
+
+void show_error(const char* reason) {
+    draw_brand_header("SETUP ERROR");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    graphics::fill_rect(width / 2 - 300, 180, 600, 220, kPanel);
+    graphics::draw_rect(width / 2 - 300, 180, 600, 220, kDanger, 2U);
+    graphics::draw_text(width / 2 - 260, 220, "INSTALLATION STOPPED",
+                        kDanger, kPanel, 2U, true);
+    graphics::draw_text(width / 2 - 260, 270, reason,
+                        kText, kPanel, 1U, true);
+    graphics::draw_text(width / 2 - 260, 330,
+                        "POWER OFF OR REBOOT TO RETRY",
+                        kMuted, kPanel, 1U, true);
+}
+
+[[noreturn]] void fail(const char* reason) {
+    terminal::write("installer error: ");
+    terminal::println(reason);
+    terminal::println("[TEST] installer_complete: FAIL");
+    show_error(reason);
+    halt_forever();
 }
 
 bool make_directory(fs::fat32::FileSystem* filesystem, const char* path) {
@@ -95,7 +342,7 @@ bool make_directory(fs::fat32::FileSystem* filesystem, const char* path) {
 bool prepare_directories() {
     static const char* const esp_directories[] = {"/EFI", "/EFI/BOOT"};
     static const char* const root_directories[] = {
-        "/boot", "/etc", "/apps", "/gui", "/system", "/var"
+        "/boot", "/etc", "/apps", "/gui", "/system", "/var", "/home"
     };
     for (const char* path : esp_directories) {
         if (!make_directory(&g_esp, path)) return false;
@@ -150,9 +397,145 @@ bool verify_file(const package::File& file) {
         info.type == fs::fat32::EntryType::File && info.size == file.size;
 }
 
+bool replace_root_file(const char* path, const char* data) {
+    const fs::fat32::Status removed = fs::fat32::unlink(&g_root, path);
+    if (removed != fs::fat32::Status::Ok &&
+        removed != fs::fat32::Status::NotFound) {
+        return false;
+    }
+    if (fs::fat32::create(&g_root, path) != fs::fat32::Status::Ok) return false;
+    const size_t size = text_length(data);
+    return size == 0U ||
+        fs::fat32::write(&g_root, path, 0U, data, size) == fs::fat32::Status::Ok;
+}
+
+bool write_profile(const InstallProfile& profile) {
+    const char* locale = profile.language == Language::Polish
+        ? "LANG=pl-PL\n" : "LANG=en-US\n";
+    if (!replace_root_file("/etc/locale.cfg", locale)) return false;
+
+    char user_config[256]{};
+    append_text(user_config, sizeof(user_config), "USERNAME=");
+    append_text(user_config, sizeof(user_config), profile.username);
+    append_text(user_config, sizeof(user_config), "\nPASSWORD_REQUIRED=");
+    append_text(user_config, sizeof(user_config),
+                profile.password_required ? "1" : "0");
+    append_text(user_config, sizeof(user_config), "\nPASSWORD_HASH=");
+    char hash_text[17]{};
+    u64_to_hex(profile.password_required
+                   ? credential_hash(profile.username, profile.password)
+                   : 0U,
+               hash_text);
+    append_text(user_config, sizeof(user_config), hash_text);
+    append_text(user_config, sizeof(user_config),
+                "\nHASH_SCHEME=FNV1A64-DEV\n");
+    return replace_root_file("/etc/user.cfg", user_config);
+}
+
+void draw_progress(size_t stage, const char* label) {
+    draw_brand_header("INSTALLING");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 280;
+    graphics::fill_rect(x, 180, 560, 230, kPanel);
+    graphics::draw_rect(x, 180, 560, 230, kBorder, 1U);
+    graphics::draw_text(x + 30, 215, "INSTALLING KUROGANEOS",
+                        kText, kPanel, 2U, true);
+    graphics::draw_text(x + 30, 265, label, kMuted, kPanel, 1U, true);
+    graphics::fill_rect(x + 30, 330, 500, 18, UINT32_C(0x252930));
+    const int32_t progress = static_cast<int32_t>((stage * 500U) / 9U);
+    graphics::fill_rect(x + 30, 330, progress, 18, kAccent);
+    char step[32] = "STEP ";
+    char number[8]{};
+    u64_to_decimal(stage, number, sizeof(number));
+    append_text(step, sizeof(step), number);
+    append_text(step, sizeof(step), " / 9");
+    graphics::draw_text(x + 30, 365, step, kAccentBright, kPanel, 1U, true);
+}
+
+size_t choose_disk() {
+    const size_t count = storage::ahci::device_count();
+    if (count == 0U) fail("NO WRITABLE SATA/AHCI DISK DETECTED");
+    size_t selected = 0U;
+    for (;;) {
+        draw_setup_title("SELECT TARGET DISK",
+                         "THE SELECTED DISK WILL BE ERASED");
+        const int32_t width = static_cast<int32_t>(graphics::width());
+        const int32_t x = width / 2 - 250;
+        const storage::ahci::DeviceInfo* info =
+            storage::ahci::device_info_at(selected);
+        graphics::fill_rect(x, 220, 500, 120, kPanelRaised);
+        graphics::draw_rect(x, 220, 500, 120, kAccent, 2U);
+        graphics::draw_text(x + 24, 242,
+                            info != nullptr ? info->model : "UNKNOWN SATA DISK",
+                            kText, kPanelRaised, 1U, true);
+        char size_line[64] = "SIZE: ";
+        char size_text[24]{};
+        const uint64_t mib = info != nullptr
+            ? (info->sector_count * info->sector_size) / (1024U * 1024U)
+            : 0U;
+        u64_to_decimal(mib, size_text, sizeof(size_text));
+        append_text(size_line, sizeof(size_line), size_text);
+        append_text(size_line, sizeof(size_line), " MiB");
+        graphics::draw_text(x + 24, 276, size_line,
+                            kMuted, kPanelRaised, 1U, true);
+        char index_line[64] = "DISK ";
+        char current[16]{};
+        char total[16]{};
+        u64_to_decimal(selected + 1U, current, sizeof(current));
+        u64_to_decimal(count, total, sizeof(total));
+        append_text(index_line, sizeof(index_line), current);
+        append_text(index_line, sizeof(index_line), " / ");
+        append_text(index_line, sizeof(index_line), total);
+        graphics::draw_text(x + 24, 306, index_line,
+                            kAccentBright, kPanelRaised, 1U, true);
+        draw_footer("UP/DOWN: CHANGE DISK   ENTER: SELECT");
+        const auto event = wait_key();
+        if (event.key == drivers::keyboard::KeyCode::ArrowUp) {
+            selected = selected == 0U ? count - 1U : selected - 1U;
+        } else if (event.key == drivers::keyboard::KeyCode::ArrowDown ||
+                   event.key == drivers::keyboard::KeyCode::Tab) {
+            selected = (selected + 1U) % count;
+        } else if (event.key == drivers::keyboard::KeyCode::Enter ||
+                   event.key == drivers::keyboard::KeyCode::KeypadEnter) {
+            return selected;
+        }
+    }
+}
+
+bool confirm_erase() {
+    char confirmation[16]{};
+    return read_input(
+        "CONFIRM INSTALLATION",
+        "TYPE INSTALL TO ERASE THE SELECTED DISK",
+        confirmation, sizeof(confirmation), false, false) &&
+        strings_equal(confirmation, "INSTALL");
+}
+
+void draw_complete(const InstallProfile& profile) {
+    draw_brand_header("INSTALL COMPLETE");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 300;
+    graphics::fill_rect(x, 160, 600, 260, kPanel);
+    graphics::draw_rect(x, 160, 600, 260, kAccent, 2U);
+    graphics::draw_text(x + 34, 205, "KUROGANEOS IS INSTALLED",
+                        kText, kPanel, 2U, true);
+    char user_line[96] = "ACCOUNT: ";
+    append_text(user_line, sizeof(user_line), profile.username);
+    graphics::draw_text(x + 34, 260, user_line,
+                        kAccentBright, kPanel, 1U, true);
+    graphics::draw_text(x + 34, 292,
+                        profile.password_required
+                            ? "LOGIN PASSWORD: ENABLED"
+                            : "LOGIN PASSWORD: DISABLED",
+                        kMuted, kPanel, 1U, true);
+    graphics::draw_text(x + 34, 340,
+                        "REMOVE INSTALL MEDIA AND REBOOT",
+                        kText, kPanel, 1U, true);
+}
+
 } // namespace
 
-[[noreturn]] void run_interactive(
+void run_interactive(
     const void* package_bytes,
     size_t package_size) {
     package::View payload{};
@@ -161,66 +544,98 @@ bool verify_file(const package::File& file) {
     if (package_status != package::Status::Ok) {
         fail(package::status_message(package_status));
     }
-    terminal::println();
-    terminal::println("KuroganeOS text installer 2.0");
-    terminal::write("validated package files: ");
+
+    terminal::set_framebuffer_output(false);
+    terminal::println("[SETUP] KuroganeOS 3.3 dev media detected");
+    terminal::write("[SETUP] package files: ");
     terminal::write_u64(payload.file_count);
     terminal::println();
-    terminal::println("installer: detected disks");
 
-    const size_t disk_count = storage::ahci::device_count();
-    if (disk_count == 0U) fail("no writable SATA disk detected");
-    for (size_t index = 0U; index < disk_count; ++index) {
-        const storage::ahci::DeviceInfo* info =
-            storage::ahci::device_info_at(index);
-        terminal::write("  [");
-        terminal::write_u64(index);
-        terminal::write("] ");
-        terminal::write(info != nullptr ? info->model : "unknown SATA disk");
-        terminal::write(" - ");
-        terminal::write_u64(
-            info != nullptr
-                ? (info->sector_count * info->sector_size) / (1024U * 1024U)
-                : 0U);
-        terminal::println(" MiB");
-    }
+    const size_t mode = choose_two(
+        "WELCOME TO KUROGANEOS",
+        "DEVELOPMENT / BETA RELEASE MEDIA",
+        "TRY KUROGANEOS",
+        "RUN A READ-ONLY LIVE SESSION WITHOUT INSTALLING",
+        "INSTALL KUROGANEOS",
+        "CONFIGURE A USER AND DEPLOY TO A DISK");
 
-    char line[32]{};
-    size_t target_index = SIZE_MAX;
-    while (target_index == SIZE_MAX) {
-        terminal::write("installer: select target disk index: ");
-        read_line(line, sizeof(line));
-        if (!parse_index(line, disk_count, &target_index)) {
-            terminal::println("invalid disk index");
-            target_index = SIZE_MAX;
+    if (mode == 0U) {
+        const fs::root_volume::Status live_status =
+            fs::root_volume::initialize_live_package(package_bytes, package_size);
+        if (live_status != fs::root_volume::Status::Ok) {
+            fail(fs::root_volume::status_message(live_status));
         }
+        terminal::println("[TEST] live_package_root: PASS");
+        terminal::println("[TEST] setup_try_mode: PASS");
+        return;
     }
+
+    InstallProfile profile{};
+    const size_t language = choose_two(
+        "CHOOSE LANGUAGE / WYBIERZ JEZYK",
+        "INSTALLER AND LOGIN PROFILE",
+        "ENGLISH",
+        "EN-US SYSTEM PROFILE",
+        "POLSKI",
+        "PL-PL PROFIL SYSTEMU");
+    profile.language = language == 1U ? Language::Polish : Language::English;
+
+    copy_text(profile.username, sizeof(profile.username), "user");
+    if (!read_input(
+            profile.language == Language::Polish
+                ? "NAZWA UZYTKOWNIKA" : "USER NAME",
+            profile.language == Language::Polish
+                ? "UTWORZ LOKALNE KONTO" : "CREATE A LOCAL ACCOUNT",
+            profile.username, sizeof(profile.username), false, true)) {
+        fail("ACCOUNT SETUP CANCELLED");
+    }
+
+    const size_t password_mode = choose_two(
+        profile.language == Language::Polish
+            ? "ZABEZPIECZENIE KONTA" : "ACCOUNT SECURITY",
+        profile.username,
+        profile.language == Language::Polish
+            ? "BEZ HASLA" : "NO PASSWORD",
+        profile.language == Language::Polish
+            ? "ENTER OD RAZU OTWIERA SESJE" : "ENTER OPENS THE SESSION DIRECTLY",
+        profile.language == Language::Polish
+            ? "USTAW HASLO" : "USE PASSWORD",
+        profile.language == Language::Polish
+            ? "LOGIN BEDZIE WYMAGAL HASLA" : "LOGIN WILL REQUIRE A PASSWORD");
+    profile.password_required = password_mode == 1U;
+    if (profile.password_required &&
+        !read_input(
+            profile.language == Language::Polish ? "HASLO" : "PASSWORD",
+            profile.language == Language::Polish
+                ? "WPISZ HASLO DO KONTA" : "ENTER THE ACCOUNT PASSWORD",
+            profile.password, sizeof(profile.password), true, false)) {
+        fail("PASSWORD SETUP CANCELLED");
+    }
+
+    const size_t target_index = choose_disk();
     const storage::block::Device* target =
         storage::ahci::device_at(target_index);
-    if (target == nullptr) fail("selected disk disappeared");
+    if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
 
-    terminal::println("WARNING: the selected guest disk will be repartitioned.");
-    terminal::write("installer: type INSTALL to confirm: ");
-    read_line(line, sizeof(line));
-    if (!strings_equal(line, "INSTALL")) {
-        terminal::println("installation cancelled; no disk write was attempted");
+    if (!confirm_erase()) {
         terminal::println("[TEST] installer_cancel_safe: PASS");
-        halt_forever();
+        fail("INSTALLATION CONFIRMATION DID NOT MATCH INSTALL");
     }
 
-    terminal::println("installer stage 1/8: target confirmed");
+    draw_progress(1U, "TARGET CONFIRMED");
     disk_layout::Layout layout{};
     const disk_layout::Status layout_status =
         disk_layout::prepare_empty_disk(target, &layout);
     if (layout_status != disk_layout::Status::Ok) {
         fail(disk_layout::status_message(layout_status));
     }
-    terminal::println("installer stage 2/8: protective MBR and mirrored GPT written");
+    terminal::println("installer stage 1/9: target confirmed and GPT written");
 
+    draw_progress(2U, "VALIDATING PARTITION TABLE");
     storage::gpt::Table table{};
     if (storage::gpt::parse_primary(target, &table).status !=
         storage::gpt::Status::Ok || table.partition_count != 2U) {
-        fail("written GPT did not validate");
+        fail("WRITTEN GPT DID NOT VALIDATE");
     }
     if (storage::partition::initialize(
             &g_esp_partition, target, layout.esp_first_lba,
@@ -228,10 +643,10 @@ bool verify_file(const package::File& file) {
         storage::partition::initialize(
             &g_root_partition, target, layout.root_first_lba,
             layout.root_sector_count) != storage::block::Status::Ok) {
-        fail("partition views could not be created");
+        fail("PARTITION VIEWS COULD NOT BE CREATED");
     }
-    terminal::println("installer stage 3/8: ESP and root partitions selected");
 
+    draw_progress(3U, "FORMATTING ESP AND ROOT");
     if (fs::fat32::format(
             storage::partition::as_block_device(&g_esp_partition),
             "KURO_ESP", 1U, static_cast<uint32_t>(layout.esp_first_lba)) !=
@@ -240,53 +655,64 @@ bool verify_file(const package::File& file) {
             storage::partition::as_block_device(&g_root_partition),
             "KURO_ROOT", 8U, static_cast<uint32_t>(layout.root_first_lba)) !=
             fs::fat32::Status::Ok) {
-        fail("FAT32 formatting failed");
+        fail("FAT32 FORMATTING FAILED");
     }
-    terminal::println("installer stage 4/8: FAT32 filesystems prepared");
+
+    draw_progress(4U, "MOUNTING NEW FILESYSTEMS");
     if (fs::fat32::mount(
             &g_esp, storage::partition::as_block_device(&g_esp_partition)) !=
             fs::fat32::Status::Ok ||
         fs::fat32::mount(
             &g_root, storage::partition::as_block_device(&g_root_partition)) !=
             fs::fat32::Status::Ok || !prepare_directories()) {
-        fail("filesystem mount or directory creation failed");
+        fail("FILESYSTEM MOUNT OR DIRECTORY CREATION FAILED");
     }
-    terminal::println("installer stage 5/8: directory tree created");
 
+    draw_progress(5U, "COPYING SYSTEM FILES");
     for (size_t index = 0U; index < payload.file_count; ++index) {
         package::File file{};
         if (package::file_at(payload, index, &file) != package::Status::Ok ||
             !copy_file(file)) {
-            fail("package copy failed");
+            fail("PACKAGE COPY FAILED");
         }
     }
-    terminal::println("installer stage 6/8: system and UEFI bootloader copied");
 
+    draw_progress(6U, "WRITING LANGUAGE AND ACCOUNT PROFILE");
+    if (!write_profile(profile)) {
+        fail("ACCOUNT OR LOCALE CONFIGURATION FAILED");
+    }
+
+    draw_progress(7U, "COMMITTING FIRST BOOT STATE");
     static constexpr char kFirstRun[] = "pending\n";
-    if (fs::fat32::create(&g_root, "/etc/first.run") !=
-            fs::fat32::Status::Ok ||
+    const fs::fat32::Status first_run_existing =
+        fs::fat32::unlink(&g_root, "/etc/first.run");
+    if ((first_run_existing != fs::fat32::Status::Ok &&
+         first_run_existing != fs::fat32::Status::NotFound) ||
+        fs::fat32::create(&g_root, "/etc/first.run") != fs::fat32::Status::Ok ||
         fs::fat32::write(
             &g_root, "/etc/first.run", 0U, kFirstRun,
             sizeof(kFirstRun) - 1U) != fs::fat32::Status::Ok ||
         fs::fat32::sync(&g_esp) != fs::fat32::Status::Ok ||
         fs::fat32::sync(&g_root) != fs::fat32::Status::Ok) {
-        fail("boot configuration sync failed");
+        fail("BOOT CONFIGURATION SYNC FAILED");
     }
-    terminal::println("installer stage 7/8: boot configuration committed");
 
+    draw_progress(8U, "VERIFYING INSTALLED PAYLOAD");
     for (size_t index = 0U; index < payload.file_count; ++index) {
         package::File file{};
         if (package::file_at(payload, index, &file) != package::Status::Ok ||
             !verify_file(file)) {
-            fail("installed file verification failed");
+            fail("INSTALLED FILE VERIFICATION FAILED");
         }
     }
-    terminal::println("installer stage 8/8: installed files verified");
+
+    draw_progress(9U, "INSTALLATION COMPLETE");
     terminal::println("[TEST] installer_gpt: PASS");
     terminal::println("[TEST] installer_filesystems: PASS");
     terminal::println("[TEST] installer_uefi_bootloader: PASS");
+    terminal::println("[TEST] installer_profile: PASS");
     terminal::println("[TEST] installer_complete: PASS");
-    terminal::println("Installation complete. Power off and boot without the ISO.");
+    draw_complete(profile);
     halt_forever();
 }
 
