@@ -6,10 +6,10 @@ int main(void) {
     if (window == KU_INVALID_WINDOW) return 1;
     ku_ui_frame frame;
     kui_frame_initialize(&frame);
-    (void)kui_frame_set_line(&frame, 0U, "KUROGANEOS " KUROGANE_VERSION_STRING " DESKTOP ALPHA");
+    (void)kui_frame_set_line(&frame, 0U, "KUROGANEOS " KUROGANE_VERSION_STRING " FLUX WINDOW CORE");
     (void)kui_frame_set_line(&frame, 2U, "x86-64 UEFI, private address spaces");
     (void)kui_frame_set_line(&frame, 3U, "Preemptive tasks, writable FAT32, AHCI");
-    (void)kui_frame_set_line(&frame, 4U, "Installable UEFI system, PID 1 userspace");
+    (void)kui_frame_set_line(&frame, 4U, "Flux session, PID 1 userspace, WindowManager");
     (void)kui_frame_set_line(&frame, 6U, "This application was linked with libui.");
     (void)kui_present(window, &frame);
     puts("[TEST] desktop_about_ring3: PASS");
