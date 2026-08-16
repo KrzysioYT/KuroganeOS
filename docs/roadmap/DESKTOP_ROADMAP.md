@@ -1,25 +1,24 @@
 # KuroganeOS Desktop Roadmap — 2.3 → 3.6
 
-Ta roadmapa opisuje rzeczywisty stan rozwoju Kurogane Flux Desktop. `3.0` jest
-pierwszym wydaniem z pełnoprawnym modelem sesji desktopowej: system startuje do
-Flux Home/Launchera, a Terminal, Files, Monitor, Settings i About są zwykłymi
-procesami uruchamianymi na żądanie. `3.0` nie oznacza jeszcze końca rozwoju
-compositora, pełnego POSIX/VFS ABI ani sterowników sprzętowych.
+Ta roadmapa opisuje rzeczywisty stan rozwoju Kurogane Desktop. `3.0` wprowadził
+normalny model sesji desktopowej, a `3.1` rozpoczyna etap jakości interakcji i
+własnej identyfikacji Red Flux. Celem `3.6` pozostaje stabilny desktop, którego
+regularne używanie nie wymaga znajomości wewnętrznych mechanizmów kernela.
 
 ## Fundament
 
 - [x] x86-64 UEFI i boot protocol v3;
 - [x] Ring 3, prywatne address spaces i `int 0x80` ABI;
-- [x] procesy ELF64, PID/TID, spawn/wait/exit i preempcja PIT;
+- [x] ELF64 processes, PID/TID, spawn/wait/exit i preempcja PIT;
 - [x] `/system/init` jako PID 1;
 - [x] AHCI, GPT i persistent FAT32/VFS;
-- [x] PS/2 input i wspólna kolejka input;
+- [x] PS/2 keyboard/mouse i wspólna kolejka input;
 - [x] framebuffer/software rendering;
 - [x] WindowManager: focus, z-order, drag, resize, minimize/maximize/restore/close;
 - [x] Signal Spine i Pulse Ribbon;
 - [x] Ring-3 `libui` scene/view runtime;
 - [x] Windows/WSL/macOS SDK i development IMG workflow;
-- [x] rozdzielenie framebuffer ownership: Flux renderuje ekran, logi idą serialem.
+- [x] jeden właściciel GOP podczas desktop session: Flux renderuje ekran, logi idą serialem.
 
 ## 2.3 — Desktop Boot Repair — ZREALIZOWANE
 
@@ -37,10 +36,10 @@ compositora, pełnego POSIX/VFS ABI ani sterowników sprzętowych.
 - [x] focus/drag/minimize/maximize/restore/close;
 - [x] workspace/chrome geometry jako wspólne źródło hit-testu;
 - [x] software cursor nie wymusza pełnego repaintu;
-- [x] 3.0.1 usuwa błędny content-only repaint, który powodował ghosting.
+- [x] 3.0.1 usuwa błędny content-only repaint powodujący ghosting.
 
-Pozostały cleanup bootloadera (`DESKTOP ALPHA`) i starych Ring-0 surfaces może być
-prowadzony niezależnie od userspace desktopu.
+Legacy bootloader copy (`DESKTOP ALPHA`) i stare Ring-0 surfaces mogą być
+czyszczone niezależnie od userspace desktopu.
 
 ## 2.5 — Flux UI Runtime — ZREALIZOWANE JAKO WARSTWA KOMPATYBILNOŚCI
 
@@ -48,55 +47,50 @@ prowadzony niezależnie od userspace desktopu.
 - [x] `kui_flow`;
 - [x] panel/label/button/input/list/progress/separator;
 - [x] selection traversal i logiczne scrollowanie;
-- [x] migracja Files/Settings/Monitor/About;
-- [x] 2.5.1: terminal kernelowy przechodzi w serial-only przy aktywnym Flux.
-
-Natywne kernelowe widget records, pointer widget IDs i compositor damage regions
-pozostają pracą dla 3.1/3.2.
+- [x] migracja głównych desktop apps;
+- [x] terminal kernelowy przechodzi w serial-only przy aktywnym Flux.
 
 ## 2.6 — Desktop Applications — PIERWSZY ETAP ZREALIZOWANY
 
-- [x] Flux Terminal: `cat/read`, `which`, `run`, `gui`, `open`, jobs, wait,
-  history, status i uruchamianie aplikacji;
-- [x] Files: quick access, podgląd VFS i uruchamianie ELF GUI;
+- [x] Terminal: filesystem read, process launch, jobs, wait, history, status;
+- [x] Files: quick access, VFS preview i uruchamianie ELF GUI;
 - [x] System Monitor jako żywa aplikacja Ring 3;
 - [x] Settings i About jako aplikacje scenowe;
-- [x] kernel bounce buffer dla odczytu persistent VFS do procesu Ring 3.
+- [x] kernel bounce buffer dla persistent VFS reads do procesu Ring 3.
 
 Pełne `ls/stat/readdir/write/mkdir/rm/mv/cp/touch` wymaga rozszerzonego publicznego
-VFS capability ABI i pozostaje następnym subsystemem userspace.
+VFS capability ABI.
 
-## 2.7 — Interaction Update — RDZEŃ ZREALIZOWANY
-
-Dostępne:
+## 2.7 — Interaction Core — ZREALIZOWANY
 
 - [x] focus i z-order;
 - [x] header drag;
-- [x] interactive resize z bottom-right Flux grip;
+- [x] interactive resize z bottom-right grip;
 - [x] minimize/maximize/restore/close;
 - [x] Alt+Tab i Alt+F4;
-- [x] keyboard selection w `libui`;
-- [x] software pointer.
+- [x] software pointer;
+- [x] named public GUI key codes;
+- [x] arrow-first navigation w Launcher/Files/Settings;
+- [x] Left/Right/Home/End/Delete oraz Up/Down history w Terminalu;
+- [x] Tab jako podstawowy focus/navigation key w aplikacjach scenowych.
 
 Dalsze prace:
 
-- [ ] double click/context actions;
+- [ ] double click i context actions;
 - [ ] wheel routing do userspace;
 - [ ] clipboard;
-- [ ] pełny keyboard focus traversal między widgetami.
+- [ ] natywne keyboard focus traversal między widgetami.
 
 ## 2.8 — Flux Launcher — ZREALIZOWANE
 
-- [x] `/gui/launcher` jako Flux Home;
-- [x] Launcher jest jedynym normalnym userspace rootem sesji;
+- [x] `/gui/launcher` jako Home/session root;
 - [x] Terminal/Files/Monitor/Settings/About startują na żądanie;
 - [x] aplikacje są dziećmi Launchera i są reapowane po zakończeniu;
 - [x] zamknięcie aplikacji naprawdę ją zamyka;
 - [x] PID1 nadzoruje Launcher, a nie pięć niezależnych aplikacji;
-- [x] szybkie skróty Terminal/Files oraz selection + Enter.
+- [x] selection + Enter oraz szybkie skróty Terminal/Files.
 
-Manifesty, resources, favourites i wyszukiwanie dynamicznego registry przechodzą
-do 3.4 Developer Platform.
+Manifesty, resources, favourites i dynamiczne registry przechodzą do 3.4.
 
 ## 2.9 — Desktop Beta — MODEL SESJI ZREALIZOWANY
 
@@ -104,11 +98,8 @@ do 3.4 Developer Platform.
 - [x] zwykłe aplikacje nie są automatycznie respawnowane przez PID1;
 - [x] awaria/zamknięcie Launchera powoduje restart root session;
 - [x] console fallback pozostaje dostępny, jeśli session root nie wystartuje;
-- [x] framebuffer ma jednego właściciela podczas aktywnej sesji GUI;
-- [x] desktop nie musi startować z pięcioma nakładającymi się oknami.
-
-Pełny automatyczny crash-survival QEMU test dla arbitralnej aplikacji pozostaje
-do dopięcia w torze testowym.
+- [x] framebuffer ma jednego właściciela podczas aktywnego GUI;
+- [x] desktop nie startuje z pięcioma nakładającymi się oknami.
 
 ## 3.0 — Kurogane Desktop — WYDANE
 
@@ -118,51 +109,53 @@ Normalny model systemu:
 UEFI
  -> kernel
  -> persistent root
- -> Flux Window Core
+ -> WindowManager
  -> /system/init PID 1
- -> /gui/launcher (Flux Home)
+ -> /gui/launcher
  -> aplikacje Ring 3 uruchamiane przez użytkownika
 ```
 
-Zakres 3.0:
-
-- [x] Flux Desktop jest podstawowym interfejsem normalnego bootu;
-- [x] Flux Home/Launcher jest rootem sesji użytkownika;
+- [x] Desktop jest podstawowym interfejsem normalnego bootu;
+- [x] Launcher jest rootem sesji użytkownika;
 - [x] Terminal jest aplikacją, nie interfejsem całego OS;
-- [x] Files, Monitor, Settings i About są uruchamiane na żądanie;
-- [x] aplikacje mogą zostać zamknięte bez natychmiastowego restartu przez PID1;
+- [x] Files/Monitor/Settings/About startują na żądanie;
 - [x] console/safe mode pozostaje awaryjnym subsystemem;
-- [x] Ring-3 persistent reads używają kernel-owned bounce buffer przed kopiowaniem
-  do pamięci procesu;
-- [x] 3.0.1: deterministyczny repaint usuwa ghost trails z compatibility renderer;
-- [x] 3.0.1: interaktywny resize okien jest aktywny.
+- [x] 3.0.1: deterministyczny repaint usuwa ghost trails;
+- [x] 3.0.1: interactive resize jest aktywny.
 
-### Znane ograniczenia 3.0.x
+## 3.1 — Red Flux Interaction Update — WDROŻONE, RUNTIME ACCEPTANCE OTWARTE
 
-- software framebuffer rendering bez GPU acceleration;
-- brak pełnego compositora/backbufferów;
-- compatibility `ku_ui_frame` pozostaje transportem `libui`;
-- publiczne VFS ABI nadal jest głównie read-only/open/read/close;
-- brak pełnego directory browsera opartego o publiczne `readdir`;
-- brak clipboard/multimonitor/audio/NVMe;
-- tor instalowalnego ISO na macOS nadal wymaga osobnego dopracowania.
+3.1 zmienia priorytet z developer-preview na stabilność i spójność UX.
 
-## 3.1 — System Services
+- [x] Red Flux: czarne/grafitowe surfaces + czerwony focus/active zgodny z logo;
+- [x] usunięcie cyan/violet/amber jako głównej identyfikacji desktopu;
+- [x] software full-frame backbuffer dla bieżących GOP do 1600x1200;
+- [x] gotowa klatka jest kopiowana do GOP dopiero po zakończeniu renderu;
+- [x] content clipping per window;
+- [x] body text scale limit zależny od content width;
+- [x] wspólny `FluxShellCore` dla recovery shell i GUI Terminala;
+- [x] wspólne `help/history/jobs/cat/run/gui/calc/...` w obu frontendach;
+- [x] GUI Terminal: arrows/history/cursor editing/Home/End/Delete/Escape;
+- [x] Red Flux jako domyślna paleta `libui` również dla aplikacji SDK;
+- [x] prostszy compatibility scene rendering bez `[> ]`, `>>` i `::`.
 
-- userspace settings service;
-- notification service;
-- event broker / IPC foundation;
+Do zamknięcia 3.1:
+
+- [ ] QEMU/macOS runtime acceptance dla drag i resize bez flickera;
+- [ ] potwierdzenie raw VFS read w Files/Terminal (`/etc/system.cfg`);
+- [ ] test zachowania backbuffera na wszystkich używanych GOP modes.
+
+## 3.2 — Flux Compositor + System Services
+
+- natywne application surfaces zamiast `ku_ui_frame` jako głównego transportu;
+- widget records i pointer `widget_id`;
+- per-window backbuffers;
+- damage tracking i clipping regions;
+- płynny drag/resize bez pełnego redraw wszystkich aplikacji;
+- userspace settings/notification service;
+- IPC/event broker foundation;
 - application lifecycle registry;
-- rozszerzone file/process/power capabilities;
-- publiczne `stat/readdir/write/create/unlink/rename/mkdir/rmdir`.
-
-## 3.2 — Flux Compositor
-
-- application backbuffers;
-- double buffering;
-- clipping i damage tracking;
-- płynny drag/resize bez full repaint;
-- software transparency, shadows i depth cues;
+- publiczne `stat/readdir/write/create/unlink/rename/mkdir/rmdir`;
 - architektura pod przyszłe GPU acceleration.
 
 ## 3.3 — Connected Desktop
@@ -203,14 +196,13 @@ kurogane package
 
 ## 3.6 — Flux Stable
 
-Cel: dopracowany Flux Desktop nadający się do regularnego testowania bez wiedzy o
-wewnętrznych mechanizmach kernela.
+Warunki wydania:
 
-Warunki:
-
-- normalny power-on kończy się stabilnym Flux Desktop;
-- compositor/input nie powodują artefaktów i flickera;
-- podstawowe aplikacje są funkcjonalne;
+- normalny power-on kończy się stabilnym Red Flux Desktop;
+- compositor/input nie powodują artefaktów ani flickera;
+- podstawowe aplikacje są funkcjonalne i mają spójne sterowanie;
 - awaria jednej aplikacji nie zabija sesji;
-- launcher/files/settings/terminal/monitor tworzą spójne UX;
-- build/test/release jest powtarzalny na Windows/WSL i macOS.
+- Launcher/Files/Settings/Terminal/Monitor tworzą jeden spójny UX;
+- podstawowe file/process/network capabilities są dostępne w Ring 3;
+- build/test/release jest powtarzalny na Windows/WSL i macOS;
+- regularne korzystanie z desktopu nie wymaga kernel developer console.
