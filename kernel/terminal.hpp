@@ -10,6 +10,13 @@ namespace terminal {
 bool configure(const KuroganeFramebuffer& framebuffer);
 void init();
 bool ready();
+
+// The boot/emergency terminal and Flux Desktop share the GOP framebuffer.
+// Serial output always remains enabled, but once the desktop owns the display
+// the terminal must stop drawing glyphs or scrolling framebuffer memory.
+void set_framebuffer_output(bool enabled);
+bool framebuffer_output_enabled();
+
 void put(char character);
 void write(const char* text);
 void println(const char* text = nullptr);
