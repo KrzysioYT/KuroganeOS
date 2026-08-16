@@ -4,12 +4,13 @@
 #include "drivers/framebuffer.hpp"
 #include "drivers/serial.hpp"
 #include "core/string.hpp"
+#include "ui/ui.hpp"
 
 namespace terminal {
 
 namespace {
 constexpr uint32_t kDefaultForeground = graphics::rgb(226, 232, 240);
-constexpr uint32_t kDefaultBackground = graphics::rgb(12, 16, 24);
+constexpr uint32_t kDefaultBackground = graphics::rgb(7, 8, 10);
 
 bool g_initialized = false;
 bool g_framebuffer_output = true;
@@ -37,6 +38,16 @@ uint32_t cell_width() {
 
 uint32_t cell_height() {
     return 8 * g_scale;
+}
+
+bool starts_with(const char* text, const char* prefix) {
+    if (text == nullptr || prefix == nullptr) return false;
+    size_t index = 0U;
+    while (prefix[index] != '\0') {
+        if (text[index] != prefix[index]) return false;
+        ++index;
+    }
+    return true;
 }
 
 void draw_cell(size_t column, size_t row, char character) {
@@ -73,6 +84,42 @@ void flush_required_success() {
     g_required_success_deferred = false;
     write_line_unfiltered(kRequiredSuccess);
 }
+
+void enable_service_console(const char* heading) {
+    if (!g_initialized || !graphics::available()) return;
+    g_framebuffer_output = true;
+    g_column = 0U;
+    g_row = 4U;
+    graphics::reset_clip();
+    graphics::reset_text_scale_limit();
+    graphics::clear(g_background);
+    graphics::fill_rect(
+        0, 0, static_cast<int32_t>(graphics::width()), 3,
+        graphics::rgb(204, 22, 40));
+    graphics::draw_text(
+        16, 14, "KUROGANEOS / SERVICE CONSOLE",
+        graphics::rgb(238, 239, 242), g_background, 2U, true);
+    graphics::draw_text(
+        16, 38, heading ? heading : "SERVICE MODE",
+        graphics::rgb(150, 153, 160), g_background, 1U, true);
+}
+
+void update_boot_splash(const char* text) {
+    if (g_framebuffer_output || !graphics::available() || text == nullptr) return;
+    if (kstd::streq(text, "[TEST] paging: PASS")) {
+        ui::boot_splash("MEMORY / VIRTUAL ADDRESSING", 34U);
+    } else if (kstd::streq(text, "[TEST] user_runtime: PASS")) {
+        ui::boot_splash("RING 3 / PROCESS RUNTIME", 48U);
+    } else if (kstd::streq(text, "[TEST] ramfs_bootstrap: PASS")) {
+        ui::boot_splash("FILESYSTEM / ROOT SERVICES", 58U);
+    } else if (kstd::streq(text, "[TEST] fat32_vfs_read: PASS")) {
+        ui::boot_splash("PERSISTENT STORAGE", 68U);
+    } else if (kstd::streq(text, "[TEST] kernel_preemption: PASS")) {
+        ui::boot_splash("SCHEDULER / INPUT SERVICES", 80U);
+    } else if (kstd::streq(text, "[TEST] userspace_init_spawn: PASS")) {
+        ui::boot_splash("STARTING RED FLUX SESSION", 96U);
+    }
+}
 } // namespace
 
 bool configure(const KuroganeFramebuffer& framebuffer) {
@@ -88,8 +135,10 @@ bool configure(const KuroganeFramebuffer& framebuffer) {
         return false;
     }
     g_initialized = true;
-    g_framebuffer_output = true;
-    clear();
+    g_framebuffer_output = false;
+    g_column = 0U;
+    g_row = 0U;
+    ui::boot_splash("INITIALIZING KERNEL", 18U);
     return true;
 }
 
@@ -126,8 +175,9 @@ void put(char character) {
     }
     serial::put(character);
 
-    // During Flux Desktop ownership stdout/stderr and kernel diagnostics stay
-    // available over serial, but they must never touch or scroll GOP memory.
+    // During normal Red Flux boot and desktop ownership stdout/stderr and
+    // kernel diagnostics stay available over serial, but they must never
+    // overwrite the graphical boot/session framebuffer.
     if (!g_initialized || !g_framebuffer_output) {
         return;
     }
@@ -176,20 +226,30 @@ void write(const char* text) {
 }
 
 void println(const char* text) {
+    if (!g_framebuffer_output && text != nullptr) {
+        if (starts_with(text, "INSTALLER MODE:")) {
+            enable_service_console("INSTALLER MODE");
+        } else if (starts_with(text, "DIAGNOSTICS MODE:")) {
+            enable_service_console("DIAGNOSTICS MODE");
+        } else if (starts_with(text, "SAFE MODE:")) {
+            enable_service_console("SAFE MODE");
+        } else {
+            update_boot_splash(text);
+        }
+    }
+
     // KuroganeOS 2.0 emitted the global success marker before the required
-    // PID 1 spawn test. Keep the legacy boot sequence intact, but gate its
-    // public test result so a successful boot can only be reported after
-    // userspace_init_spawn succeeds (or after the safe-mode test path ends).
+    // PID 1 spawn test. Keep the compatibility sequence, but gate its public
+    // result so successful boot is only reported after userspace init exists.
     if (text && kstd::streq(text, kRequiredSuccess)) {
         g_required_success_deferred = true;
         return;
     }
 
-    // A global required-test failure is never recoverable. This also closes
-    // the old path where g_required_runtime_test_failed printed FAIL and then
-    // continued booting.
+    // A required-test failure is never hidden behind the graphical splash.
     if (text && kstd::streq(text, kRequiredFailure)) {
         g_required_success_deferred = false;
+        if (!g_framebuffer_output) enable_service_console("BOOT FAILURE");
         write_line_unfiltered(text);
         arch::x86_64::interrupts::halt();
     }
