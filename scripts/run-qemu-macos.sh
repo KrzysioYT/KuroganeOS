@@ -12,8 +12,8 @@ usage() {
 usage: ./scripts/run-qemu-macos.sh [options]
   --image FILE       raw GPT image (default: newest dist/*-macos-qemu.img)
   --timeout SECONDS  smoke-test timeout (default: 45)
-  --display          show QEMU window instead of headless mode
-  --keep             leave QEMU running after successful smoke marker
+  --display          show QEMU window and keep it open after desktop PASS
+  --keep             leave QEMU running after successful smoke markers
 EOF
     exit 2
 }
@@ -21,7 +21,7 @@ while (($#)); do
     case "$1" in
         --image) image="${2:-}"; shift 2 ;;
         --timeout) timeout_seconds="${2:-}"; shift 2 ;;
-        --display) display=true; shift ;;
+        --display) display=true; keep=true; shift ;;
         --keep) keep=true; shift ;;
         *) usage ;;
     esac
@@ -111,11 +111,19 @@ success=false
 for ((elapsed=0; elapsed<timeout_seconds*10; ++elapsed)); do
     if grep -Eq '^\[TEST\].*: FAIL\r?$|KERNEL PANIC|fatal:' "$serial" 2>/dev/null; then
         echo "[qemu-macos] runtime failure detected" >&2
-        tail -n 80 "$serial" >&2 || true
+        tail -n 100 "$serial" >&2 || true
+        exit 1
+    fi
+    if grep -Fq '[TEST] desktop_session_fallback: PASS' "$serial" 2>/dev/null; then
+        echo "[qemu-macos] Flux desktop fell back to the text console" >&2
+        tail -n 100 "$serial" >&2 || true
         exit 1
     fi
     if grep -Fq '[TEST] userspace_init_spawn: PASS' "$serial" 2>/dev/null &&
-       grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial" 2>/dev/null; then
+       grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial" 2>/dev/null &&
+       grep -Fq '[TEST] desktop_session: PASS' "$serial" 2>/dev/null &&
+       grep -Fq '[TEST] desktop_userspace_apps: PASS' "$serial" 2>/dev/null &&
+       grep -Fq '[TEST] userspace_desktop_session: PASS' "$serial" 2>/dev/null; then
         success=true
         break
     fi
@@ -129,12 +137,15 @@ done
 
 if ! $success; then
     echo "[qemu-macos] timed out after ${timeout_seconds}s" >&2
-    tail -n 100 "$serial" >&2 || true
+    tail -n 120 "$serial" >&2 || true
     exit 1
 fi
 
 echo "[qemu-macos] userspace_init_spawn: PASS"
 echo "[qemu-macos] ALL_REQUIRED_TESTS_PASSED"
+echo "[qemu-macos] desktop_session: PASS"
+echo "[qemu-macos] desktop_userspace_apps: PASS"
+echo "[qemu-macos] userspace_desktop_session: PASS"
 if $keep; then
     trap - EXIT INT TERM
     echo "[qemu-macos] leaving QEMU running (PID $pid)"
