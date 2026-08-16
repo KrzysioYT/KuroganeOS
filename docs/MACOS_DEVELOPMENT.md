@@ -91,16 +91,28 @@ Wynik:
 build/apps/moja-aplikacja
 ```
 
-Aby skopiować program do development rootfs jako `/apps/moja-aplikacja`:
+Aby dodać program do kolejnych development buildów jako `/apps/moja-aplikacja`:
 
 ```bash
 ./scripts/build-app-macos.sh moja-aplikacja.c -o moja-aplikacja --install
 ```
 
-Po `--install` przebuduj obraz:
+`--install` zapisuje ELF do:
+
+```text
+state/macos-apps/moja-aplikacja
+```
+
+`state/` jest ignorowany przez Git i nie jest usuwany przez zwykły `--clean`/`--rebuild`. Następnie odśwież obraz:
 
 ```bash
 ./scripts/build-macos.sh --configuration debug --stage-only
+```
+
+Po starcie KuroganeOS uruchom program w userspace shell:
+
+```text
+run /apps/moja-aplikacja
 ```
 
 Aplikacja jest linkowana z publicznym SDK KuroganeOS i przechodzi kontrolę ET_EXEC oraz W^X.
