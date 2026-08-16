@@ -12,6 +12,7 @@ constexpr uint32_t kDefaultForeground = graphics::rgb(226, 232, 240);
 constexpr uint32_t kDefaultBackground = graphics::rgb(12, 16, 24);
 
 bool g_initialized = false;
+bool g_framebuffer_output = true;
 bool g_required_success_deferred = false;
 uint32_t g_foreground = kDefaultForeground;
 uint32_t g_background = kDefaultBackground;
@@ -39,7 +40,7 @@ uint32_t cell_height() {
 }
 
 void draw_cell(size_t column, size_t row, char character) {
-    if (!graphics::available()) {
+    if (!graphics::available() || !g_framebuffer_output) {
         return;
     }
     graphics::draw_char(
@@ -49,7 +50,7 @@ void draw_cell(size_t column, size_t row, char character) {
 }
 
 void ensure_visible() {
-    if (g_rows == 0 || g_row < g_rows) {
+    if (!g_framebuffer_output || g_rows == 0 || g_row < g_rows) {
         return;
     }
     graphics::scroll_up(cell_height(), g_background);
@@ -87,6 +88,7 @@ bool configure(const KuroganeFramebuffer& framebuffer) {
         return false;
     }
     g_initialized = true;
+    g_framebuffer_output = true;
     clear();
     return true;
 }
@@ -101,6 +103,22 @@ bool ready() {
     return g_initialized;
 }
 
+void set_framebuffer_output(bool enabled) {
+    if (g_framebuffer_output == enabled) {
+        return;
+    }
+    g_framebuffer_output = enabled;
+    g_column = 0;
+    g_row = 0;
+    if (enabled && g_initialized && graphics::available()) {
+        graphics::clear(g_background);
+    }
+}
+
+bool framebuffer_output_enabled() {
+    return g_framebuffer_output;
+}
+
 void put(char character) {
     init();
     if (character == '\n') {
@@ -108,7 +126,9 @@ void put(char character) {
     }
     serial::put(character);
 
-    if (!g_initialized) {
+    // During Flux Desktop ownership stdout/stderr and kernel diagnostics stay
+    // available over serial, but they must never touch or scroll GOP memory.
+    if (!g_initialized || !g_framebuffer_output) {
         return;
     }
 
@@ -183,7 +203,7 @@ void println(const char* text) {
 }
 
 void clear() {
-    if (graphics::available()) {
+    if (graphics::available() && g_framebuffer_output) {
         graphics::clear(g_background);
     }
     g_column = 0;
@@ -192,7 +212,8 @@ void clear() {
 }
 
 void backspace() {
-    if (!g_initialized || (g_column == 0 && g_row == 0)) {
+    if (!g_initialized || !g_framebuffer_output ||
+        (g_column == 0 && g_row == 0)) {
         return;
     }
     if (g_column == 0) {
