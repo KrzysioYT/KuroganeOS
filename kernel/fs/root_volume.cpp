@@ -3,6 +3,8 @@
 #include "fat32.hpp"
 #include "fat32_vfs.hpp"
 #include "vfs.hpp"
+#include "../install/package.hpp"
+#include "../install/package_vfs.hpp"
 #include "../storage/partition_device.hpp"
 
 namespace fs::root_volume {
@@ -18,9 +20,12 @@ constexpr size_t kReadBounceCapacity = 4096U;
 bool g_attempted = false;
 Status g_status = Status::InvalidArgument;
 bool g_mounted = false;
+bool g_live_media = false;
 storage::partition::Device g_partition{};
 fat32::FileSystem g_fat32{};
 fat32_vfs::Adapter g_adapter{};
+install::package_vfs::Adapter g_package_adapter{};
+install::package::View g_package_view{};
 vfs::FileSystem g_backend{};
 vfs::State g_vfs{};
 vfs::PathContext g_path_context{};
@@ -92,49 +97,13 @@ Status fail(Status status) {
     return status;
 }
 
-} // namespace
+Status initialize_vfs_backend(const vfs::FileSystem& backend) {
+    g_backend = backend;
+    g_vfs = {};
+    g_path_context = {};
+    g_configuration_size = 0U;
+    for (char& value : g_configuration) value = '\0';
 
-Status initialize(
-    const storage::block::Device* disk,
-    const storage::gpt::Table* table) {
-    if (g_attempted) {
-        return Status::AlreadyAttempted;
-    }
-    if (disk == nullptr || table == nullptr) {
-        return fail(Status::InvalidArgument);
-    }
-
-    const storage::gpt::Partition* root = nullptr;
-    for (size_t index = 0U; index < table->partition_count; ++index) {
-        if (partition_name_equals(table->partitions[index])) {
-            root = &table->partitions[index];
-            break;
-        }
-    }
-    if (root == nullptr) {
-        return fail(Status::RootPartitionNotFound);
-    }
-    g_attempted = true;
-    if (root->last_lba < root->first_lba ||
-        root->last_lba == UINT64_MAX) {
-        return fail(Status::InvalidPartitionRange);
-    }
-    const uint64_t sectors = root->last_lba - root->first_lba + 1U;
-    if (storage::partition::initialize(
-            &g_partition, disk, root->first_lba, sectors) !=
-        storage::block::Status::Ok) {
-        return fail(Status::PartitionInitializationFailed);
-    }
-    g_fat32_detail_status = fat32::mount(
-        &g_fat32,
-        storage::partition::as_block_device(&g_partition));
-    if (g_fat32_detail_status != fat32::Status::Ok) {
-        return fail(Status::Fat32MountFailed);
-    }
-    if (fat32_vfs::initialize(&g_adapter, &g_fat32, &g_backend) !=
-        vfs::Status::Ok) {
-        return fail(Status::VfsAdapterFailed);
-    }
     if (vfs::initialize(&g_vfs, &g_backend) != vfs::Status::Ok ||
         vfs::initialize_path_context(&g_vfs, &g_path_context) !=
             vfs::Status::Ok) {
@@ -182,6 +151,75 @@ Status initialize(
     return Status::Ok;
 }
 
+} // namespace
+
+Status initialize(
+    const storage::block::Device* disk,
+    const storage::gpt::Table* table) {
+    if (g_attempted) {
+        return Status::AlreadyAttempted;
+    }
+    if (disk == nullptr || table == nullptr) {
+        return fail(Status::InvalidArgument);
+    }
+
+    const storage::gpt::Partition* root = nullptr;
+    for (size_t index = 0U; index < table->partition_count; ++index) {
+        if (partition_name_equals(table->partitions[index])) {
+            root = &table->partitions[index];
+            break;
+        }
+    }
+    if (root == nullptr) {
+        return fail(Status::RootPartitionNotFound);
+    }
+    g_attempted = true;
+    g_live_media = false;
+    if (root->last_lba < root->first_lba ||
+        root->last_lba == UINT64_MAX) {
+        return fail(Status::InvalidPartitionRange);
+    }
+    const uint64_t sectors = root->last_lba - root->first_lba + 1U;
+    if (storage::partition::initialize(
+            &g_partition, disk, root->first_lba, sectors) !=
+        storage::block::Status::Ok) {
+        return fail(Status::PartitionInitializationFailed);
+    }
+    g_fat32_detail_status = fat32::mount(
+        &g_fat32,
+        storage::partition::as_block_device(&g_partition));
+    if (g_fat32_detail_status != fat32::Status::Ok) {
+        return fail(Status::Fat32MountFailed);
+    }
+    if (fat32_vfs::initialize(&g_adapter, &g_fat32, &g_backend) !=
+        vfs::Status::Ok) {
+        return fail(Status::VfsAdapterFailed);
+    }
+    return initialize_vfs_backend(g_backend);
+}
+
+Status initialize_live_package(const void* package_bytes, size_t package_size) {
+    if (g_attempted) return Status::AlreadyAttempted;
+    if (package_bytes == nullptr || package_size == 0U) {
+        return fail(Status::InvalidArgument);
+    }
+
+    g_attempted = true;
+    g_live_media = true;
+    g_package_view = {};
+    if (install::package::parse(
+            package_bytes, package_size, &g_package_view) !=
+        install::package::Status::Ok) {
+        return fail(Status::LivePackageInvalid);
+    }
+    if (install::package_vfs::initialize(
+            &g_package_adapter, g_package_view, &g_backend) !=
+        vfs::Status::Ok) {
+        return fail(Status::VfsAdapterFailed);
+    }
+    return initialize_vfs_backend(g_backend);
+}
+
 bool initialization_attempted() {
     return g_attempted;
 }
@@ -191,19 +229,26 @@ bool mounted() {
 }
 
 bool read_only() {
-    return false;
+    return g_mounted && g_backend.read_only;
+}
+
+bool live_media() {
+    return g_mounted && g_live_media;
 }
 
 uint64_t first_lba() {
-    return g_mounted ? g_partition.first_lba : 0U;
+    return g_mounted && !g_live_media ? g_partition.first_lba : 0U;
 }
 
 uint64_t sector_count() {
-    return g_mounted ? g_partition.block_device.sector_count : 0U;
+    return g_mounted && !g_live_media
+        ? g_partition.block_device.sector_count
+        : 0U;
 }
 
 const char* volume_label() {
-    return g_mounted ? fat32::volume_label(&g_fat32) : nullptr;
+    if (!g_mounted) return nullptr;
+    return g_live_media ? "KURO_LIVE" : fat32::volume_label(&g_fat32);
 }
 
 const char* configuration() {
@@ -302,9 +347,6 @@ vfs::Status read(
         return vfs::read(&g_vfs, handle, nullptr, 0U, bytes_read);
     }
 
-    // Never expose a userspace virtual address to FAT32/block I/O. The storage
-    // stack operates on kernel-owned memory, then the syscall path copies the
-    // completed bytes into the already-validated Ring-3 mapping.
     auto* output = static_cast<uint8_t*>(buffer);
     size_t total = 0U;
     while (total < size) {
@@ -402,14 +444,16 @@ const char* status_message(Status status) {
         case Status::PartitionInitializationFailed:
             return "partition block device initialization failed";
         case Status::Fat32MountFailed: return "FAT32 root mount failed";
-        case Status::VfsAdapterFailed: return "FAT32 VFS adapter failed";
+        case Status::VfsAdapterFailed: return "root VFS adapter failed";
         case Status::VfsInitializationFailed: return "VFS initialization failed";
         case Status::RootConfigurationMissing:
-            return "/etc/system.cfg is missing on persistent root";
+            return "/etc/system.cfg is missing on root";
         case Status::RootConfigurationReadFailed:
             return "cannot read /etc/system.cfg through VFS";
         case Status::RootConfigurationInvalid:
             return "/etc/system.cfg lacks required HOSTNAME key";
+        case Status::LivePackageInvalid:
+            return "live install package is invalid";
     }
     return "unknown root-volume status";
 }
@@ -417,6 +461,11 @@ const char* status_message(Status status) {
 const char* detail_message() {
     if (g_status == Status::Fat32MountFailed) {
         return fat32::status_message(g_fat32_detail_status);
+    }
+    if (g_status == Status::LivePackageInvalid) {
+        return install::package::status_message(
+            install::package::parse(
+                g_package_view.bytes, g_package_view.size, &g_package_view));
     }
     return vfs::status_message(g_detail_status);
 }
