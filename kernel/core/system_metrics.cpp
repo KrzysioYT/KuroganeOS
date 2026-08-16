@@ -7,9 +7,11 @@ namespace {
 volatile uint64_t g_total_loops = 0U;
 volatile uint64_t g_busy_loops = 0U;
 volatile uint64_t g_disk_blocks = 0U;
+volatile uint64_t g_graphics_units = 0U;
 uint64_t g_previous_switches = 0U;
 uint64_t g_previous_ticks = 0U;
 uint32_t g_last_cpu = 0U;
+uint32_t g_last_gpu = 0U;
 uint32_t g_last_disk = 0U;
 
 uint32_t bounded_percent(uint64_t numerator, uint64_t denominator) {
@@ -17,6 +19,19 @@ uint32_t bounded_percent(uint64_t numerator, uint64_t denominator) {
     if (numerator >= denominator) return 100U;
     if (numerator > UINT64_MAX / UINT64_C(100)) return 100U;
     return static_cast<uint32_t>((numerator * UINT64_C(100)) / denominator);
+}
+
+void saturating_atomic_add(volatile uint64_t* target, uint64_t increment) {
+    uint64_t current = __atomic_load_n(target, __ATOMIC_RELAXED);
+    for (;;) {
+        const uint64_t next = UINT64_MAX - current < increment
+            ? UINT64_MAX : current + increment;
+        if (__atomic_compare_exchange_n(
+                target, &current, next, false,
+                __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+            return;
+        }
+    }
 }
 
 struct SchedulerSample {
@@ -41,9 +56,6 @@ bool collect_thread(const threading::Stat& stat, void* context) {
 } // namespace
 
 void record_loop(bool busy) {
-    // Kept as a lightweight hook for later SMP/idle accounting. 3.3.3 derives
-    // the visible CPU estimate from real scheduler switch/timer counters, so
-    // callers are not required to instrument the main loop yet.
     __atomic_fetch_add(&g_total_loops, UINT64_C(1), __ATOMIC_RELAXED);
     if (busy) {
         __atomic_fetch_add(&g_busy_loops, UINT64_C(1), __ATOMIC_RELAXED);
@@ -51,17 +63,11 @@ void record_loop(bool busy) {
 }
 
 void record_disk_blocks(uint64_t blocks) {
-    if (blocks == 0U) return;
-    uint64_t current = __atomic_load_n(&g_disk_blocks, __ATOMIC_RELAXED);
-    for (;;) {
-        const uint64_t next = UINT64_MAX - current < blocks
-            ? UINT64_MAX : current + blocks;
-        if (__atomic_compare_exchange_n(
-                &g_disk_blocks, &current, next, false,
-                __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
-            return;
-        }
-    }
+    if (blocks != 0U) saturating_atomic_add(&g_disk_blocks, blocks);
+}
+
+void record_graphics_work(uint64_t units) {
+    if (units != 0U) saturating_atomic_add(&g_graphics_units, units);
 }
 
 ActivitySnapshot sample() {
@@ -75,9 +81,6 @@ ActivitySnapshot sample() {
     g_previous_switches = scheduler.switches;
     g_previous_ticks = ticks;
 
-    // A preemptive userspace run normally produces roughly one scheduling
-    // decision per timer tick. Runnable threads add a small floor so a single
-    // CPU-bound task does not misleadingly read 0% when it keeps its quantum.
     if (tick_delta != 0U) {
         uint64_t scheduler_units = switch_delta;
         const uint64_t runnable_floor = scheduler.runnable == 0U
@@ -104,15 +107,19 @@ ActivitySnapshot sample() {
         &g_busy_loops, UINT64_C(0), __ATOMIC_RELAXED));
     const uint64_t disk = __atomic_exchange_n(
         &g_disk_blocks, UINT64_C(0), __ATOMIC_RELAXED);
+    const uint64_t graphics = __atomic_exchange_n(
+        &g_graphics_units, UINT64_C(0), __ATOMIC_RELAXED);
 
-    // This is live storage activity, not disk capacity. 128 completed FAT32
-    // sector operations per sample is treated as saturation so the indicator
-    // stays useful in both QEMU and VirtualBox without pretending to know the
-    // host device's physical throughput.
     g_last_disk = disk == 0U
         ? 0U : bounded_percent(disk, UINT64_C(128));
 
-    return ActivitySnapshot{g_last_cpu, g_last_disk};
+    // Compatibility graphics currently goes through the software compositor
+    // and GOP scanout. This measures graphics submission pressure, not a
+    // vendor GPU engine's hardware busy counter.
+    g_last_gpu = graphics == 0U
+        ? 0U : bounded_percent(graphics, UINT64_C(96));
+
+    return ActivitySnapshot{g_last_cpu, g_last_gpu, g_last_disk};
 }
 
 } // namespace system_metrics
