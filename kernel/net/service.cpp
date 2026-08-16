@@ -12,6 +12,8 @@ NetworkStack g_stack{};
 bool g_ready = false;
 bool g_physical = false;
 bool g_dhcp = false;
+bool g_physical_detected = false;
+Status g_physical_status = Status::NotInitialized;
 dhcp::Lease g_lease{};
 uint16_t g_dns_transaction = UINT16_C(0x4b55);
 uint16_t g_ephemeral_port = UINT16_C(49152);
@@ -36,6 +38,17 @@ uint16_t next_ephemeral_port() {
         g_ephemeral_port = UINT16_C(49152);
     }
     return result;
+}
+
+Status initialize_loopback_fallback() {
+    const Status loop_status = initialize_loopback(&g_loopback, kLoopbackMac);
+    if (loop_status != Status::Ok) return loop_status;
+    Status status = initialize_stack(&g_stack, &g_loopback.interface);
+    if (status != Status::Ok) return status;
+    status = configure_ipv4(
+        &g_stack, IPv4Config{kLoopbackIp, kLoopbackMask, kNoGateway});
+    if (status == Status::Ok) g_ready = true;
+    return status;
 }
 
 Status wait_for_ping(
@@ -98,45 +111,49 @@ Status initialize() {
     g_ready = false;
     g_physical = false;
     g_dhcp = false;
+    g_physical_detected = false;
+    g_physical_status = Status::NotInitialized;
     g_lease = {};
-    NetworkInterface* selected_interface = nullptr;
-    IPv4Config config{};
 #ifdef KUROGANE_HOST_TEST
-    const Status loop_status = initialize_loopback(&g_loopback, kLoopbackMac);
-    if (loop_status != Status::Ok) return loop_status;
-    selected_interface = &g_loopback.interface;
-    config = {kLoopbackIp, kLoopbackMask, kNoGateway};
+    return initialize_loopback_fallback();
 #else
     const e1000::Status device_status = e1000::initialize();
     if ((device_status == e1000::Status::Ok ||
          device_status == e1000::Status::AlreadyInitialized) &&
         e1000::interface() != nullptr) {
-        selected_interface = e1000::interface();
-        Status status = dhcp::acquire(selected_interface, &g_lease);
-        if (status != Status::Ok) return status;
-        config = g_lease.configuration;
-        g_physical = true;
-        g_dhcp = true;
-    } else if (device_status == e1000::Status::NotFound) {
-        Status status = initialize_loopback(&g_loopback, kLoopbackMac);
-        if (status != Status::Ok) {
-            return status;
+        g_physical_detected = true;
+        const Status dhcp_status = dhcp::acquire(e1000::interface(), &g_lease);
+        if (dhcp_status == Status::Ok) {
+            Status status = initialize_stack(&g_stack, e1000::interface());
+            if (status != Status::Ok) {
+                g_physical_status = status;
+                return initialize_loopback_fallback();
+            }
+            status = configure_ipv4(&g_stack, g_lease.configuration);
+            if (status == Status::Ok) {
+                g_ready = true;
+                g_physical = true;
+                g_dhcp = true;
+                g_physical_status = Status::Ok;
+                return Status::Ok;
+            }
+            g_physical_status = status;
+            return initialize_loopback_fallback();
         }
-        selected_interface = &g_loopback.interface;
-        config = {kLoopbackIp, kLoopbackMask, kNoGateway};
+        // A disconnected VirtualBox cable, NAT startup race or unavailable
+        // DHCP server must not make the entire OS unbootable.  Record the
+        // physical failure but publish a working loopback stack so Login/Home
+        // can still start and the user can fix network settings later.
+        g_physical_status = dhcp_status;
+        return initialize_loopback_fallback();
+    }
+    if (device_status != e1000::Status::NotFound) {
+        g_physical_status = Status::InterfaceError;
     } else {
-        return Status::InterfaceError;
+        g_physical_status = Status::NotConfigured;
     }
+    return initialize_loopback_fallback();
 #endif
-    Status status = initialize_stack(&g_stack, selected_interface);
-    if (status != Status::Ok) {
-        return status;
-    }
-    status = configure_ipv4(&g_stack, config);
-    if (status == Status::Ok) {
-        g_ready = true;
-    }
-    return status;
 }
 
 bool ready() {
@@ -379,6 +396,14 @@ Status list_neighbors(NeighborCallback callback, void* context) {
 
 bool physical_interface() {
     return g_ready && g_physical;
+}
+
+bool physical_device_detected() {
+    return g_physical_detected;
+}
+
+Status physical_status() {
+    return g_physical_status;
 }
 
 bool dhcp_configured() {
