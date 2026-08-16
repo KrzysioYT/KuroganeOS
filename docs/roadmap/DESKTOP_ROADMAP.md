@@ -2,8 +2,9 @@
 
 Roadmapa opisuje faktyczny kierunek Red Flux Desktop. `3.0` ustanowił desktop
 jako główny interfejs, `3.1` ustabilizował rendering/interakcję, `3.2` dodał
-boot splash, Login i systemowy Dock, a `3.3` jest **DEV BETA Media & Installer**.
-Celem `3.6` pozostaje stabilny system do regularnego używania.
+boot splash, Login i systemowy Dock, a `3.3.x` rozwija **DEV BETA Media,
+Installer, VirtualBox qualification i platform enablement**. Celem `3.6`
+pozostaje stabilny system do regularnego używania.
 
 ## Fundament — ZREALIZOWANY
 
@@ -60,7 +61,7 @@ Celem `3.6` pozostaje stabilny system do regularnego używania.
 
 ## 3.3 — DEV BETA Media & Installer — AKTYWNY
 
-Wersja: `3.3.0-dev`, kanał: **DEV BETA**.
+Aktualna rewizja: `3.3.1-dev`, kanał: **DEV BETA**.
 
 Docelowy media flow:
 
@@ -80,9 +81,9 @@ IMG / ISO
        -> reboot -> Login
 ```
 
-Zrealizowane w kodzie:
+### 3.3.0 — media/setup foundation — ZREALIZOWANE
 
-- [x] oznaczenie `3.3.0-dev / DEV BETA`;
+- [x] oznaczenie DEV BETA;
 - [x] read-only VFS backend bezpośrednio nad `install.pkg`;
 - [x] Try mode bez zapisu na dysk;
 - [x] Red Flux setup UI przed userspace session;
@@ -100,18 +101,85 @@ Zrealizowane w kodzie:
 - [x] natywny `setup/build/build-installer/build-media` dla Linux x86-64;
 - [x] media IMG dostaje `install.pkg`, tak samo jak ISO.
 
-Runtime acceptance do zamknięcia 3.3:
+### 3.3.1 — VirtualBox qualification & enablement — WDROŻONE / ACCEPTANCE OTWARTE
 
-- [ ] Windows: media build IMG + ISO;
-- [ ] macOS: media build IMG + ISO;
-- [ ] Linux x86-64: media build IMG + ISO;
+Dokumentacja i onboarding:
+
+- [x] beginner-first `docs/START_HERE.md`;
+- [x] kompletna instrukcja `docs/VIRTUALBOX.md`;
+- [x] `docs/NETWORKING.md`, `docs/AUDIO.md` i graphics compatibility status;
+- [x] developer hub `docs/DEVELOPERS/`;
+- [x] tutorial pierwszej aplikacji, GUI i public API reference;
+- [x] kernel contribution guide;
+- [x] README prowadzi początkującego najpierw do START HERE.
+
+VirtualBox / UEFI media:
+
+- [x] zidentyfikowany i usunięty historyczny 64 MiB El Torito EFI image;
+- [x] wspólny 30 MiB FAT16 boot image = 61440 sektorów po 512 B;
+- [x] removable-media path `EFI/BOOT/BOOTX64.EFI`;
+- [x] El Torito platform EFI / no-emulation;
+- [x] EFI boot image wystawiony jako GPT EFI System Partition;
+- [x] obowiązkowy 20-pass verifier blokujący publikację wadliwego ISO;
+- [x] verifier sprawdza El Torito, GPT ESP, FAT, PE AMD64, kernel, package,
+      sector limit i stabilny SHA-256;
+- [x] drugi niezależny 20-pass verifier w CI;
+- [x] realny optical UEFI smoke przez OVMF/QEMU do markera kernela;
+- [x] helper tworzący referencyjną VirtualBox VM;
+- [x] Windows `-VirtualBoxSmoke` tworzący rzeczywistą Oracle VBox VM i
+      wymagający markera kernela przez COM1;
+- [ ] zapisać wynik realnego Oracle VirtualBox smoke na hoście x86-64;
+- [ ] `ISO -> Try -> Login -> Home` w Oracle VirtualBox;
+- [ ] `ISO -> Install -> SATA VDI -> reboot without ISO -> Login`.
+
+Automated qualification aktualnego kodu:
+
+- [x] Linux full media build;
+- [x] installer ESP `30 MiB / 61440 sectors`;
+- [x] mandatory builder verifier `20/20`;
+- [x] workflow second verifier `20/20`;
+- [x] OVMF/QEMU optical UEFI boot -> kernel marker;
+- [x] qualification artifacts upload.
+
+VirtualBox network/audio target:
+
+- [x] referencyjny NIC: Intel PRO/1000 MT Desktop / 82540EM / `8086:100E`;
+- [x] E1000 + Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS/basic TCP probe;
+- [x] DHCP/link failure nie zatrzymuje desktopu — loopback fallback;
+- [x] referencyjny audio controller: Intel ICH AC'97 / `8086:2415`;
+- [x] kernel AC'97 PCM S16LE stereo 48 kHz;
+- [x] bus-master DMA32 backend;
+- [x] AC'97 rejestruje się w centralnym driver managerze;
+- [ ] realny VirtualBox NAT -> DHCP/gateway/DNS acceptance;
+- [ ] realny VirtualBox AC'97 audible PCM acceptance;
+- [ ] publiczny async userspace network/socket service;
+- [ ] publiczny async userspace audio stream service.
+
+Graphics / Direct3D:
+
+- [x] dokumentacja uczciwie rozdziela native Kurogane Graphics i D3D compatibility;
+- [x] zakaz fałszywego raportowania niezaimplementowanych feature levels;
+- [ ] native Kurogane Graphics resource/runtime API;
+- [ ] software 3D raster backend;
+- [ ] accelerated GPU backend;
+- [ ] D3D9/10/11 compatibility frontend;
+- [ ] D3D12 compatibility frontend;
+- [ ] shader/resource/command model potrzebny do realnej zgodności.
+
+### Runtime acceptance do zamknięcia 3.3.x
+
+- [ ] Windows: pełny media build + real Oracle VirtualBox smoke;
+- [ ] macOS: pełny media build IMG + ISO na docelowym toolchainie;
+- [x] Linux x86-64: media build IMG + ISO w CI;
 - [ ] IMG -> Try -> Login -> Home;
-- [ ] ISO -> Try -> Login -> Home;
+- [ ] ISO -> Try -> Login -> Home w Oracle VirtualBox;
 - [ ] EN install bez hasła -> reboot -> Login/Home;
 - [ ] PL install z hasłem -> reboot -> reject bad / accept good password;
 - [ ] brak zapisu na dysk przed `INSTALL`;
 - [ ] installer verification + persistence po reboot;
-- [ ] VirtualBox i QEMU smoke test.
+- [x] niezależny QEMU/OVMF optical ISO smoke;
+- [ ] Oracle VirtualBox optical ISO smoke;
+- [ ] VirtualBox networking/audio smoke.
 
 Bezpieczeństwo DEV BETA:
 
@@ -131,13 +199,16 @@ Bezpieczeństwo DEV BETA:
 - account service + bezpieczny credential store;
 - publiczne `stat/readdir/write/create/unlink/rename/mkdir/rmdir`;
 - clipboard, wheel i context actions;
+- native Kurogane Graphics resource API;
 - fundament pod GPU acceleration.
 
 ## 3.5 — Connected Desktop + Developer Platform + Reliability
 
-- userspace UDP/TCP sockets i DNS;
+- async userspace UDP/TCP sockets i DNS;
 - network settings/status service;
+- async audio service nad AC'97 i przyszłymi backendami;
 - dynamiczne app registry, manifests i resources;
+- software 3D / pierwsza graphics compatibility layer;
 - docelowy SDK workflow:
 
 ```text
@@ -151,7 +222,7 @@ kurogane package
 - storage recovery;
 - USB HID/xHCI stabilization;
 - więcej display modes;
-- NVMe/audio/SMP preparation;
+- NVMe/HDA/SMP preparation;
 - real-hardware qualification;
 - powtarzalny build/release na Windows, macOS i Linux.
 
@@ -166,6 +237,7 @@ Warunki wydania:
 - compositor/input nie powodują flickera, ghostingu ani artefaktów;
 - Dock, Home, Files, Terminal, Settings i Monitor tworzą spójny UX;
 - awaria jednej aplikacji nie zabija sesji;
-- podstawowe file/process/network capabilities są dostępne w Ring 3;
+- podstawowe file/process/network/audio capabilities są dostępne w Ring 3;
 - Windows/macOS/Linux buildy są powtarzalne;
+- VirtualBox reference profile ma automatyczny i realny host smoke;
 - regularne korzystanie z systemu nie wymaga kernel developer console.
