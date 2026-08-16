@@ -10,6 +10,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
+if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
+    throw "Missing Windows/WSL path bridge: $WslBridge"
+}
+. $WslBridge
+
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 }
@@ -38,27 +44,16 @@ if (-not (Test-Path -LiteralPath $RootFsOverlayPath -PathType Container)) {
     throw "Missing generated userspace rootfs overlay: $RootFsOverlayPath"
 }
 
-function Convert-ToWslPath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $resolved = [System.IO.Path]::GetFullPath($Path)
-    $converted = & wsl.exe --exec wslpath -a -u $resolved
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
-        throw "Unable to convert path for WSL: $resolved"
-    }
-    return $converted.Trim()
-}
-
 [System.IO.Directory]::CreateDirectory(
     [System.IO.Path]::GetDirectoryName($OutputPath)) | Out-Null
 
 $arguments = @(
-    (Convert-ToWslPath -Path $BuilderPath),
-    '--output', (Convert-ToWslPath -Path $OutputPath),
-    '--efi', (Convert-ToWslPath -Path $EfiPath),
-    '--kernel', (Convert-ToWslPath -Path $KernelPath),
-    '--rootfs', (Convert-ToWslPath -Path $RootFsPath),
-    '--overlay', (Convert-ToWslPath -Path $RootFsOverlayPath)
+    (Convert-ToKuroganeWslPath -Path $BuilderPath),
+    '--output', (Convert-ToKuroganeWslPath -Path $OutputPath),
+    '--efi', (Convert-ToKuroganeWslPath -Path $EfiPath),
+    '--kernel', (Convert-ToKuroganeWslPath -Path $KernelPath),
+    '--rootfs', (Convert-ToKuroganeWslPath -Path $RootFsPath),
+    '--overlay', (Convert-ToKuroganeWslPath -Path $RootFsOverlayPath)
 )
 & wsl.exe bash @arguments
 if ($LASTEXITCODE -ne 0) {
@@ -76,10 +71,10 @@ if (-not $NoWorkingImage) {
         Write-Host "[working-image] reset explicitly: $WorkingImagePath"
     } else {
         $updateArguments = @(
-            (Convert-ToWslPath -Path $EspUpdaterPath),
-            (Convert-ToWslPath -Path $WorkingImagePath),
-            (Convert-ToWslPath -Path $EfiPath),
-            (Convert-ToWslPath -Path $KernelPath)
+            (Convert-ToKuroganeWslPath -Path $EspUpdaterPath),
+            (Convert-ToKuroganeWslPath -Path $WorkingImagePath),
+            (Convert-ToKuroganeWslPath -Path $EfiPath),
+            (Convert-ToKuroganeWslPath -Path $KernelPath)
         )
         & wsl.exe bash @updateArguments
         if ($LASTEXITCODE -ne 0) {
