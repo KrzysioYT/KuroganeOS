@@ -97,6 +97,7 @@ Copy-Item -LiteralPath $exampleElf `
     -Destination (Join-Path $OverlayApps 'external') -Force
 
 $desktopApplications = @(
+    @{ Name = 'login'; Source = 'userspace\gui\login\main.c' },
     @{ Name = 'launcher'; Source = 'userspace\gui\launcher\main.c' },
     @{ Name = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
     @{ Name = 'files'; Source = 'userspace\gui\files\main.c' },
