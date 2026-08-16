@@ -1,16 +1,22 @@
 # KuroganeOS kernel build
 #
-# Windows keeps the repository-local cross-toolchain and PowerShell frontend.
-# macOS uses the Homebrew x86_64-elf cross-toolchain and the native Bash
-# frontend added in KuroganeOS 2.1.1.
+# Windows uses the repository-local cross-toolchain and PowerShell frontend.
+# macOS uses the Homebrew x86_64-elf cross-toolchain.
+# Native x86-64 Linux may use the host GNU freestanding toolchain; callers can
+# set TARGET_PREFIX=x86_64-elf- when a dedicated cross-toolchain is installed.
 
-CONFIG  ?= debug
-HOST_OS := $(shell uname -s 2>/dev/null || echo Windows)
+CONFIG    ?= debug
+HOST_OS   := $(shell uname -s 2>/dev/null || echo Windows)
+HOST_ARCH := $(shell uname -m 2>/dev/null || echo unknown)
 
 ifeq ($(HOST_OS),Darwin)
 TARGET_PREFIX ?= x86_64-elf-
 EXEEXT        ?=
 POWERSHELL    ?= powershell.exe
+else ifeq ($(HOST_OS),Linux)
+TARGET_PREFIX ?=
+EXEEXT        ?=
+POWERSHELL    ?= pwsh
 else
 POWERSHELL    ?= powershell.exe
 TOOLCHAIN_DIR ?= tools/compiler/x86_64-elf/bin
@@ -43,7 +49,7 @@ CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
 	-Werror=return-type
 ifeq ($(CONFIG),release)
-OPTFLAGS := -O2 -g1 -DNDEBUG -DKUROGANE_DEBUG=0
+OPTFLAGS := -O2 -g1 -DNDEBUG -DKUROGANE_DEBUG=0 -DKUROGANE_TEST=0
 else ifeq ($(CONFIG),test)
 OPTFLAGS := -O1 -g3 -DKUROGANE_DEBUG=1 -DKUROGANE_TEST=1
 else
@@ -61,7 +67,7 @@ KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 KERNEL_LDFLAGS  := --fatal-warnings --build-id=none -pie --no-dynamic-linker \
 	-z noexecstack -z text -z max-page-size=0x1000 -T linker.ld
 
-ifeq ($(HOST_OS),Darwin)
+ifneq ($(filter $(HOST_OS),Darwin Linux),)
 define ensure-dir
 	@mkdir -p "$(1)"
 endef
@@ -72,7 +78,7 @@ endef
 endif
 
 .DEFAULT_GOAL := all
-.PHONY: all kernel stage macos powershell rebuild clean verify print-sources
+.PHONY: all kernel stage macos linux powershell rebuild clean verify print-sources
 
 ifeq ($(HOST_OS),Darwin)
 all: macos
@@ -84,6 +90,16 @@ rebuild:
 	./scripts/build-macos.sh --configuration $(CONFIG) --rebuild
 clean:
 	./scripts/build-macos.sh --clean
+else ifeq ($(HOST_OS),Linux)
+all: linux
+linux:
+	bash ./scripts/build-linux.sh --configuration $(CONFIG)
+stage: kernel
+	bash ./scripts/build-linux.sh --configuration $(CONFIG) --stage-only
+rebuild:
+	bash ./scripts/build-linux.sh --configuration $(CONFIG) --rebuild
+clean:
+	bash ./scripts/build-linux.sh --clean
 else
 all: stage
 stage: $(KERNEL)
