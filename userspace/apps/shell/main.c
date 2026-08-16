@@ -18,7 +18,7 @@ static void run_child(const char* path) {
 static void execute(char* line) {
     if (line[0] == '\0') return;
     if (u_streq(line, "help")) {
-        (void)u_puts("help pid echo hello external files monitor about exit\n");
+        (void)u_puts("help pid echo hello external files monitor about exit run <path>\n");
     } else if (u_streq(line, "pid")) {
         (void)u_puts("shell pid=");
         (void)u_put_u64(ku_getpid());
@@ -38,6 +38,12 @@ static void execute(char* line) {
     } else if (u_streq(line, "exit")) {
         (void)u_puts("shell: session ended\n");
         ku_exit(0);
+    } else if (u_starts_with(line, "run ")) {
+        if (line[4U] == '\0') {
+            (void)u_puts("usage: run /apps/name\n");
+        } else {
+            run_child(line + 4U);
+        }
     } else if (u_starts_with(line, "echo ")) {
         (void)u_puts(line + 5U);
         (void)u_puts("\n");
