@@ -47,7 +47,7 @@ $common = @(
     '-mno-mmx', '-mno-sse', '-msoft-float', '-fno-pic', '-fno-pie',
     '-mcmodel=large', '-fno-builtin', '-ffunction-sections',
     '-fdata-sections', '-Wa,--noexecstack', '-O2', '-Wall', '-Wextra',
-    '-Wpedantic', '-Werror', '-I', $IncludeDir
+    '-Wpedantic', '-Werror', '-I', $IncludeDir, '-I', (Join-Path $RootDir 'common')
 )
 
 $crt = Join-Path $ObjectDir 'crt0.o'
@@ -97,6 +97,7 @@ Copy-Item -LiteralPath $exampleElf `
     -Destination (Join-Path $OverlayApps 'external') -Force
 
 $desktopApplications = @(
+    @{ Name = 'launcher'; Source = 'userspace\gui\launcher\main.c' },
     @{ Name = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
     @{ Name = 'files'; Source = 'userspace\gui\files\main.c' },
     @{ Name = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
