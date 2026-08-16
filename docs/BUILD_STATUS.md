@@ -1,13 +1,13 @@
 # Build status
 
-Data: 16 sierpnia 2026 r.
+Data: 17 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **3.3.0-dev — DEV BETA Media & Installer** jest aktualną linią
-rozwojową. 3.3 rozszerza Red Flux Desktop Shell o wspólny model nośnika
-`Try / Install`, live root, profil językowy/konta oraz natywne workflow build na
-Windows/WSL, macOS i Linux x86-64.
+KuroganeOS **3.3.1-dev — DEV BETA VirtualBox Qualification & Enablement** jest
+aktualną linią rozwojową. 3.3.1 wzmacnia nośnik UEFI/ISO, dodaje referencyjny
+profil VirtualBox, kernelowy backend Intel ICH AC'97, stabilniejszy fallback
+sieciowy oraz beginner/developer documentation.
 
 ## Working foundation
 
@@ -23,26 +23,84 @@ Windows/WSL, macOS i Linux x86-64.
 - Ring-3 `libui` scene/view runtime;
 - wspólny `FluxShellCore`;
 - rzeczywisty kernelowy installer GPT/FAT32;
-- read-only package-backed VFS dla live media.
+- read-only package-backed VFS dla live media;
+- Intel E1000/82540EM `8086:100E`;
+- Intel ICH AC'97 `8086:2415` kernel PCM backend.
 
-## 3.3 DEV BETA changes
+## 3.3.1 DEV BETA changes
 
-- wersja `3.3.0-dev`, kanał `DEV BETA`;
-- IMG i ISO mają wspólny entry flow `Try KuroganeOS / Install KuroganeOS`;
-- `install.pkg` może działać jako read-only live root;
-- Try prowadzi do zwykłego Login/Home bez zapisu na dysk;
-- Installer ma Red Flux setup UI zamiast starego tekstowego promptu;
-- wybór `English` / `Polski`;
-- lokalna nazwa użytkownika;
-- konto bez hasła albo z hasłem;
-- graficzny wybór dysku SATA/AHCI;
-- dokładne `INSTALL` nadal chroni pierwszy destrukcyjny zapis;
-- profil instalacji zapisuje `/etc/locale.cfg` i `/etc/user.cfg`;
-- Login czyta zainstalowany profil i opcjonalnie weryfikuje hasło;
-- `FNV1A64-DEV` jest jawnie tymczasowym verifierem DEV BETA, nie produkcyjnym KDF;
-- ujednolicone media buildy tworzą IMG + ISO;
-- natywny Linux x86-64 build frontend i setup zależności;
-- macOS i Windows/WSL pozostają wspierane.
+- wersja `3.3.1-dev`, kanał `DEV BETA`;
+- beginner-first `docs/START_HERE.md`;
+- osobna kompletna instrukcja `docs/VIRTUALBOX.md`;
+- developer documentation w `docs/DEVELOPERS/`;
+- referencyjny profil VirtualBox: EFI64, SATA/AHCI, E1000 82540EM, NAT, AC'97;
+- helpery tworzące referencyjną VM na Windows i Unix-like hostach;
+- naprawa nośnika El Torito: historyczny obraz 64 MiB został zastąpiony
+  obrazem FAT16 30 MiB / 61440 sektorów po 512 B;
+- El Torito platform EFI + removable-media path `EFI/BOOT/BOOTX64.EFI`;
+- ten sam EFI boot image jest wystawiany w GPT jako EFI System Partition;
+- builder ISO ma mandatory publication gate — 20 niezależnych passów;
+- osobny OVMF/QEMU optical smoke boot do rzeczywistego markera kernela;
+- Windows media build może wymusić realny Oracle VirtualBox boot przez
+  `-VirtualBoxSmoke`;
+- E1000 pozostaje referencyjnym NIC dla VirtualBox NAT;
+- brak DHCP/linku nie zatrzymuje już całego desktop boot — kernel publikuje
+  loopback fallback i zachowuje stan błędu fizycznego interfejsu;
+- dodano Intel ICH AC'97 kernel driver: PCM S16LE stereo 48 kHz, bus-master DMA32;
+- AC'97 rejestruje się przez centralny driver manager;
+- publiczny network/audio Ring-3 ABI nie został zamrożony jako blocking syscall;
+  docelowy model pozostaje asynchronicznym handle/event service;
+- dokumentacja grafiki opisuje prawdziwą ścieżkę do przyszłej zgodności D3D,
+  bez fałszywego oznaczania DirectX 11/12 jako gotowego.
+
+## Automated qualification — latest code revision
+
+Automatyczny workflow x86-64/Linux dla rewizji zawierającej aktualny kod
+ISO/network/audio zakończył się sukcesem.
+
+```text
+full Linux media build:                         PASS
+installer ESP size: 30 MiB / 61440 sectors:   PASS
+mandatory builder ISO verification:            20/20 PASS
+workflow second ISO verification:              20/20 PASS
+OVMF/QEMU optical UEFI boot -> kernel marker: PASS
+qualification artifact upload:                 PASS
+```
+
+Oznacza to **40 pełnych strukturalnych inspekcji tego samego modelu ISO w jednym
+workflow plus rzeczywisty boot optyczny przez niezależny firmware OVMF/QEMU**.
+
+To jest mocny dowód poprawności nośnika UEFI, ale nie jest zastępowane
+marketingowym stwierdzeniem „100% na każdej konfiguracji VirtualBox”.
+
+## Oracle VirtualBox qualification
+
+Realny smoke test Oracle VirtualBox jest gotowy i stanowi ostatni host-specific
+gate dla deklaracji `VirtualBox runtime PASS`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-media.ps1 `
+  -Configuration release `
+  -Rebuild `
+  -VirtualBoxSmoke
+```
+
+Oczekiwane markery:
+
+```text
+[virtualbox-smoke] EFI optical boot: PASS
+[virtualbox-smoke] BOOTX64.EFI -> kernel serial marker: PASS
+[virtualbox-smoke] VIRTUALBOX REAL BOOT VERIFIED
+```
+
+Dopóki ten test nie zostanie wykonany na hoście x86-64 z Oracle VirtualBox,
+status brzmi:
+
+```text
+UEFI ISO automated qualification: PASS
+Oracle VirtualBox real smoke: AVAILABLE / NOT YET RECORDED
+```
 
 ## Zalecane build commands
 
@@ -53,13 +111,16 @@ Wymagane dodatkowe pliki:
 https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-media.ps1 -Configuration release -Rebuild
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-media.ps1 `
+  -Configuration release `
+  -Rebuild
 ```
 
 ### macOS
 
 ```bash
-./scripts/setup-macos.sh --install
+bash ./scripts/setup-macos.sh --install
 bash ./scripts/build-media-macos.sh --configuration release --rebuild
 ```
 
@@ -73,37 +134,37 @@ bash ./scripts/build-media-linux.sh --configuration release --rebuild
 ## Expected artifacts
 
 ```text
-dist/KuroganeOS-3.3.0-dev-windows-qemu.img
-dist/KuroganeOS-3.3.0-dev-macos-qemu.img
-dist/KuroganeOS-3.3.0-dev-linux-qemu.img
-dist/KuroganeOS-3.3.0-dev-x86_64.iso
+dist/KuroganeOS-3.3.1-dev-windows-qemu.img
+dist/KuroganeOS-3.3.1-dev-macos-qemu.img
+dist/KuroganeOS-3.3.1-dev-linux-qemu.img
+dist/KuroganeOS-3.3.1-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
 Jeden host tworzy swój host-specific IMG oraz wspólny ISO.
 
-## Validation state
+## Runtime acceptance still open
 
-3.3-dev **nie jest jeszcze runtime-verified**. Zmiany wymagają świeżego pełnego
-build/test po tej rewizji. Minimalne acceptance:
-
-1. IMG -> Try -> Login -> Home;
-2. ISO -> Try -> Login -> Home;
-3. live root pozostaje read-only;
-4. EN install bez hasła -> reboot z target HDD -> Login -> Home;
-5. PL install z hasłem -> reboot -> błędne hasło odrzucone, poprawne zaakceptowane;
-6. brak zapisu na target przed poprawnym `INSTALL`;
-7. GPT/ESP/root i package verification PASS;
-8. System Monitor nie powoduje full-screen flickera;
-9. media build kończy się poprawnie na Windows, macOS i Linux.
+1. Oracle VirtualBox x86-64: ISO optical boot -> kernel marker;
+2. VirtualBox: ISO -> Try -> Login -> Home;
+3. VirtualBox: Install -> target SATA VDI -> reboot without ISO -> Login;
+4. VirtualBox NAT + 82540EM -> DHCP/gateway/DNS online path;
+5. VirtualBox AC'97 -> audible PCM smoke;
+6. live root pozostaje read-only;
+7. EN install bez hasła -> reboot -> Login -> Home;
+8. PL install z hasłem -> błędne hasło odrzucone, poprawne zaakceptowane;
+9. brak zapisu na target przed poprawnym `INSTALL`;
+10. System Monitor pozostaje bez full-screen flickera.
 
 ## Known gaps / DEV warnings
 
 - `FNV1A64-DEV` nie jest bezpiecznym password KDF;
 - brak pełnej account service/credential store/lock screen;
-- live package VFS jest read-only i nie ma jeszcze pełnego `readdir`;
+- publiczne userspace sockets/DNS/ping są nadal planowanym async API;
+- AC'97 ma realny kernel backend, ale stabilne publiczne Ring-3 audio stream API
+  nadal jest planowane;
+- pełny Direct3D/DirectX 9/10/11/12 nie jest jeszcze zaimplementowany;
+- brak pełnego native graphics runtime/GPU acceleration;
 - compatibility `ku_ui_frame` pozostaje transportem części aplikacji;
-- brak pełnego native widget ABI/per-window compositor;
 - brak kompletnego publicznego Ring-3 file capability API;
-- Linux support jest nową ścieżką 3.3 i wymaga runtime/build acceptance na realnym hoście;
-- ISO oraz instalacja na realnym sprzęcie nie są jeszcze oznaczone jako stabilne.
+- real-hardware qualification pozostaje węższa niż VM qualification.
