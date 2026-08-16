@@ -34,8 +34,6 @@ $Version = $Matches[1]
 $ReleaseName = "KuroganeOS-$Version-x86_64.iso"
 $ReleaseIso = Join-Path $DistDir $ReleaseName
 $ChecksumFile = Join-Path $DistDir 'SHA256SUMS.txt'
-# Compatibility output for existing emulator scripts. It is generated and
-# ignored by Git; dist/ is the canonical release-artifact location.
 $CompatibilityIso = Join-Path $RootDir 'kurogane.iso'
 
 if (-not $NoBuild) {
@@ -76,11 +74,6 @@ Copy-Item -LiteralPath $Kernel -Destination (Join-Path $StageDir 'kernel.elf')
 Copy-Item -LiteralPath $Kernel -Destination (Join-Path $BootDir 'kernel.elf')
 Copy-Item -LiteralPath $Package -Destination (Join-Path $StageDir 'install.pkg')
 
-& (Join-Path $PSScriptRoot 'build-image.ps1') `
-    -StageDirectory $StageDir -OutputPath $EspImage `
-    -IncludeKernelInBootDirectory -AdditionalRootFile $Package
-if (-not $?) { throw 'Installer ESP construction failed.' }
-
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $converted = & wsl.exe --exec wslpath -a -u `
@@ -91,12 +84,22 @@ function Convert-ToWslPath {
     return $converted.Trim()
 }
 
+# The previous Windows helper produced a 64 MiB FAT32 image. That exceeds the
+# 16-bit El Torito EFI boot-image sector-count range. Build the same 30 MiB
+# FAT16 UEFI image as Linux/macOS through WSL so all host frontends publish an
+# identical boot model.
+$espScript = Convert-ToWslPath (Join-Path $PSScriptRoot 'build-installer-esp.sh')
+& wsl.exe bash $espScript `
+    (Convert-ToWslPath $StageDir) `
+    (Convert-ToWslPath $EspImage)
+if ($LASTEXITCODE -ne 0) { throw 'Installer El Torito ESP construction failed.' }
+
 $isoScript = Convert-ToWslPath (Join-Path $PSScriptRoot 'build-installer-iso.sh')
 & wsl.exe bash $isoScript `
     (Convert-ToWslPath $StageDir) `
     (Convert-ToWslPath $EspImage) `
     (Convert-ToWslPath $IsoImage)
-if ($LASTEXITCODE -ne 0) { throw 'Installer ISO construction failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'Installer ISO construction/verification failed.' }
 
 Copy-Item -LiteralPath $IsoImage -Destination $ReleaseIso -Force
 Copy-Item -LiteralPath $IsoImage -Destination $CompatibilityIso -Force
@@ -114,3 +117,4 @@ Write-Host "[release] $ReleaseIso"
 Write-Host "[compatibility] $CompatibilityIso"
 Write-Host "[sha256] $hash"
 Write-Host "[checksums] $ChecksumFile"
+Write-Host '[virtualbox] ISO passed mandatory 20-pass UEFI/El Torito verification'
