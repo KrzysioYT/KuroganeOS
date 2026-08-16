@@ -87,24 +87,9 @@ cp "$kernel" "$stage/kernel.elf"
 cp "$kernel" "$stage/EFI/BOOT/kernel.elf"
 cp "$package" "$stage/install.pkg"
 
-# Build a dedicated 64 MiB FAT32 EFI System Partition for El Torito.
-rm -f -- "$esp"
-python3 - "$esp" <<'PY'
-import sys
-path = sys.argv[1]
-with open(path, "wb") as image:
-    image.truncate(64 * 1024 * 1024)
-PY
-mkfs.fat -F 32 -n KUROESP "$esp" >/dev/null
-mmd -i "$esp" ::/EFI
-mmd -i "$esp" ::/EFI/BOOT
-mcopy -o -i "$esp" "$stage/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
-mcopy -o -i "$esp" "$stage/EFI/BOOT/kernel.elf" ::/EFI/BOOT/kernel.elf
-mcopy -o -i "$esp" "$stage/kernel.elf" ::/kernel.elf
-mcopy -o -i "$esp" "$stage/install.pkg" ::/install.pkg
-fsck.fat -n "$esp" >/dev/null
-mdir -i "$esp" ::/EFI/BOOT >/dev/null
-mdir -i "$esp" ::/install.pkg >/dev/null
+# El Torito EFI boot images have a 16-bit 512-byte sector count. Use the shared
+# 30 MiB FAT16 builder instead of the historical 64 MiB FAT32 image.
+bash "$root/scripts/build-installer-esp.sh" "$stage" "$esp"
 
 "$root/scripts/build-installer-iso.sh" "$stage" "$esp" "$internal_iso"
 
