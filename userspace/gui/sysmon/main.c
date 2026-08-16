@@ -10,24 +10,29 @@ static void build_scene(kui_scene* scene, uint32_t heartbeat) {
     gui_u64(pid, sizeof(pid), ku_process_id());
     gui_u64(tid, sizeof(tid), ku_thread_id());
     (void)strlcpy(identity + strlen(identity), pid, sizeof(identity) - strlen(identity));
-    (void)strlcpy(identity + strlen(identity), " // TID ", sizeof(identity) - strlen(identity));
+    (void)strlcpy(identity + strlen(identity), " / TID ", sizeof(identity) - strlen(identity));
     (void)strlcpy(identity + strlen(identity), tid, sizeof(identity) - strlen(identity));
 
     kui_scene_initialize(scene);
+    kui_scene_set_palette(
+        scene,
+        UINT32_C(0x090A0C),
+        UINT32_C(0xECEEF1),
+        UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR // RUNTIME");
+    (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR / RUNTIME");
     (void)kui_flow_label(&root, 2U, identity);
     (void)kui_flow_separator(&root, 3U);
 
     kui_flow_begin(&metrics, scene, 1U);
-    (void)kui_flow_label(&metrics, 10U, "Scheduler heartbeat // active");
-    (void)kui_flow_label(&metrics, 11U, "Ring 3 isolation // active");
+    (void)kui_flow_label(&metrics, 10U, "SCHEDULER / ACTIVE");
+    (void)kui_flow_label(&metrics, 11U, "RING 3 ISOLATION / ACTIVE");
     (void)kui_flow_progress(&metrics, 12U, "SESSION HEARTBEAT", heartbeat, 100U);
-    (void)kui_flow_label(&metrics, 13U, "Flux session and application lifecycle online.");
+    (void)kui_flow_label(&metrics, 13U, "SESSION AND PROCESS LIFECYCLE ONLINE");
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SYSTEM MONITOR", 315, 190, 500, 320);
+    const ku_window_t window = gui_open("SYSTEM MONITOR", 315, 190, 520, 320);
     if (window == KU_INVALID_WINDOW) return 1;
     puts("[TEST] desktop_sysmon_ring3: PASS");
 
@@ -42,6 +47,7 @@ int main(void) {
         }
         if (!scene_reported) {
             puts("[TEST] flux_scene_sysmon: PASS");
+            puts("[TEST] red_flux_sysmon: PASS");
             scene_reported = 1;
         }
 
