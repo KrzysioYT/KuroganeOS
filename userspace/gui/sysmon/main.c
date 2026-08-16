@@ -15,19 +15,19 @@ static void build_scene(kui_scene* scene, uint32_t heartbeat) {
 
     kui_scene_initialize(scene);
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR // USERSPACE");
+    (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR // RUNTIME");
     (void)kui_flow_label(&root, 2U, identity);
     (void)kui_flow_separator(&root, 3U);
 
     kui_flow_begin(&metrics, scene, 1U);
-    (void)kui_flow_label(&metrics, 10U, "Scheduler heartbeat is active.");
-    (void)kui_flow_label(&metrics, 11U, "Processes are isolated Ring 3 ELF64 images.");
-    (void)kui_flow_progress(&metrics, 12U, "SCHEDULER HEARTBEAT", heartbeat, 100U);
-    (void)kui_flow_label(&metrics, 13U, "Process/memory snapshots arrive with 2.6 capabilities.");
+    (void)kui_flow_label(&metrics, 10U, "Scheduler heartbeat // active");
+    (void)kui_flow_label(&metrics, 11U, "Ring 3 isolation // active");
+    (void)kui_flow_progress(&metrics, 12U, "SESSION HEARTBEAT", heartbeat, 100U);
+    (void)kui_flow_label(&metrics, 13U, "Flux session and application lifecycle online.");
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SYSTEM MONITOR", 30, 65, 470, 300);
+    const ku_window_t window = gui_open("SYSTEM MONITOR", 315, 190, 500, 320);
     if (window == KU_INVALID_WINDOW) return 1;
     puts("[TEST] desktop_sysmon_ring3: PASS");
 
