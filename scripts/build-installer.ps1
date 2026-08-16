@@ -9,6 +9,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
+if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
+    throw "Missing Windows/WSL path bridge: $WslBridge"
+}
+. $WslBridge
+
 $BuildDir = Join-Path $RootDir 'build'
 $StageDir = Join-Path $BuildDir 'installer-staging'
 $ExpectedStageDir = [System.IO.Path]::GetFullPath(
@@ -74,31 +80,20 @@ Copy-Item -LiteralPath $Kernel -Destination (Join-Path $StageDir 'kernel.elf')
 Copy-Item -LiteralPath $Kernel -Destination (Join-Path $BootDir 'kernel.elf')
 Copy-Item -LiteralPath $Package -Destination (Join-Path $StageDir 'install.pkg')
 
-function Convert-ToWslPath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $converted = & wsl.exe --exec wslpath -a -u `
-        ([System.IO.Path]::GetFullPath($Path))
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
-        throw "Cannot convert path for WSL: $Path"
-    }
-    return $converted.Trim()
-}
-
-# The previous Windows helper produced a 64 MiB FAT32 image. That exceeds the
-# 16-bit El Torito EFI boot-image sector-count range. Build the same 30 MiB
-# FAT16 UEFI image as Linux/macOS through WSL so all host frontends publish an
-# identical boot model.
-$espScript = Convert-ToWslPath (Join-Path $PSScriptRoot 'build-installer-esp.sh')
+# Build the same 30 MiB FAT16 El Torito image used on Linux/macOS. The shared
+# bridge also handles repositories located on secondary/removable drives such
+# as D: or I: by mounting that Windows drive through WSL DrvFs when needed.
+$espScript = Convert-ToKuroganeWslPath (Join-Path $PSScriptRoot 'build-installer-esp.sh')
 & wsl.exe bash $espScript `
-    (Convert-ToWslPath $StageDir) `
-    (Convert-ToWslPath $EspImage)
+    (Convert-ToKuroganeWslPath $StageDir) `
+    (Convert-ToKuroganeWslPath $EspImage)
 if ($LASTEXITCODE -ne 0) { throw 'Installer El Torito ESP construction failed.' }
 
-$isoScript = Convert-ToWslPath (Join-Path $PSScriptRoot 'build-installer-iso.sh')
+$isoScript = Convert-ToKuroganeWslPath (Join-Path $PSScriptRoot 'build-installer-iso.sh')
 & wsl.exe bash $isoScript `
-    (Convert-ToWslPath $StageDir) `
-    (Convert-ToWslPath $EspImage) `
-    (Convert-ToWslPath $IsoImage)
+    (Convert-ToKuroganeWslPath $StageDir) `
+    (Convert-ToKuroganeWslPath $EspImage) `
+    (Convert-ToKuroganeWslPath $IsoImage)
 if ($LASTEXITCODE -ne 0) { throw 'Installer ISO construction/verification failed.' }
 
 Copy-Item -LiteralPath $IsoImage -Destination $ReleaseIso -Force
