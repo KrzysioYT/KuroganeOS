@@ -28,7 +28,7 @@ case "$configuration" in debug|release|test) ;; *) usage ;; esac
 [[ "$(uname -s)" == Linux ]] || { echo "requires Linux" >&2; exit 1; }
 if $rebuild && $no_build; then echo "--rebuild cannot be combined with --no-build" >&2; exit 2; fi
 
-for tool in python3 truncate mkfs.fat mcopy mmd mdir xorriso sha256sum; do
+for tool in python3 mkfs.fat fsck.fat mcopy mmd mdir xorriso sha256sum; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing installer tool: $tool" >&2
         echo "run: bash ./scripts/setup-linux.sh --install" >&2
@@ -70,16 +70,7 @@ cp "$kernel" "$stage/kernel.elf"
 cp "$kernel" "$stage/EFI/BOOT/kernel.elf"
 cp "$package" "$stage/install.pkg"
 
-rm -f -- "$esp"
-truncate -s $((64 * 1024 * 1024)) "$esp"
-mkfs.fat -F 32 -n KUROESP "$esp" >/dev/null
-mmd -i "$esp" ::/EFI ::/EFI/BOOT
-mcopy -o -i "$esp" "$stage/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
-mcopy -o -i "$esp" "$stage/EFI/BOOT/kernel.elf" ::/EFI/BOOT/kernel.elf
-mcopy -o -i "$esp" "$stage/kernel.elf" ::/kernel.elf
-mcopy -o -i "$esp" "$stage/install.pkg" ::/install.pkg
-mdir -i "$esp" ::/install.pkg >/dev/null
-
+bash "$root/scripts/build-installer-esp.sh" "$stage" "$esp"
 bash "$root/scripts/build-installer-iso.sh" "$stage" "$esp" "$internal_iso"
 cp "$internal_iso" "$release_iso"
 cp "$internal_iso" "$compatibility_iso"
