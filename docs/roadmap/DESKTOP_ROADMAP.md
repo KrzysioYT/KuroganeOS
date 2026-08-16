@@ -15,7 +15,7 @@ compositora, pełnego POSIX/VFS ABI ani sterowników sprzętowych.
 - [x] AHCI, GPT i persistent FAT32/VFS;
 - [x] PS/2 input i wspólna kolejka input;
 - [x] framebuffer/software rendering;
-- [x] WindowManager: focus, z-order, drag, minimize/maximize/restore/close;
+- [x] WindowManager: focus, z-order, drag, resize, minimize/maximize/restore/close;
 - [x] Signal Spine i Pulse Ribbon;
 - [x] Ring-3 `libui` scene/view runtime;
 - [x] Windows/WSL/macOS SDK i development IMG workflow;
@@ -36,9 +36,8 @@ compositora, pełnego POSIX/VFS ABI ani sterowników sprzętowych.
 - [x] Signal Spine i Pulse Ribbon;
 - [x] focus/drag/minimize/maximize/restore/close;
 - [x] workspace/chrome geometry jako wspólne źródło hit-testu;
-- [x] content/full dirty split;
-- [x] 2.4.1 usunęło okresowy full-frame repaint powodujący miganie;
-- [x] software cursor nie wymusza pełnego repaintu.
+- [x] software cursor nie wymusza pełnego repaintu;
+- [x] 3.0.1 usuwa błędny content-only repaint, który powodował ghosting.
 
 Pozostały cleanup bootloadera (`DESKTOP ALPHA`) i starych Ring-0 surfaces może być
 prowadzony niezależnie od userspace desktopu.
@@ -67,12 +66,13 @@ pozostają pracą dla 3.1/3.2.
 Pełne `ls/stat/readdir/write/mkdir/rm/mv/cp/touch` wymaga rozszerzonego publicznego
 VFS capability ABI i pozostaje następnym subsystemem userspace.
 
-## 2.7 — Interaction Update — CZĘŚCIOWO W RDZENIU
+## 2.7 — Interaction Update — RDZEŃ ZREALIZOWANY
 
-Dostępne już:
+Dostępne:
 
 - [x] focus i z-order;
 - [x] header drag;
+- [x] interactive resize z bottom-right Flux grip;
 - [x] minimize/maximize/restore/close;
 - [x] Alt+Tab i Alt+F4;
 - [x] keyboard selection w `libui`;
@@ -80,7 +80,6 @@ Dostępne już:
 
 Dalsze prace:
 
-- [ ] interactive resize;
 - [ ] double click/context actions;
 - [ ] wheel routing do userspace;
 - [ ] clipboard;
@@ -111,9 +110,9 @@ do 3.4 Developer Platform.
 Pełny automatyczny crash-survival QEMU test dla arbitralnej aplikacji pozostaje
 do dopięcia w torze testowym.
 
-## 3.0.0 — Kurogane Desktop — WYDANIE
+## 3.0 — Kurogane Desktop — WYDANE
 
-`3.0.0` zmienia model systemu z "desktopowego demo" na normalną sesję:
+Normalny model systemu:
 
 ```text
 UEFI
@@ -133,11 +132,12 @@ Zakres 3.0:
 - [x] Files, Monitor, Settings i About są uruchamiane na żądanie;
 - [x] aplikacje mogą zostać zamknięte bez natychmiastowego restartu przez PID1;
 - [x] console/safe mode pozostaje awaryjnym subsystemem;
-- [x] teksty aplikacji usunięto z historycznych etykiet `2.5/2.6 preview`;
 - [x] Ring-3 persistent reads używają kernel-owned bounce buffer przed kopiowaniem
-  do pamięci procesu.
+  do pamięci procesu;
+- [x] 3.0.1: deterministyczny repaint usuwa ghost trails z compatibility renderer;
+- [x] 3.0.1: interaktywny resize okien jest aktywny.
 
-### Znane ograniczenia 3.0
+### Znane ograniczenia 3.0.x
 
 - software framebuffer rendering bez GPU acceleration;
 - brak pełnego compositora/backbufferów;
