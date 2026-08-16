@@ -3,7 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define INPUT_CAPACITY 58U
+#define INPUT_CAPACITY 48U
 #define OUTPUT_LINES 6U
 #define OUTPUT_CAPACITY 64U
 #define JOB_CAPACITY 8U
