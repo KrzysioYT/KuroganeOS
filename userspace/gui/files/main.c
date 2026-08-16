@@ -94,8 +94,8 @@ static void build_scene(
     scene->visible_rows = 12U;
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FILES // 2.6 QUICK ACCESS");
-    (void)kui_flow_label(&root, 2U, "J/K: select | ENTER: preview/launch | R: refresh");
+    (void)kui_flow_panel(&root, 1U, "FILES // QUICK ACCESS");
+    (void)kui_flow_label(&root, 2U, "J/K: select   ENTER: preview/open   R: refresh");
 
     kui_flow_begin(&entries, scene, 1U);
     while (index < ENTRY_COUNT) {
@@ -113,11 +113,11 @@ static void build_scene(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FILES", 574, 64, 430, 360);
+    const ku_window_t window = gui_open("FILES", 300, 145, 500, 390);
     if (window == KU_INVALID_WINDOW) return 1;
 
     size_t selected = 0U;
-    char status[64] = "Persistent FAT32 root // public read ABI";
+    char status[64] = "Persistent root // public read ABI";
     char preview1[64];
     char preview2[64];
     preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
@@ -130,7 +130,7 @@ int main(void) {
     }
     puts("[TEST] desktop_files_real_vfs: PASS");
     puts("[TEST] flux_scene_files: PASS");
-    puts("[TEST] desktop_files_2_6: PASS");
+    puts("[TEST] desktop_files_3_0: PASS");
 
     for (;;) {
         ku_ui_event event;
