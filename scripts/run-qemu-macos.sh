@@ -99,10 +99,10 @@ args=(
 )
 if $display; then
     # Cocoa's zoom-to-fit scales the guest framebuffer with the host window.
-    # The visual development path defaults to fullscreen because the Flux
-    # desktop is now wider than the old console-oriented preview. Use
-    # --windowed when a normal resizable host window is preferred.
-    args+=( -display "cocoa,zoom-to-fit=on,show-cursor=on" )
+    # Do not force the host cursor: KuroganeOS renders its own software cursor.
+    # The visual development path defaults to fullscreen; use --windowed when
+    # a normal resizable host window is preferred.
+    args+=( -display "cocoa,zoom-to-fit=on" )
     if $fullscreen; then
         args+=( -full-screen )
     fi
