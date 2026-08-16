@@ -38,4 +38,38 @@ static inline int gui_wait_event(ku_window_t window, ku_ui_event* event) {
     }
 }
 
+static inline int gui_key_up(const ku_ui_event* event) {
+    return event != NULL &&
+        (event->key == KU_UI_KEY_ARROW_UP ||
+         event->character == 'k' || event->character == 'K');
+}
+
+static inline int gui_key_down(const ku_ui_event* event) {
+    return event != NULL &&
+        (event->key == KU_UI_KEY_ARROW_DOWN ||
+         event->character == 'j' || event->character == 'J');
+}
+
+static inline int gui_key_left(const ku_ui_event* event) {
+    return event != NULL && event->key == KU_UI_KEY_ARROW_LEFT;
+}
+
+static inline int gui_key_right(const ku_ui_event* event) {
+    return event != NULL && event->key == KU_UI_KEY_ARROW_RIGHT;
+}
+
+static inline int gui_key_activate(const ku_ui_event* event) {
+    return event != NULL &&
+        (event->key == KU_UI_KEY_ENTER ||
+         event->character == '\r' || event->character == '\n');
+}
+
+static inline int gui_key_cancel(const ku_ui_event* event) {
+    return event != NULL && event->key == KU_UI_KEY_ESCAPE;
+}
+
+static inline int gui_key_tab(const ku_ui_event* event) {
+    return event != NULL && event->key == KU_UI_KEY_TAB;
+}
+
 #endif
