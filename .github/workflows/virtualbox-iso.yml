@@ -1,0 +1,61 @@
+name: KuroganeOS UEFI ISO qualification
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'boot/**'
+      - 'common/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'userspace/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - 'linker.ld'
+      - '.github/workflows/virtualbox-iso.yml'
+  workflow_dispatch:
+
+jobs:
+  iso-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build and UEFI test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build Linux IMG and ISO
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Verify ISO structure 20 times
+        run: |
+          bash ./scripts/verify-virtualbox-iso.sh \
+            ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+            --passes 20
+
+      - name: Boot ISO through OVMF
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+            --timeout 60
+
+      - name: Publish qualification artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuroganeos-3.3.1-dev-uefi-media
+          if-no-files-found: error
+          path: |
+            dist/KuroganeOS-3.3.1-dev-x86_64.iso
+            dist/KuroganeOS-3.3.1-dev-linux-qemu.img
+            dist/SHA256SUMS.txt
