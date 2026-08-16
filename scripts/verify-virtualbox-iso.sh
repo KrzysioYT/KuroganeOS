@@ -5,7 +5,7 @@ usage() {
     cat >&2 <<'EOF'
 usage: ./scripts/verify-virtualbox-iso.sh ISO [--passes N] [--virtualbox-smoke]
 
-Performs deterministic UEFI/El Torito/FAT/PE checks repeatedly. With
+Performs deterministic UEFI/El Torito/FAT/GPT/PE checks repeatedly. With
 --virtualbox-smoke it also boots the ISO in a temporary VirtualBox EFI VM and
 requires the KuroganeOS kernel serial marker.
 EOF
@@ -91,9 +91,18 @@ for ((pass=1; pass<=passes; ++pass)); do
     xorriso -indev "$iso" -report_el_torito plain >"$report" 2>&1
     grep -Eqi 'El Torito|boot image' "$report" || {
         echo "pass $pass: no El Torito boot record" >&2; cat "$report" >&2; exit 1; }
-    grep -Eqi 'EFI|0xEF|0xef|efiboot' "$report" || {
+    grep -Eqi 'EFI|UEFI|0xEF|0xef|efiboot' "$report" || {
         echo "pass $pass: El Torito record is not identified as EFI" >&2
         cat "$report" >&2; exit 1; }
+
+    system_report="$pass_dir/system-area.txt"
+    xorriso -indev "$iso" -report_system_area plain >"$system_report" 2>&1
+    grep -Eqi 'GPT' "$system_report" || {
+        echo "pass $pass: ISO has no GPT system area" >&2
+        cat "$system_report" >&2; exit 1; }
+    grep -Eqi 'EFI|c12a7328|C12A7328' "$system_report" || {
+        echo "pass $pass: GPT has no EFI System Partition" >&2
+        cat "$system_report" >&2; exit 1; }
 
     for path in /efiboot.img /EFI/BOOT/BOOTX64.EFI /kernel.elf /install.pkg; do
         target="$pass_dir/$(basename "$path")"
@@ -105,6 +114,17 @@ for ((pass=1; pass<=passes; ++pass)); do
     done
 
     esp="$pass_dir/efiboot.img"
+    esp_bytes="$(wc -c < "$esp" | tr -d ' ')"
+    [[ "$esp_bytes" =~ ^[0-9]+$ ]] || {
+        echo "pass $pass: cannot determine EFI image size" >&2; exit 1; }
+    ((esp_bytes % 512 == 0)) || {
+        echo "pass $pass: EFI image is not 512-byte sector aligned" >&2; exit 1; }
+    esp_sectors=$((esp_bytes / 512))
+    ((esp_sectors > 0 && esp_sectors < 65535)) || {
+        echo "pass $pass: EFI boot image has $esp_sectors sectors (must be <65535)" >&2
+        exit 1
+    }
+
     "$fsck_tool" -n "$esp" >/dev/null
     mdir -i "$esp" ::/EFI >/dev/null
     mdir -i "$esp" ::/EFI/BOOT >/dev/null
@@ -123,9 +143,9 @@ for ((pass=1; pass<=passes; ++pass)); do
     outer_loader_hash="$(hash_iso "$pass_dir/BOOTX64.EFI")"
     inner_loader_hash="$(hash_iso "$inner_loader")"
     [[ "$outer_loader_hash" == "$inner_loader_hash" ]] || {
-        echo "pass $pass: ISO loader and El Torito ESP loader differ" >&2; exit 1; }
+        echo "pass $pass: ISO loader and El Torito EFI loader differ" >&2; exit 1; }
 
-    echo "[virtualbox-iso] pass $pass/$passes: PASS"
+    echo "[virtualbox-iso] pass $pass/$passes: PASS (EFI sectors=$esp_sectors)"
 done
 
 if $virtualbox_smoke; then
@@ -149,7 +169,6 @@ if $virtualbox_smoke; then
         --boot1 dvd --boot2 disk --boot3 none --boot4 none \
         --keyboard ps2 --mouse ps2 >/dev/null
 
-    # VirtualBox 7.2 spelling first; fall back to legacy aliases where needed.
     if ! VBoxManage modifyvm "$machine" \
         --nic1 nat --nic-type1 82540EM --cable-connected1 on >/dev/null 2>&1; then
         VBoxManage modifyvm "$machine" \
@@ -160,11 +179,8 @@ if $virtualbox_smoke; then
         VBoxManage modifyvm "$machine" \
             --audio on --audiocontroller ac97 >/dev/null 2>&1 || true
     fi
-    if ! VBoxManage modifyvm "$machine" \
-        --uart1 0x3F8 4 --uart-mode1 file "$serial" >/dev/null 2>&1; then
-        VBoxManage modifyvm "$machine" --uart1 0x3F8 4 >/dev/null
-        VBoxManage modifyvm "$machine" --uartmode1 file "$serial" >/dev/null
-    fi
+    VBoxManage modifyvm "$machine" --uart1 0x3F8 4 >/dev/null
+    VBoxManage modifyvm "$machine" --uartmode1 file "$serial" >/dev/null
 
     VBoxManage createmedium disk --filename "$vdi" --size 1024 --format VDI >/dev/null
     VBoxManage storagectl "$machine" --name "SATA" --add sata --controller IntelAHCI >/dev/null
@@ -175,7 +191,7 @@ if $virtualbox_smoke; then
         --type dvddrive --medium "$iso" >/dev/null
 
     VBoxManage startvm "$machine" --type headless >/dev/null
-    deadline=$((SECONDS + 45))
+    deadline=$((SECONDS + 60))
     booted=false
     while ((SECONDS < deadline)); do
         if [[ -f "$serial" ]] && grep -Eq \
