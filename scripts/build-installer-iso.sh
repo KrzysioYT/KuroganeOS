@@ -31,7 +31,7 @@ done
     exit 1
 }
 
-# Verify the EFI System Partition itself before embedding it in El Torito.
+# Verify the EFI boot filesystem itself before embedding it in El Torito.
 mdir -i "$esp_image" ::/EFI/BOOT/BOOTX64.EFI >/dev/null
 mdir -i "$esp_image" ::/EFI/BOOT/kernel.elf >/dev/null
 mdir -i "$esp_image" ::/kernel.elf >/dev/null
@@ -45,10 +45,11 @@ cp "$stage/kernel.elf" "$iso_stage/kernel.elf"
 cp "$stage/install.pkg" "$iso_stage/install.pkg"
 rm -f -- "$iso_image"
 
-# KuroganeOS is an x86-64 UEFI-only guest.  The important part for VirtualBox
-# is a real El Torito EFI entry (platform 0xEF) pointing at a FAT ESP that has
-# the removable-media path EFI/BOOT/BOOTX64.EFI.  Keep an explicit boot catalog
-# in the ISO tree so the result is easy to inspect with xorriso/isoinfo.
+# Pure x86-64 UEFI media:
+# 1. El Torito platform 0xEF -> efiboot.img for optical firmware (VirtualBox).
+# 2. no-emulation mode, as required for EFI boot images.
+# 3. expose that same EFI image as a proper GPT EFI System Partition rather
+#    than the historical ISOLINUX isohybrid-gpt-basdat compatibility hack.
 xorriso -as mkisofs \
     -R -J -V KURO_INSTALL \
     -o "$iso_image" \
@@ -56,7 +57,7 @@ xorriso -as mkisofs \
     -eltorito-platform efi \
     -e efiboot.img \
     -no-emul-boot \
-    -isohybrid-gpt-basdat \
+    -efi-boot-part --efi-boot-image \
     "$iso_stage"
 
 [[ -s "$iso_image" ]] || {
@@ -65,8 +66,8 @@ xorriso -as mkisofs \
 }
 
 # Publication gate: do not let any host-specific wrapper copy an ISO to dist/
-# until its El Torito entry, FAT ESP and AMD64 EFI application have survived
-# twenty complete independent inspections.
+# until its El Torito entry, FAT boot filesystem, GPT ESP and AMD64 EFI loader
+# have survived twenty complete independent inspections.
 bash "$root/scripts/verify-virtualbox-iso.sh" "$iso_image" --passes 20
 
 echo "Built and VirtualBox-verified $iso_image"
