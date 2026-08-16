@@ -7,10 +7,26 @@
 namespace windowing {
 namespace {
 
-constexpr int32_t TITLE_HEIGHT = 30;
-constexpr int32_t TASKBAR_HEIGHT = 30;
+constexpr int32_t HEADER_HEIGHT = 36;
 constexpr int32_t MINIMUM_WIDTH = 160;
-constexpr int32_t MINIMUM_HEIGHT = 90;
+constexpr int32_t MINIMUM_HEIGHT = 96;
+constexpr int32_t WORKSPACE_LEFT = 34;
+constexpr int32_t WORKSPACE_TOP = 42;
+constexpr int32_t WORKSPACE_RIGHT = 12;
+constexpr int32_t RIBBON_HEIGHT = 28;
+constexpr int32_t RIBBON_BOTTOM = 8;
+constexpr int32_t WORKSPACE_BOTTOM = RIBBON_HEIGHT + RIBBON_BOTTOM + 10;
+constexpr int32_t SPINE_X = 8;
+constexpr int32_t SPINE_WIDTH = 18;
+constexpr int32_t CONTROL_WIDTH = 22;
+constexpr int32_t CONTROL_HEIGHT = 20;
+constexpr int32_t CONTROL_GAP = 4;
+constexpr int32_t CONTROL_RIGHT = 8;
+constexpr int32_t RIBBON_GAP = 6;
+constexpr int32_t RIBBON_ITEM_MAX = 124;
+constexpr int32_t RIBBON_ITEM_MIN = 54;
+constexpr int32_t RIBBON_PADDING = 10;
+constexpr int32_t RIBBON_SIGNAL_RESERVE = 24;
 
 struct Slot {
     WindowInfo info;
@@ -73,19 +89,113 @@ int32_t clamp_position(int32_t value, int32_t lower, int32_t upper) {
     return value;
 }
 
+int32_t clamp_size(int32_t value, int32_t lower, int32_t upper) {
+    if (upper < lower) return lower;
+    if (value < lower) return lower;
+    if (value > upper) return upper;
+    return value;
+}
+
 bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
     return x >= rectangle.x && y >= rectangle.y &&
         x < rectangle.x + rectangle.width &&
         y < rectangle.y + rectangle.height;
 }
 
+WorkspaceGeometry calculate_workspace() {
+    WorkspaceGeometry geometry{};
+    if (!g_initialized) return geometry;
+
+    const int32_t work_width = g_screen_width - WORKSPACE_LEFT - WORKSPACE_RIGHT;
+    const int32_t work_height = g_screen_height - WORKSPACE_TOP - WORKSPACE_BOTTOM;
+    geometry.work_area = {
+        WORKSPACE_LEFT,
+        WORKSPACE_TOP,
+        work_width > 1 ? work_width : 1,
+        work_height > 1 ? work_height : 1,
+    };
+    geometry.signal_spine = {
+        SPINE_X,
+        WORKSPACE_TOP + 6,
+        SPINE_WIDTH,
+        work_height > 18 ? work_height - 12 : work_height,
+    };
+
+    const int32_t ribbon_max_width = g_screen_width - 64;
+    int32_t requested_width = 180;
+    if (g_count != 0U) {
+        requested_width = RIBBON_PADDING * 2 + RIBBON_SIGNAL_RESERVE +
+            static_cast<int32_t>(g_count) * (RIBBON_ITEM_MAX + RIBBON_GAP);
+    }
+    const int32_t ribbon_width = clamp_size(
+        requested_width,
+        ribbon_max_width < 180 ? ribbon_max_width : 180,
+        ribbon_max_width);
+    geometry.pulse_ribbon = {
+        (g_screen_width - ribbon_width) / 2,
+        g_screen_height - RIBBON_HEIGHT - RIBBON_BOTTOM,
+        ribbon_width,
+        RIBBON_HEIGHT,
+    };
+    return geometry;
+}
+
+ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
+    ChromeGeometry geometry{};
+    geometry.header = {bounds.x, bounds.y, bounds.width, HEADER_HEIGHT};
+    const int32_t control_y = bounds.y + (HEADER_HEIGHT - CONTROL_HEIGHT) / 2;
+    const int32_t dismiss_x =
+        bounds.x + bounds.width - CONTROL_RIGHT - CONTROL_WIDTH;
+    const int32_t expand_x = dismiss_x - CONTROL_GAP - CONTROL_WIDTH;
+    const int32_t minimize_x = expand_x - CONTROL_GAP - CONTROL_WIDTH;
+    geometry.minimize_control = {
+        minimize_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+    geometry.expand_control = {
+        expand_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+    geometry.dismiss_control = {
+        dismiss_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+    geometry.resize_grip = {
+        bounds.x + bounds.width - 16,
+        bounds.y + bounds.height - 16,
+        16,
+        16,
+    };
+    return geometry;
+}
+
+int32_t ribbon_item_width(const WorkspaceGeometry& workspace) {
+    if (g_count == 0U) return 0;
+    const int32_t usable = workspace.pulse_ribbon.width -
+        RIBBON_PADDING * 2 - RIBBON_SIGNAL_RESERVE -
+        static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
+    return clamp_size(
+        usable / static_cast<int32_t>(g_count),
+        RIBBON_ITEM_MIN,
+        RIBBON_ITEM_MAX);
+}
+
+ui::Rect ribbon_item_rect(size_t position) {
+    const WorkspaceGeometry workspace = calculate_workspace();
+    if (position >= g_count) return {};
+    const int32_t width = ribbon_item_width(workspace);
+    return {
+        workspace.pulse_ribbon.x + RIBBON_PADDING +
+            static_cast<int32_t>(position) * (width + RIBBON_GAP),
+        workspace.pulse_ribbon.y + 4,
+        width,
+        workspace.pulse_ribbon.height - 8,
+    };
+}
+
 bool valid_bounds(const ui::Rect& bounds) {
+    if (!g_initialized) return false;
+    const WorkspaceGeometry workspace = calculate_workspace();
     if (bounds.width < MINIMUM_WIDTH || bounds.height < MINIMUM_HEIGHT ||
         bounds.width > g_screen_width ||
-        bounds.height > g_screen_height - TASKBAR_HEIGHT) return false;
-    return bounds.x >= 0 && bounds.y >= 0 &&
+        bounds.height > workspace.work_area.height) return false;
+    return bounds.x >= 0 && bounds.y >= WORKSPACE_TOP &&
         bounds.x <= g_screen_width - bounds.width &&
-        bounds.y <= g_screen_height - TASKBAR_HEIGHT - bounds.height;
+        bounds.y <= workspace.work_area.y + workspace.work_area.height - bounds.height;
 }
 
 void update_z_order() {
@@ -109,20 +219,19 @@ void choose_top_focus() {
     update_z_order();
 }
 
-ui::Rect close_button(const ui::Rect& bounds) {
-    return {bounds.x + bounds.width - 27, bounds.y + 4, 22, 20};
+size_t focused_position() {
+    for (size_t position = 0U; position < g_count; ++position) {
+        if (g_slots[g_order[position]].info.id == g_focused) return position;
+    }
+    return g_count;
 }
 
-ui::Rect maximize_button(const ui::Rect& bounds) {
-    return {bounds.x + bounds.width - 53, bounds.y + 4, 22, 20};
-}
-
-ui::Rect minimize_button(const ui::Rect& bounds) {
-    return {bounds.x + bounds.width - 79, bounds.y + 4, 22, 20};
-}
-
-bool title_hit(const ui::Rect& bounds, int32_t x, int32_t y) {
-    return rect_contains({bounds.x, bounds.y, bounds.width, TITLE_HEIGHT}, x, y);
+bool title_hit(const Slot& slot, int32_t x, int32_t y) {
+    const ChromeGeometry chrome = calculate_chrome(slot.info.bounds);
+    return rect_contains(chrome.header, x, y) &&
+        !rect_contains(chrome.minimize_control, x, y) &&
+        !rect_contains(chrome.expand_control, x, y) &&
+        !rect_contains(chrome.dismiss_control, x, y);
 }
 
 WindowId hit_test(int32_t x, int32_t y) {
@@ -151,47 +260,74 @@ Status cycle_focus() {
     return Status::NotFound;
 }
 
+Status activate_ribbon_item(size_t position) {
+    if (position >= g_count) return Status::NotFound;
+    Slot& slot = g_slots[g_order[position]];
+    if (slot.info.state == WindowState::Minimized) {
+        return restore(slot.info.id);
+    }
+    return focus(slot.info.id);
+}
+
 #ifndef KUROGANE_HOST_TEST
 void draw_cursor(int32_t x, int32_t y) {
     constexpr graphics::Color outline = graphics::rgb(2U, 6U, 23U);
     constexpr graphics::Color fill = graphics::rgb(248U, 250U, 252U);
+    constexpr graphics::Color signal = graphics::rgb(62U, 220U, 181U);
     for (int32_t row = 0; row < 14; ++row) {
         const int32_t width = row / 2 + 1;
         graphics::fill_rect(x, y + row, width + 2, 1, outline);
         if (width > 1) graphics::fill_rect(x + 1, y + row, width, 1, fill);
     }
     graphics::fill_rect(x + 3, y + 10, 3, 8, outline);
+    graphics::fill_rect(x + 7, y + 14, 3, 3, signal);
 }
 
 void render() {
-    ui::desktop("KUROGANE OS DESKTOP");
+    ui::desktop("KUROGANE / FLUX");
+    const WorkspaceGeometry workspace = calculate_workspace();
+    ui::signal_spine(
+        workspace.signal_spine,
+        g_count,
+        focused_position());
+
     for (size_t position = 0U; position < g_count; ++position) {
         Slot& slot = g_slots[g_order[position]];
         if (slot.info.state == WindowState::Minimized) continue;
         const ui::Rect& bounds = slot.info.bounds;
-        ui::window(bounds, slot.info.title);
-        ui::button(minimize_button(bounds), "-", false);
-        ui::button(maximize_button(bounds), "[]", false);
-        ui::button(close_button(bounds), "X", slot.info.focused);
+        const ChromeGeometry chrome = calculate_chrome(bounds);
+        ui::flux_window(bounds, slot.info.title, slot.info.focused);
+        ui::flux_control(
+            chrome.minimize_control,
+            ui::FluxControl::Minimize,
+            slot.info.focused);
+        ui::flux_control(
+            chrome.expand_control,
+            ui::FluxControl::Expand,
+            slot.info.state == WindowState::Maximized);
+        ui::flux_control(
+            chrome.dismiss_control,
+            ui::FluxControl::Dismiss,
+            slot.info.focused);
         if (slot.draw != nullptr) {
             const ui::Rect content = {
-                bounds.x + 2,
-                bounds.y + TITLE_HEIGHT,
-                bounds.width - 4,
-                bounds.height - TITLE_HEIGHT - 2
+                bounds.x + 4,
+                bounds.y + HEADER_HEIGHT,
+                bounds.width - 8,
+                bounds.height - HEADER_HEIGHT - 4,
             };
             slot.draw(slot.info.id, content, slot.info.focused, slot.context);
         }
     }
-    ui::taskbar("WINDOWS: click title to focus/drag; controls: - [] X");
-    const int32_t task_y = g_screen_height - TASKBAR_HEIGHT + 3;
-    int32_t task_x = 8;
+
+    ui::pulse_ribbon(workspace.pulse_ribbon, g_count);
     for (size_t position = 0U; position < g_count; ++position) {
-        Slot& slot = g_slots[g_order[position]];
-        const ui::Rect button = {task_x, task_y, 112, 23};
-        ui::button(button, slot.info.title, slot.info.focused);
-        task_x += 118;
-        if (task_x + 112 >= g_screen_width) break;
+        const Slot& slot = g_slots[g_order[position]];
+        ui::pulse_item(
+            ribbon_item_rect(position),
+            slot.info.title,
+            slot.info.focused,
+            slot.info.state == WindowState::Minimized);
     }
     draw_cursor(input::pointer_x(), input::pointer_y());
 }
@@ -307,10 +443,15 @@ Status move(WindowId id, int32_t x, int32_t y) {
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
     if (slot->info.state != WindowState::Normal) return Status::InvalidState;
+    const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.bounds.x = clamp_position(
-        x, 0, g_screen_width - slot->info.bounds.width);
+        x,
+        workspace.work_area.x,
+        workspace.work_area.x + workspace.work_area.width - slot->info.bounds.width);
     slot->info.bounds.y = clamp_position(
-        y, 0, g_screen_height - TASKBAR_HEIGHT - slot->info.bounds.height);
+        y,
+        workspace.work_area.y,
+        workspace.work_area.y + workspace.work_area.height - slot->info.bounds.height);
     slot->info.restore_bounds = slot->info.bounds;
     g_dirty = true;
     return Status::Ok;
@@ -335,9 +476,9 @@ Status maximize(WindowId id) {
     if (slot->info.state == WindowState::Normal) {
         slot->info.restore_bounds = slot->info.bounds;
     }
+    const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
-    slot->info.bounds = {0, 38, g_screen_width,
-                         g_screen_height - 38 - TASKBAR_HEIGHT};
+    slot->info.bounds = workspace.work_area;
     static_cast<void>(focus(id));
     g_dirty = true;
     return Status::Ok;
@@ -375,6 +516,27 @@ Status list(ListCallback callback, void* context) {
     return Status::Ok;
 }
 
+WorkspaceGeometry workspace_geometry() {
+    return calculate_workspace();
+}
+
+Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_geometry == nullptr) return Status::InvalidArgument;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    *out_geometry = calculate_chrome(slot->info.bounds);
+    return Status::Ok;
+}
+
+Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_bounds == nullptr) return Status::InvalidArgument;
+    if (position >= g_count) return Status::NotFound;
+    *out_bounds = ribbon_item_rect(position);
+    return Status::Ok;
+}
+
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
     if (event.type == input::EventType::KeyDown && event.alt &&
@@ -387,32 +549,34 @@ Status dispatch(const input::Event& event) {
     }
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {
-        if (event.y >= g_screen_height - TASKBAR_HEIGHT && event.x >= 8) {
-            const size_t position = static_cast<size_t>((event.x - 8) / 118);
-            if (position < g_count) {
-                Slot& task = g_slots[g_order[position]];
-                return task.info.state == WindowState::Minimized
-                    ? restore(task.info.id)
-                    : focus(task.info.id);
+        const WorkspaceGeometry workspace = calculate_workspace();
+        if (rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+            for (size_t position = 0U; position < g_count; ++position) {
+                if (rect_contains(ribbon_item_rect(position), event.x, event.y)) {
+                    return activate_ribbon_item(position);
+                }
             }
         }
+
         const WindowId target = hit_test(event.x, event.y);
         if (target != INVALID_WINDOW) {
             static_cast<void>(focus(target));
             Slot* slot = find(target);
-            if (rect_contains(close_button(slot->info.bounds), event.x, event.y)) {
+            if (slot == nullptr) return Status::NotFound;
+            const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
+            if (rect_contains(chrome.dismiss_control, event.x, event.y)) {
                 return close(target);
             }
-            if (rect_contains(minimize_button(slot->info.bounds), event.x, event.y)) {
+            if (rect_contains(chrome.minimize_control, event.x, event.y)) {
                 return minimize(target);
             }
-            if (rect_contains(maximize_button(slot->info.bounds), event.x, event.y)) {
+            if (rect_contains(chrome.expand_control, event.x, event.y)) {
                 return slot->info.state == WindowState::Maximized
                     ? restore(target)
                     : maximize(target);
             }
             if (slot->info.state == WindowState::Normal &&
-                title_hit(slot->info.bounds, event.x, event.y)) {
+                title_hit(*slot, event.x, event.y)) {
                 g_dragged = target;
                 g_drag_offset_x = event.x - slot->info.bounds.x;
                 g_drag_offset_y = event.y - slot->info.bounds.y;
