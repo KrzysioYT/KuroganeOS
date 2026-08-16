@@ -1,50 +1,66 @@
-# KuroganeOS 2.2.6
+# KuroganeOS 2.3.0
 
 KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym rozwijanym od
-podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.2.6** zachowuje
-Desktop Developer Preview 2.2.x, natywny build/ISO na macOS i naprawia runtime
-persistent FAT32 dla development IMG generowanego na Macu.
+podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.3.0** jest
+**Desktop Boot Repair**: istniejący WindowManager i aplikacje Ring-3 GUI są
+teraz spięte w normalną sesję systemu zamiast pozostawać za ręcznym trybem
+Desktop Alpha.
 
-## Hotfix 2.2.6 — macOS FAT32
+## 2.3.0 — Flux Desktop jako normalna sesja
 
-2.2.5 mogło zbudować obraz, który przechodził UEFI, AHCI i GPT, ale zatrzymywał
-boot na `fat32_vfs_read: FAIL`. 2.2.6 normalizuje zduplikowane metadane FAT32 i
-przed publikacją obrazu uruchamia projektowy test GPT/PartitionDevice/FAT32/VFS
-na całym IMG. Zły obraz nie powinien już trafić do `dist/`.
-
-Oczekiwany marker podczas builda:
+Normalny userspace boot uruchamia teraz kernelowy host `flux-session`, który
+inicjalizuje WindowManager i prowadzi rendering/input desktopu. Następnie
+`/system/init` jako PID 1 uruchamia i nadzoruje:
 
 ```text
-Foundation root PartitionDevice/FAT32/VFS read: PASS
-[macos] Foundation root FAT32/VFS validation: PASS
+/gui/terminal
+/gui/files
+/gui/sysmon
+/gui/settings
+/gui/about
 ```
 
-Szczegóły: [`docs/releases/2.2.6.md`](docs/releases/2.2.6.md).
+Poprawny start sesji powinien raportować:
 
-## Kurogane Flux Desktop Developer Preview
+```text
+[TEST] desktop_session: PASS
+[TEST] userspace_init_spawn: PASS
+[TEST] desktop_userspace_apps: PASS
+[TEST] userspace_desktop_session: PASS
+```
 
-2.2 rozwija własny język wizualny **Kurogane Flux** zamiast kopiować Windows,
-macOS, GNOME, KDE czy inny desktop environment.
+Jeżeli większość aplikacji GUI kończy się natychmiast podczas początkowego
+probe, PID1 przechodzi do `/apps/shell` jako console fallback. Safe Mode nadal
+pozostaje tekstowym środowiskiem awaryjnym.
 
-Flux używa:
+Szczegóły: [`docs/releases/2.3.0.md`](docs/releases/2.3.0.md).
 
-- grafitowej przestrzeni roboczej bez klasycznej metafory tapety;
-- bocznego `signal spine` i status nodes;
-- asymetrycznych surfaces zamiast klasycznych paneli;
-- pływającego `pulse ribbon` zamiast typowego taskbara/docka;
-- segmentowych wskaźników;
-- jade/violet/amber jako kolorów sygnałowych;
-- istniejącej mechaniki focus, z-order, drag, minimize/maximize/restore i close.
+## Kurogane Flux
 
-Uruchomienie desktop preview wykorzystuje istniejący tryb desktop/`boot=desktop`.
-Aplikacje `/gui/terminal`, `/gui/files`, `/gui/sysmon`, `/gui/settings` i
-`/gui/about` działają jako procesy Ring 3.
+Kurogane Flux ma być własnym językiem desktopowym zamiast kopią Windows,
+macOS, GNOME, KDE czy innego środowiska.
 
-Szczegóły: [`docs/releases/DESKTOP_RELEASE.md`](docs/releases/DESKTOP_RELEASE.md).
+Aktualna warstwa UI posiada już:
+
+- software framebuffer rendering;
+- WindowManager z focus, z-order i drag;
+- minimize/maximize/restore/close;
+- Alt+Tab i Alt+F4;
+- software cursor;
+- Ring-3 UI ABI i `libui`;
+- wieloprocesowe aplikacje desktopowe.
+
+**2.3 naprawia lifecycle i uruchamianie GUI.** Obecny WindowManager nadal ma
+część starego chrome/taskbar modelu. Pełna przebudowa tej warstwy na Signal
+Spine, Pulse Ribbon i własne Flux window controls jest celem 2.4.
+
+Pełna roadmapa 2.3 → 3.6:
+[`docs/roadmap/DESKTOP_ROADMAP.md`](docs/roadmap/DESKTOP_ROADMAP.md).
 
 ## Flux Console
 
-Domyślny userspace shell obsługuje m.in.:
+Tekstowa Flux Console pozostaje dostępna jako aplikacja/fallback i obsługuje
+m.in.:
 
 ```text
 help clear version uname pid whoami status history jobs
@@ -58,14 +74,11 @@ mem free tasks pci device driver diskinfo
 Przykłady:
 
 ```text
-run test              -> /apps/test
-run /apps/test        -> dokładna ścieżka ELF
-gui terminal          -> /gui/terminal
-jobs                   -> śledzone procesy w tle
-wait <pid>             -> oczekiwanie na dziecko
+run test
+gui terminal
+jobs
+wait <pid>
 ```
-
-Opis: [`docs/USERSPACE.md`](docs/USERSPACE.md).
 
 ## Fundament systemu
 
@@ -85,6 +98,80 @@ Opis: [`docs/USERSPACE.md`](docs/USERSPACE.md).
 - SDK: `crt0`, `libc`, `libkurogane`, `libui`;
 - build/test na Windows/WSL i natywny development na macOS.
 
+## macOS FAT32 validation
+
+Macowy builder przed publikacją development IMG przepuszcza obraz przez
+projektowy test GPT/PartitionDevice/FAT32/VFS. Oczekiwane markery:
+
+```text
+Foundation root PartitionDevice/FAT32/VFS read: PASS
+[macos] Foundation root FAT32/VFS validation: PASS
+```
+
+## Budowanie — macOS
+
+Pierwsze przygotowanie:
+
+```bash
+chmod +x scripts/*.sh
+./scripts/setup-macos.sh --install
+```
+
+Development IMG:
+
+```bash
+./scripts/build-macos.sh --configuration debug --rebuild
+```
+
+Wynik:
+
+```text
+dist/KuroganeOS-2.3.0-macos-qemu.img
+```
+
+IMG + instalowalne ISO:
+
+```bash
+./scripts/build-macos.sh --configuration release --rebuild --iso
+```
+
+Wyniki:
+
+```text
+dist/KuroganeOS-2.3.0-macos-qemu.img
+dist/KuroganeOS-2.3.0-x86_64.iso
+dist/SHA256SUMS.txt
+kurogane.iso
+```
+
+Tylko ISO:
+
+```bash
+./scripts/build-installer-macos.sh --configuration release --rebuild
+```
+
+Stara komenda zgodności również działa na macOS:
+
+```bash
+./scripts/build-iso.sh release
+```
+
+Test GUI:
+
+```bash
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.3.0-macos-qemu.img \
+  --display
+```
+
+Własna aplikacja:
+
+```bash
+./scripts/build-app-macos.sh app.c -o app --install
+./scripts/build-macos.sh --configuration debug --stage-only
+./scripts/run-qemu-macos.sh --display
+```
+
 ## Budowanie — Windows
 
 ```powershell
@@ -100,140 +187,45 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installe
 Wynik:
 
 ```text
-dist/KuroganeOS-2.2.6-x86_64.iso
+dist/KuroganeOS-2.3.0-x86_64.iso
 dist/SHA256SUMS.txt
 ```
-
-## Budowanie — macOS
-
-Pierwsze przygotowanie:
-
-```bash
-chmod +x scripts/*.sh
-./scripts/setup-macos.sh --install
-```
-
-### Development IMG
-
-```bash
-./scripts/build-macos.sh --configuration debug --rebuild
-```
-
-Wynik:
-
-```text
-dist/KuroganeOS-2.2.6-macos-qemu.img
-```
-
-### Development IMG + instalowalne ISO
-
-```bash
-./scripts/build-macos.sh --configuration release --rebuild --iso
-```
-
-Wyniki:
-
-```text
-dist/KuroganeOS-2.2.6-macos-qemu.img
-dist/KuroganeOS-2.2.6-x86_64.iso
-dist/SHA256SUMS.txt
-kurogane.iso
-```
-
-### Tylko instalowalne ISO
-
-```bash
-./scripts/build-installer-macos.sh --configuration release --rebuild
-```
-
-Nie ma etapu konwersji IMG -> ISO. Builder tworzy osobny FAT32 EFI System
-Partition, `install.pkg`, staging installera oraz właściwe UEFI/El Torito ISO
-przez `xorriso`.
-
-### Stara komenda `build-iso.sh`
-
-Na macOS działa natywnie:
-
-```bash
-./scripts/build-iso.sh release
-```
-
-### QEMU
-
-```bash
-./scripts/run-qemu-macos.sh --display
-```
-
-Własna aplikacja:
-
-```bash
-./scripts/build-app-macos.sh app.c -o app --install
-./scripts/build-macos.sh --configuration debug --stage-only
-./scripts/run-qemu-macos.sh --display
-```
-
-Następnie w Flux Console:
-
-```text
-run app
-```
-
-Szczegóły: [`docs/MACOS_DEVELOPMENT.md`](docs/MACOS_DEVELOPMENT.md).
-
-## QEMU — Windows
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1
-```
-
-## VirtualBox
-
-KuroganeOS używa UEFI x86-64 oraz SATA/AHCI. Windowsowy helper:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-virtualbox.ps1
-```
-
-Instrukcje:
-
-- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
-- [`docs/VIRTUALBOX_TESTING.md`](docs/VIRTUALBOX_TESTING.md)
 
 ## Tryby startu
 
-- normal/console;
-- Desktop Developer Preview;
-- safe mode;
-- diagnostics;
-- installer mode.
+- normalny boot: Kurogane Flux Desktop session;
+- Safe Mode: emergency kernel console;
+- Diagnostics: ograniczony tryb diagnostyczny;
+- Installer Mode: instalacja na dysk SATA/AHCI.
 
-Safe mode udostępnia awaryjny kernel developer console.
+Historyczny prompt bootloadera może nadal wspominać `boot=console` i `DESKTOP
+ALPHA`; od 2.3 normalny userspace path nie zależy już od ręcznego `D`. Cleanup
+tego legacy boot/UI textu jest częścią 2.4.
 
 ## Znane ograniczenia
 
-KuroganeOS 2.2 nadal jest Developer Preview. Najważniejsze braki:
+KuroganeOS 2.3 nadal jest Developer Preview. Najważniejsze braki:
 
 - brak pełnego compositora GPU i resize wszystkich surfaces;
+- publiczne UI ABI nadal opiera się na stałym `ku_ui_frame`;
 - brak kompletnego userspace `stat/readdir` i writable VFS capability ABI;
 - brak pełnego userspace socket API;
 - brak audio, pełnego recovery oraz szerokiej kwalifikacji real hardware;
+- część WindowManager chrome nadal pochodzi z Desktop Alpha;
 - publiczne ABI/SDK nadal może ewoluować;
 - Apple Silicon uruchamia x86-64 KuroganeOS przez QEMU TCG.
 
-Aktualny opis: [`docs/CURRENT_LIMITATIONS.md`](docs/CURRENT_LIMITATIONS.md).
-
 ## Dokumentacja
 
+- [`docs/releases/2.3.0.md`](docs/releases/2.3.0.md)
 - [`docs/releases/2.2.6.md`](docs/releases/2.2.6.md)
-- [`docs/releases/2.2.5.md`](docs/releases/2.2.5.md)
-- [`docs/releases/2.2.0.md`](docs/releases/2.2.0.md)
-- [`docs/releases/DESKTOP_RELEASE.md`](docs/releases/DESKTOP_RELEASE.md)
+- [`docs/roadmap/DESKTOP_ROADMAP.md`](docs/roadmap/DESKTOP_ROADMAP.md)
+- [`docs/GUI.md`](docs/GUI.md)
 - [`docs/USERSPACE.md`](docs/USERSPACE.md)
 - [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md)
 - [`docs/MACOS_DEVELOPMENT.md`](docs/MACOS_DEVELOPMENT.md)
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/VIRTUALBOX_TESTING.md`](docs/VIRTUALBOX_TESTING.md)
-- [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Licencja
 
