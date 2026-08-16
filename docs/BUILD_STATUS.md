@@ -4,10 +4,10 @@ Data: 16 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **3.1.0 — Red Flux Interaction Update** jest aktualnym etapem
-Kurogane Desktop. Normalny boot używa PID1 + Launcher session modelu, a 3.1
-koncentruje się na stabilności renderowania, spójnym sterowaniu, wspólnym
-shellu i własnej czarno-grafitowo-czerwonej identyfikacji.
+KuroganeOS **3.2.0 — Red Flux Desktop Shell** jest aktualnym etapem Kurogane
+Desktop. Normalny start prowadzi przez graficzny boot splash i userspace session
+gate do Red Flux Home. Desktop posiada systemowy dock i session ownership dla
+GUI Ring 3.
 
 ## Working foundation
 
@@ -15,38 +15,34 @@ shellu i własnej czarno-grafitowo-czerwonej identyfikacji.
 - VMM, GDT/TSS/IST, IDT;
 - Ring 3, `int 0x80`, ELF64, PID/TID;
 - process spawn/wait/exit i PIT preemption;
-- `/system/init` PID 1;
-- Launcher jako userspace root sesji desktopowej;
+- `/system/init` jako PID 1;
 - AHCI, GPT, writable FAT32/VFS, persistent root;
 - PS/2 keyboard/mouse, PCI, ACPI/APIC;
 - WindowManager: focus/z-order/drag/resize/minimize/maximize/restore/close;
-- Signal Spine + Pulse Ribbon;
+- software full-frame backbuffer i content clipping;
 - Ring-3 `libui` scene/view runtime;
-- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU development workflow.
+- wspólny `FluxShellCore` dla console i GUI Terminala;
+- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU workflow.
 
-## 3.1 changes
+## 3.2 changes
 
-- wersja 3.1.0;
-- Red Flux palette: black/graphite/steel/red;
-- software full-frame backbuffer do 1600x1200 dla bieżących GOP modes;
-- content clipping per window;
-- body text scale limit per content area;
-- shared `FluxShellCore` dla fallback shell i GUI Terminala;
-- GUI Terminal z pełnym parserem fallback shella;
-- Up/Down history, Left/Right cursor, Home/End/Delete/Escape;
-- publiczne nazwane GUI key codes zamiast magicznych scancode values;
-- arrow-first Launcher, Files i Settings;
-- `libui` Red Flux jako default dla aplikacji SDK;
-- uproszczony compatibility rendering bez `::`, `[> ]` i `>>`;
-- README i roadmapa zsynchronizowane z 3.1.
+- Red Flux jest domyślnym UEFI desktop bootem;
+- Safe Mode: `S`/`F8`, Diagnostics: `X`;
+- graficzny boot splash z checkpointami paging/Ring3/FS/storage/preemption/PID1;
+- automatyczny service-console fallback dla Safe/Diagnostics/Installer/boot fail;
+- `/gui/login` jako session gate;
+- PID1: `login -> launcher -> login`;
+- Red Flux Dock z przypiętymi Home/Terminal/Files/Monitor/Settings/About;
+- geometryczne systemowe ikony i running/focus indicators;
+- dynamiczna sekcja żywych okien;
+- click Dock: focus/restore istniejącego okna albo quick-launch przez Home;
+- session ownership: nowe GUI surfaces muszą należeć do drzewa procesu Home;
+- legacy Ring-0 surfaces nie uczestniczą w widocznym desktopie;
+- anonimowe historyczne `/gui/*` requesty z kernela są kompatybilnościowym no-op;
+- nowe tło desktopu, top identity rail, Kurogane brand geometry i chrome;
+- login obsługuje Enter oraz kliknięcie myszą.
 
 ## Build
-
-Windows:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
-```
 
 macOS:
 
@@ -58,37 +54,42 @@ macOS:
 Development artifact:
 
 ```text
-dist/KuroganeOS-3.1.0-macos-qemu.img
+dist/KuroganeOS-3.2.0-macos-qemu.img
 ```
 
-macOS installer ISO pozostaje osobnym, niezamkniętym torem. Nie jest wymagane do
-runtime acceptance Red Flux 3.1.
+Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
+```
+
+Native macOS installer ISO pozostaje osobnym torem i nie jest warunkiem runtime
+acceptance development IMG.
 
 ## Validation state
 
-Repozytorium nie ma obecnie obowiązkowych GitHub status checks dla `main`.
-Zmiany 3.1 zostały poddane audytowi zależności, ABI i host-test compatibility,
-ale **pełny build oraz runtime QEMU na rzeczywistym Macu nie są deklarowane jako
-PASS**, dopóki nie zostaną uruchomione na właściwym macOS cross-toolchainie.
+Zmiany 3.2 zostały sprawdzone przez audit diffu, ścieżek buildowych i zależności
+session/WindowManager/process. **Pełny build oraz runtime QEMU na rzeczywistym
+macOS nie są deklarowane jako PASS**, dopóki nie zostaną wykonane na docelowym
+cross-toolchainie.
 
-Runtime acceptance 3.1 powinien potwierdzić:
+Runtime acceptance 3.2 powinien potwierdzić:
 
-1. drag bez widocznego `clear -> partial frame` flickera;
-2. resize bez artefaktów;
-3. brak tekstu wychodzącego poza content bounds;
-4. Arrow/Enter/Escape/Tab w głównych aplikacjach;
-5. identyczne `help`, `calc`, `pwd`, `cat`, `run`, `jobs` itd. w console shell i GUI Terminalu;
-6. raw persistent VFS read z `/etc/system.cfg`.
+1. normalny boot bez naciskania `D`;
+2. boot splash przechodzi do Login;
+3. `S`/`F8` nadal otwiera Safe Mode;
+4. Enter i klik na Login uruchamia Red Flux Home;
+5. po Login nie pojawiają się stare automatycznie uruchomione okna;
+6. Dock uruchamia, focusuje i przywraca przypięte aplikacje;
+7. dynamiczne task items focusują/minimalizowane okna;
+8. drag/resize pozostaje bez ghostingu i widocznego partial-frame flickera.
 
 ## Known gaps
 
-Najważniejsze następne subsystemy:
-
-- native widget ABI i pointer widget IDs;
-- per-window surfaces + compositor damage tracking;
-- `stat/readdir/write/create/unlink/rename/mkdir/rmdir` dla Ring 3;
-- IPC/settings/notification services;
-- userspace sockets/DNS;
-- clipboard/wheel/context actions;
-- NVMe/audio/multi-monitor i real-hardware qualification;
-- dopracowany macOS installer ISO.
+- login nie ma jeszcze account/credential service ani hasła;
+- compatibility `ku_ui_frame` nadal jest transportem aplikacji;
+- brak per-window damage surfaces i natywnego widget hit-test ABI;
+- brak pełnego Ring-3 `stat/readdir/write/create/unlink/rename/mkdir/rmdir`;
+- brak IPC/settings/notification service;
+- brak clipboard/Unicode/audio/NVMe/multi-monitor;
+- macOS installer ISO wymaga dalszej walidacji.
