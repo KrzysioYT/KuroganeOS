@@ -8,8 +8,8 @@ namespace windowing {
 namespace {
 
 constexpr int32_t HEADER_HEIGHT = 36;
-constexpr int32_t MINIMUM_WIDTH = 160;
-constexpr int32_t MINIMUM_HEIGHT = 96;
+constexpr int32_t MINIMUM_WIDTH = 220;
+constexpr int32_t MINIMUM_HEIGHT = 140;
 constexpr int32_t WORKSPACE_LEFT = 34;
 constexpr int32_t WORKSPACE_TOP = 42;
 constexpr int32_t WORKSPACE_RIGHT = 12;
@@ -30,7 +30,6 @@ constexpr int32_t RIBBON_SIGNAL_RESERVE = 24;
 
 enum class DirtyMode : uint8_t {
     None = 0,
-    Content,
     Full,
 };
 
@@ -50,6 +49,7 @@ int32_t g_screen_width = 0;
 int32_t g_screen_height = 0;
 WindowId g_focused = INVALID_WINDOW;
 WindowId g_dragged = INVALID_WINDOW;
+WindowId g_resized = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
@@ -60,10 +60,6 @@ bool g_cursor_visible = false;
 int32_t g_cursor_x = 0;
 int32_t g_cursor_y = 0;
 #endif
-
-void mark_content_dirty() {
-    if (g_dirty == DirtyMode::None) g_dirty = DirtyMode::Content;
-}
 
 void mark_full_dirty() {
     g_dirty = DirtyMode::Full;
@@ -175,10 +171,10 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
     geometry.dismiss_control = {
         dismiss_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
     geometry.resize_grip = {
-        bounds.x + bounds.width - 16,
-        bounds.y + bounds.height - 16,
-        16,
-        16,
+        bounds.x + bounds.width - 18,
+        bounds.y + bounds.height - 18,
+        18,
+        18,
     };
     return geometry;
 }
@@ -211,17 +207,17 @@ bool valid_bounds(const ui::Rect& bounds) {
     if (!g_initialized) return false;
     const WorkspaceGeometry workspace = calculate_workspace();
     if (bounds.width < MINIMUM_WIDTH || bounds.height < MINIMUM_HEIGHT ||
-        bounds.width > g_screen_width ||
+        bounds.width > workspace.work_area.width ||
         bounds.height > workspace.work_area.height) return false;
-    return bounds.x >= 0 && bounds.y >= WORKSPACE_TOP &&
-        bounds.x <= g_screen_width - bounds.width &&
+    return bounds.x >= workspace.work_area.x &&
+        bounds.y >= workspace.work_area.y &&
+        bounds.x <= workspace.work_area.x + workspace.work_area.width - bounds.width &&
         bounds.y <= workspace.work_area.y + workspace.work_area.height - bounds.height;
 }
 
 void update_z_order() {
     for (size_t position = 0U; position < g_count; ++position) {
-        g_slots[g_order[position]].info.z_order =
-            static_cast<uint8_t>(position);
+        g_slots[g_order[position]].info.z_order = static_cast<uint8_t>(position);
         g_slots[g_order[position]].info.focused =
             g_slots[g_order[position]].info.id == g_focused;
     }
@@ -283,10 +279,27 @@ Status cycle_focus() {
 Status activate_ribbon_item(size_t position) {
     if (position >= g_count) return Status::NotFound;
     Slot& slot = g_slots[g_order[position]];
-    if (slot.info.state == WindowState::Minimized) {
-        return restore(slot.info.id);
-    }
+    if (slot.info.state == WindowState::Minimized) return restore(slot.info.id);
     return focus(slot.info.id);
+}
+
+void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
+    if (slot.info.state != WindowState::Normal) return;
+    const WorkspaceGeometry workspace = calculate_workspace();
+    const int32_t maximum_width =
+        workspace.work_area.x + workspace.work_area.width - slot.info.bounds.x;
+    const int32_t maximum_height =
+        workspace.work_area.y + workspace.work_area.height - slot.info.bounds.y;
+    slot.info.bounds.width = clamp_size(
+        pointer_x - slot.info.bounds.x + 1,
+        MINIMUM_WIDTH,
+        maximum_width);
+    slot.info.bounds.height = clamp_size(
+        pointer_y - slot.info.bounds.y + 1,
+        MINIMUM_HEIGHT,
+        maximum_height);
+    slot.info.restore_bounds = slot.info.bounds;
+    mark_full_dirty();
 }
 
 #ifndef KUROGANE_HOST_TEST
@@ -340,18 +353,21 @@ void draw_window_slot(Slot& slot) {
     const ui::Rect& bounds = slot.info.bounds;
     const ChromeGeometry chrome = calculate_chrome(bounds);
     ui::flux_window(bounds, slot.info.title, slot.info.focused);
-    ui::flux_control(
-        chrome.minimize_control,
-        ui::FluxControl::Minimize,
-        slot.info.focused);
+    ui::flux_control(chrome.minimize_control, ui::FluxControl::Minimize, slot.info.focused);
     ui::flux_control(
         chrome.expand_control,
         ui::FluxControl::Expand,
         slot.info.state == WindowState::Maximized);
-    ui::flux_control(
-        chrome.dismiss_control,
-        ui::FluxControl::Dismiss,
-        slot.info.focused);
+    ui::flux_control(chrome.dismiss_control, ui::FluxControl::Dismiss, slot.info.focused);
+    if (slot.info.state == WindowState::Normal) {
+        graphics::draw_rect(
+            chrome.resize_grip.x + 6,
+            chrome.resize_grip.y + 6,
+            8,
+            8,
+            graphics::rgb(74, 222, 190),
+            1U);
+    }
     if (slot.draw != nullptr) {
         const ui::Rect content = {
             bounds.x + 4,
@@ -363,13 +379,14 @@ void draw_window_slot(Slot& slot) {
     }
 }
 
-void render_layers(bool clear_workspace) {
-    if (clear_workspace) ui::desktop("KUROGANE / FLUX");
+void render_layers() {
+    // 3.0.1 deliberately repaints a complete coherent desktop whenever state
+    // changes. 2.4.1's incremental-on-old-frame shortcut caused ghosting and
+    // duplicated text. There is no timer-driven repaint, so this is stable
+    // until the later compositor introduces a real backbuffer/damage model.
+    ui::desktop("KUROGANE / FLUX");
     const WorkspaceGeometry workspace = calculate_workspace();
-    ui::signal_spine(
-        workspace.signal_spine,
-        g_count,
-        focused_position());
+    ui::signal_spine(workspace.signal_spine, g_count, focused_position());
 
     for (size_t position = 0U; position < g_count; ++position) {
         draw_window_slot(g_slots[g_order[position]]);
@@ -405,13 +422,14 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_screen_height = static_cast<int32_t>(screen_height);
     g_focused = INVALID_WINDOW;
     g_dragged = INVALID_WINDOW;
+    g_resized = INVALID_WINDOW;
 #ifndef KUROGANE_HOST_TEST
     g_cursor_visible = false;
     g_cursor_x = input::pointer_x();
     g_cursor_y = input::pointer_y();
 #endif
-    mark_full_dirty();
     g_initialized = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -472,6 +490,7 @@ Status close(WindowId id) {
     --g_count;
     slot->occupied = false;
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
+    if (g_resized == id) g_resized = INVALID_WINDOW;
     choose_top_focus();
     mark_full_dirty();
     return Status::Ok;
@@ -532,9 +551,7 @@ Status maximize(WindowId id) {
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
     if (slot->info.state == WindowState::Maximized) return Status::InvalidState;
-    if (slot->info.state == WindowState::Normal) {
-        slot->info.restore_bounds = slot->info.bounds;
-    }
+    if (slot->info.state == WindowState::Normal) slot->info.restore_bounds = slot->info.bounds;
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
     slot->info.bounds = workspace.work_area;
@@ -568,16 +585,12 @@ Status list(ListCallback callback, void* context) {
     if (!g_initialized) return Status::NotInitialized;
     if (callback == nullptr) return Status::InvalidArgument;
     for (size_t position = 0U; position < g_count; ++position) {
-        if (!callback(g_slots[g_order[position]].info, context)) {
-            return Status::IterationStopped;
-        }
+        if (!callback(g_slots[g_order[position]].info, context)) return Status::IterationStopped;
     }
     return Status::Ok;
 }
 
-WorkspaceGeometry workspace_geometry() {
-    return calculate_workspace();
-}
+WorkspaceGeometry workspace_geometry() { return calculate_workspace(); }
 
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     if (!g_initialized) return Status::NotInitialized;
@@ -606,6 +619,7 @@ Status dispatch(const input::Event& event) {
         event.key == drivers::keyboard::KeyCode::Tab) {
         return cycle_focus();
     }
+
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {
         const WorkspaceGeometry workspace = calculate_workspace();
@@ -623,40 +637,43 @@ Status dispatch(const input::Event& event) {
             Slot* slot = find(target);
             if (slot == nullptr) return Status::NotFound;
             const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
-            if (rect_contains(chrome.dismiss_control, event.x, event.y)) {
-                return close(target);
-            }
-            if (rect_contains(chrome.minimize_control, event.x, event.y)) {
-                return minimize(target);
-            }
+            if (rect_contains(chrome.dismiss_control, event.x, event.y)) return close(target);
+            if (rect_contains(chrome.minimize_control, event.x, event.y)) return minimize(target);
             if (rect_contains(chrome.expand_control, event.x, event.y)) {
-                return slot->info.state == WindowState::Maximized
-                    ? restore(target)
-                    : maximize(target);
+                return slot->info.state == WindowState::Maximized ? restore(target) : maximize(target);
             }
             if (slot->info.state == WindowState::Normal &&
-                title_hit(*slot, event.x, event.y)) {
+                rect_contains(chrome.resize_grip, event.x, event.y)) {
+                g_resized = target;
+                g_dragged = INVALID_WINDOW;
+                return Status::Ok;
+            }
+            if (slot->info.state == WindowState::Normal && title_hit(*slot, event.x, event.y)) {
                 g_dragged = target;
+                g_resized = INVALID_WINDOW;
                 g_drag_offset_x = event.x - slot->info.bounds.x;
                 g_drag_offset_y = event.y - slot->info.bounds.y;
             }
         }
     } else if (event.type == input::EventType::MouseMove &&
-               g_dragged != INVALID_WINDOW &&
                (event.buttons & drivers::mouse::Left) != 0U) {
-        static_cast<void>(move(
-            g_dragged,
-            event.x - g_drag_offset_x,
-            event.y - g_drag_offset_y));
+        if (g_resized != INVALID_WINDOW) {
+            Slot* slot = find(g_resized);
+            if (slot != nullptr) resize_window(*slot, event.x, event.y);
+        } else if (g_dragged != INVALID_WINDOW) {
+            static_cast<void>(move(
+                g_dragged,
+                event.x - g_drag_offset_x,
+                event.y - g_drag_offset_y));
+        }
     } else if (event.type == input::EventType::MouseButtonUp &&
                event.button == drivers::mouse::Left) {
         g_dragged = INVALID_WINDOW;
+        g_resized = INVALID_WINDOW;
     }
 
 #ifndef KUROGANE_HOST_TEST
-    if (event.type == input::EventType::MouseMove) {
-        move_cursor(event.x, event.y);
-    }
+    if (event.type == input::EventType::MouseMove) move_cursor(event.x, event.y);
 #endif
 
     Slot* focused = find(g_focused);
@@ -667,17 +684,17 @@ Status dispatch(const input::Event& event) {
 }
 
 void invalidate() {
-    // Application frame updates do not change window geometry. Repainting all
-    // layers without clearing the framebuffer prevents the visible black
-    // flash that 2.4.0 produced on every KU_SYS_UI_PRESENT.
-    mark_content_dirty();
+    // A userspace present changes pixels inside a window. Until the compositor
+    // has a real off-screen backbuffer, the only correct immediate-mode result
+    // is a coherent full desktop repaint. This removes 2.4.x ghost trails.
+    mark_full_dirty();
 }
 
 bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
-    render_layers(g_dirty == DirtyMode::Full);
+    render_layers();
     show_cursor(input::pointer_x(), input::pointer_y());
 #endif
     g_dirty = DirtyMode::None;
