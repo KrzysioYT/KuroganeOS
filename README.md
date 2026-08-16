@@ -1,84 +1,66 @@
-# KuroganeOS 2.3.0
+# KuroganeOS 3.1.0
 
 KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym rozwijanym od
-podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.3.0** jest
-**Desktop Boot Repair**: istniejący WindowManager i aplikacje Ring-3 GUI są
-teraz spięte w normalną sesję systemu zamiast pozostawać za ręcznym trybem
-Desktop Alpha.
+podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Aktualna linia **3.1.0 —
+Red Flux Interaction Update** rozwija Kurogane Desktop z developer-preview w
+spójny, własny interfejs systemowy.
 
-## 2.3.0 — Flux Desktop jako normalna sesja
+## Kurogane Desktop
 
-Normalny userspace boot uruchamia teraz kernelowy host `flux-session`, który
-inicjalizuje WindowManager i prowadzi rendering/input desktopu. Następnie
-`/system/init` jako PID 1 uruchamia i nadzoruje:
+Normalny boot używa obecnie modelu:
 
 ```text
-/gui/terminal
-/gui/files
-/gui/sysmon
-/gui/settings
-/gui/about
+UEFI
+ -> kernel
+ -> persistent FAT32 root
+ -> WindowManager / Red Flux
+ -> /system/init PID 1
+ -> /gui/launcher
+ -> aplikacje Ring 3 uruchamiane na żądanie
 ```
 
-Poprawny start sesji powinien raportować:
+PID1 nadzoruje root sesji (`/gui/launcher`). Terminal, Files, System Monitor,
+Settings i About są zwykłymi aplikacjami, a nie pięcioma automatycznie
+nakładającymi się oknami startowymi.
+
+## 3.1.0 — Red Flux
+
+3.1 koncentruje się na jakości desktopu:
+
+- software full-frame backbuffer dla używanych trybów GOP do 1600x1200;
+- gotowa klatka trafia do GOP dopiero po zakończeniu renderu;
+- content clipping zapobiega rysowaniu tekstu poza własnym oknem;
+- body text scale jest ograniczany zależnie od szerokości content area;
+- interactive drag i resize pozostają częścią WindowManagera;
+- arrow-first navigation w Launcher/Files/Settings;
+- GUI Terminal obsługuje Up/Down history, Left/Right cursor, Home/End, Delete,
+  Backspace, Enter i Escape;
+- fallback console oraz GUI Terminal korzystają z jednego `FluxShellCore`;
+- domyślna identyfikacja wizualna to czerń, grafit, stalowa szarość i czerwień;
+- stary cyan/violet/amber developer-preview theme został usunięty z głównej
+  ścieżki desktopu;
+- `libui` nie renderuje już podstawowych kontrolek jako `[> ... ]`, `>>` i `::`.
+
+Szczegóły: [`docs/releases/3.1.0.md`](docs/releases/3.1.0.md).
+
+## Wspólny FluxShellCore
+
+Recovery shell i aplikacja `/gui/terminal` używają tego samego parsera i tego
+samego stanu poleceń. Dostępne są m.in.:
 
 ```text
-[TEST] desktop_session: PASS
-[TEST] userspace_init_spawn: PASS
-[TEST] desktop_userspace_apps: PASS
-[TEST] userspace_desktop_session: PASS
-```
-
-Jeżeli większość aplikacji GUI kończy się natychmiast podczas początkowego
-probe, PID1 przechodzi do `/apps/shell` jako console fallback. Safe Mode nadal
-pozostaje tekstowym środowiskiem awaryjnym.
-
-Szczegóły: [`docs/releases/2.3.0.md`](docs/releases/2.3.0.md).
-
-## Kurogane Flux
-
-Kurogane Flux ma być własnym językiem desktopowym zamiast kopią Windows,
-macOS, GNOME, KDE czy innego środowiska.
-
-Aktualna warstwa UI posiada już:
-
-- software framebuffer rendering;
-- WindowManager z focus, z-order i drag;
-- minimize/maximize/restore/close;
-- Alt+Tab i Alt+F4;
-- software cursor;
-- Ring-3 UI ABI i `libui`;
-- wieloprocesowe aplikacje desktopowe.
-
-**2.3 naprawia lifecycle i uruchamianie GUI.** Obecny WindowManager nadal ma
-część starego chrome/taskbar modelu. Pełna przebudowa tej warstwy na Signal
-Spine, Pulse Ribbon i własne Flux window controls jest celem 2.4.
-
-Pełna roadmapa 2.3 → 3.6:
-[`docs/roadmap/DESKTOP_ROADMAP.md`](docs/roadmap/DESKTOP_ROADMAP.md).
-
-## Flux Console
-
-Tekstowa Flux Console pozostaje dostępna jako aplikacja/fallback i obsługuje
-m.in.:
-
-```text
-help clear version uname pid whoami status history jobs
-pwd cd cat read which
-apps run open gui wait
+help clear version uname pid whoami status
+history jobs wait
+pwd cd cat read which apps home
+run open gui
 hello external files monitor about
-echo calc sleep yield true false exit
 mem free tasks pci device driver diskinfo
+echo calc sleep yield true false exit
 ```
 
-Przykłady:
-
-```text
-run test
-gui terminal
-jobs
-wait <pid>
-```
+Komendy wymagające jeszcze publicznego capability ABI (`ls`, `stat`, `mkdir`,
+`rm`, `mv`, `cp`, `ping`, `reboot` itd.) są rozpoznawane, ale nie dostają
+backdoora do Ring 0.
 
 ## Fundament systemu
 
@@ -87,90 +69,67 @@ wait <pid>
 - czteropoziomowe page tables i VMM;
 - Ring 3, prywatne przestrzenie adresowe i syscall gate `int 0x80`;
 - procesy ELF64, PID/TID, spawn/wait/exit;
-- osobne stosy i preempcja PIT;
+- preempcja PIT i scheduler;
 - `/system/init` jako PID 1;
 - PS/2 keyboard + mouse i wspólna kolejka input;
-- PCI, ACPI MADT, APIC discovery;
+- PCI, ACPI MADT i APIC discovery;
 - SATA/AHCI read/write/flush;
 - GPT i writable persistent FAT32/VFS;
-- installer UEFI oraz boot z zainstalowanego HDD;
-- WindowManager i aplikacje GUI Ring 3;
+- WindowManager z focus/z-order/drag/resize/minimize/maximize/restore/close;
+- Signal Spine i Pulse Ribbon;
+- Ring-3 UI ABI, `libui` scene/view runtime i desktop applications;
 - SDK: `crt0`, `libc`, `libkurogane`, `libui`;
-- build/test na Windows/WSL i natywny development na macOS.
-
-## macOS FAT32 validation
-
-Macowy builder przed publikacją development IMG przepuszcza obraz przez
-projektowy test GPT/PartitionDevice/FAT32/VFS. Oczekiwane markery:
-
-```text
-Foundation root PartitionDevice/FAT32/VFS read: PASS
-[macos] Foundation root FAT32/VFS validation: PASS
-```
+- Windows/WSL build oraz natywny development workflow na macOS.
 
 ## Budowanie — macOS
 
-Pierwsze przygotowanie:
+Pierwsze przygotowanie środowiska:
 
 ```bash
 chmod +x scripts/*.sh
 ./scripts/setup-macos.sh --install
 ```
 
-Development IMG:
+Czysty development build:
 
 ```bash
 ./scripts/build-macos.sh --configuration debug --rebuild
 ```
 
-Wynik:
+Wynik dla aktualnej wersji:
 
 ```text
-dist/KuroganeOS-2.3.0-macos-qemu.img
+dist/KuroganeOS-3.1.0-macos-qemu.img
 ```
 
-IMG + instalowalne ISO:
+Development IMG jest aktualnie podstawowym i najlepiej sprawdzonym torem
+macOS/QEMU. Native installer ISO pozostaje osobnym torem naprawy i nie jest
+traktowane w dokumentacji 3.1 jako runtime-verified medium.
+
+## Uruchamianie w QEMU na macOS
+
+Przykładowa bezpośrednia ścieżka QEMU:
 
 ```bash
-./scripts/build-macos.sh --configuration release --rebuild --iso
+cp "$(brew --prefix qemu)/share/qemu/edk2-i386-vars.fd" /tmp/kurogane-vars.fd
+
+qemu-system-x86_64 \
+  -machine q35,accel=tcg \
+  -cpu max \
+  -m 768 \
+  -vga std \
+  -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
+  -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
+  -drive if=none,id=kurogane_system,format=raw,file="./dist/KuroganeOS-3.1.0-macos-qemu.img",cache=writeback \
+  -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+  -display cocoa \
+  -serial stdio \
+  -net none \
+  -no-reboot \
+  -no-shutdown
 ```
 
-Wyniki:
-
-```text
-dist/KuroganeOS-2.3.0-macos-qemu.img
-dist/KuroganeOS-2.3.0-x86_64.iso
-dist/SHA256SUMS.txt
-kurogane.iso
-```
-
-Tylko ISO:
-
-```bash
-./scripts/build-installer-macos.sh --configuration release --rebuild
-```
-
-Stara komenda zgodności również działa na macOS:
-
-```bash
-./scripts/build-iso.sh release
-```
-
-Test GUI:
-
-```bash
-./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-2.3.0-macos-qemu.img \
-  --display
-```
-
-Własna aplikacja:
-
-```bash
-./scripts/build-app-macos.sh app.c -o app --install
-./scripts/build-macos.sh --configuration debug --stage-only
-./scripts/run-qemu-macos.sh --display
-```
+Apple Silicon uruchamia x86-64 KuroganeOS przez QEMU TCG.
 
 ## Budowanie — Windows
 
@@ -178,47 +137,58 @@ Własna aplikacja:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
 ```
 
-Installer release:
+Windows installer release pozostaje obsługiwany przez:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
 ```
 
-Wynik:
+## Własna aplikacja na macOS
+
+```bash
+./scripts/build-app-macos.sh app.c -o app --install
+./scripts/build-macos.sh --configuration debug --stage-only
+```
+
+Następnie z Terminala:
 
 ```text
-dist/KuroganeOS-2.3.0-x86_64.iso
-dist/SHA256SUMS.txt
+run app
+```
+
+albo dla GUI:
+
+```text
+gui terminal
+gui files
 ```
 
 ## Tryby startu
 
-- normalny boot: Kurogane Flux Desktop session;
-- Safe Mode: emergency kernel console;
+- normalny boot: Kurogane Red Flux Desktop;
+- Safe Mode: awaryjna konsola;
 - Diagnostics: ograniczony tryb diagnostyczny;
 - Installer Mode: instalacja na dysk SATA/AHCI.
 
-Historyczny prompt bootloadera może nadal wspominać `boot=console` i `DESKTOP
-ALPHA`; od 2.3 normalny userspace path nie zależy już od ręcznego `D`. Cleanup
-tego legacy boot/UI textu jest częścią 2.4.
+## Co nadal nie jest gotowe
 
-## Znane ograniczenia
+3.1 nie jest końcem roadmapy. Najważniejsze otwarte elementy:
 
-KuroganeOS 2.3 nadal jest Developer Preview. Najważniejsze braki:
+- natywny widget ABI zamiast compatibility `ku_ui_frame`;
+- per-window surfaces i prawdziwy compositor damage tracking;
+- publiczne `stat/readdir/write/create/unlink/rename/mkdir/rmdir`;
+- userspace IPC/services;
+- publiczne socket API;
+- clipboard, wheel routing i context actions;
+- audio, NVMe, multi-monitor i szersza kwalifikacja real hardware;
+- dopracowany, zweryfikowany installer ISO na macOS.
 
-- brak pełnego compositora GPU i resize wszystkich surfaces;
-- publiczne UI ABI nadal opiera się na stałym `ku_ui_frame`;
-- brak kompletnego userspace `stat/readdir` i writable VFS capability ABI;
-- brak pełnego userspace socket API;
-- brak audio, pełnego recovery oraz szerokiej kwalifikacji real hardware;
-- część WindowManager chrome nadal pochodzi z Desktop Alpha;
-- publiczne ABI/SDK nadal może ewoluować;
-- Apple Silicon uruchamia x86-64 KuroganeOS przez QEMU TCG.
+Pełna roadmapa do 3.6:
+[`docs/roadmap/DESKTOP_ROADMAP.md`](docs/roadmap/DESKTOP_ROADMAP.md).
 
 ## Dokumentacja
 
-- [`docs/releases/2.3.0.md`](docs/releases/2.3.0.md)
-- [`docs/releases/2.2.6.md`](docs/releases/2.2.6.md)
+- [`docs/releases/3.1.0.md`](docs/releases/3.1.0.md)
 - [`docs/roadmap/DESKTOP_ROADMAP.md`](docs/roadmap/DESKTOP_ROADMAP.md)
 - [`docs/GUI.md`](docs/GUI.md)
 - [`docs/USERSPACE.md`](docs/USERSPACE.md)
