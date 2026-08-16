@@ -203,16 +203,41 @@ bool begin_frame() {
 
 void end_frame() {
     if (!g_available || !g_frame_active) return;
-    const size_t row_bytes =
-        static_cast<size_t>(g_framebuffer.width) * sizeof(uint32_t);
-    const size_t source_pitch = row_bytes;
-    auto* destination = reinterpret_cast<uint8_t*>(g_framebuffer.base);
-    const auto* source = reinterpret_cast<const uint8_t*>(g_backbuffer);
+
+    // Present only changed spans instead of copying the complete GOP frame on
+    // every userspace UI update. Animated widgets such as System Monitor's
+    // heartbeat used to force a full-screen row-by-row scanout once per
+    // sample, which is visibly expensive under QEMU/TCG and can look like a
+    // desktop flash. The compositor still renders a complete frame into the
+    // software backbuffer, but GOP receives only pixels that actually differ.
+    auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
+    const uint32_t frame_width = g_framebuffer.width;
     for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
+        auto* destination_row = reinterpret_cast<uint32_t*>(
+            framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
+        const auto* source_row = g_backbuffer +
+            static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+
+        uint32_t first_changed = 0U;
+        while (first_changed < frame_width &&
+               destination_row[first_changed] == source_row[first_changed]) {
+            ++first_changed;
+        }
+        if (first_changed == frame_width) continue;
+
+        uint32_t last_changed = frame_width;
+        while (last_changed > first_changed &&
+               destination_row[last_changed - 1U] ==
+                   source_row[last_changed - 1U]) {
+            --last_changed;
+        }
+
+        const size_t changed_pixels = static_cast<size_t>(
+            last_changed - first_changed);
         memcpy(
-            destination + static_cast<size_t>(y) * g_framebuffer.pitch,
-            source + static_cast<size_t>(y) * source_pitch,
-            row_bytes);
+            destination_row + first_changed,
+            source_row + first_changed,
+            changed_pixels * sizeof(uint32_t));
     }
     g_frame_active = false;
     reset_clip();
