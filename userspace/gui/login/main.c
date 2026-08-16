@@ -21,7 +21,7 @@ static void build_scene(kui_scene* scene) {
 
     kui_flow_begin(&session, scene, 1U);
     (void)kui_flow_button(&session, 10U, "ENTER RED FLUX DESKTOP");
-    (void)kui_flow_label(&session, 11U, "ENTER: START SESSION");
+    (void)kui_flow_label(&session, 11U, "ENTER OR CLICK: START SESSION");
     (void)kui_flow_label(&session, 12U, "SAFE MODE / DIAGNOSTICS ARE AVAILABLE AT BOOT");
     (void)kui_flow_label(&session, 13U, "ACCOUNT AUTHENTICATION FOLLOWS WITH USER SERVICES");
     (void)kui_scene_select(scene, 10U);
@@ -37,8 +37,18 @@ static int wait_for_desktop(uint64_t pid) {
     }
 }
 
+static int start_session(ku_window_t window) {
+    const char launcher[] = "/gui/launcher";
+    (void)ku_ui_close(window);
+    const ku_result_t pid = ku_process_spawn(
+        launcher, sizeof(launcher) - 1U);
+    if (pid <= 0) return 4;
+    puts("[TEST] red_flux_login_to_desktop: PASS");
+    return wait_for_desktop((uint64_t)pid);
+}
+
 int main(void) {
-    const ku_window_t window = gui_open("KUROGANE LOGIN", 90, 230, 620, 250);
+    const ku_window_t window = gui_open("KUROGANE LOGIN", 280, 260, 500, 250);
     if (window == KU_INVALID_WINDOW) return 1;
 
     kui_scene scene;
@@ -58,16 +68,14 @@ int main(void) {
             (void)ku_ui_close(window);
             return 0;
         }
+
+        if (event.type == KU_UI_EVENT_POINTER && (event.buttons & UINT32_C(1)) != 0U) {
+            return start_session(window);
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_activate(&event)) {
-            const char launcher[] = "/gui/launcher";
-            (void)ku_ui_close(window);
-            const ku_result_t pid = ku_process_spawn(
-                launcher, sizeof(launcher) - 1U);
-            if (pid <= 0) return 4;
-            puts("[TEST] red_flux_login_to_desktop: PASS");
-            return wait_for_desktop((uint64_t)pid);
+            return start_session(window);
         }
 
         if (gui_key_cancel(&event)) {
