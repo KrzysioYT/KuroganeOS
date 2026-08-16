@@ -21,10 +21,8 @@ static void append_text(char* destination, size_t capacity, const char* source) 
 }
 
 static void push_line(const char* text) {
-    size_t line = 1U;
-    while (line < OUTPUT_LINES) {
+    for (size_t line = 1U; line < OUTPUT_LINES; ++line) {
         (void)strlcpy(g_output[line - 1U], g_output[line], OUTPUT_CAPACITY);
-        ++line;
     }
     (void)strlcpy(g_output[OUTPUT_LINES - 1U], text, OUTPUT_CAPACITY);
 }
@@ -39,47 +37,41 @@ static void push_pid(const char* prefix, uint64_t value) {
     push_line(line);
 }
 
+static void reap_jobs(void) {
+    for (size_t index = 0U; index < JOB_CAPACITY; ++index) {
+        if (g_jobs[index] == 0U) continue;
+        int32_t status = 0;
+        const ku_status_t result = ku_process_wait(g_jobs[index], &status);
+        if (result == KU_STATUS_OK) {
+            char line[OUTPUT_CAPACITY] = "job ";
+            char number[24];
+            gui_u64(number, sizeof(number), g_jobs[index]);
+            append_text(line, sizeof(line), number);
+            append_text(line, sizeof(line), " finished");
+            push_line(line);
+            g_jobs[index] = 0U;
+        } else if (result != KU_STATUS_WOULD_BLOCK) {
+            g_jobs[index] = 0U;
+        }
+    }
+}
+
 static size_t active_jobs(void) {
-    size_t index = 0U;
+    reap_jobs();
     size_t count = 0U;
-    while (index < JOB_CAPACITY) {
+    for (size_t index = 0U; index < JOB_CAPACITY; ++index) {
         if (g_jobs[index] != 0U) ++count;
-        ++index;
     }
     return count;
 }
 
-static void reap_jobs(void) {
-    size_t index = 0U;
-    while (index < JOB_CAPACITY) {
-        if (g_jobs[index] != 0U) {
-            int32_t status = 0;
-            const ku_status_t result = ku_process_wait(g_jobs[index], &status);
-            if (result == KU_STATUS_OK) {
-                char line[OUTPUT_CAPACITY] = "job ";
-                char number[24];
-                gui_u64(number, sizeof(number), g_jobs[index]);
-                append_text(line, sizeof(line), number);
-                append_text(line, sizeof(line), " finished");
-                push_line(line);
-                g_jobs[index] = 0U;
-            } else if (result != KU_STATUS_WOULD_BLOCK) {
-                g_jobs[index] = 0U;
-            }
-        }
-        ++index;
-    }
-}
-
 static int remember_job(uint64_t pid) {
-    size_t index = 0U;
     reap_jobs();
-    while (index < JOB_CAPACITY) {
+    for (size_t index = 0U; index < JOB_CAPACITY; ++index) {
         if (g_jobs[index] == 0U) {
             g_jobs[index] = pid;
             return 1;
         }
-        ++index;
     }
     return 0;
 }
@@ -101,10 +93,7 @@ static void launch_path(const char* path) {
         push_line("launch failed");
         return;
     }
-    if (!remember_job((uint64_t)result)) {
-        push_line("job tracking failure");
-        return;
-    }
+    (void)remember_job((uint64_t)result);
     push_pid("launched pid=", (uint64_t)result);
 }
 
@@ -143,24 +132,21 @@ static void push_file_text(const char* path) {
     data[count] = '\0';
 
     char line[OUTPUT_CAPACITY];
-    size_t out = 0U;
-    size_t index = 0U;
-    line[0] = '\0';
-    while (index < (size_t)count) {
-        unsigned char character = (unsigned char)data[index++];
+    size_t output = 0U;
+    for (size_t index = 0U; index < (size_t)count; ++index) {
+        const unsigned char character = (unsigned char)data[index];
         if (character == '\r') continue;
-        if (character == '\n' || out + 1U >= sizeof(line)) {
-            line[out] = '\0';
-            if (out != 0U) push_line(line);
-            out = 0U;
-            line[0] = '\0';
+        if (character == '\n' || output + 1U >= sizeof(line)) {
+            line[output] = '\0';
+            if (output != 0U) push_line(line);
+            output = 0U;
             continue;
         }
-        line[out++] = character >= 32U && character <= 126U
+        line[output++] = character >= 32U && character <= 126U
             ? (char)character : '.';
     }
-    if (out != 0U) {
-        line[out] = '\0';
+    if (output != 0U) {
+        line[output] = '\0';
         push_line(line);
     }
 }
@@ -207,10 +193,8 @@ static void remember_history(const char* input) {
         (void)strlcpy(g_history[g_history_count++], input, INPUT_CAPACITY);
         return;
     }
-    size_t index = 1U;
-    while (index < HISTORY_CAPACITY) {
+    for (size_t index = 1U; index < HISTORY_CAPACITY; ++index) {
         (void)strlcpy(g_history[index - 1U], g_history[index], INPUT_CAPACITY);
-        ++index;
     }
     (void)strlcpy(g_history[HISTORY_CAPACITY - 1U], input, INPUT_CAPACITY);
 }
@@ -218,16 +202,13 @@ static void remember_history(const char* input) {
 static void render(ku_window_t window, const char* input) {
     kui_scene scene;
     kui_flow root;
-    char prompt[64] = "KRG::FLUX > ";
-    size_t index = 0U;
-
+    char prompt[64] = "KRG > ";
     kui_scene_initialize(&scene);
     scene.visible_rows = 12U;
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FLUX TERMINAL // 2.6 COMMAND SURFACE");
-    while (index < OUTPUT_LINES) {
+    (void)kui_flow_panel(&root, 1U, "FLUX TERMINAL // COMMAND SURFACE");
+    for (size_t index = 0U; index < OUTPUT_LINES; ++index) {
         (void)kui_flow_label(&root, 10U + (uint32_t)index, g_output[index]);
-        ++index;
     }
     append_text(prompt, sizeof(prompt), input);
     (void)kui_flow_input(&root, 30U, prompt);
@@ -256,9 +237,8 @@ static void execute(char* input) {
         while (*arguments == ' ' || *arguments == '\t') ++arguments;
     }
 
-    if (input[0] == '\0') {
-        return;
-    } else if (strcmp(input, "help") == 0) {
+    if (input[0] == '\0') return;
+    if (strcmp(input, "help") == 0) {
         show_help();
     } else if (strcmp(input, "version") == 0 || strcmp(input, "uname") == 0) {
         push_line(KUROGANE_PRODUCT_STRING " / x86-64 Ring 3");
@@ -273,11 +253,13 @@ static void execute(char* input) {
         which_command(arguments);
     } else if (strcmp(input, "apps") == 0) {
         push_line("apps: shell hello external files monitor about");
-        push_line("gui: terminal files sysmon settings about");
+        push_line("gui: launcher terminal files sysmon settings about");
     } else if (strcmp(input, "run") == 0) {
         launch_named("/apps/", arguments);
     } else if (strcmp(input, "gui") == 0) {
         launch_named("/gui/", arguments);
+    } else if (strcmp(input, "home") == 0) {
+        launch_path("/gui/launcher");
     } else if (strcmp(input, "open") == 0) {
         if (arguments[0] == '/') {
             if (strncmp(arguments, "/apps/", 6U) == 0 ||
@@ -292,15 +274,13 @@ static void execute(char* input) {
             push_line("open: missing path or app");
         }
     } else if (strcmp(input, "jobs") == 0) {
-        size_t index = 0U;
         size_t active = 0U;
         reap_jobs();
-        while (index < JOB_CAPACITY) {
+        for (size_t index = 0U; index < JOB_CAPACITY; ++index) {
             if (g_jobs[index] != 0U) {
                 push_pid("running pid=", g_jobs[index]);
                 ++active;
             }
-            ++index;
         }
         if (active == 0U) push_line("jobs: none");
     } else if (strcmp(input, "wait") == 0) {
@@ -319,7 +299,7 @@ static void execute(char* input) {
         size_t start = g_history_count > 4U ? g_history_count - 4U : 0U;
         while (start < g_history_count) push_line(g_history[start++]);
     } else if (strcmp(input, "status") == 0) {
-        char line[OUTPUT_CAPACITY] = "KuroganeOS " KUROGANE_VERSION_STRING " | jobs=";
+        char line[OUTPUT_CAPACITY] = KUROGANE_PRODUCT_STRING " | jobs=";
         char number[24];
         gui_u64(number, sizeof(number), active_jobs());
         append_text(line, sizeof(line), number);
@@ -328,32 +308,29 @@ static void execute(char* input) {
     } else if (strcmp(input, "echo") == 0) {
         push_line(arguments);
     } else if (strcmp(input, "about") == 0) {
-        push_line("Kurogane Flux Terminal / Desktop Applications 2.6.1");
-        push_line("public Ring-3 ABI only; no kernel command backdoor");
+        push_line("Kurogane Flux Terminal // Kurogane Desktop");
+        push_line("public Ring-3 ABI // isolated application process");
     } else if (strcmp(input, "clear") == 0) {
-        size_t index = 0U;
-        while (index < OUTPUT_LINES) g_output[index++][0] = '\0';
+        for (size_t index = 0U; index < OUTPUT_LINES; ++index) g_output[index][0] = '\0';
     } else if (strcmp(input, "ls") == 0 || strcmp(input, "stat") == 0 ||
                strcmp(input, "cd") == 0 || strcmp(input, "mkdir") == 0 ||
                strcmp(input, "rm") == 0 || strcmp(input, "mv") == 0 ||
                strcmp(input, "cp") == 0 || strcmp(input, "touch") == 0) {
-        push_line("command needs the next public VFS capability ABI");
+        push_line("command awaits extended public VFS capability ABI");
     } else {
         push_line("unknown command; type help");
     }
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FLUX TERMINAL", 54, 330, 690, 380);
+    const ku_window_t window = gui_open("FLUX TERMINAL", 235, 155, 700, 410);
     if (window == KU_INVALID_WINDOW) return 1;
     puts("[TEST] desktop_terminal_ring3: PASS");
-    puts("[TEST] desktop_terminal_2_6: PASS");
+    puts("[TEST] desktop_terminal_3_0: PASS");
 
-    size_t index = 0U;
-    while (index < OUTPUT_LINES) g_output[index++][0] = '\0';
-    index = 0U;
-    while (index < HISTORY_CAPACITY) g_history[index++][0] = '\0';
-    push_line("Flux Terminal 2.6 online.");
+    for (size_t index = 0U; index < OUTPUT_LINES; ++index) g_output[index][0] = '\0';
+    for (size_t index = 0U; index < HISTORY_CAPACITY; ++index) g_history[index][0] = '\0';
+    push_line("Flux Terminal online.");
     push_line("Use help for filesystem, app and process commands.");
 
     char input[INPUT_CAPACITY] = {0};
