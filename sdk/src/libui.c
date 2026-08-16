@@ -72,9 +72,13 @@ static void render_view_line(
         --depth;
     }
 
+    /*
+     * This remains the compatibility text transport, but 3.1 deliberately
+     * removes pseudo-DOS brackets and double-colon decoration. Native widget
+     * geometry can replace this serialization later without changing scenes.
+     */
     switch (view->type) {
         case KUI_VIEW_PANEL:
-            append_text(line, capacity, ":: ");
             append_text(line, capacity, view->text);
             break;
         case KUI_VIEW_LABEL:
@@ -82,28 +86,27 @@ static void render_view_line(
             break;
         case KUI_VIEW_BUTTON:
             append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? "[> " : "[  ");
+                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
             append_text(line, capacity, view->text);
-            append_text(line, capacity, " ]");
             break;
         case KUI_VIEW_INPUT:
             append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : ": ");
+                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
             append_text(line, capacity, view->text);
             break;
         case KUI_VIEW_LIST_ITEM:
             append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? ">> " : " - ");
+                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
             append_text(line, capacity, view->text);
             break;
         case KUI_VIEW_PROGRESS:
             append_text(line, capacity, view->text);
             break;
         case KUI_VIEW_SEPARATOR:
-            append_text(line, capacity, "----------------------------------------");
+            append_text(line, capacity, "----------------------------");
             break;
         default:
-            append_text(line, capacity, "? invalid view");
+            append_text(line, capacity, "INVALID VIEW");
             break;
     }
 }
@@ -112,9 +115,9 @@ void kui_frame_initialize(ku_ui_frame* frame) {
     if (frame == (ku_ui_frame*)0) return;
     memset(frame, 0, sizeof(*frame));
     frame->structure_size = sizeof(*frame);
-    frame->background_rgb = UINT32_C(0x111827);
-    frame->foreground_rgb = UINT32_C(0xE5E7EB);
-    frame->accent_rgb = UINT32_C(0xF97316);
+    frame->background_rgb = UINT32_C(0x090A0C);
+    frame->foreground_rgb = UINT32_C(0xECEEF1);
+    frame->accent_rgb = UINT32_C(0xDE192D);
 }
 
 ku_status_t kui_frame_set_line(
@@ -140,9 +143,9 @@ int kui_next_event(ku_window_t window, ku_ui_event* event) {
 void kui_scene_initialize(kui_scene* scene) {
     if (scene == (kui_scene*)0) return;
     memset(scene, 0, sizeof(*scene));
-    scene->background_rgb = UINT32_C(0x0D1017);
-    scene->foreground_rgb = UINT32_C(0xF0F4FC);
-    scene->accent_rgb = UINT32_C(0x3EDCB5);
+    scene->background_rgb = UINT32_C(0x090A0C);
+    scene->foreground_rgb = UINT32_C(0xECEEF1);
+    scene->accent_rgb = UINT32_C(0xDE192D);
     scene->visible_rows = KU_UI_MAX_LINES;
 }
 
