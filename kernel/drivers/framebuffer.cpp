@@ -8,15 +8,31 @@ namespace {
 KuroganeFramebuffer g_framebuffer{};
 bool g_available = false;
 
+// Kurogane 3.1 software compositor surface. 1600x1200 covers the current QEMU
+// development GOP modes while avoiding dependence on the small kernel heap.
+constexpr uint32_t kBackbufferWidth = 1600U;
+constexpr uint32_t kBackbufferHeight = 1200U;
+constexpr size_t kBackbufferPixels =
+    static_cast<size_t>(kBackbufferWidth) * kBackbufferHeight;
+alignas(64) static uint32_t g_backbuffer[kBackbufferPixels];
+bool g_frame_active = false;
+
+struct ClipState {
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    bool enabled;
+};
+
+ClipState g_clip{};
+uint32_t g_text_scale_limit = UINT32_MAX;
+
 struct Glyph {
     char character;
     uint8_t rows[7];
 };
 
-/*
- * Zwarty font 5x7. Małe litery celowo używają glifów wielkich liter:
- * tekst pozostaje czytelny, a tabela nie obciąża małego kernela.
- */
 constexpr Glyph kGlyphs[] = {
     {'A', {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}},
     {'B', {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E}},
@@ -99,26 +115,58 @@ const uint8_t* glyph_rows(char character) {
         character = static_cast<char>(character - ('a' - 'A'));
     }
     for (const auto& glyph : kGlyphs) {
-        if (glyph.character == character) {
-            return glyph.rows;
-        }
+        if (glyph.character == character) return glyph.rows;
     }
     return nullptr;
 }
 
 int32_t saturate_i32(int64_t value) {
-    if (value < INT32_MIN) {
-        return INT32_MIN;
-    }
-    if (value > INT32_MAX) {
-        return INT32_MAX;
-    }
+    if (value < INT32_MIN) return INT32_MIN;
+    if (value > INT32_MAX) return INT32_MAX;
     return static_cast<int32_t>(value);
+}
+
+uint8_t* draw_base() {
+    return g_frame_active
+        ? reinterpret_cast<uint8_t*>(g_backbuffer)
+        : reinterpret_cast<uint8_t*>(g_framebuffer.base);
+}
+
+size_t draw_pitch() {
+    return g_frame_active
+        ? static_cast<size_t>(g_framebuffer.width) * sizeof(uint32_t)
+        : g_framebuffer.pitch;
+}
+
+uint32_t effective_scale(uint32_t requested) {
+    if (requested == 0U) return 0U;
+    return requested > g_text_scale_limit ? g_text_scale_limit : requested;
+}
+
+void clip_edges(
+    int64_t& left, int64_t& top, int64_t& right, int64_t& bottom) {
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > static_cast<int64_t>(g_framebuffer.width)) {
+        right = static_cast<int64_t>(g_framebuffer.width);
+    }
+    if (bottom > static_cast<int64_t>(g_framebuffer.height)) {
+        bottom = static_cast<int64_t>(g_framebuffer.height);
+    }
+    if (g_clip.enabled) {
+        if (left < g_clip.left) left = g_clip.left;
+        if (top < g_clip.top) top = g_clip.top;
+        if (right > g_clip.right) right = g_clip.right;
+        if (bottom > g_clip.bottom) bottom = g_clip.bottom;
+    }
 }
 } // namespace
 
 bool init(const KuroganeFramebuffer& framebuffer) {
     g_available = false;
+    g_frame_active = false;
+    g_clip = {};
+    g_text_scale_limit = UINT32_MAX;
     if (!framebuffer.base || framebuffer.width == 0 ||
         framebuffer.height == 0 ||
         framebuffer.width > static_cast<uint32_t>(INT32_MAX) ||
@@ -136,76 +184,106 @@ bool init(const KuroganeFramebuffer& framebuffer) {
     return true;
 }
 
-bool available() {
-    return g_available;
+bool available() { return g_available; }
+const KuroganeFramebuffer& info() { return g_framebuffer; }
+uint32_t width() { return g_framebuffer.width; }
+uint32_t height() { return g_framebuffer.height; }
+
+bool begin_frame() {
+    if (!g_available || g_frame_active ||
+        g_framebuffer.width > kBackbufferWidth ||
+        g_framebuffer.height > kBackbufferHeight) {
+        return false;
+    }
+    g_frame_active = true;
+    reset_clip();
+    reset_text_scale_limit();
+    return true;
 }
 
-const KuroganeFramebuffer& info() {
-    return g_framebuffer;
+void end_frame() {
+    if (!g_available || !g_frame_active) return;
+    const size_t row_bytes =
+        static_cast<size_t>(g_framebuffer.width) * sizeof(uint32_t);
+    const size_t source_pitch = row_bytes;
+    auto* destination = reinterpret_cast<uint8_t*>(g_framebuffer.base);
+    const auto* source = reinterpret_cast<const uint8_t*>(g_backbuffer);
+    for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
+        memcpy(
+            destination + static_cast<size_t>(y) * g_framebuffer.pitch,
+            source + static_cast<size_t>(y) * source_pitch,
+            row_bytes);
+    }
+    g_frame_active = false;
+    reset_clip();
+    reset_text_scale_limit();
 }
 
-uint32_t width() {
-    return g_framebuffer.width;
+bool frame_active() { return g_frame_active; }
+
+void set_clip(int32_t x, int32_t y, int32_t rectangle_width, int32_t rectangle_height) {
+    int64_t left = x;
+    int64_t top = y;
+    int64_t right = static_cast<int64_t>(x) + rectangle_width;
+    int64_t bottom = static_cast<int64_t>(y) + rectangle_height;
+    if (rectangle_width <= 0 || rectangle_height <= 0) {
+        g_clip = {0, 0, 0, 0, true};
+        return;
+    }
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > static_cast<int64_t>(g_framebuffer.width)) right = g_framebuffer.width;
+    if (bottom > static_cast<int64_t>(g_framebuffer.height)) bottom = g_framebuffer.height;
+    if (right < left) right = left;
+    if (bottom < top) bottom = top;
+    g_clip = {
+        saturate_i32(left), saturate_i32(top),
+        saturate_i32(right), saturate_i32(bottom), true};
 }
 
-uint32_t height() {
-    return g_framebuffer.height;
+void reset_clip() { g_clip = {}; }
+
+void set_text_scale_limit(uint32_t maximum_scale) {
+    g_text_scale_limit = maximum_scale == 0U ? 1U : maximum_scale;
 }
+
+void reset_text_scale_limit() { g_text_scale_limit = UINT32_MAX; }
 
 void put_pixel(int32_t x, int32_t y, Color color) {
     if (!g_available || x < 0 || y < 0 ||
         x >= static_cast<int32_t>(g_framebuffer.width) ||
-        y >= static_cast<int32_t>(g_framebuffer.height)) {
-        return;
-    }
+        y >= static_cast<int32_t>(g_framebuffer.height)) return;
+    if (g_clip.enabled &&
+        (x < g_clip.left || x >= g_clip.right ||
+         y < g_clip.top || y >= g_clip.bottom)) return;
     auto* row = reinterpret_cast<uint32_t*>(
-        reinterpret_cast<uint8_t*>(g_framebuffer.base) +
-        static_cast<size_t>(y) * g_framebuffer.pitch);
+        draw_base() + static_cast<size_t>(y) * draw_pitch());
     row[x] = native_color(color);
 }
 
 void clear(Color color) {
+    reset_clip();
     fill_rect(0, 0, static_cast<int32_t>(g_framebuffer.width),
               static_cast<int32_t>(g_framebuffer.height), color);
 }
 
 void fill_rect(int32_t x, int32_t y, int32_t rectangle_width,
                int32_t rectangle_height, Color color) {
-    if (!g_available || rectangle_width <= 0 || rectangle_height <= 0) {
-        return;
-    }
-    const int64_t framebuffer_width =
-        static_cast<int64_t>(g_framebuffer.width);
-    const int64_t framebuffer_height =
-        static_cast<int64_t>(g_framebuffer.height);
-    const int64_t unclipped_right =
-        static_cast<int64_t>(x) + rectangle_width;
-    const int64_t unclipped_bottom =
-        static_cast<int64_t>(y) + rectangle_height;
-    const int64_t clipped_left = x < 0 ? 0 : x;
-    const int64_t clipped_top = y < 0 ? 0 : y;
-    const int64_t clipped_right =
-        unclipped_right < framebuffer_width
-            ? unclipped_right
-            : framebuffer_width;
-    const int64_t clipped_bottom =
-        unclipped_bottom < framebuffer_height
-            ? unclipped_bottom
-            : framebuffer_height;
-    if (clipped_left >= clipped_right || clipped_top >= clipped_bottom) {
-        return;
-    }
-    const int32_t left = static_cast<int32_t>(clipped_left);
-    const int32_t top = static_cast<int32_t>(clipped_top);
-    const int32_t right = static_cast<int32_t>(clipped_right);
-    const int32_t bottom = static_cast<int32_t>(clipped_bottom);
+    if (!g_available || rectangle_width <= 0 || rectangle_height <= 0) return;
+    int64_t left = x;
+    int64_t top = y;
+    int64_t right = static_cast<int64_t>(x) + rectangle_width;
+    int64_t bottom = static_cast<int64_t>(y) + rectangle_height;
+    clip_edges(left, top, right, bottom);
+    if (left >= right || top >= bottom) return;
 
     const uint32_t native = native_color(color);
-    for (int32_t py = top; py < bottom; ++py) {
+    for (int32_t py = static_cast<int32_t>(top);
+         py < static_cast<int32_t>(bottom); ++py) {
         auto* row = reinterpret_cast<uint32_t*>(
-            reinterpret_cast<uint8_t*>(g_framebuffer.base) +
-            static_cast<size_t>(py) * g_framebuffer.pitch);
-        for (int32_t px = left; px < right; ++px) {
+            draw_base() + static_cast<size_t>(py) * draw_pitch());
+        for (int32_t px = static_cast<int32_t>(left);
+             px < static_cast<int32_t>(right); ++px) {
             row[px] = native;
         }
     }
@@ -213,73 +291,62 @@ void fill_rect(int32_t x, int32_t y, int32_t rectangle_width,
 
 void draw_rect(int32_t x, int32_t y, int32_t rectangle_width,
                int32_t rectangle_height, Color color, uint32_t thickness) {
-    if (thickness == 0) {
-        return;
-    }
+    if (thickness == 0U) return;
     const int32_t line =
         thickness > static_cast<uint32_t>(INT32_MAX)
-            ? INT32_MAX
-            : static_cast<int32_t>(thickness);
+            ? INT32_MAX : static_cast<int32_t>(thickness);
     fill_rect(x, y, rectangle_width, line, color);
-    fill_rect(x, saturate_i32(
-                     static_cast<int64_t>(y) + rectangle_height - line),
+    fill_rect(x, saturate_i32(static_cast<int64_t>(y) + rectangle_height - line),
               rectangle_width, line, color);
     fill_rect(x, y, line, rectangle_height, color);
-    fill_rect(saturate_i32(
-                  static_cast<int64_t>(x) + rectangle_width - line),
+    fill_rect(saturate_i32(static_cast<int64_t>(x) + rectangle_width - line),
               y, line, rectangle_height, color);
 }
 
 void draw_char(int32_t x, int32_t y, char character, Color foreground,
                Color background, uint32_t scale, bool transparent) {
-    if (!g_available || scale == 0) {
-        return;
-    }
+    scale = effective_scale(scale);
+    if (!g_available || scale == 0U) return;
     const int32_t pixel_size =
         scale > static_cast<uint32_t>(INT32_MAX)
-            ? INT32_MAX
-            : static_cast<int32_t>(scale);
+            ? INT32_MAX : static_cast<int32_t>(scale);
     const uint8_t* rows = glyph_rows(character);
-    for (uint32_t row = 0; row < 7; ++row) {
-        for (uint32_t column = 0; column < 5; ++column) {
+    for (uint32_t row = 0U; row < 7U; ++row) {
+        for (uint32_t column = 0U; column < 5U; ++column) {
             const bool set = rows && (rows[row] & (1u << (4u - column)));
             if (set || !transparent) {
-                fill_rect(saturate_i32(
-                              static_cast<int64_t>(x) +
-                              static_cast<int64_t>(column) * scale),
-                          saturate_i32(
-                              static_cast<int64_t>(y) +
-                              static_cast<int64_t>(row) * scale),
-                          pixel_size, pixel_size,
-                          set ? foreground : background);
+                fill_rect(
+                    saturate_i32(static_cast<int64_t>(x) +
+                                 static_cast<int64_t>(column) * scale),
+                    saturate_i32(static_cast<int64_t>(y) +
+                                 static_cast<int64_t>(row) * scale),
+                    pixel_size, pixel_size, set ? foreground : background);
             }
         }
         if (!transparent) {
-            fill_rect(saturate_i32(
-                          static_cast<int64_t>(x) +
-                          INT64_C(5) * scale),
-                      saturate_i32(
-                          static_cast<int64_t>(y) +
-                          static_cast<int64_t>(row) * scale),
-                      pixel_size, pixel_size, background);
+            fill_rect(
+                saturate_i32(static_cast<int64_t>(x) + INT64_C(5) * scale),
+                saturate_i32(static_cast<int64_t>(y) +
+                             static_cast<int64_t>(row) * scale),
+                pixel_size, pixel_size, background);
         }
     }
     if (!transparent) {
         const uint64_t cell_width = UINT64_C(6) * scale;
-        fill_rect(x, saturate_i32(
-                         static_cast<int64_t>(y) + INT64_C(7) * scale),
-                  cell_width > static_cast<uint64_t>(INT32_MAX)
-                      ? INT32_MAX
-                      : static_cast<int32_t>(cell_width),
-                  pixel_size, background);
+        fill_rect(
+            x,
+            saturate_i32(static_cast<int64_t>(y) + INT64_C(7) * scale),
+            cell_width > static_cast<uint64_t>(INT32_MAX)
+                ? INT32_MAX : static_cast<int32_t>(cell_width),
+            pixel_size, background);
     }
 }
 
 void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
                Color background, uint32_t scale, bool transparent) {
-    if (!text || scale == 0) {
-        return;
-    }
+    if (!text) return;
+    scale = effective_scale(scale);
+    if (scale == 0U) return;
     int64_t cursor_x = x;
     int64_t cursor_y = y;
     const int64_t line_advance = static_cast<uint64_t>(scale) * 8u;
@@ -287,36 +354,30 @@ void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
     while (*text) {
         if (*text == '\n') {
             cursor_x = x;
-            cursor_y =
-                cursor_y > INT64_MAX - line_advance
-                    ? INT64_MAX
-                    : cursor_y + line_advance;
+            cursor_y = cursor_y > INT64_MAX - line_advance
+                ? INT64_MAX : cursor_y + line_advance;
         } else {
             draw_char(saturate_i32(cursor_x), saturate_i32(cursor_y),
                       *text, foreground, background, scale, transparent);
-            cursor_x =
-                cursor_x > INT64_MAX - column_advance
-                    ? INT64_MAX
-                    : cursor_x + column_advance;
+            cursor_x = cursor_x > INT64_MAX - column_advance
+                ? INT64_MAX : cursor_x + column_advance;
         }
         ++text;
     }
 }
 
 void scroll_up(uint32_t pixels, Color fill) {
-    if (!g_available || pixels == 0) {
-        return;
-    }
+    if (!g_available || pixels == 0U) return;
     if (pixels >= g_framebuffer.height) {
         clear(fill);
         return;
     }
+    reset_clip();
+    const size_t pitch = draw_pitch();
     const size_t bytes_to_move =
-        static_cast<size_t>(g_framebuffer.height - pixels) *
-        g_framebuffer.pitch;
-    auto* base = reinterpret_cast<uint8_t*>(g_framebuffer.base);
-    memmove(base, base + static_cast<size_t>(pixels) * g_framebuffer.pitch,
-            bytes_to_move);
+        static_cast<size_t>(g_framebuffer.height - pixels) * pitch;
+    auto* base = draw_base();
+    memmove(base, base + static_cast<size_t>(pixels) * pitch, bytes_to_move);
     fill_rect(0, static_cast<int32_t>(g_framebuffer.height - pixels),
               static_cast<int32_t>(g_framebuffer.width),
               static_cast<int32_t>(pixels), fill);
