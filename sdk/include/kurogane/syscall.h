@@ -7,8 +7,7 @@
  * Stable syscall numbers. The x86-64 v1 transport is an interrupt gate at
  * vector 0x80; applications should use these wrappers instead of spelling the
  * transport inline so a later SYSCALL migration does not change source code.
- * New public services are appended only after their scheduling/ownership model
- * is ready; do not reserve blocking placeholder calls in the stable ABI.
+ * New public services are append-only.
  */
 enum ku_syscall_number {
     KU_SYS_INVALID = 0,
@@ -28,7 +27,11 @@ enum ku_syscall_number {
     KU_SYS_UI_CREATE = 14,
     KU_SYS_UI_PRESENT = 15,
     KU_SYS_UI_POLL = 16,
-    KU_SYS_UI_CLOSE = 17
+    KU_SYS_UI_CLOSE = 17,
+    KU_SYS_SYSTEM_SNAPSHOT = 18,
+    KU_SYS_DESKTOP_PIN = 19,
+    KU_SYS_NET_STATUS = 20,
+    KU_SYS_HTTP_GET = 21
 };
 
 enum ku_open_flags {
