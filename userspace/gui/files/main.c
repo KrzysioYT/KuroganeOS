@@ -1,6 +1,4 @@
 #include "../common.h"
-#include <fcntl.h>
-#include <unistd.h>
 
 #define ENTRY_COUNT 6U
 
@@ -12,7 +10,7 @@ typedef struct quick_entry {
 
 static const quick_entry g_entries[ENTRY_COUNT] = {
     {"SYSTEM CONFIG", "/etc/system.cfg", 0},
-    {"FLUX TERMINAL", "/gui/terminal", 1},
+    {"RED FLUX TERMINAL", "/gui/terminal", 1},
     {"FILES", "/gui/files", 1},
     {"SYSTEM MONITOR", "/gui/sysmon", 1},
     {"SETTINGS", "/gui/settings", 1},
@@ -31,29 +29,31 @@ static void preview_path(
     size_t line1_capacity,
     char* line2,
     size_t line2_capacity) {
-    const int descriptor = open(path, O_RDONLY);
     char data[192];
     line1[0] = '\0';
     line2[0] = '\0';
-    if (descriptor < 0) {
-        (void)strlcpy(line1, "VFS: unavailable", line1_capacity);
+
+    const ku_result_t descriptor = ku_open(path, strlen(path), KU_OPEN_READ);
+    if (descriptor <= 0) {
+        (void)strlcpy(line1, "VFS / OPEN FAILED", line1_capacity);
         return;
     }
-    const ssize_t count = read(descriptor, data, sizeof(data) - 1U);
-    (void)close(descriptor);
+    const ku_result_t count = ku_read((ku_handle_t)descriptor, data, sizeof(data) - 1U);
+    (void)ku_close((ku_handle_t)descriptor);
     if (count < 0) {
-        (void)strlcpy(line1, "VFS: read failed", line1_capacity);
+        (void)strlcpy(line1, "VFS / READ FAILED", line1_capacity);
         return;
     }
     if (count == 0) {
-        (void)strlcpy(line1, "VFS: empty file", line1_capacity);
+        (void)strlcpy(line1, "VFS / EMPTY FILE", line1_capacity);
         return;
     }
+
     data[count] = '\0';
     if (count >= 4 && (unsigned char)data[0] == 0x7FU &&
         data[1] == 'E' && data[2] == 'L' && data[3] == 'F') {
-        (void)strlcpy(line1, "VFS: ELF64 executable image", line1_capacity);
-        (void)strlcpy(line2, "ENTER launches entries marked APP", line2_capacity);
+        (void)strlcpy(line1, "ELF64 EXECUTABLE", line1_capacity);
+        (void)strlcpy(line2, "ENTER TO LAUNCH", line2_capacity);
         return;
     }
 
@@ -78,7 +78,7 @@ static void preview_path(
     }
     if (second == 0) line1[output] = '\0';
     else if (second == 1) line2[output] = '\0';
-    if (line1[0] == '\0') (void)strlcpy(line1, "VFS: readable file", line1_capacity);
+    if (line1[0] == '\0') (void)strlcpy(line1, "VFS / READABLE FILE", line1_capacity);
 }
 
 static void build_scene(
@@ -89,22 +89,25 @@ static void build_scene(
     const char* preview2) {
     kui_flow root;
     kui_flow entries;
-    size_t index = 0U;
     kui_scene_initialize(scene);
     scene->visible_rows = 12U;
+    kui_scene_set_palette(
+        scene,
+        UINT32_C(0x090A0C),
+        UINT32_C(0xECEEF1),
+        UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FILES // QUICK ACCESS");
-    (void)kui_flow_label(&root, 2U, "J/K: select   ENTER: preview/open   R: refresh");
+    (void)kui_flow_panel(&root, 1U, "FILES / QUICK ACCESS");
+    (void)kui_flow_label(&root, 2U, "ARROWS SELECT   ENTER OPEN   R REFRESH");
 
     kui_flow_begin(&entries, scene, 1U);
-    while (index < ENTRY_COUNT) {
+    for (size_t index = 0U; index < ENTRY_COUNT; ++index) {
         char label[64];
         label[0] = '\0';
-        (void)strlcpy(label, g_entries[index].launchable ? "APP  " : "FILE ", sizeof(label));
+        (void)strlcpy(label, g_entries[index].launchable ? "APP / " : "FILE / ", sizeof(label));
         append_text(label, sizeof(label), g_entries[index].label);
         (void)kui_flow_list_item(&entries, 10U + (uint32_t)index, label);
-        ++index;
     }
     (void)kui_flow_label(&root, 31U, status);
     (void)kui_flow_label(&root, 32U, preview1);
@@ -113,11 +116,11 @@ static void build_scene(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FILES", 300, 145, 500, 390);
+    const ku_window_t window = gui_open("FILES", 300, 145, 540, 400);
     if (window == KU_INVALID_WINDOW) return 1;
 
     size_t selected = 0U;
-    char status[64] = "Persistent root // public read ABI";
+    char status[64] = "PERSISTENT ROOT / READ ABI";
     char preview1[64];
     char preview2[64];
     preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
@@ -130,40 +133,44 @@ int main(void) {
     }
     puts("[TEST] desktop_files_real_vfs: PASS");
     puts("[TEST] flux_scene_files: PASS");
-    puts("[TEST] desktop_files_3_0: PASS");
+    puts("[TEST] desktop_files_3_1_navigation: PASS");
 
     for (;;) {
         ku_ui_event event;
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (event.character == 'j' || event.character == 'J') {
+        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
             selected = (selected + 1U) % ENTRY_COUNT;
             (void)strlcpy(status, g_entries[selected].path, sizeof(status));
             preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (event.character == 'k' || event.character == 'K') {
+        } else if (gui_key_up(&event) || gui_key_left(&event)) {
             selected = selected == 0U ? ENTRY_COUNT - 1U : selected - 1U;
             (void)strlcpy(status, g_entries[selected].path, sizeof(status));
             preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
         } else if (event.character == 'r' || event.character == 'R') {
-            (void)strlcpy(status, "VFS preview refreshed", sizeof(status));
+            (void)strlcpy(status, "VFS / PREVIEW REFRESHED", sizeof(status));
             preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (event.character == '\r' || event.character == '\n') {
+        } else if (gui_key_activate(&event)) {
             if (g_entries[selected].launchable) {
                 const ku_result_t pid = ku_process_spawn(
                     g_entries[selected].path, strlen(g_entries[selected].path));
                 if (pid > 0) {
                     char number[24];
-                    (void)strlcpy(status, "launched pid=", sizeof(status));
+                    (void)strlcpy(status, "OPENED PID ", sizeof(status));
                     gui_u64(number, sizeof(number), (uint64_t)pid);
                     append_text(status, sizeof(status), number);
                 } else {
-                    (void)strlcpy(status, "launch failed", sizeof(status));
+                    (void)strlcpy(status, "LAUNCH FAILED", sizeof(status));
                 }
             } else {
                 (void)strlcpy(status, g_entries[selected].path, sizeof(status));
                 preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
             }
+        } else if (gui_key_cancel(&event)) {
+            selected = 0U;
+            (void)strlcpy(status, "PERSISTENT ROOT / READ ABI", sizeof(status));
+            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
         } else {
             continue;
         }
