@@ -72,8 +72,7 @@ $exampleObject = Join-Path $ExampleDir 'hello.o'
 $exampleElf = Join-Path $ExampleDir 'hello'
 Invoke-Native $CXX ($common + @(
     '-std=c++17', '-fno-exceptions', '-fno-rtti', '-c',
-    (Join-Path $RootDir 'sdk\examples\hello\main.cpp'),
-    '-o', $exampleObject))
+    (Join-Path $RootDir 'sdk\examples\hello\main.cpp'), '-o', $exampleObject))
 Invoke-Native $CXX @(
     '-nostdlib', '-static', '-no-pie',
     '-Wl,--fatal-warnings', '-Wl,--build-id=none', '-Wl,-z,noexecstack',
@@ -94,8 +93,7 @@ if (($header -join "`n") -notmatch 'Type:\s+EXEC' -or
     throw 'External SDK ELF failed ABI, W^X, or undefined-symbol validation.'
 }
 [System.IO.Directory]::CreateDirectory($OverlayApps) | Out-Null
-Copy-Item -LiteralPath $exampleElf `
-    -Destination (Join-Path $OverlayApps 'external') -Force
+Copy-Item -LiteralPath $exampleElf -Destination (Join-Path $OverlayApps 'external') -Force
 
 $desktopApplications = @(
     @{ Name = 'login'; Source = 'userspace\gui\login\main.c' },
@@ -103,6 +101,8 @@ $desktopApplications = @(
     @{ Name = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
     @{ Name = 'files'; Source = 'userspace\gui\files\main.c' },
     @{ Name = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
+    @{ Name = 'performance'; Source = 'userspace\gui\performance\main.c' },
+    @{ Name = 'browser'; Source = 'userspace\gui\browser\main.c' },
     @{ Name = 'about'; Source = 'userspace\gui\about\main.c' },
     @{ Name = 'settings'; Source = 'userspace\gui\settings\main.c' }
 )
