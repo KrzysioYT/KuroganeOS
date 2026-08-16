@@ -2,6 +2,7 @@
 
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
+#include "../task/process.hpp"
 #endif
 
 namespace windowing {
@@ -72,6 +73,9 @@ int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
 bool g_initialized = false;
+#ifndef KUROGANE_HOST_TEST
+process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
+#endif
 
 #ifndef KUROGANE_HOST_TEST
 bool g_cursor_visible = false;
@@ -123,10 +127,14 @@ Slot* find(WindowId id, size_t* out_slot = nullptr) {
     return &candidate;
 }
 
+bool exposed(const Slot& slot) {
+    return slot.occupied && slot.info.owner_pid != 0U;
+}
+
 Slot* find_by_title(const char* title) {
     for (size_t index = 0U; index < MAX_WINDOWS; ++index) {
         Slot& slot = g_slots[index];
-        if (slot.occupied && text_equals(slot.info.title, title)) return &slot;
+        if (exposed(slot) && text_equals(slot.info.title, title)) return &slot;
     }
     return nullptr;
 }
@@ -135,11 +143,50 @@ bool is_login_surface(const Slot& slot) {
     return text_equals(slot.info.title, "KUROGANE LOGIN");
 }
 
+bool is_home_surface(const char* title) {
+    return text_equals(title, "RED FLUX HOME");
+}
+
 Slot* login_surface() {
     Slot* login = find_by_title("KUROGANE LOGIN");
     return login != nullptr && login->info.state != WindowState::Minimized
         ? login : nullptr;
 }
+
+size_t exposed_window_count() {
+    size_t count = 0U;
+    for (size_t position = 0U; position < g_count; ++position) {
+        if (exposed(g_slots[g_order[position]])) ++count;
+    }
+    return count;
+}
+
+Slot* exposed_at(size_t exposed_position) {
+    size_t current = 0U;
+    for (size_t position = 0U; position < g_count; ++position) {
+        Slot& slot = g_slots[g_order[position]];
+        if (!exposed(slot)) continue;
+        if (current++ == exposed_position) return &slot;
+    }
+    return nullptr;
+}
+
+#ifndef KUROGANE_HOST_TEST
+bool belongs_to_session_tree(process::ProcessId pid) {
+    if (g_session_root_pid == process::INVALID_PROCESS_ID ||
+        pid == process::INVALID_PROCESS_ID) return false;
+    process::ProcessId current = pid;
+    for (size_t depth = 0U; depth < process::MAX_PROCESSES; ++depth) {
+        if (current == g_session_root_pid) return true;
+        process::Stat stat{};
+        if (process::stat(current, &stat) != process::Status::Ok ||
+            stat.parent_pid == process::INVALID_PROCESS_ID ||
+            stat.parent_pid == current) return false;
+        current = stat.parent_pid;
+    }
+    return false;
+}
+#endif
 
 int32_t clamp_position(int32_t value, int32_t lower, int32_t upper) {
     if (upper < lower) return lower;
@@ -185,13 +232,14 @@ WorkspaceGeometry calculate_workspace() {
         work_height > 24 ? work_height - 16 : work_height,
     };
 
+    const size_t tasks = exposed_window_count();
     const int32_t dock_max_width = g_screen_width - 48;
     const int32_t fixed_width = DOCK_PADDING * 2 + pinned_section_width() +
         DOCK_SEPARATOR;
     int32_t requested_width = fixed_width;
-    if (g_count != 0U) {
-        requested_width += static_cast<int32_t>(g_count) * RIBBON_ITEM_MAX +
-            static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
+    if (tasks != 0U) {
+        requested_width += static_cast<int32_t>(tasks) * RIBBON_ITEM_MAX +
+            static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
     }
     const int32_t minimum_width = fixed_width < dock_max_width
         ? fixed_width : dock_max_width;
@@ -242,20 +290,22 @@ ui::Rect dock_pin_rect(size_t position) {
 }
 
 int32_t ribbon_item_width(const WorkspaceGeometry& workspace) {
-    if (g_count == 0U) return 0;
+    const size_t tasks = exposed_window_count();
+    if (tasks == 0U) return 0;
     const int32_t task_start = DOCK_PADDING + pinned_section_width() +
         DOCK_SEPARATOR;
     const int32_t usable = workspace.pulse_ribbon.width - task_start -
-        DOCK_PADDING - static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
+        DOCK_PADDING - static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
     return clamp_size(
-        usable / static_cast<int32_t>(g_count),
+        usable / static_cast<int32_t>(tasks),
         RIBBON_ITEM_MIN,
         RIBBON_ITEM_MAX);
 }
 
 ui::Rect ribbon_item_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
-    if (position >= g_count) return {};
+    const size_t tasks = exposed_window_count();
+    if (position >= tasks) return {};
     const int32_t width = ribbon_item_width(workspace);
     const int32_t task_start = workspace.pulse_ribbon.x + DOCK_PADDING +
         pinned_section_width() + DOCK_SEPARATOR;
@@ -291,7 +341,7 @@ void choose_top_focus() {
     g_focused = INVALID_WINDOW;
     for (size_t position = g_count; position > 0U; --position) {
         Slot& slot = g_slots[g_order[position - 1U]];
-        if (slot.info.state != WindowState::Minimized) {
+        if (exposed(slot) && slot.info.state != WindowState::Minimized) {
             g_focused = slot.info.id;
             break;
         }
@@ -300,10 +350,14 @@ void choose_top_focus() {
 }
 
 size_t focused_position() {
+    size_t exposed_position = 0U;
     for (size_t position = 0U; position < g_count; ++position) {
-        if (g_slots[g_order[position]].info.id == g_focused) return position;
+        const Slot& slot = g_slots[g_order[position]];
+        if (!exposed(slot)) continue;
+        if (slot.info.id == g_focused) return exposed_position;
+        ++exposed_position;
     }
-    return g_count;
+    return exposed_window_count();
 }
 
 bool title_hit(const Slot& slot, int32_t x, int32_t y) {
@@ -318,34 +372,38 @@ bool title_hit(const Slot& slot, int32_t x, int32_t y) {
 WindowId hit_test(int32_t x, int32_t y) {
     for (size_t position = g_count; position > 0U; --position) {
         Slot& slot = g_slots[g_order[position - 1U]];
-        if (slot.info.state != WindowState::Minimized &&
+        if (exposed(slot) && slot.info.state != WindowState::Minimized &&
             rect_contains(slot.info.bounds, x, y)) return slot.info.id;
     }
     return INVALID_WINDOW;
 }
 
 Status cycle_focus() {
-    if (g_count == 0U) return Status::NotFound;
-    size_t current = g_count;
-    for (size_t position = 0U; position < g_count; ++position) {
-        if (g_slots[g_order[position]].info.id == g_focused) {
+    const size_t tasks = exposed_window_count();
+    if (tasks == 0U) return Status::NotFound;
+    size_t current = tasks;
+    for (size_t position = 0U; position < tasks; ++position) {
+        Slot* slot = exposed_at(position);
+        if (slot != nullptr && slot->info.id == g_focused) {
             current = position;
             break;
         }
     }
-    for (size_t offset = 1U; offset <= g_count; ++offset) {
-        const size_t position = (current + offset) % g_count;
-        Slot& slot = g_slots[g_order[position]];
-        if (slot.info.state != WindowState::Minimized) return focus(slot.info.id);
+    for (size_t offset = 1U; offset <= tasks; ++offset) {
+        const size_t position = (current + offset) % tasks;
+        Slot* slot = exposed_at(position);
+        if (slot != nullptr && slot->info.state != WindowState::Minimized) {
+            return focus(slot->info.id);
+        }
     }
     return Status::NotFound;
 }
 
 Status activate_ribbon_item(size_t position) {
-    if (position >= g_count) return Status::NotFound;
-    Slot& slot = g_slots[g_order[position]];
-    if (slot.info.state == WindowState::Minimized) return restore(slot.info.id);
-    return focus(slot.info.id);
+    Slot* slot = exposed_at(position);
+    if (slot == nullptr) return Status::NotFound;
+    if (slot->info.state == WindowState::Minimized) return restore(slot->info.id);
+    return focus(slot->info.id);
 }
 
 Status activate_dock_pin(size_t position) {
@@ -438,7 +496,7 @@ void move_cursor(int32_t x, int32_t y) {
 }
 
 void draw_window_slot(Slot& slot) {
-    if (slot.info.state == WindowState::Minimized) return;
+    if (!exposed(slot) || slot.info.state == WindowState::Minimized) return;
     const ui::Rect& bounds = slot.info.bounds;
 
     if (is_login_surface(slot)) {
@@ -498,13 +556,14 @@ void render_layers() {
 
     ui::desktop("KUROGANE / RED FLUX");
     const WorkspaceGeometry workspace = calculate_workspace();
-    ui::signal_spine(workspace.signal_spine, g_count, focused_position());
+    const size_t tasks = exposed_window_count();
+    ui::signal_spine(workspace.signal_spine, tasks, focused_position());
 
     for (size_t position = 0U; position < g_count; ++position) {
         draw_window_slot(g_slots[g_order[position]]);
     }
 
-    ui::dock_bar(workspace.pulse_ribbon, g_count);
+    ui::dock_bar(workspace.pulse_ribbon, tasks);
     for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
@@ -512,13 +571,14 @@ void render_layers() {
             dock_pin_rect(index), kDockPins[index].icon,
             running != nullptr, active);
     }
-    for (size_t position = 0U; position < g_count; ++position) {
-        const Slot& slot = g_slots[g_order[position]];
+    for (size_t position = 0U; position < tasks; ++position) {
+        const Slot* slot = exposed_at(position);
+        if (slot == nullptr) continue;
         ui::dock_task(
             ribbon_item_rect(position),
-            slot.info.title,
-            slot.info.focused,
-            slot.info.state == WindowState::Minimized);
+            slot->info.title,
+            slot->info.focused,
+            slot->info.state == WindowState::Minimized);
     }
 }
 #endif
@@ -543,6 +603,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
 #ifndef KUROGANE_HOST_TEST
+    g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
     g_cursor_x = input::pointer_x();
     g_cursor_y = input::pointer_y();
@@ -565,6 +626,19 @@ Status create_window(
         text_length(title, 33U) > 32U || !valid_bounds(bounds)) {
         return Status::InvalidArgument;
     }
+
+#ifndef KUROGANE_HOST_TEST
+    const bool login = text_equals(title, "KUROGANE LOGIN");
+    const bool home = is_home_surface(title);
+    if (login) {
+        g_session_root_pid = process::INVALID_PROCESS_ID;
+    } else if (home) {
+        g_session_root_pid = owner_pid;
+    } else if (owner_pid != 0U && !belongs_to_session_tree(owner_pid)) {
+        return Status::InvalidState;
+    }
+#endif
+
     if (g_count == MAX_WINDOWS) return Status::CapacityReached;
     size_t selected = MAX_WINDOWS;
     for (size_t index = 0U; index < MAX_WINDOWS; ++index) {
@@ -583,13 +657,17 @@ Status create_window(
     slot.info.bounds = bounds;
     slot.info.restore_bounds = bounds;
     slot.info.owner_pid = owner_pid;
-    slot.info.state = WindowState::Normal;
+    // Legacy Ring-0 desktop surfaces are retained only so the historical
+    // boot-host self-test can complete. They never participate in the 3.2
+    // user desktop, dock, focus or hit-testing.
+    slot.info.state = owner_pid == 0U
+        ? WindowState::Minimized : WindowState::Normal;
     copy_title(slot.info.title, title);
     slot.draw = draw;
     slot.input_callback = input_callback;
     slot.context = context;
     g_order[g_count++] = static_cast<uint8_t>(selected);
-    g_focused = slot.info.id;
+    if (owner_pid != 0U) g_focused = slot.info.id;
     update_z_order();
     mark_full_dirty();
     *out_id = slot.info.id;
@@ -620,7 +698,7 @@ Status focus(WindowId id) {
     if (g_count == 0U) return Status::NotFound;
     size_t slot_index = 0U;
     Slot* slot = find(id, &slot_index);
-    if (slot == nullptr) return Status::NotFound;
+    if (slot == nullptr || !exposed(*slot)) return Status::NotFound;
     if (slot->info.state == WindowState::Minimized) return Status::InvalidState;
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
@@ -638,7 +716,7 @@ Status focus(WindowId id) {
 Status move(WindowId id, int32_t x, int32_t y) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
-    if (slot == nullptr) return Status::NotFound;
+    if (slot == nullptr || !exposed(*slot)) return Status::NotFound;
     if (slot->info.state != WindowState::Normal || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
@@ -659,7 +737,7 @@ Status move(WindowId id, int32_t x, int32_t y) {
 Status minimize(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
-    if (slot == nullptr) return Status::NotFound;
+    if (slot == nullptr || !exposed(*slot)) return Status::NotFound;
     if (slot->info.state == WindowState::Minimized || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
@@ -672,7 +750,7 @@ Status minimize(WindowId id) {
 Status maximize(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
-    if (slot == nullptr) return Status::NotFound;
+    if (slot == nullptr || !exposed(*slot)) return Status::NotFound;
     if (slot->info.state == WindowState::Maximized || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
@@ -688,7 +766,7 @@ Status maximize(WindowId id) {
 Status restore(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
-    if (slot == nullptr) return Status::NotFound;
+    if (slot == nullptr || !exposed(*slot)) return Status::NotFound;
     if (slot->info.state == WindowState::Normal || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
@@ -731,7 +809,7 @@ Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     if (!g_initialized) return Status::NotInitialized;
     if (out_bounds == nullptr) return Status::InvalidArgument;
-    if (position >= g_count) return Status::NotFound;
+    if (position >= exposed_window_count()) return Status::NotFound;
     *out_bounds = ribbon_item_rect(position);
     return Status::Ok;
 }
@@ -757,7 +835,8 @@ Status dispatch(const input::Event& event) {
                     return activate_dock_pin(index);
                 }
             }
-            for (size_t position = 0U; position < g_count; ++position) {
+            const size_t tasks = exposed_window_count();
+            for (size_t position = 0U; position < tasks; ++position) {
                 if (rect_contains(ribbon_item_rect(position), event.x, event.y)) {
                     return activate_ribbon_item(position);
                 }
