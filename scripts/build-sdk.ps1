@@ -4,6 +4,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$WindowsBuildFilesUrl = 'https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing'
 $ToolDir = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin'
 $BuildDir = Join-Path $RootDir 'build\sdk'
 $Sysroot = Join-Path $BuildDir 'sysroot'
@@ -28,7 +29,7 @@ function Invoke-Native {
 
 foreach ($tool in @($CC, $CXX, $AR, $READELF)) {
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
-        throw "Missing SDK tool: $tool"
+        throw "Missing Windows SDK tool: $tool`nRequired KuroganeOS Windows build files: $WindowsBuildFilesUrl`nDownload them and copy/extract the contents into the repository root, preserving tools/compiler/x86_64-elf/bin/."
     }
 }
 if (Test-Path -LiteralPath $Sysroot) {
