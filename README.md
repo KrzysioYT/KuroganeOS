@@ -1,4 +1,4 @@
-# KuroganeOS 3.3.1-dev — DEV BETA
+# KuroganeOS 3.3.2-dev — DEV BETA
 
 KuroganeOS to eksperymentalny, 64-bitowy system operacyjny rozwijany od zera
 dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
@@ -12,7 +12,7 @@ dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
 > Ten poradnik prowadzi krok po kroku przez uruchomienie, VirtualBox, instalację,
 > Windows, macOS, Linux i pierwszą aplikację.
 
-`3.3.1-dev` jest wydaniem **DEV BETA**. Używaj go przede wszystkim w QEMU albo
+`3.3.2-dev` jest wydaniem **DEV BETA**. Używaj go przede wszystkim w QEMU albo
 VirtualBox i na pustych dyskach testowych.
 
 ---
@@ -24,7 +24,7 @@ VirtualBox i na pustych dyskach testowych.
 Użyj:
 
 ```text
-KuroganeOS-3.3.1-dev-x86_64.iso
+KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 Najważniejsze ustawienia VM:
@@ -52,7 +52,7 @@ Linux/macOS na obsługiwanym hoście x86-64:
 
 ```bash
 bash ./scripts/create-virtualbox-vm.sh \
-  --iso ./dist/KuroganeOS-3.3.1-dev-x86_64.iso
+  --iso ./dist/KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 Windows:
@@ -60,7 +60,7 @@ Windows:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\create-virtualbox-vm.ps1 `
-  -Iso .\dist\KuroganeOS-3.3.1-dev-x86_64.iso
+  -Iso .\dist\KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 ### Mac z Apple Silicon
@@ -74,7 +74,7 @@ Zobacz: [docs/MACOS_DEVELOPMENT.md](docs/MACOS_DEVELOPMENT.md).
 
 ## Co zobaczę po starcie ISO/IMG?
 
-Nośnik 3.3.1-dev uruchamia Red Flux Setup:
+Nośnik 3.3.2-dev uruchamia Red Flux Setup:
 
 ```text
 UEFI
@@ -85,7 +85,7 @@ UEFI
        +-- Try KuroganeOS
        |     -> read-only live root
        |     -> Login
-       |     -> Red Flux Home
+       |     -> Red Flux Desktop
        |
        +-- Install KuroganeOS
              -> English / Polski
@@ -97,6 +97,11 @@ UEFI
              -> verification
 ```
 
+Po zalogowaniu Home działa jako **trwały root sesji**, ale nie zasłania pulpitu.
+Dostęp do Home jest zawsze przez przypięty przycisk `HOME` w Docku oraz ikonę
+`HOME` na pulpicie. Zamknięcie okna Home nie wylogowuje użytkownika — tylko je
+chowa/minimalizuje. Logout musi być osobną akcją sesji.
+
 > [!WARNING]
 > Instalator kasuje wybrany dysk dopiero po wpisaniu dokładnego słowa
 > `INSTALL`. Nadal używaj wyłącznie pustego VDI/obrazu/dysku testowego.
@@ -105,7 +110,7 @@ UEFI
 
 ## VirtualBox ISO — ochrona przed `No bootable medium`
 
-3.3.1-dev przebudowuje format ISO pod czysty x86-64 UEFI:
+3.3.x używa czystego x86-64 UEFI ISO:
 
 - dedykowany El Torito EFI entry;
 - `EFI/BOOT/BOOTX64.EFI` — standardowa removable-media path;
@@ -122,7 +127,7 @@ Ręczna weryfikacja:
 
 ```bash
 bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+  ./dist/KuroganeOS-3.3.2-dev-x86_64.iso \
   --passes 20
 ```
 
@@ -211,10 +216,10 @@ bash ./scripts/build-media-linux.sh \
 ### Wyniki
 
 ```text
-dist/KuroganeOS-3.3.1-dev-windows-qemu.img
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.2-dev-windows-qemu.img
+dist/KuroganeOS-3.3.2-dev-macos-qemu.img
+dist/KuroganeOS-3.3.2-dev-linux-qemu.img
+dist/KuroganeOS-3.3.2-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -251,7 +256,7 @@ Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
 Cable Connected: ON
 ```
 
-Jeżeli DHCP/NAT jest chwilowo niedostępne, 3.3.1-dev przechodzi do loopback
+Jeżeli DHCP/NAT jest chwilowo niedostępne, 3.3.x przechodzi do loopback
 zamiast przerywać cały start systemu.
 
 Więcej: [docs/NETWORKING.md](docs/NETWORKING.md).
@@ -260,7 +265,7 @@ Więcej: [docs/NETWORKING.md](docs/NETWORKING.md).
 
 ## Dźwięk
 
-3.3.1-dev dodaje bazowy kernelowy driver:
+3.3.x zawiera bazowy kernelowy driver:
 
 ```text
 Intel ICH AC'97 / PCI 8086:2415
@@ -298,7 +303,7 @@ Direct3D to nie pojedyncza funkcja rysująca piksele. Pełna zgodność wymaga m
 modelu adapter/device, zasobów GPU, shaderów, command submission, synchronizacji
 i warstwy kompatybilności z zachowaniem API.
 
-3.3.1-dev przygotowuje architekturę pod:
+3.3.x przygotowuje architekturę pod:
 
 ```text
 D3D compatibility frontend
@@ -347,7 +352,9 @@ Aktualny desktop zawiera m.in.:
 - boot splash;
 - Try/Install Setup;
 - Login;
-- Red Flux Home;
+- trwały Red Flux Home jako session root;
+- przypięty przycisk Home w Docku;
+- ikonę Home na pulpicie;
 - Dock;
 - Terminal;
 - Files;
@@ -362,13 +369,13 @@ Aktualny desktop zawiera m.in.:
 Sterowanie:
 
 ```text
-Mouse             focus / drag / resize / Dock
+Mouse             focus / drag / resize / Dock / desktop shortcuts
 Arrow keys        nawigacja
 Enter             zatwierdzenie
 Escape            anulowanie
 Tab               następny element
 Alt+Tab           zmiana okna
-Alt+F4            zamknięcie okna
+Alt+F4            zamknięcie zwykłego okna; Home jest tylko chowane
 ```
 
 ---
@@ -378,6 +385,7 @@ Alt+F4            zamknięcie okna
 ### Zwykły użytkownik
 
 - **[START_HERE.md](docs/START_HERE.md)**
+- [RUNNING.md](docs/RUNNING.md)
 - [VIRTUALBOX.md](docs/VIRTUALBOX.md)
 - [INSTALLATION.md](docs/INSTALLATION.md)
 - [NETWORKING.md](docs/NETWORKING.md)
@@ -405,7 +413,7 @@ Alt+F4            zamknięcie okna
 - [BUILD_STATUS.md](docs/BUILD_STATUS.md)
 - [CURRENT_LIMITATIONS.md](docs/CURRENT_LIMITATIONS.md)
 - [roadmap/DESKTOP_ROADMAP.md](docs/roadmap/DESKTOP_ROADMAP.md)
-- [releases/3.3.1-dev.md](docs/releases/3.3.1-dev.md)
+- [releases/3.3.2-dev.md](docs/releases/3.3.2-dev.md)
 
 ---
 
