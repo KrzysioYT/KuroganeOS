@@ -3,11 +3,11 @@
 This document describes the **public userspace contract**. Internal kernel
 functions are not part of the application ABI.
 
-Target: KuroganeOS 3.3.1-dev, x86-64 Ring-3.
+Target: KuroganeOS **3.3.3-dev**, x86-64 Ring-3.
 
 ## Headers
 
-Main public headers live under:
+Public headers live under:
 
 ```text
 sdk/include/kurogane/
@@ -21,31 +21,22 @@ Typical include:
 
 ## Status/result types
 
-Public APIs generally use:
-
-```c
-ku_status_t
-ku_result_t
-```
-
-Negative/encoded status results must be checked before treating a result as a
-handle, PID or count.
+Public APIs use `ku_status_t` and `ku_result_t`. Always check a result before
+using it as a handle, PID or byte count.
 
 ## Process API
-
-Header:
 
 ```c
 #include <kurogane/process.h>
 ```
 
-Available concepts:
+Available:
 
 - current PID/TID;
 - spawn;
 - wait;
 - exit;
-- sleep/yield helpers through `kurogane.h`.
+- sleep/yield.
 
 Example:
 
@@ -60,29 +51,13 @@ if (child > 0) {
 }
 ```
 
-## Memory API
-
-Public allocation wrappers use kernel-backed per-process mappings. Do not pass
-raw physical addresses from applications.
-
-Use:
-
-```text
-allocate
-free
-```
-
-Allocation limits are deliberately bounded in DEV BETA.
-
 ## Filesystem API
-
-Header:
 
 ```c
 #include <kurogane/filesystem.h>
 ```
 
-Stable core:
+Current public stable core:
 
 ```text
 open read-only file
@@ -90,20 +65,17 @@ read
 close
 ```
 
-The VFS backend itself supports more operations, but a kernel capability does
-not automatically become a public syscall. Writable/public metadata functions
-are added only with pointer/permission validation.
+The kernel VFS supports more internally, but an internal capability is not a
+public syscall until pointer, permission and ownership semantics are defined.
 
-## UI API
-
-Headers:
+## UI / libui
 
 ```c
 #include <kurogane/ui.h>
 #include <kurogane/libui.h>
 ```
 
-Current low-level window contract:
+Low-level contract:
 
 ```text
 create window
@@ -112,167 +84,155 @@ poll event
 close window
 ```
 
-Current events:
+`libui` view types include panel, label, button, input, list item, progress and
+separator. Applications should use named key values rather than PS/2 scancodes.
 
-```text
-close
-key
-pointer
+## Live system snapshot — 3.3.3
+
+```c
+#include <kurogane/system.h>
 ```
 
-Named keys include:
-
-```text
-Escape
-Backspace
-Tab
-Enter
-Home
-Arrow Up/Down/Left/Right
-Page Up/Down
-Insert
-Delete
+```c
+ku_system_snapshot snapshot = {0};
+snapshot.structure_size = sizeof(snapshot);
+if (ku_system_get_snapshot(&snapshot) == KU_STATUS_OK) {
+    /* snapshot.cpu_percent, ram_percent, disk_percent, gpu_percent */
+}
 ```
 
-Do not depend on raw PS/2 scancodes in applications.
+Returned fields include:
 
-## libui scene API
+- CPU activity estimate from scheduler/timer counters;
+- RAM percentage and total/free physical memory;
+- disk activity from completed block transfers;
+- GPU/GFX activity from the current GOP/software-compositor submission path;
+- uptime ticks.
 
-`libui` provides a compatibility scene/view layer over the current UI transport.
-Available view types include:
+`gpu_percent` is **not physical GPU-core utilization** in 3.3.3. Hardware 3D
+command submission is not enabled yet.
 
-```text
-panel
-label
-button
-input
-list item
-progress
-separator
+## Desktop shortcuts / pinning — 3.3.3
+
+```c
+#include <kurogane/desktop.h>
 ```
 
-Common functions:
+Known application IDs are Home, Terminal, Files, Performance, Kurogane Web,
+System Monitor, Settings and About.
 
-```text
-kui_scene_initialize
-kui_scene_set_palette
-kui_scene_add
-kui_scene_set_text
-kui_scene_set_flags
-kui_scene_select
-kui_scene_select_next
-kui_scene_present
-kui_next_event
+Example toggle:
+
+```c
+ku_desktop_pin_request request = {0};
+request.structure_size = sizeof(request);
+request.app_id = KU_DESKTOP_APP_BROWSER;
+request.action = KU_DESKTOP_PIN_TOGGLE;
+if (ku_desktop_pin(&request) == KU_STATUS_OK) {
+    /* request.pinned contains the new state */
+}
 ```
 
-Flow helpers:
+Home is always pinned. Pin state is session-local in 3.3.3; persistent desktop
+configuration will move to the writable settings service.
 
-```text
-kui_flow_begin
-kui_flow_panel
-kui_flow_label
-kui_flow_button
-kui_flow_input
-kui_flow_list_item
-kui_flow_progress
-kui_flow_separator
+## Networking — 3.3.3 transitional public ABI
+
+```c
+#include <kurogane/network.h>
 ```
 
-## Networking — kernel available, public Ring-3 ABI pending
-
-KuroganeOS 3.3.1-dev contains a real kernel networking path:
+The kernel path is:
 
 ```text
 E1000 82540EM
-Ethernet
-ARP
-IPv4
-ICMP
-UDP
-DHCP
-DNS A resolver
-basic TCP connect/probe
+ -> Ethernet
+ -> ARP
+ -> IPv4
+ -> DHCP
+ -> DNS A
+ -> TCP
 ```
 
-However, **3.3.1-dev does not yet expose this stack as a stable public
-application syscall/socket API**. Current DNS/ping helpers use synchronous
-polling internally, and freezing that behavior into the public ABI would create
-blocking kernel calls that are difficult to evolve safely.
+### Network status
 
-The planned Ring-3 contract is asynchronous/handle based and will cover:
+```c
+ku_network_status status = {0};
+status.structure_size = sizeof(status);
+ku_status_t result = ku_network_get_status(&status);
+```
+
+The snapshot exposes readiness, physical-interface/DHCP state, IPv4 address,
+gateway, DNS and RX/TX byte counters.
+
+### Bounded HTTP GET
+
+3.3.3 exposes the first application-facing Internet transport:
+
+```c
+char response[4096];
+ku_http_request request = {0};
+request.structure_size = sizeof(request);
+strlcpy(request.host, "example.com", sizeof(request.host));
+strlcpy(request.path, "/", sizeof(request.path));
+request.output = response;
+request.output_capacity = sizeof(response);
+ku_status_t result = ku_http_get(&request);
+```
+
+Limits in DEV BETA:
+
+- HTTP on TCP port 80 only;
+- no TLS/HTTPS yet;
+- response buffer maximum 4096 bytes;
+- synchronous bounded request;
+- not a general socket API;
+- simple in-order TCP receive path.
+
+This is enough for the first native `Kurogane Web` browser but **not enough to
+port Chromium**. Chromium requires asynchronous sockets, TLS, threads, timers,
+filesystem/process integration and a much broader libc/POSIX platform layer.
+
+Applications must never include `kernel/net/*` directly.
+
+## Audio
+
+The kernel has an Intel ICH AC'97 (`8086:2415`) PCM backend for the reference
+VirtualBox profile. A stable Ring-3 streaming API is still pending; applications
+must not program AC'97 DMA or I/O ports directly.
+
+## Graphics / Direct3D
+
+3.3.3 registers a PCI display-class capability driver and distinguishes UEFI GOP
+scanout, the software compositor and hardware 3D capability. Hardware 3D remains
+false until a real GPU command-submission backend exists.
+
+Direct3D 9/11/12 are **not yet a supported application ABI**. See
+[`../GRAPHICS_COMPATIBILITY.md`](../GRAPHICS_COMPATIBILITY.md).
+
+## Syscall table additions in 3.3.3
+
+Existing syscall numbers 1-17 remain unchanged. New append-only entries are:
 
 ```text
-interface/configuration snapshots
-DNS request + completion event
-ICMP request + completion event
-socket handles for UDP/TCP
-poll/event integration
+18  KU_SYS_SYSTEM_SNAPSHOT
+19  KU_SYS_DESKTOP_PIN
+20  KU_SYS_NET_STATUS
+21  KU_SYS_HTTP_GET
 ```
 
-Applications must not include or call `kernel/net/*` directly.
+Use SDK wrappers instead of hardcoding these numbers.
 
-See [`../NETWORKING.md`](../NETWORKING.md).
+## Adding a public API
 
-## Audio — kernel driver available, public Ring-3 ABI pending
-
-3.3.1-dev ships the kernel hardware backend for VirtualBox Intel ICH AC'97
-`8086:2415`.
-
-Current kernel PCM format:
-
-```text
-PCM S16LE
-stereo
-48000 Hz
-bounded DMA32 buffer
-```
-
-**There is no stable public Ring-3 audio header/syscall in 3.3.1-dev yet.**
-Applications must not program AC'97 ports or DMA directly.
-
-The planned userspace contract will expose an audio stream/queue handle with
-bounded buffer submission and completion events rather than a blocking
-`play()` syscall.
-
-See [`../AUDIO.md`](../AUDIO.md).
-
-## Graphics API
-
-The current application graphics model is UI/window oriented. A native graphics
-resource API is planned before any claim of Direct3D compatibility.
-
-See [`../GRAPHICS_COMPATIBILITY.md`](../GRAPHICS_COMPATIBILITY.md).
-
-## Syscall stability
-
-Applications should use SDK wrappers. Do **not** hardcode syscall numbers unless
-you are working on the ABI itself.
-
-Reason:
-
-```text
-source API -> SDK wrapper -> syscall transport
-```
-
-allows the transport to change later without forcing every application to
-rewrite inline assembly.
-
-The 3.3.1 stable public syscall table intentionally remains at the existing UI
-entry range. Network/audio numbers are not reserved until their asynchronous
-ownership/scheduling model is ready.
-
-## Adding a new public API
-
-For a new syscall/API:
-
-1. define the userspace structure in `sdk/include/kurogane/`;
-2. keep structures fixed-width and ABI-checkable;
-3. add a wrapper;
-4. implement kernel validation;
-5. validate every pointer/range;
-6. reject unknown flags/version/structure sizes;
-7. decide blocking vs asynchronous scheduling behavior before freezing ABI;
-8. add a test;
+1. define the fixed-width userspace structure under `sdk/include/kurogane/`;
+2. append a syscall number without renumbering older calls;
+3. add an SDK wrapper;
+4. validate every Ring-3 pointer and nested buffer;
+5. validate `structure_size`, flags and enums;
+6. bound allocation/work/time performed by the syscall;
+7. define ownership and blocking semantics before freezing the ABI;
+8. add runtime/build validation;
 9. update this document.
 
-Never trust `size`, pointer or enum values supplied by Ring-3.
+Never trust a pointer, size, enum or nested address supplied by Ring-3.
