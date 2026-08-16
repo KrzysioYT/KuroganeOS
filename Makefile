@@ -1,14 +1,22 @@
 # KuroganeOS kernel build
 #
-# The repository-local Windows cross-toolchain is used by default.  The
-# PowerShell frontend (`make powershell`) is the canonical Windows build, while
-# the rules below keep a regular GNU Make dependency graph available.
+# Windows keeps the repository-local cross-toolchain and PowerShell frontend.
+# macOS uses the Homebrew x86_64-elf cross-toolchain and the native Bash
+# frontend added in KuroganeOS 2.1.1.
 
+CONFIG  ?= debug
+HOST_OS := $(shell uname -s 2>/dev/null || echo Windows)
+
+ifeq ($(HOST_OS),Darwin)
+TARGET_PREFIX ?= x86_64-elf-
+EXEEXT        ?=
 POWERSHELL    ?= powershell.exe
-CONFIG        ?= debug
+else
+POWERSHELL    ?= powershell.exe
 TOOLCHAIN_DIR ?= tools/compiler/x86_64-elf/bin
 TARGET_PREFIX ?= $(TOOLCHAIN_DIR)/x86_64-elf-
-EXEEXT         ?= .exe
+EXEEXT        ?= .exe
+endif
 
 CC      := $(TARGET_PREFIX)gcc$(EXEEXT)
 CXX     := $(TARGET_PREFIX)g++$(EXEEXT)
@@ -20,7 +28,6 @@ OBJ_DIR   := $(BUILD_DIR)/obj
 KERNEL    := $(BUILD_DIR)/kernel.elf
 MAP       := $(BUILD_DIR)/kernel.map
 
-# Recursively discover every C++ translation unit below kernel/.
 rwildcard = $(foreach item,$(wildcard $1*),$(call rwildcard,$(item)/,$2)) $(wildcard $1$2)
 CPP_SOURCES := $(sort $(call rwildcard,kernel/,*.cpp))
 CPP_OBJECTS := $(patsubst kernel/%.cpp,$(OBJ_DIR)/%.o,$(CPP_SOURCES))
@@ -30,7 +37,7 @@ ENTRY_OBJECT := $(OBJ_DIR)/arch/x86_64/entry.o
 ASM_SOURCES  := $(sort $(call rwildcard,kernel/,*.asm))
 ASM_OBJECTS  := $(patsubst kernel/%.asm,$(OBJ_DIR)/%.o,$(ASM_SOURCES))
 OBJECTS      := $(ENTRY_OBJECT) $(filter-out $(ENTRY_OBJECT),$(ASM_OBJECTS)) $(CPP_OBJECTS)
-DEPS        := $(OBJECTS:.o=.d)
+DEPS         := $(OBJECTS:.o=.d)
 
 CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
@@ -54,42 +61,58 @@ KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 KERNEL_LDFLAGS  := --fatal-warnings --build-id=none -pie --no-dynamic-linker \
 	-z noexecstack -z text -z max-page-size=0x1000 -T linker.ld
 
+ifeq ($(HOST_OS),Darwin)
+define ensure-dir
+	@mkdir -p "$(1)"
+endef
+else
+define ensure-dir
+	@$(POWERSHELL) -NoProfile -Command "[System.IO.Directory]::CreateDirectory('$(1)') | Out-Null"
+endef
+endif
+
 .DEFAULT_GOAL := all
+.PHONY: all kernel stage macos powershell rebuild clean verify print-sources
 
-.PHONY: all stage powershell rebuild clean verify print-sources
-
+ifeq ($(HOST_OS),Darwin)
+all: macos
+macos:
+	./scripts/build-macos.sh --configuration $(CONFIG)
+stage: kernel
+	./scripts/build-macos.sh --configuration $(CONFIG) --stage-only
+rebuild:
+	./scripts/build-macos.sh --configuration $(CONFIG) --rebuild
+clean:
+	./scripts/build-macos.sh --clean
+else
 all: stage
+stage: $(KERNEL)
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG) -StageOnly
+powershell:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG)
+rebuild:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG) -Rebuild
+clean:
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean
+endif
+
+kernel: $(KERNEL)
 
 $(KERNEL): $(OBJECTS) linker.ld
-	@$(POWERSHELL) -NoProfile -Command "[System.IO.Directory]::CreateDirectory('$(abspath $(BUILD_DIR))') | Out-Null"
+	$(call ensure-dir,$(abspath $(BUILD_DIR)))
 	$(LD) $(KERNEL_LDFLAGS) -Map=$(MAP) -o $@ $(OBJECTS)
 
 $(OBJ_DIR)/%.o: kernel/%.cpp
-	@$(POWERSHELL) -NoProfile -Command "[System.IO.Directory]::CreateDirectory('$(abspath $(dir $@))') | Out-Null"
+	$(call ensure-dir,$(abspath $(dir $@)))
 	$(CXX) $(CPPFLAGS) $(KERNEL_CXXFLAGS) \
 		-MMD -MP -MF $(@:.o=.d) -MT $@ -frandom-seed=$< \
 		-c $< -o $@
 
 $(OBJ_DIR)/%.o: kernel/%.asm
-	@$(POWERSHELL) -NoProfile -Command "[System.IO.Directory]::CreateDirectory('$(abspath $(dir $@))') | Out-Null"
+	$(call ensure-dir,$(abspath $(dir $@)))
 	$(CC) $(CPPFLAGS) $(KERNEL_ASFLAGS) \
 		-MMD -MP -MF $(@:.o=.d) -MT $@ \
 		-c -x assembler-with-cpp $< -o $@
-
-# Build the standalone EFI application and copy it with the freshly linked
-# kernel into the image staging tree.
-stage: $(KERNEL)
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG) -StageOnly
-
-# Canonical Windows entry points.
-powershell:
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG)
-
-rebuild:
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Configuration $(CONFIG) -Rebuild
-
-clean:
-	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Clean
 
 verify: $(KERNEL)
 	$(READELF) -hW $(KERNEL)
