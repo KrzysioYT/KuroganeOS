@@ -4,9 +4,10 @@ Data: 16 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **2.2.0** jest patchem Desktop Developer Preview na instalowalnym
-fundamencie 2.1/2.1.1. Storage, installer oraz macOS backend nie są zastępowane;
-2.2 koncentruje się na warstwie użytkowej, shellu i spójności dokumentacji.
+KuroganeOS **3.1.0 — Red Flux Interaction Update** jest aktualnym etapem
+Kurogane Desktop. Normalny boot używa PID1 + Launcher session modelu, a 3.1
+koncentruje się na stabilności renderowania, spójnym sterowaniu, wspólnym
+shellu i własnej czarno-grafitowo-czerwonej identyfikacji.
 
 ## Working foundation
 
@@ -15,22 +16,29 @@ fundamencie 2.1/2.1.1. Storage, installer oraz macOS backend nie są zastępowan
 - Ring 3, `int 0x80`, ELF64, PID/TID;
 - process spawn/wait/exit i PIT preemption;
 - `/system/init` PID 1;
+- Launcher jako userspace root sesji desktopowej;
 - AHCI, GPT, writable FAT32/VFS, persistent root;
-- installer + boot z HDD;
 - PS/2 keyboard/mouse, PCI, ACPI/APIC;
-- WindowManager i GUI Ring 3;
-- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU workflow.
+- WindowManager: focus/z-order/drag/resize/minimize/maximize/restore/close;
+- Signal Spine + Pulse Ribbon;
+- Ring-3 `libui` scene/view runtime;
+- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU development workflow.
 
-## 2.2 changes
+## 3.1 changes
 
-- wersja 2.2.0;
-- Kurogane Flux visual language dla framebuffer desktopu;
-- Flux Console jako rozbudowany Ring-3 shell;
-- `run <name|path>`, `open`, `gui`, `jobs`, `wait`;
-- realne `cat/read`, PID/TID, history, cwd, calc, sleep/yield;
-- diagnostyczne skróty do Ring-3 System Monitor;
-- jawne raportowanie brakujących capability syscalli zamiast `command not found`;
-- aktualizacja dokumentów, które nadal opisywały stan 1.0 jako bieżący.
+- wersja 3.1.0;
+- Red Flux palette: black/graphite/steel/red;
+- software full-frame backbuffer do 1600x1200 dla bieżących GOP modes;
+- content clipping per window;
+- body text scale limit per content area;
+- shared `FluxShellCore` dla fallback shell i GUI Terminala;
+- GUI Terminal z pełnym parserem fallback shella;
+- Up/Down history, Left/Right cursor, Home/End/Delete/Escape;
+- publiczne nazwane GUI key codes zamiast magicznych scancode values;
+- arrow-first Launcher, Files i Settings;
+- `libui` Red Flux jako default dla aplikacji SDK;
+- uproszczony compatibility rendering bez `::`, `[> ]` i `>>`;
+- README i roadmapa zsynchronizowane z 3.1.
 
 ## Build
 
@@ -38,7 +46,6 @@ Windows:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
 ```
 
 macOS:
@@ -46,21 +53,42 @@ macOS:
 ```bash
 ./scripts/setup-macos.sh --install
 ./scripts/build-macos.sh --configuration debug --rebuild
-./scripts/run-qemu-macos.sh --display
 ```
 
-Ponieważ skrypty pobierają wersję z `common/version.h`, artefakty po tym patchu
-używają numeru `2.2.0`.
+Development artifact:
 
-## Validation
+```text
+dist/KuroganeOS-3.1.0-macos-qemu.img
+```
 
-Zmiany Flux Console i renderera zostały sprawdzone statycznie pod kątem
-`-Wall -Wextra -Wpedantic -Werror` w środowisku roboczym. Fresh pełny build i
-runtime QEMU/VirtualBox nie są deklarowane jako PASS, dopóki nie zostaną
-uruchomione właściwym repozytoryjnym toolchainem.
+macOS installer ISO pozostaje osobnym, niezamkniętym torem. Nie jest wymagane do
+runtime acceptance Red Flux 3.1.
+
+## Validation state
+
+Repozytorium nie ma obecnie obowiązkowych GitHub status checks dla `main`.
+Zmiany 3.1 zostały poddane audytowi zależności, ABI i host-test compatibility,
+ale **pełny build oraz runtime QEMU na rzeczywistym Macu nie są deklarowane jako
+PASS**, dopóki nie zostaną uruchomione na właściwym macOS cross-toolchainie.
+
+Runtime acceptance 3.1 powinien potwierdzić:
+
+1. drag bez widocznego `clear -> partial frame` flickera;
+2. resize bez artefaktów;
+3. brak tekstu wychodzącego poza content bounds;
+4. Arrow/Enter/Escape/Tab w głównych aplikacjach;
+5. identyczne `help`, `calc`, `pwd`, `cat`, `run`, `jobs` itd. w console shell i GUI Terminalu;
+6. raw persistent VFS read z `/etc/system.cfg`.
 
 ## Known gaps
 
-Najważniejsze kolejne capabilities userspace: `stat/readdir`, writable VFS,
-system-info, network sockets i kontrolowany power API. Pełny compositor, resize,
-audio, recovery i szerszy hardware pozostają dalszymi etapami.
+Najważniejsze następne subsystemy:
+
+- native widget ABI i pointer widget IDs;
+- per-window surfaces + compositor damage tracking;
+- `stat/readdir/write/create/unlink/rename/mkdir/rmdir` dla Ring 3;
+- IPC/settings/notification services;
+- userspace sockets/DNS;
+- clipboard/wheel/context actions;
+- NVMe/audio/multi-monitor i real-hardware qualification;
+- dopracowany macOS installer ISO.
