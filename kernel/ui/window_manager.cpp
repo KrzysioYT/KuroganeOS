@@ -25,8 +25,11 @@ constexpr int32_t CONTROL_GAP = 4;
 constexpr int32_t CONTROL_RIGHT = 8;
 constexpr int32_t DOCK_PADDING = 12;
 constexpr int32_t DOCK_PIN_SIZE = 42;
+constexpr int32_t DOCK_HOME_WIDTH = 78;
 constexpr int32_t DOCK_PIN_GAP = 8;
 constexpr int32_t DOCK_SEPARATOR = 16;
+constexpr int32_t DESKTOP_HOME_WIDTH = 76;
+constexpr int32_t DESKTOP_HOME_HEIGHT = 78;
 constexpr int32_t RIBBON_GAP = 6;
 constexpr int32_t RIBBON_ITEM_MAX = 96;
 constexpr int32_t RIBBON_ITEM_MIN = 48;
@@ -143,11 +146,9 @@ bool is_login_surface(const Slot& slot) {
     return text_equals(slot.info.title, "KUROGANE LOGIN");
 }
 
-#ifndef KUROGANE_HOST_TEST
 bool is_home_surface(const char* title) {
     return text_equals(title, "RED FLUX HOME");
 }
-#endif
 
 Slot* login_surface() {
     Slot* login = find_by_title("KUROGANE LOGIN");
@@ -158,7 +159,8 @@ Slot* login_surface() {
 size_t exposed_window_count() {
     size_t count = 0U;
     for (size_t position = 0U; position < g_count; ++position) {
-        if (exposed(g_slots[g_order[position]])) ++count;
+        const Slot& slot = g_slots[g_order[position]];
+        if (exposed(slot) && !is_home_surface(slot.info.title)) ++count;
     }
     return count;
 }
@@ -167,7 +169,7 @@ Slot* exposed_at(size_t exposed_position) {
     size_t current = 0U;
     for (size_t position = 0U; position < g_count; ++position) {
         Slot& slot = g_slots[g_order[position]];
-        if (!exposed(slot)) continue;
+        if (!exposed(slot) || is_home_surface(slot.info.title)) continue;
         if (current++ == exposed_position) return &slot;
     }
     return nullptr;
@@ -211,7 +213,8 @@ bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
 }
 
 int32_t pinned_section_width() {
-    return static_cast<int32_t>(DOCK_PIN_COUNT) * DOCK_PIN_SIZE +
+    return DOCK_HOME_WIDTH +
+        static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_SIZE +
         static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_GAP;
 }
 
@@ -282,12 +285,31 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
 ui::Rect dock_pin_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
     if (position >= DOCK_PIN_COUNT) return {};
+    const int32_t base_x = workspace.pulse_ribbon.x + DOCK_PADDING;
+    if (position == 0U) {
+        return {
+            base_x,
+            workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
+            DOCK_HOME_WIDTH,
+            DOCK_PIN_SIZE,
+        };
+    }
     return {
-        workspace.pulse_ribbon.x + DOCK_PADDING +
-            static_cast<int32_t>(position) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
+        base_x + DOCK_HOME_WIDTH + DOCK_PIN_GAP +
+            static_cast<int32_t>(position - 1U) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
         workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
         DOCK_PIN_SIZE,
         DOCK_PIN_SIZE,
+    };
+}
+
+ui::Rect desktop_home_rect() {
+    const WorkspaceGeometry workspace = calculate_workspace();
+    return {
+        workspace.work_area.x + 20,
+        workspace.work_area.y + 22,
+        DESKTOP_HOME_WIDTH,
+        DESKTOP_HOME_HEIGHT,
     };
 }
 
@@ -381,7 +403,7 @@ size_t focused_position() {
     size_t exposed_position = 0U;
     for (size_t position = 0U; position < g_count; ++position) {
         const Slot& slot = g_slots[g_order[position]];
-        if (!exposed(slot)) continue;
+        if (!exposed(slot) || is_home_surface(slot.info.title)) continue;
         if (slot.info.id == g_focused) return exposed_position;
         ++exposed_position;
     }
@@ -587,6 +609,19 @@ void render_layers() {
     const size_t tasks = exposed_window_count();
     ui::signal_spine(workspace.signal_spine, tasks, focused_position());
 
+    const ui::Rect shortcut = desktop_home_rect();
+    const ui::Rect shortcut_icon = {
+        shortcut.x + (shortcut.width - DOCK_PIN_SIZE) / 2,
+        shortcut.y,
+        DOCK_PIN_SIZE,
+        DOCK_PIN_SIZE,
+    };
+    ui::dock_item(shortcut_icon, ui::DockIcon::Home, true, false);
+    const ui::Theme& theme = ui::default_theme();
+    graphics::draw_text(
+        shortcut.x + 20, shortcut.y + 53, "HOME",
+        theme.text, theme.desktop, 1U, true);
+
     for (size_t position = 0U; position < g_count; ++position) {
         draw_window_slot(g_slots[g_order[position]]);
     }
@@ -595,9 +630,13 @@ void render_layers() {
     for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
-        ui::dock_item(
-            dock_pin_rect(index), kDockPins[index].icon,
-            running != nullptr, active);
+        if (index == 0U) {
+            ui::button(dock_pin_rect(index), "HOME", active);
+        } else {
+            ui::dock_item(
+                dock_pin_rect(index), kDockPins[index].icon,
+                running != nullptr, active);
+        }
     }
     for (size_t position = 0U; position < tasks; ++position) {
         const Slot* slot = exposed_at(position);
@@ -655,9 +694,9 @@ Status create_window(
         return Status::InvalidArgument;
     }
 
+    const bool home = is_home_surface(title);
 #ifndef KUROGANE_HOST_TEST
     const bool login = text_equals(title, "KUROGANE LOGIN");
-    const bool home = is_home_surface(title);
     if (login) {
         purge_exposed_session();
         g_session_root_pid = process::INVALID_PROCESS_ID;
@@ -686,17 +725,17 @@ Status create_window(
     slot.info.bounds = bounds;
     slot.info.restore_bounds = bounds;
     slot.info.owner_pid = owner_pid;
-    // Legacy Ring-0 desktop surfaces are retained only so the historical
-    // boot-host self-test can complete. They never participate in the 3.2
-    // user desktop, dock, focus or hit-testing.
-    slot.info.state = owner_pid == 0U
+    // Legacy Ring-0 surfaces and the Home launcher surface start hidden. Home
+    // remains alive as the session root and is opened explicitly through the
+    // pinned Dock button or desktop shortcut instead of covering the desktop.
+    slot.info.state = (owner_pid == 0U || home)
         ? WindowState::Minimized : WindowState::Normal;
     copy_title(slot.info.title, title);
     slot.draw = draw;
     slot.input_callback = input_callback;
     slot.context = context;
     g_order[g_count++] = static_cast<uint8_t>(selected);
-    if (owner_pid != 0U) g_focused = slot.info.id;
+    if (owner_pid != 0U && !home) g_focused = slot.info.id;
     update_z_order();
     mark_full_dirty();
     *out_id = slot.info.id;
@@ -708,6 +747,16 @@ Status close(WindowId id) {
     size_t slot_index = 0U;
     Slot* slot = find(id, &slot_index);
     if (slot == nullptr) return Status::NotFound;
+
+    // Home owns the graphical session process tree. Treating its window close
+    // button as process/session termination made an ordinary UI action log the
+    // user out. Home is now a persistent shell surface: close/X/Alt+F4 hides
+    // it exactly like minimize. Logout must be a separate explicit action.
+    if (is_home_surface(slot->info.title)) {
+        if (slot->info.state == WindowState::Minimized) return Status::Ok;
+        return minimize(id);
+    }
+
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     for (size_t index = position + 1U; index < g_count; ++index) {
@@ -873,6 +922,10 @@ Status dispatch(const input::Event& event) {
         }
 
         const WindowId target = hit_test(event.x, event.y);
+        if (target == INVALID_WINDOW && login_surface() == nullptr &&
+            rect_contains(desktop_home_rect(), event.x, event.y)) {
+            return activate_dock_pin(0U);
+        }
         if (target != INVALID_WINDOW) {
             static_cast<void>(focus(target));
             Slot* slot = find(target);
