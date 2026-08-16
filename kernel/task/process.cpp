@@ -198,17 +198,14 @@ Status spawn(const char* executable, ProcessId* pid) {
     if (executable == nullptr || executable[0] != '/') {
         return Status::InvalidArgument;
     }
-#if !defined(KUROGANE_HOST_TEST)
     // 3.2 desktop ownership rule: GUI programs belong to a userspace session
     // tree. The old kernel main() still issues five anonymous /gui/* launch
     // requests for compatibility with pre-3.0 logs. Acknowledge those no-op
-    // requests without allocating process slots; real GUI launches always
-    // originate from PID1/Login/Home or descendants and therefore have a
-    // non-zero current process.
+    // requests without allocating process slots; real GUI launches originate
+    // from PID1/Login/Home or descendants and have a non-zero current process.
     if (current() == INVALID_PROCESS_ID && path_starts_with(executable, "/gui/")) {
         return Status::Ok;
     }
-#endif
     size_t index = MAX_PROCESSES;
     for (size_t candidate = 0U; candidate < MAX_PROCESSES; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
