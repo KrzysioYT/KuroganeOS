@@ -1,5 +1,7 @@
 #include "console.hpp"
 
+extern "C" bool kurogane_start_desktop_session() __attribute__((weak));
+
 namespace user::console {
 namespace {
 
@@ -20,6 +22,13 @@ void initialize() {
     g_tail = 0U;
     g_dropped = 0U;
     g_active = true;
+
+    // KuroganeOS 2.3: normal userspace boot owns a graphical session.
+    // The weak hook keeps hosted console tests independent from the desktop
+    // runtime while the kernel build resolves it from desktop_session.cpp.
+    if (kurogane_start_desktop_session != nullptr) {
+        static_cast<void>(kurogane_start_desktop_session());
+    }
 }
 
 void shutdown() {
