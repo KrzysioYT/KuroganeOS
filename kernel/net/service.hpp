@@ -27,6 +27,8 @@ const IPv4Address* dns_server();
 uint32_t lease_seconds();
 Status list_neighbors(NeighborCallback callback, void* context);
 bool physical_interface();
+bool physical_device_detected();
+Status physical_status();
 bool dhcp_configured();
 const char* interface_name();
 
