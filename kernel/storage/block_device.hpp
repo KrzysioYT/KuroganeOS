@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "../libk/status.hpp"
+#include "../core/system_metrics.hpp"
 
 namespace storage::block {
 
@@ -150,8 +151,12 @@ inline Status read_blocks(
         return status;
     }
 
-    return normalize_backend_status(
+    const Status result = normalize_backend_status(
         device->read(device->context, first_block, block_count, destination));
+    if (result == Status::Ok) {
+        system_metrics::record_disk_blocks(block_count);
+    }
+    return result;
 }
 
 inline Status write_blocks(
@@ -170,8 +175,12 @@ inline Status write_blocks(
         return status;
     }
 
-    return normalize_backend_status(
+    const Status result = normalize_backend_status(
         device->write(device->context, first_block, block_count, source));
+    if (result == Status::Ok) {
+        system_metrics::record_disk_blocks(block_count);
+    }
+    return result;
 }
 
 inline Status flush(const Device* device) {
