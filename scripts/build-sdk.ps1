@@ -95,22 +95,25 @@ if (($header -join "`n") -notmatch 'Type:\s+EXEC' -or
 [System.IO.Directory]::CreateDirectory($OverlayApps) | Out-Null
 Copy-Item -LiteralPath $exampleElf -Destination (Join-Path $OverlayApps 'external') -Force
 
+# InstallName stays FAT 8.3 compatible because install.pkg still uses the
+# intentionally small short-name filesystem contract.
 $desktopApplications = @(
-    @{ Name = 'login'; Source = 'userspace\gui\login\main.c' },
-    @{ Name = 'launcher'; Source = 'userspace\gui\launcher\main.c' },
-    @{ Name = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
-    @{ Name = 'files'; Source = 'userspace\gui\files\main.c' },
-    @{ Name = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
-    @{ Name = 'performance'; Source = 'userspace\gui\performance\main.c' },
-    @{ Name = 'browser'; Source = 'userspace\gui\browser\main.c' },
-    @{ Name = 'about'; Source = 'userspace\gui\about\main.c' },
-    @{ Name = 'settings'; Source = 'userspace\gui\settings\main.c' }
+    @{ Name = 'login'; InstallName = 'login'; Source = 'userspace\gui\login\main.c' },
+    @{ Name = 'launcher'; InstallName = 'launcher'; Source = 'userspace\gui\launcher\main.c' },
+    @{ Name = 'terminal'; InstallName = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
+    @{ Name = 'files'; InstallName = 'files'; Source = 'userspace\gui\files\main.c' },
+    @{ Name = 'sysmon'; InstallName = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
+    @{ Name = 'performance'; InstallName = 'perf'; Source = 'userspace\gui\performance\main.c' },
+    @{ Name = 'browser'; InstallName = 'browser'; Source = 'userspace\gui\browser\main.c' },
+    @{ Name = 'about'; InstallName = 'about'; Source = 'userspace\gui\about\main.c' },
+    @{ Name = 'settings'; InstallName = 'settings'; Source = 'userspace\gui\settings\main.c' }
 )
 [System.IO.Directory]::CreateDirectory($OverlayGui) | Out-Null
 foreach ($application in $desktopApplications) {
     $name = [string]$application.Name
+    $installName = [string]$application.InstallName
     $object = Join-Path $ObjectDir "gui-$name.o"
-    $elf = Join-Path $OverlayGui $name
+    $elf = Join-Path $OverlayGui $installName
     Invoke-Native $CC ($common + @(
         '-std=c11', '-I', (Join-Path $RootDir 'userspace\gui'), '-c',
         (Join-Path $RootDir ([string]$application.Source)), '-o', $object))
@@ -131,7 +134,7 @@ foreach ($application in $desktopApplications) {
         ($desktopSymbols -join "`n") -match '(?m)^\s*[1-9][0-9]*:\s+.*\bUND\b') {
         throw "Desktop SDK ELF failed validation: $name"
     }
-    Write-Host "[sdk] /gui/$name"
+    Write-Host "[sdk] /gui/$installName"
 }
 Write-Host "[sdk] sysroot: $Sysroot"
 Write-Host "[sdk] external ELF: $exampleElf"
