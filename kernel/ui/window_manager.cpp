@@ -28,6 +28,12 @@ constexpr int32_t RIBBON_ITEM_MIN = 54;
 constexpr int32_t RIBBON_PADDING = 10;
 constexpr int32_t RIBBON_SIGNAL_RESERVE = 24;
 
+enum class DirtyMode : uint8_t {
+    None = 0,
+    Content,
+    Full,
+};
+
 struct Slot {
     WindowInfo info;
     DrawCallback draw;
@@ -46,8 +52,22 @@ WindowId g_focused = INVALID_WINDOW;
 WindowId g_dragged = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
-bool g_dirty = false;
+DirtyMode g_dirty = DirtyMode::None;
 bool g_initialized = false;
+
+#ifndef KUROGANE_HOST_TEST
+bool g_cursor_visible = false;
+int32_t g_cursor_x = 0;
+int32_t g_cursor_y = 0;
+#endif
+
+void mark_content_dirty() {
+    if (g_dirty == DirtyMode::None) g_dirty = DirtyMode::Content;
+}
+
+void mark_full_dirty() {
+    g_dirty = DirtyMode::Full;
+}
 
 size_t text_length(const char* text, size_t maximum) {
     if (text == nullptr) return 0U;
@@ -270,21 +290,81 @@ Status activate_ribbon_item(size_t position) {
 }
 
 #ifndef KUROGANE_HOST_TEST
-void draw_cursor(int32_t x, int32_t y) {
-    constexpr graphics::Color outline = graphics::rgb(2U, 6U, 23U);
-    constexpr graphics::Color fill = graphics::rgb(248U, 250U, 252U);
-    constexpr graphics::Color signal = graphics::rgb(62U, 220U, 181U);
-    for (int32_t row = 0; row < 14; ++row) {
-        const int32_t width = row / 2 + 1;
-        graphics::fill_rect(x, y + row, width + 2, 1, outline);
-        if (width > 1) graphics::fill_rect(x + 1, y + row, width, 1, fill);
-    }
-    graphics::fill_rect(x + 3, y + 10, 3, 8, outline);
-    graphics::fill_rect(x + 7, y + 14, 3, 3, signal);
+void xor_pixel(int32_t x, int32_t y) {
+    if (!graphics::available() || x < 0 || y < 0 ||
+        x >= static_cast<int32_t>(graphics::width()) ||
+        y >= static_cast<int32_t>(graphics::height())) return;
+    const KuroganeFramebuffer& framebuffer = graphics::info();
+    auto* row = reinterpret_cast<uint32_t*>(
+        reinterpret_cast<uint8_t*>(framebuffer.base) +
+        static_cast<size_t>(y) * framebuffer.pitch);
+    row[x] ^= UINT32_C(0x00FFFFFF);
 }
 
-void render() {
-    ui::desktop("KUROGANE / FLUX");
+void xor_cursor_shape(int32_t x, int32_t y) {
+    for (int32_t row = 0; row < 14; ++row) {
+        const int32_t width = row / 2 + 1;
+        for (int32_t column = 0; column < width; ++column) {
+            xor_pixel(x + column, y + row);
+        }
+    }
+    for (int32_t row = 10; row < 18; ++row) {
+        for (int32_t column = 3; column < 6; ++column) {
+            xor_pixel(x + column, y + row);
+        }
+    }
+}
+
+void hide_cursor() {
+    if (!g_cursor_visible) return;
+    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    g_cursor_visible = false;
+}
+
+void show_cursor(int32_t x, int32_t y) {
+    if (g_cursor_visible) hide_cursor();
+    g_cursor_x = x;
+    g_cursor_y = y;
+    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    g_cursor_visible = true;
+}
+
+void move_cursor(int32_t x, int32_t y) {
+    if (g_cursor_visible && x == g_cursor_x && y == g_cursor_y) return;
+    hide_cursor();
+    show_cursor(x, y);
+}
+
+void draw_window_slot(Slot& slot) {
+    if (slot.info.state == WindowState::Minimized) return;
+    const ui::Rect& bounds = slot.info.bounds;
+    const ChromeGeometry chrome = calculate_chrome(bounds);
+    ui::flux_window(bounds, slot.info.title, slot.info.focused);
+    ui::flux_control(
+        chrome.minimize_control,
+        ui::FluxControl::Minimize,
+        slot.info.focused);
+    ui::flux_control(
+        chrome.expand_control,
+        ui::FluxControl::Expand,
+        slot.info.state == WindowState::Maximized);
+    ui::flux_control(
+        chrome.dismiss_control,
+        ui::FluxControl::Dismiss,
+        slot.info.focused);
+    if (slot.draw != nullptr) {
+        const ui::Rect content = {
+            bounds.x + 4,
+            bounds.y + HEADER_HEIGHT,
+            bounds.width - 8,
+            bounds.height - HEADER_HEIGHT - 4,
+        };
+        slot.draw(slot.info.id, content, slot.info.focused, slot.context);
+    }
+}
+
+void render_layers(bool clear_workspace) {
+    if (clear_workspace) ui::desktop("KUROGANE / FLUX");
     const WorkspaceGeometry workspace = calculate_workspace();
     ui::signal_spine(
         workspace.signal_spine,
@@ -292,32 +372,7 @@ void render() {
         focused_position());
 
     for (size_t position = 0U; position < g_count; ++position) {
-        Slot& slot = g_slots[g_order[position]];
-        if (slot.info.state == WindowState::Minimized) continue;
-        const ui::Rect& bounds = slot.info.bounds;
-        const ChromeGeometry chrome = calculate_chrome(bounds);
-        ui::flux_window(bounds, slot.info.title, slot.info.focused);
-        ui::flux_control(
-            chrome.minimize_control,
-            ui::FluxControl::Minimize,
-            slot.info.focused);
-        ui::flux_control(
-            chrome.expand_control,
-            ui::FluxControl::Expand,
-            slot.info.state == WindowState::Maximized);
-        ui::flux_control(
-            chrome.dismiss_control,
-            ui::FluxControl::Dismiss,
-            slot.info.focused);
-        if (slot.draw != nullptr) {
-            const ui::Rect content = {
-                bounds.x + 4,
-                bounds.y + HEADER_HEIGHT,
-                bounds.width - 8,
-                bounds.height - HEADER_HEIGHT - 4,
-            };
-            slot.draw(slot.info.id, content, slot.info.focused, slot.context);
-        }
+        draw_window_slot(g_slots[g_order[position]]);
     }
 
     ui::pulse_ribbon(workspace.pulse_ribbon, g_count);
@@ -329,7 +384,6 @@ void render() {
             slot.info.focused,
             slot.info.state == WindowState::Minimized);
     }
-    draw_cursor(input::pointer_x(), input::pointer_y());
 }
 #endif
 
@@ -351,7 +405,12 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_screen_height = static_cast<int32_t>(screen_height);
     g_focused = INVALID_WINDOW;
     g_dragged = INVALID_WINDOW;
-    g_dirty = true;
+#ifndef KUROGANE_HOST_TEST
+    g_cursor_visible = false;
+    g_cursor_x = input::pointer_x();
+    g_cursor_y = input::pointer_y();
+#endif
+    mark_full_dirty();
     g_initialized = true;
     return Status::Ok;
 }
@@ -395,7 +454,7 @@ Status create_window(
     g_order[g_count++] = static_cast<uint8_t>(selected);
     g_focused = slot.info.id;
     update_z_order();
-    g_dirty = true;
+    mark_full_dirty();
     *out_id = slot.info.id;
     return Status::Ok;
 }
@@ -414,7 +473,7 @@ Status close(WindowId id) {
     slot->occupied = false;
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
     choose_top_focus();
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -434,7 +493,7 @@ Status focus(WindowId id) {
     g_order[g_count - 1U] = static_cast<uint8_t>(slot_index);
     g_focused = id;
     update_z_order();
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -453,7 +512,7 @@ Status move(WindowId id, int32_t x, int32_t y) {
         workspace.work_area.y,
         workspace.work_area.y + workspace.work_area.height - slot->info.bounds.height);
     slot->info.restore_bounds = slot->info.bounds;
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -464,7 +523,7 @@ Status minimize(WindowId id) {
     if (slot->info.state == WindowState::Minimized) return Status::InvalidState;
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -480,7 +539,7 @@ Status maximize(WindowId id) {
     slot->info.state = WindowState::Maximized;
     slot->info.bounds = workspace.work_area;
     static_cast<void>(focus(id));
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -492,7 +551,7 @@ Status restore(WindowId id) {
     slot->info.state = WindowState::Normal;
     slot->info.bounds = slot->info.restore_bounds;
     static_cast<void>(focus(id));
-    g_dirty = true;
+    mark_full_dirty();
     return Status::Ok;
 }
 
@@ -593,24 +652,35 @@ Status dispatch(const input::Event& event) {
                event.button == drivers::mouse::Left) {
         g_dragged = INVALID_WINDOW;
     }
+
+#ifndef KUROGANE_HOST_TEST
+    if (event.type == input::EventType::MouseMove) {
+        move_cursor(event.x, event.y);
+    }
+#endif
+
     Slot* focused = find(g_focused);
     if (focused != nullptr && focused->input_callback != nullptr) {
         focused->input_callback(focused->info.id, event, focused->context);
     }
-    if (event.type == input::EventType::MouseMove ||
-        event.type == input::EventType::MouseButtonDown ||
-        event.type == input::EventType::MouseButtonUp) g_dirty = true;
     return Status::Ok;
 }
 
-void invalidate() { g_dirty = true; }
+void invalidate() {
+    // Application frame updates do not change window geometry. Repainting all
+    // layers without clearing the framebuffer prevents the visible black
+    // flash that 2.4.0 produced on every KU_SYS_UI_PRESENT.
+    mark_content_dirty();
+}
 
 bool render_if_needed() {
-    if (!g_initialized || !g_dirty) return false;
+    if (!g_initialized || g_dirty == DirtyMode::None) return false;
 #ifndef KUROGANE_HOST_TEST
-    render();
+    hide_cursor();
+    render_layers(g_dirty == DirtyMode::Full);
+    show_cursor(input::pointer_x(), input::pointer_y());
 #endif
-    g_dirty = false;
+    g_dirty = DirtyMode::None;
     return true;
 }
 
