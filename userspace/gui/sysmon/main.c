@@ -1,5 +1,7 @@
 #include "../common.h"
 
+#define MONITOR_REFRESH_TICKS 100U
+
 int main(void) {
     const ku_window_t window = gui_open("SYSTEM MONITOR", 30, 65, 470, 280);
     if (window == KU_INVALID_WINDOW) return 1;
@@ -23,7 +25,7 @@ int main(void) {
         frame.progress_value = heartbeat;
         frame.progress_maximum = 100U;
         (void)kui_present(window, &frame);
-        for (uint32_t tick = 0U; tick < 10U; ++tick) {
+        for (uint32_t tick = 0U; tick < MONITOR_REFRESH_TICKS; ++tick) {
             ku_ui_event event;
             const int available = kui_next_event(window, &event);
             if (available < 0 || (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
