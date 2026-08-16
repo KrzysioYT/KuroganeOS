@@ -41,6 +41,16 @@ void clear_bytes(void* destination, size_t size) {
     }
 }
 
+bool path_starts_with(const char* path, const char* prefix) {
+    if (path == nullptr || prefix == nullptr) return false;
+    size_t index = 0U;
+    while (prefix[index] != '\0') {
+        if (path[index] != prefix[index]) return false;
+        ++index;
+    }
+    return true;
+}
+
 bool copy_path(char* destination, const char* source, size_t capacity) {
     if (source == nullptr || source[0] != '/') {
         return false;
@@ -188,6 +198,15 @@ Status spawn(const char* executable, ProcessId* pid) {
     if (executable == nullptr || executable[0] != '/') {
         return Status::InvalidArgument;
     }
+#if !defined(KUROGANE_HOST_TEST)
+    // 3.2 desktop ownership rule: GUI programs belong to a userspace session
+    // tree. Anonymous Ring-0 callers may start services/console utilities, but
+    // may not inject windows ahead of Login/Home. This also retires the old
+    // kernel main() five-GUI autospawn without creating zombie process slots.
+    if (current() == INVALID_PROCESS_ID && path_starts_with(executable, "/gui/")) {
+        return Status::PermissionDenied;
+    }
+#endif
     size_t index = MAX_PROCESSES;
     for (size_t candidate = 0U; candidate < MAX_PROCESSES; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
