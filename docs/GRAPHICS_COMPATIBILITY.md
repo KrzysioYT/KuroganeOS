@@ -1,108 +1,110 @@
-# KuroganeOS Graphics Compatibility
+# KuroganeOS Graphics Compatibility — 3.3.3-dev
 
-## Ważne: DirectX a KuroganeOS
+## Stan faktyczny
 
-Direct3D 11 i Direct3D 12 są API środowiska Windows. KuroganeOS nie jest
-Windowsem i nie może uczciwie deklarować pełnego DirectX 11/12 tylko dlatego,
-że ma framebuffer albo podobne nazwy funkcji.
+KuroganeOS 3.3.3-dev rozpoznaje teraz kontroler klasy **PCI Display (0x03)** i
+rejestruje go w centralnym Driver Managerze jako `redflux-display`.
 
-Dlatego 3.3.1-dev rozdziela trzy rzeczy:
-
-1. **Kurogane native graphics API** — własny publiczny kontrakt dla aplikacji;
-2. **software renderer / framebuffer backend** — obecny fundament;
-3. **future Direct3D compatibility layer** — warstwa zgodności/translacji,
-   która ma mapować wybrany podzbiór zachowania D3D na Kurogane Graphics.
-
-## Stan 3.3.1-dev
-
-Dostępne:
-
-- UEFI GOP framebuffer;
-- software backbuffer;
-- 2D primitives/text/UI;
-- damage-style scanout;
-- WindowManager/compositor foundation;
-- publiczny Ring-3 UI ABI.
-
-Nie jest jeszcze dostępne:
-
-- pełne DXGI;
-- `d3d11.dll` / `d3d12.dll` zgodne binarnie z Windows;
-- HLSL compiler/runtime;
-- shader model 5/6;
-- GPU command queues;
-- descriptor heaps;
-- resource barriers;
-- pełne D3D feature levels;
-- sterownik GPU klasy WDDM.
-
-## Dlaczego nie oznaczamy tego jako "DirectX 12 supported"
-
-Direct3D 12 wymaga znacznie więcej niż rysowania pikseli: urządzeń, adapterów,
-zasobów GPU, kolejek poleceń, synchronizacji CPU/GPU, shaderów i zarządzania
-stanem zasobów. Direct3D 11 ma dodatkowo własny runtime i model context/device.
-
-Fałszywe oznaczenie `DX12 READY` utrudniłoby rozwój, bo programista dostałby
-nagłówki, które kompilują program, ale nie zapewniają semantyki API.
-
-## Plan kompatybilności
-
-Docelowy model:
+Warstwa graficzna potrafi rozróżnić:
 
 ```text
-Direct3D-like compatibility API
-        |
-        +-- D3D9/10/11 compatibility frontend
-        |
-        +-- D3D12 compatibility frontend
-        |
-        v
-Kurogane Graphics Runtime
-        |
-        +-- software backend
-        +-- future accelerated GPU backend
+PCI display adapter detected
+UEFI GOP scanout available
+Red Flux software compositor available
+hardware accelerated 3D available
 ```
 
-### Etap A — native Kurogane Graphics
+W 3.3.3 ostatnia flaga pozostaje **false**, dopóki nie istnieje prawdziwy
+sterownik command-submission dla konkretnego GPU.
 
-- surface/image objects;
+## Co działa
+
+- UEFI GOP framebuffer;
+- wykrywanie PCI display adaptera;
+- driver-manager binding dla urządzenia display;
+- software backbuffer;
+- damage-style GOP scanout;
+- clipping i 2D primitives;
+- Red Flux WindowManager/compositor;
+- Ring-3 GUI ABI;
+- live `GPU/GFX` activity oparta o rzeczywiste submissiony compositora.
+
+> `GPU/GFX %` w aplikacji Performance oznacza aktywność obecnego stosu
+> GOP/software-compositor. Nie jest to licznik wykorzystania rdzeni fizycznego
+> GPU i interfejs użytkownika mówi o tym wprost.
+
+## DirectX 9 / 11 / 12
+
+Direct3D 9, 11 i 12 **nie są jeszcze oznaczone jako zgodne**. DirectX jest
+rodziną API Windows, a pełna kompatybilność wymaga znacznie więcej niż
+framebuffer lub zestaw funkcji o podobnych nazwach.
+
+Do prawdziwej implementacji potrzebne są między innymi:
+
+- adapter/device abstraction;
+- buffers, textures i resource lifetime;
+- render targets i depth/stencil;
 - swap/present;
+- vertex/index input;
+- shader runtime i odpowiednia translacja shaderów;
+- command submission;
+- synchronization/fences;
+- blend/raster/depth states;
+- D3D11 context semantics;
+- D3D12 command queues/lists, barriers i descriptors;
+- sprzętowy backend GPU albo kompletny software rasterizer.
+
+KuroganeOS nie będzie zwracał fałszywego sukcesu z funkcji w rodzaju
+`D3D12CreateDevice()` bez implementacji wymaganej semantyki.
+
+## Docelowy model
+
+```text
+D3D9 compatibility frontend  ---\
+D3D11 compatibility frontend ----> Kurogane Graphics Runtime
+D3D12 compatibility frontend ---/            |
+                                              +-- software 3D backend
+                                              +-- accelerated GPU backend
+```
+
+### Etap 1 — Kurogane Graphics Runtime
+
+- surface/image handles;
 - buffers/textures;
-- command buffer;
-- basic rasterization;
-- clipping/scissor;
-- blend states;
-- resource lifetime handles.
-
-### Etap B — software 3D
-
-- vertex buffers;
-- indexed triangles;
+- command buffers;
 - viewport/scissor;
+- raster/depth/blend states;
+- swap/present;
+- synchronization handles.
+
+### Etap 2 — software 3D
+
+- vertex/index buffers;
+- triangles;
 - depth buffer;
 - texture sampling;
-- fixed/simple programmable shading subset.
+- prosty shader/intermediate representation.
 
-### Etap C — Direct3D compatibility
+### Etap 3 — hardware backend
 
-- feature mapping;
-- error/result mapping;
-- adapter/device abstraction;
-- D3D11-style immediate/deferred command translation;
-- D3D12-style explicit resource/command model where backend allows it.
+Pierwszy backend powinien celować w konkretny, dobrze udokumentowany adapter
+wirtualny/fizyczny zamiast próbować jednocześnie obsłużyć wszystkie GPU.
+Dopiero po realnym command submission `accelerated_3d` może zostać ustawione na
+`true`.
 
-## Feature-level policy
+### Etap 4 — D3D compatibility
 
-KuroganeOS nie będzie zgłaszać feature level, którego realnie nie implementuje.
-Compatibility layer ma zwracać `not supported` zamiast udawać poprawne
-renderowanie.
+Warstwa D3D mapuje feature levels i zachowanie API na Kurogane Graphics.
+Nieobsługiwane funkcje mają zwracać `not supported`, a nie renderować
+niepoprawny wynik.
 
 ## Dla programistów
 
-Dzisiaj pisz aplikacje pod natywne API KuroganeOS. Nie linkuj aplikacji
-KuroganeOS bezpośrednio z bibliotekami Windows SDK.
+Obecnie aplikacje powinny używać natywnego GUI KuroganeOS. Binaria Windows i
+biblioteki Windows SDK nie są natywnym ABI KuroganeOS.
 
 Zobacz:
 
 - [`DEVELOPERS/API_REFERENCE.md`](DEVELOPERS/API_REFERENCE.md)
 - [`DEVELOPERS/GUI_APPLICATIONS.md`](DEVELOPERS/GUI_APPLICATIONS.md)
+- [`releases/3.3.3-dev.md`](releases/3.3.3-dev.md)
