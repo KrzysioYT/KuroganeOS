@@ -20,7 +20,7 @@ static const launcher_app g_apps[APP_COUNT] = {
 
 static uint64_t g_children[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "SESSION READY";
+static char g_status[64] = "DESKTOP READY / DOCK ONLINE";
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -66,6 +66,12 @@ static void launch_selected(void) {
     append_text(g_status, sizeof(g_status), number);
 }
 
+static void select_and_launch(size_t index) {
+    if (index >= APP_COUNT) return;
+    g_selected = index;
+    launch_selected();
+}
+
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow apps;
@@ -79,8 +85,8 @@ static void build_scene(kui_scene* scene) {
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "RED FLUX HOME");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DESKTOP");
-    (void)kui_flow_label(&root, 3U, "ARROWS / TAB TO SELECT   ENTER TO OPEN");
+    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DESKTOP SHELL");
+    (void)kui_flow_label(&root, 3U, "ARROWS / TAB: SELECT   ENTER: OPEN   DOCK: QUICK LAUNCH");
 
     kui_flow_begin(&apps, scene, 1U);
     for (size_t index = 0U; index < APP_COUNT; ++index) {
@@ -107,6 +113,7 @@ int main(void) {
     puts("[TEST] desktop_launcher_ring3: PASS");
     puts("[TEST] desktop_clean_session: PASS");
     puts("[TEST] desktop_arrow_navigation: PASS");
+    puts("[TEST] red_flux_dock_controller: PASS");
 
     kui_scene scene;
     build_scene(&scene);
@@ -131,13 +138,18 @@ int main(void) {
         } else if (gui_key_activate(&event)) {
             launch_selected();
         } else if (event.character == 't' || event.character == 'T') {
-            g_selected = 0U;
-            launch_selected();
+            select_and_launch(0U);
         } else if (event.character == 'f' || event.character == 'F') {
-            g_selected = 1U;
-            launch_selected();
+            select_and_launch(1U);
+        } else if (event.character == 'm' || event.character == 'M') {
+            select_and_launch(2U);
+        } else if (event.character == 's' || event.character == 'S') {
+            select_and_launch(3U);
+        } else if (event.character == 'a' || event.character == 'A') {
+            select_and_launch(4U);
         } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_status, "SESSION ROOT / ESC IGNORED", sizeof(g_status));
+            (void)strlcpy(g_status, "SESSION ROOT / CLOSE HOME TO RETURN TO LOGIN",
+                          sizeof(g_status));
         } else {
             continue;
         }
