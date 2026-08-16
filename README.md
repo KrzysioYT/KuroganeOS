@@ -147,6 +147,17 @@ TCG.
 
 ## Build — Windows
 
+> [!IMPORTANT]
+> **Windows wymaga dodatkowych plików build toolchainu, których nie ma w repozytorium.**
+> Bez nich `build.ps1`, SDK oraz generowanie plików systemowych nie będą działać.
+> Pobierz wymagane pliki z Google Drive:
+> **[KuroganeOS — wymagane pliki build dla Windows](https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing)**.
+> Po pobraniu skopiuj/wypakuj zawartość do **głównego katalogu repozytorium
+> KuroganeOS**, zachowując strukturę katalogów. Windowsowy build oczekuje m.in.
+> lokalnego toolchainu w `tools/compiler/x86_64-elf/bin/`.
+
+Po dodaniu wymaganych plików:
+
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
 ```
