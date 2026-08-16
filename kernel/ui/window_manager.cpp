@@ -8,8 +8,8 @@ namespace windowing {
 namespace {
 
 constexpr int32_t HEADER_HEIGHT = 36;
-constexpr int32_t MINIMUM_WIDTH = 220;
-constexpr int32_t MINIMUM_HEIGHT = 140;
+constexpr int32_t MINIMUM_WIDTH = 260;
+constexpr int32_t MINIMUM_HEIGHT = 160;
 constexpr int32_t WORKSPACE_LEFT = 34;
 constexpr int32_t WORKSPACE_TOP = 42;
 constexpr int32_t WORKSPACE_RIGHT = 12;
@@ -365,7 +365,7 @@ void draw_window_slot(Slot& slot) {
             chrome.resize_grip.y + 6,
             8,
             8,
-            graphics::rgb(74, 222, 190),
+            graphics::rgb(224, 26, 48),
             1U);
     }
     if (slot.draw != nullptr) {
@@ -375,16 +375,19 @@ void draw_window_slot(Slot& slot) {
             bounds.width - 8,
             bounds.height - HEADER_HEIGHT - 4,
         };
+        graphics::set_clip(
+            content.x, content.y, content.width, content.height);
+        graphics::set_text_scale_limit(content.width >= 800 ? 2U : 1U);
         slot.draw(slot.info.id, content, slot.info.focused, slot.context);
+        graphics::reset_text_scale_limit();
+        graphics::reset_clip();
     }
 }
 
 void render_layers() {
-    // 3.0.1 deliberately repaints a complete coherent desktop whenever state
-    // changes. 2.4.1's incremental-on-old-frame shortcut caused ghosting and
-    // duplicated text. There is no timer-driven repaint, so this is stable
-    // until the later compositor introduces a real backbuffer/damage model.
-    ui::desktop("KUROGANE / FLUX");
+    graphics::reset_clip();
+    graphics::reset_text_scale_limit();
+    ui::desktop("KUROGANE / RED FLUX");
     const WorkspaceGeometry workspace = calculate_workspace();
     ui::signal_spine(workspace.signal_spine, g_count, focused_position());
 
@@ -684,9 +687,6 @@ Status dispatch(const input::Event& event) {
 }
 
 void invalidate() {
-    // A userspace present changes pixels inside a window. Until the compositor
-    // has a real off-screen backbuffer, the only correct immediate-mode result
-    // is a coherent full desktop repaint. This removes 2.4.x ghost trails.
     mark_full_dirty();
 }
 
@@ -694,7 +694,9 @@ bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
+    const bool buffered = graphics::begin_frame();
     render_layers();
+    if (buffered) graphics::end_frame();
     show_cursor(input::pointer_x(), input::pointer_y());
 #endif
     g_dirty = DirtyMode::None;
