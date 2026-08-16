@@ -4,94 +4,63 @@ Data: 16 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **2.1.1** jest poprawką developerską do Installable System Release 2.1. System nadal obejmuje UEFI boot, procesy Ring 3, PID 1, SATA/AHCI, GPT, writable FAT32/VFS i instalator, a 2.1.1 dodaje równoległy, natywny backend developerski dla macOS.
+KuroganeOS **2.2.0** jest patchem Desktop Developer Preview na instalowalnym
+fundamencie 2.1/2.1.1. Storage, installer oraz macOS backend nie są zastępowane;
+2.2 koncentruje się na warstwie użytkowej, shellu i spójności dokumentacji.
 
-## Working in current source
+## Working foundation
 
-- profile `debug`, `release` i `test`;
-- Windows: `scripts/build.ps1`, repozytoryjny toolchain `.exe`, WSL/QEMU;
-- macOS: `scripts/build-macos.sh`, Homebrew `x86_64-elf-*`, natywne Bash/Python i QEMU;
-- host-aware Makefile zachowujący oba backendy;
-- własny UEFI `BOOTX64.EFI` i boot protocol v3;
-- czteropoziomowe page tables, własny VMM, GDT/TSS/IST i IDT;
-- Ring 3, `int 0x80`, prywatne przestrzenie adresowe i ELF64 userspace;
-- process spawn/wait/exit, osobne stosy oraz timer preemption;
-- `/system/init` jako PID 1 i userspace console;
-- PCI, ACPI MADT, APIC discovery oraz fallback PIC;
-- PS/2 keyboard, PS/2 mouse i wspólna kolejka input;
-- SATA/AHCI read/write/flush;
-- GPT read/write oraz protective MBR;
-- writable FAT32 i persistent root przez VFS;
-- SDK: `crt0`, `libc`, `libkurogane`, `libui`, external app i desktop apps;
-- macOS helper do budowania własnych aplikacji C/C++ i trwały staging `state/macos-apps/`;
-- userspace `run <path>` do uruchamiania własnych ELF-ów;
-- macOS Foundation GPT/FAT32 image oraz QEMU smoke-test z E1000 i serial logiem;
-- installer package z bootloaderem, kernelem i userspace rootfs;
-- safe mode, diagnostics, QEMU helper Windows/macOS oraz VirtualBox helper Windows.
+- UEFI `BOOTX64.EFI`, boot protocol v3;
+- VMM, GDT/TSS/IST, IDT;
+- Ring 3, `int 0x80`, ELF64, PID/TID;
+- process spawn/wait/exit i PIT preemption;
+- `/system/init` PID 1;
+- AHCI, GPT, writable FAT32/VFS, persistent root;
+- installer + boot z HDD;
+- PS/2 keyboard/mouse, PCI, ACPI/APIC;
+- WindowManager i GUI Ring 3;
+- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU workflow.
 
-## Existing QEMU evidence for the 2.1 foundation
+## 2.2 changes
 
-Commitowane logi z implementacji 2.1 dokumentują działający scenariusz instalacyjny:
+- wersja 2.2.0;
+- Kurogane Flux visual language dla framebuffer desktopu;
+- Flux Console jako rozbudowany Ring-3 shell;
+- `run <name|path>`, `open`, `gui`, `jobs`, `wait`;
+- realne `cat/read`, PID/TID, history, cwd, calc, sleep/yield;
+- diagnostyczne skróty do Ring-3 System Monitor;
+- jawne raportowanie brakujących capability syscalli zamiast `command not found`;
+- aktualizacja dokumentów, które nadal opisywały stan 1.0 jako bieżący.
 
-- `build/logs/installer-first-boot-serial.log` — start środowiska i PID 1;
-- `build/logs/installer-deploy-serial.log` — SATA target, GPT, FAT32, kopiowanie i weryfikacja;
-- `build/logs/installer-second-boot-serial.log` — persistent root, `/system/init`, PID 1 i userspace console.
+## Build
 
-Te logi pozostają dowodem działania bazowego systemu 2.1, ale nie są dowodem wykonania nowego backendu macOS 2.1.1.
+Windows:
 
-## macOS 2.1.1 workflow
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
+```
 
-Przygotowanie:
+macOS:
 
 ```bash
 ./scripts/setup-macos.sh --install
-```
-
-Build:
-
-```bash
-./scripts/build-macos.sh --configuration debug
-```
-
-Test:
-
-```bash
-./scripts/run-qemu-macos.sh
-```
-
-Własna aplikacja:
-
-```bash
-./scripts/build-app-macos.sh app.c -o app --install
-./scripts/build-macos.sh --configuration debug --stage-only
+./scripts/build-macos.sh --configuration debug --rebuild
 ./scripts/run-qemu-macos.sh --display
 ```
 
-Po starcie:
+Ponieważ skrypty pobierają wersję z `common/version.h`, artefakty po tym patchu
+używają numeru `2.2.0`.
 
-```text
-run /apps/app
-```
+## Validation
 
-Szczegóły: [MACOS_DEVELOPMENT.md](MACOS_DEVELOPMENT.md).
+Zmiany Flux Console i renderera zostały sprawdzone statycznie pod kątem
+`-Wall -Wextra -Wpedantic -Werror` w środowisku roboczym. Fresh pełny build i
+runtime QEMU/VirtualBox nie są deklarowane jako PASS, dopóki nie zostaną
+uruchomione właściwym repozytoryjnym toolchainem.
 
-## Validation status for 2.1.1
+## Known gaps
 
-Patch został przeaudytowany pod kątem zgodności ścieżek Windows/macOS oraz zachowania tego samego formatu artefaktów x86-64. Zależności Homebrew są dostępne dla macOS, ale finalny build i QEMU runtime nowych skryptów muszą zostać wykonane na rzeczywistym Macu. Środowisko wykonujące zmianę w repozytorium nie jest hostem macOS, dlatego sam commit nie jest oznaczany jako świeży macOS runtime PASS.
-
-Akceptacja 2.1.1 na Macu wymaga:
-
-1. `./scripts/setup-macos.sh` — PASS;
-2. `./scripts/build-macos.sh --configuration debug --rebuild` — PASS;
-3. obecności `dist/KuroganeOS-2.1.1-macos-qemu.img`;
-4. `./scripts/run-qemu-macos.sh` — `userspace_init_spawn: PASS` oraz `ALL_REQUIRED_TESTS_PASSED`;
-5. opcjonalnie zbudowania własnej aplikacji i uruchomienia jej przez `run /apps/<name>`.
-
-## Known limitations
-
-- pełny recovery environment nadal nie jest zaimplementowany; dostępne są safe mode i diagnostics;
-- VirtualBox end-to-end install wymaga osobnej weryfikacji w środowisku z `VBoxManage`;
-- real-hardware UEFI pozostaje słabiej zweryfikowany niż QEMU;
-- NVMe, audio i szersza obsługa współczesnego sprzętu nie są kompletne;
-- desktop i publiczne ABI/SDK pozostają eksperymentalne;
-- na Apple Silicon KuroganeOS x86-64 jest emulowany przez QEMU TCG, a nie wykonywany jako natywny ARM guest.
+Najważniejsze kolejne capabilities userspace: `stat/readdir`, writable VFS,
+system-info, network sockets i kontrolowany power API. Pełny compositor, resize,
+audio, recovery i szerszy hardware pozostają dalszymi etapami.

@@ -4,6 +4,41 @@
 
 - No unreleased changes yet.
 
+## 2.2.0 - 2026-08-16
+
+### Desktop Developer Preview
+
+- Promoted the experimental desktop work into the KuroganeOS 2.2 Desktop Developer Preview.
+- Introduced the **Kurogane Flux** framebuffer visual language with a signal spine, asymmetric surfaces, status nodes, segmented progress indicators and a floating pulse ribbon instead of a conventional desktop taskbar/dock presentation.
+- Preserved WindowManager focus, z-order, dragging, minimize, maximize/restore, close, Alt+Tab and Alt+F4 behavior while changing the presentation layer.
+- Removed the stale visual identity that still presented the GUI terminal as "KuroganeOS 2.0 Desktop Alpha".
+
+### Flux Console
+
+- Replaced the tiny Ring-3 ABI probe shell with a usable Flux Console.
+- Added `run <name|path>`, `open`, `gui`, `apps`, `which`, `jobs` and `wait` workflows.
+- Added PID/TID display, command status, volatile history, logical CWD, `cat/read`, `echo`, overflow-checked `calc`, `sleep`, `yield`, `true` and `false`.
+- Added tracked background child processes with periodic reap behavior instead of intentionally leaking finished children as shell zombies.
+- Added developer diagnostic shortcuts for memory/process/device/storage views through the Ring-3 System Monitor.
+- Legacy privileged command names now report the missing Ring-3 capability instead of being indistinguishable from unknown commands.
+- Kept the emergency kernel developer console separate rather than introducing an unsafe generic "execute kernel shell command" syscall.
+
+### GUI Terminal
+
+- Reworked the Ring-3 terminal surface around the Flux identity.
+- Added `version`, `pid`, `apps`, `run`, `gui`, `jobs`, `echo`, `about` and `clear` commands.
+- Added background child tracking/reaping for applications launched from the GUI terminal.
+
+### Documentation repair
+
+- Replaced stale documentation that still described KuroganeOS 1.0 as the current release and claimed that Ring 3, processes, syscalls, persistent storage, mouse input and the WindowManager did not exist.
+- Updated userspace, desktop roadmap, desktop release status, current limitations, build status, macOS workflow, installation and VirtualBox documentation for the 2.2 source tree.
+
+### Compatibility
+
+- Storage, installer, UEFI boot and the macOS development backend from 2.1/2.1.1 remain the foundation of 2.2.
+- No generic privileged command bridge was added to the userspace ABI.
+
 ## 2.1.1 - 2026-08-16
 
 ### macOS development support
@@ -57,13 +92,13 @@
 ### Release and testing
 
 - Bumped the product version to KuroganeOS 2.1.
-- Added canonical versioned installer output at `dist/KuroganeOS-2.1-x86_64.iso`.
+- Added canonical versioned installer output under `dist/`.
 - Added `dist/SHA256SUMS.txt` generation for the release ISO.
 - Kept a generated root `kurogane.iso` only as a compatibility artifact for existing emulator helpers.
 - Added generated-artifact ignores so build images and emulator state are not treated as source files.
 - Corrected required-test ordering so global success is emitted only after the required PID 1 userspace start succeeds.
 - The committed QEMU installer logs cover installer-medium boot, deployment to a blank AHCI disk and the subsequent installed-system boot.
-- VirtualBox has an EFI/AHCI smoke-test helper and documented manual installation acceptance flow; an end-to-end VirtualBox installation must not be claimed as automatically verified unless it is actually run in an environment with `VBoxManage`.
+- VirtualBox has an EFI/AHCI smoke-test helper and documented manual installation acceptance flow.
 
 ### Licensing
 

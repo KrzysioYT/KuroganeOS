@@ -1,97 +1,127 @@
-# Userspace, ABI i shell
+# Userspace, ABI i Flux Console — KuroganeOS 2.2
 
-## Najważniejszy fakt
+## Aktualny model wykonania
 
-KuroganeOS **nie ma obecnie userspace**. Nie istnieją procesy ring 3, przełączanie kontekstu, syscalle, loader programów, dynamiczne linkowanie, osobne przestrzenie adresowe ani izolacja uprawnień. Nazwy „aplikacja”, „task”, „ABI” i „SDK” opisują przygotowane interfejsy lub kod ring 0, a nie działający model programów użytkownika.
+KuroganeOS posiada działający userspace x86-64. Dokument zastępuje stary opis
+z czasów 1.0, który błędnie twierdził, że Ring 3 i procesy nie istnieją.
 
-| Element | Gdzie się wykonuje | Stan |
-| --- | --- | --- |
-| Shell | ring 0, główna pętla kernela | działa interaktywnie |
-| Callback schedulera | ring 0, na stosie pętli kernela | działa kooperacyjnie |
-| `desktop`/`monitor`/`files`/`about` | ring 0, przez callbacki aplikacji | działają jako pełnoekranowe widoki |
-| Program wygenerowany przez SDK | tylko kompilacja obiektu na hoście | nie można go zlinkować ani uruchomić w KuroganeOS |
+Aktualnie zaimplementowane są:
 
-## Deskryptor ABI
+- prywatne przestrzenie adresowe procesów;
+- ELF64 ET_EXEC loader;
+- `/system/init` jako PID 1;
+- procesy i wątki z PID/TID;
+- timer preemption;
+- syscall gate `int 0x80`;
+- spawn/wait/exit;
+- read-only file handles;
+- pamięć użytkownika alloc/free;
+- sleep/yield;
+- tworzenie, prezentacja i eventy okien GUI;
+- aplikacje Ring 3 budowane tym samym SDK na Windows i macOS.
 
-`abi` w shellu pokazuje aktualny `ku_abi_descriptor`:
+## Start userspace
 
-- wersja ABI 1.0;
-- struktura 48 bajtów;
-- architektura x86-64;
-- rozmiar strony 4096;
-- `available_features == 0`;
-- `application_transport_available() == false`.
-
-Lista flag w `sdk/include/kurogane/abi.h` jest planowanym słownikiem możliwości. Sama obecność `KU_ABI_FEATURE_PROCESSES`, `FILES`, `GUI` itd. nie oznacza implementacji — kernel nie ustawia żadnej z tych flag.
-
-## Eksperymentalny SDK
-
-`scripts/build-sdk.sh` kopiuje publiczne nagłówki do `build/sdk/sysroot` i kompiluje przykład `abi-inspect` do obiektu. Generator:
-
-```bash
-python3 scripts/create-sdk-project.py --list-templates
-python3 scripts/create-sdk-project.py --template console --name demo --output /tmp/demo
-```
-
-obsługuje szablony `console`, `gui` i `service` jako **compile-only capability probes**. Manifest wygenerowanego projektu jawnie ustawia `runtime_supported: false` oraz `link_supported: false`. Szablon sterownika jest celowo odrzucany, ponieważ nie ma ABI modułów kernela.
-
-Szczegóły nagłówków opisuje również [SDK.md](SDK.md).
-
-## Shell
-
-Shell czyta znaki z bufora klawiatury w głównej pętli kernela. Linia ma maksymalnie 255 znaków, parser przyjmuje do 16 argumentów rozdzielonych białymi znakami i nie implementuje cudzysłowów ani escape sequences. Historia jest ulotnym ringiem 16 linii.
-
-Prompt zawiera kanoniczny CWD:
+Normalny boot:
 
 ```text
-kurogane:/ $
-kurogane:/home $
+kernel
+  -> /system/init (PID 1)
+  -> /apps/shell
+  -> Flux Console
 ```
 
-### Informacja i diagnostyka
+Tryb desktop dodatkowo uruchamia WindowManager oraz aplikacje `/gui/*`.
+Safe mode pozostawia awaryjny kernel developer console i nie jest zwykłą sesją
+userspace.
+
+## Syscall ABI
+
+Publiczne numery znajdują się w `sdk/include/kurogane/syscall.h`.
+Aktualna powierzchnia obejmuje:
 
 ```text
-help clear version uname abi echo date uptime
-mem free pci net [ping] tasks history whoami
+exit write getpid read open close alloc free sleep yield gettid
+spawn wait ui_create ui_present ui_poll ui_close
 ```
 
-`free` jest aliasem `mem`. `tasks` pokazuje callbacki schedulera, nie procesy systemowe; nazwa `ps` jest zarezerwowana dla przyszłej, prawdziwej tabeli procesów. `whoami` wypisuje `kernel`, co celowo ujawnia brak użytkowników.
+`open` jest obecnie read-only. Brak `readdir/stat/write/create/unlink` w ABI jest
+świadomym ograniczeniem i powodem, dla którego nie wszystkie stare polecenia
+kernel shella są jeszcze dostępne jako pełne Ring-3 implementacje.
 
-### RAMFS
+## Flux Console 2.2
+
+Prompt:
 
 ```text
-pwd cd <path> ls [path] cat <path> stat <path>
-touch <path> mkdir <path> rmdir <path>
-write <path> <text> cp <src> <dst> mv <src> <dst>
-rm [-r] <path>
+KRG::/ >
+KRG::/apps >
 ```
 
-Ścieżki względne oraz `.`/`..` są obsługiwane przez warstwę CWD shella. Zachowanie i limity opisuje [FILESYSTEM.md](FILESYSTEM.md).
+Powłoka posiada historię, status ostatniej komendy, logiczny CWD, uruchamianie
+ELF, foreground wait i ograniczoną tabelę zadań w tle.
 
-### Aplikacje i pozostałe polecenia
+### Workspace
+
+```text
+help clear version uname pid whoami status history jobs
+pwd cd <path> cat <path> read <path> which <name>
+```
+
+`cat/read` korzysta z read-only VFS handle syscall. `cd` utrzymuje logiczny CWD;
+do czasu dodania `stat/readdir` userspace nie może jeszcze potwierdzić typu
+katalogu tak dokładnie jak kernel developer console.
+
+### Uruchamianie aplikacji
 
 ```text
 apps
-run <app>
-gui
-calc <number> <+|-|*|/|%> <number>
-reboot
-poweroff
-shutdown
+run <name|/path>
+open <name|/path>
+gui <terminal|files|sysmon|settings|about>
+jobs
+wait <pid>
 ```
 
-`gui` uruchamia `desktop`; `shutdown` jest aliasem `poweroff`. W safe mode lista aplikacji jest pusta, więc `gui` i `run` zgłaszają brak wpisu. `net ping` działa wyłącznie przez loopback i w safe mode zgłasza niezainicjalizowany stos.
+`run test` oznacza `/apps/test`. `run /system/tool` używa dokładnej ścieżki.
+`open`/`gui` rejestrują PID w małej tabeli jobów i shell okresowo wywołuje
+`wait`, aby sprzątać zakończone dzieci.
 
-## Brakujące funkcje powłoki i procesu
+### Utility
 
-Nie ma:
+```text
+echo <text>
+calc <a> <+|-|*|/|%> <b>
+sleep <ticks>
+yield
+true
+false
+exit
+```
 
-- uruchamiania plików wykonywalnych ani procesu `init`;
-- `fork`/`exec`, wątków, sygnałów, PID i oczekiwania na dziecko;
-- potoków, przekierowań, zadań w tle i job control;
-- zmiennych środowiskowych, skryptów shellowych, globów i cytowania argumentów;
-- użytkowników, grup, logowania i uprawnień;
-- prawdziwego `kill`, `mount`, `unmount`, terminali procesowych lub wielu sesji;
-- menedżera pakietów i trwałego katalogu domowego.
+`calc` posiada kontrolę dzielenia przez zero i signed overflow.
 
-Planowana kolejność prac znajduje się w [PROJECT_AUDIT.md](PROJECT_AUDIT.md), a bieżące braki w [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md).
+### Skróty diagnostyczne
+
+```text
+mem free tasks pci device driver diskinfo
+```
+
+W 2.2 prowadzą do Ring-3 System Monitor surface zamiast udawać bezpośredni
+Ring-0 odczyt.
+
+## Polecenia jeszcze nieprzeniesione
+
+Stary kernel developer console nadal posiada m.in. pełniejsze VFS mutations,
+network diagnostics, RTC/platform i reboot/poweroff. Flux Console rozpoznaje
+te nazwy i raportuje brak dedykowanego capability syscall.
+
+Nie dodajemy ogólnego syscalla wykonującego arbitralne polecenie kernela, bo
+zniweczyłby izolację Ring 3. Zamiast tego brakujące funkcje będą trafiały do ABI
+jako ograniczone capabilities (`readdir`, `stat`, system-info, network, power).
+
+## Kernel developer console
+
+Awaryjny shell Ring 0 nadal istnieje dla safe mode i debugowania kernela.
+Posiada bogatszy zestaw niskopoziomowych poleceń. Nie jest to jednak docelowa
+powłoka użytkownika i nie należy mieszać jego uprawnień z Flux Console.
