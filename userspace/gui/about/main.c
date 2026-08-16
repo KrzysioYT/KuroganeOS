@@ -2,21 +2,41 @@
 #include "../../../common/version.h"
 
 int main(void) {
-    const ku_window_t window = gui_open("ABOUT KUROGANEOS", 280, 175, 470, 260);
+    const ku_window_t window = gui_open("ABOUT KUROGANEOS", 280, 175, 470, 290);
     if (window == KU_INVALID_WINDOW) return 1;
-    ku_ui_frame frame;
-    kui_frame_initialize(&frame);
-    (void)kui_frame_set_line(&frame, 0U, "KUROGANEOS " KUROGANE_VERSION_STRING " FLUX WINDOW CORE");
-    (void)kui_frame_set_line(&frame, 2U, "x86-64 UEFI, private address spaces");
-    (void)kui_frame_set_line(&frame, 3U, "Preemptive tasks, writable FAT32, AHCI");
-    (void)kui_frame_set_line(&frame, 4U, "Flux session, PID 1 userspace, WindowManager");
-    (void)kui_frame_set_line(&frame, 6U, "This application was linked with libui.");
-    (void)kui_present(window, &frame);
+
+    kui_scene scene;
+    kui_flow root;
+    kui_flow details;
+    char version_line[64] = "KUROGANEOS ";
+    (void)strlcpy(version_line + strlen(version_line), KUROGANE_VERSION_STRING,
+        sizeof(version_line) - strlen(version_line));
+    (void)strlcpy(version_line + strlen(version_line), " // FLUX UI RUNTIME",
+        sizeof(version_line) - strlen(version_line));
+
+    kui_scene_initialize(&scene);
+    kui_flow_begin(&root, &scene, 0U);
+    (void)kui_flow_panel(&root, 1U, "ABOUT // KUROGANEOS");
+    (void)kui_flow_label(&root, 2U, version_line);
+    (void)kui_flow_separator(&root, 3U);
+
+    kui_flow_begin(&details, &scene, 1U);
+    (void)kui_flow_label(&details, 10U, "x86-64 UEFI // private address spaces");
+    (void)kui_flow_label(&details, 11U, "preemptive Ring 3 tasks // PID 1 userspace");
+    (void)kui_flow_label(&details, 12U, "writable FAT32 // AHCI // installable system");
+    (void)kui_flow_label(&details, 13U, "Flux Window Core + libui scene/view runtime");
+    (void)kui_flow_label(&details, 14U, "No Linux kernel. No desktop-environment dependency.");
+
+    if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+        (void)ku_ui_close(window);
+        return 2;
+    }
     puts("[TEST] desktop_about_ring3: PASS");
+    puts("[TEST] flux_scene_about: PASS");
+
     for (;;) {
         ku_ui_event event;
-        if (gui_wait_event(window, &event) < 0 ||
-            event.type == KU_UI_EVENT_CLOSE) break;
+        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
     }
     (void)ku_ui_close(window);
     return 0;
