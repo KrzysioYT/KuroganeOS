@@ -83,7 +83,7 @@ example_elf="$examples/hello"
 validate_elf "$example_elf" "external SDK example"
 cp "$example_elf" "$overlay_apps/external"
 
-declare -a gui_names=(terminal files sysmon about settings)
+declare -a gui_names=(launcher terminal files sysmon about settings)
 for name in "${gui_names[@]}"; do
     source="$root/userspace/gui/$name/main.c"
     object="$obj/gui-$name.o"
