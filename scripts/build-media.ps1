@@ -18,9 +18,12 @@ if ($null -eq (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is required by the current Windows image/ISO tooling.'
 }
 
-$buildArgs = @('-Configuration', $Configuration)
-if ($Rebuild) { $buildArgs += '-Rebuild' }
-& (Join-Path $PSScriptRoot 'build.ps1') @buildArgs
+$BuildScript = Join-Path $PSScriptRoot 'build.ps1'
+if ($Rebuild) {
+    & $BuildScript -Configuration $Configuration -Rebuild
+} else {
+    & $BuildScript -Configuration $Configuration
+}
 if (-not $?) { throw 'KuroganeOS Windows build failed.' }
 
 $VersionHeader = Join-Path $RootDir 'common\version.h'
