@@ -11,22 +11,25 @@ constexpr int32_t HEADER_HEIGHT = 36;
 constexpr int32_t MINIMUM_WIDTH = 260;
 constexpr int32_t MINIMUM_HEIGHT = 160;
 constexpr int32_t WORKSPACE_LEFT = 34;
-constexpr int32_t WORKSPACE_TOP = 42;
+constexpr int32_t WORKSPACE_TOP = 50;
 constexpr int32_t WORKSPACE_RIGHT = 12;
-constexpr int32_t RIBBON_HEIGHT = 28;
-constexpr int32_t RIBBON_BOTTOM = 8;
-constexpr int32_t WORKSPACE_BOTTOM = RIBBON_HEIGHT + RIBBON_BOTTOM + 10;
+constexpr int32_t DOCK_HEIGHT = 58;
+constexpr int32_t DOCK_BOTTOM = 12;
+constexpr int32_t WORKSPACE_BOTTOM = DOCK_HEIGHT + DOCK_BOTTOM + 12;
 constexpr int32_t SPINE_X = 8;
 constexpr int32_t SPINE_WIDTH = 18;
 constexpr int32_t CONTROL_WIDTH = 22;
 constexpr int32_t CONTROL_HEIGHT = 20;
 constexpr int32_t CONTROL_GAP = 4;
 constexpr int32_t CONTROL_RIGHT = 8;
+constexpr int32_t DOCK_PADDING = 12;
+constexpr int32_t DOCK_PIN_SIZE = 42;
+constexpr int32_t DOCK_PIN_GAP = 8;
+constexpr int32_t DOCK_SEPARATOR = 16;
 constexpr int32_t RIBBON_GAP = 6;
-constexpr int32_t RIBBON_ITEM_MAX = 124;
-constexpr int32_t RIBBON_ITEM_MIN = 54;
-constexpr int32_t RIBBON_PADDING = 10;
-constexpr int32_t RIBBON_SIGNAL_RESERVE = 24;
+constexpr int32_t RIBBON_ITEM_MAX = 96;
+constexpr int32_t RIBBON_ITEM_MIN = 48;
+constexpr size_t DOCK_PIN_COUNT = 6U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -40,6 +43,21 @@ struct Slot {
     void* context;
     uint16_t generation;
     bool occupied;
+};
+
+struct DockPin {
+    const char* title;
+    char command;
+    ui::DockIcon icon;
+};
+
+constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
+    {"RED FLUX HOME", 0, ui::DockIcon::Home},
+    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal},
+    {"FILES", 'f', ui::DockIcon::Files},
+    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor},
+    {"SETTINGS", 's', ui::DockIcon::Settings},
+    {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
@@ -72,6 +90,13 @@ size_t text_length(const char* text, size_t maximum) {
     return length;
 }
 
+bool text_equals(const char* left, const char* right) {
+    if (left == nullptr || right == nullptr) return false;
+    size_t index = 0U;
+    while (left[index] != '\0' && left[index] == right[index]) ++index;
+    return left[index] == right[index];
+}
+
 void copy_title(char* destination, const char* title) {
     size_t index = 0U;
     while (index < 32U && title[index] != '\0') {
@@ -98,6 +123,24 @@ Slot* find(WindowId id, size_t* out_slot = nullptr) {
     return &candidate;
 }
 
+Slot* find_by_title(const char* title) {
+    for (size_t index = 0U; index < MAX_WINDOWS; ++index) {
+        Slot& slot = g_slots[index];
+        if (slot.occupied && text_equals(slot.info.title, title)) return &slot;
+    }
+    return nullptr;
+}
+
+bool is_login_surface(const Slot& slot) {
+    return text_equals(slot.info.title, "KUROGANE LOGIN");
+}
+
+Slot* login_surface() {
+    Slot* login = find_by_title("KUROGANE LOGIN");
+    return login != nullptr && login->info.state != WindowState::Minimized
+        ? login : nullptr;
+}
+
 int32_t clamp_position(int32_t value, int32_t lower, int32_t upper) {
     if (upper < lower) return lower;
     if (value < lower) return lower;
@@ -118,6 +161,11 @@ bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
         y < rectangle.y + rectangle.height;
 }
 
+int32_t pinned_section_width() {
+    return static_cast<int32_t>(DOCK_PIN_COUNT) * DOCK_PIN_SIZE +
+        static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_GAP;
+}
+
 WorkspaceGeometry calculate_workspace() {
     WorkspaceGeometry geometry{};
     if (!g_initialized) return geometry;
@@ -132,26 +180,28 @@ WorkspaceGeometry calculate_workspace() {
     };
     geometry.signal_spine = {
         SPINE_X,
-        WORKSPACE_TOP + 6,
+        WORKSPACE_TOP + 8,
         SPINE_WIDTH,
-        work_height > 18 ? work_height - 12 : work_height,
+        work_height > 24 ? work_height - 16 : work_height,
     };
 
-    const int32_t ribbon_max_width = g_screen_width - 64;
-    int32_t requested_width = 180;
+    const int32_t dock_max_width = g_screen_width - 48;
+    const int32_t fixed_width = DOCK_PADDING * 2 + pinned_section_width() +
+        DOCK_SEPARATOR;
+    int32_t requested_width = fixed_width;
     if (g_count != 0U) {
-        requested_width = RIBBON_PADDING * 2 + RIBBON_SIGNAL_RESERVE +
-            static_cast<int32_t>(g_count) * (RIBBON_ITEM_MAX + RIBBON_GAP);
+        requested_width += static_cast<int32_t>(g_count) * RIBBON_ITEM_MAX +
+            static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
     }
-    const int32_t ribbon_width = clamp_size(
-        requested_width,
-        ribbon_max_width < 180 ? ribbon_max_width : 180,
-        ribbon_max_width);
+    const int32_t minimum_width = fixed_width < dock_max_width
+        ? fixed_width : dock_max_width;
+    const int32_t dock_width = clamp_size(
+        requested_width, minimum_width, dock_max_width);
     geometry.pulse_ribbon = {
-        (g_screen_width - ribbon_width) / 2,
-        g_screen_height - RIBBON_HEIGHT - RIBBON_BOTTOM,
-        ribbon_width,
-        RIBBON_HEIGHT,
+        (g_screen_width - dock_width) / 2,
+        g_screen_height - DOCK_HEIGHT - DOCK_BOTTOM,
+        dock_width,
+        DOCK_HEIGHT,
     };
     return geometry;
 }
@@ -179,11 +229,24 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
     return geometry;
 }
 
+ui::Rect dock_pin_rect(size_t position) {
+    const WorkspaceGeometry workspace = calculate_workspace();
+    if (position >= DOCK_PIN_COUNT) return {};
+    return {
+        workspace.pulse_ribbon.x + DOCK_PADDING +
+            static_cast<int32_t>(position) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
+        workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
+        DOCK_PIN_SIZE,
+        DOCK_PIN_SIZE,
+    };
+}
+
 int32_t ribbon_item_width(const WorkspaceGeometry& workspace) {
     if (g_count == 0U) return 0;
-    const int32_t usable = workspace.pulse_ribbon.width -
-        RIBBON_PADDING * 2 - RIBBON_SIGNAL_RESERVE -
-        static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
+    const int32_t task_start = DOCK_PADDING + pinned_section_width() +
+        DOCK_SEPARATOR;
+    const int32_t usable = workspace.pulse_ribbon.width - task_start -
+        DOCK_PADDING - static_cast<int32_t>(g_count - 1U) * RIBBON_GAP;
     return clamp_size(
         usable / static_cast<int32_t>(g_count),
         RIBBON_ITEM_MIN,
@@ -194,12 +257,13 @@ ui::Rect ribbon_item_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
     if (position >= g_count) return {};
     const int32_t width = ribbon_item_width(workspace);
+    const int32_t task_start = workspace.pulse_ribbon.x + DOCK_PADDING +
+        pinned_section_width() + DOCK_SEPARATOR;
     return {
-        workspace.pulse_ribbon.x + RIBBON_PADDING +
-            static_cast<int32_t>(position) * (width + RIBBON_GAP),
-        workspace.pulse_ribbon.y + 4,
+        task_start + static_cast<int32_t>(position) * (width + RIBBON_GAP),
+        workspace.pulse_ribbon.y + 12,
         width,
-        workspace.pulse_ribbon.height - 8,
+        workspace.pulse_ribbon.height - 24,
     };
 }
 
@@ -243,6 +307,7 @@ size_t focused_position() {
 }
 
 bool title_hit(const Slot& slot, int32_t x, int32_t y) {
+    if (is_login_surface(slot)) return false;
     const ChromeGeometry chrome = calculate_chrome(slot.info.bounds);
     return rect_contains(chrome.header, x, y) &&
         !rect_contains(chrome.minimize_control, x, y) &&
@@ -283,8 +348,32 @@ Status activate_ribbon_item(size_t position) {
     return focus(slot.info.id);
 }
 
+Status activate_dock_pin(size_t position) {
+    if (position >= DOCK_PIN_COUNT) return Status::NotFound;
+    const DockPin& pin = kDockPins[position];
+    Slot* existing = find_by_title(pin.title);
+    if (existing != nullptr) {
+        if (existing->info.state == WindowState::Minimized) {
+            return restore(existing->info.id);
+        }
+        return focus(existing->info.id);
+    }
+    if (pin.command == 0) return Status::NotFound;
+
+    Slot* launcher = find_by_title("RED FLUX HOME");
+    if (launcher == nullptr || launcher->input_callback == nullptr) {
+        return Status::NotFound;
+    }
+    input::Event synthetic{};
+    synthetic.type = input::EventType::KeyDown;
+    synthetic.key = drivers::keyboard::KeyCode::Unknown;
+    synthetic.character = pin.command;
+    launcher->input_callback(launcher->info.id, synthetic, launcher->context);
+    return Status::Ok;
+}
+
 void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
-    if (slot.info.state != WindowState::Normal) return;
+    if (slot.info.state != WindowState::Normal || is_login_surface(slot)) return;
     const WorkspaceGeometry workspace = calculate_workspace();
     const int32_t maximum_width =
         workspace.work_area.x + workspace.work_area.width - slot.info.bounds.x;
@@ -351,6 +440,18 @@ void move_cursor(int32_t x, int32_t y) {
 void draw_window_slot(Slot& slot) {
     if (slot.info.state == WindowState::Minimized) return;
     const ui::Rect& bounds = slot.info.bounds;
+
+    if (is_login_surface(slot)) {
+        if (slot.draw != nullptr) {
+            graphics::set_clip(bounds.x, bounds.y, bounds.width, bounds.height);
+            graphics::set_text_scale_limit(bounds.width >= 620 ? 2U : 1U);
+            slot.draw(slot.info.id, bounds, true, slot.context);
+            graphics::reset_text_scale_limit();
+            graphics::reset_clip();
+        }
+        return;
+    }
+
     const ChromeGeometry chrome = calculate_chrome(bounds);
     ui::flux_window(bounds, slot.info.title, slot.info.focused);
     ui::flux_control(chrome.minimize_control, ui::FluxControl::Minimize, slot.info.focused);
@@ -387,6 +488,14 @@ void draw_window_slot(Slot& slot) {
 void render_layers() {
     graphics::reset_clip();
     graphics::reset_text_scale_limit();
+
+    Slot* login = login_surface();
+    if (login != nullptr) {
+        ui::login_backdrop("LOCAL SESSION / ENTER TO CONTINUE");
+        draw_window_slot(*login);
+        return;
+    }
+
     ui::desktop("KUROGANE / RED FLUX");
     const WorkspaceGeometry workspace = calculate_workspace();
     ui::signal_spine(workspace.signal_spine, g_count, focused_position());
@@ -395,10 +504,17 @@ void render_layers() {
         draw_window_slot(g_slots[g_order[position]]);
     }
 
-    ui::pulse_ribbon(workspace.pulse_ribbon, g_count);
+    ui::dock_bar(workspace.pulse_ribbon, g_count);
+    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+        const Slot* running = find_by_title(kDockPins[index].title);
+        const bool active = running != nullptr && running->info.focused;
+        ui::dock_item(
+            dock_pin_rect(index), kDockPins[index].icon,
+            running != nullptr, active);
+    }
     for (size_t position = 0U; position < g_count; ++position) {
         const Slot& slot = g_slots[g_order[position]];
-        ui::pulse_item(
+        ui::dock_task(
             ribbon_item_rect(position),
             slot.info.title,
             slot.info.focused,
@@ -523,7 +639,9 @@ Status move(WindowId id, int32_t x, int32_t y) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
-    if (slot->info.state != WindowState::Normal) return Status::InvalidState;
+    if (slot->info.state != WindowState::Normal || is_login_surface(*slot)) {
+        return Status::InvalidState;
+    }
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.bounds.x = clamp_position(
         x,
@@ -542,7 +660,9 @@ Status minimize(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
-    if (slot->info.state == WindowState::Minimized) return Status::InvalidState;
+    if (slot->info.state == WindowState::Minimized || is_login_surface(*slot)) {
+        return Status::InvalidState;
+    }
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
@@ -553,7 +673,9 @@ Status maximize(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
-    if (slot->info.state == WindowState::Maximized) return Status::InvalidState;
+    if (slot->info.state == WindowState::Maximized || is_login_surface(*slot)) {
+        return Status::InvalidState;
+    }
     if (slot->info.state == WindowState::Normal) slot->info.restore_bounds = slot->info.bounds;
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
@@ -567,7 +689,9 @@ Status restore(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
-    if (slot->info.state == WindowState::Normal) return Status::InvalidState;
+    if (slot->info.state == WindowState::Normal || is_login_surface(*slot)) {
+        return Status::InvalidState;
+    }
     slot->info.state = WindowState::Normal;
     slot->info.bounds = slot->info.restore_bounds;
     static_cast<void>(focus(id));
@@ -626,7 +750,13 @@ Status dispatch(const input::Event& event) {
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {
         const WorkspaceGeometry workspace = calculate_workspace();
-        if (rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+        if (login_surface() == nullptr &&
+            rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+            for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+                if (rect_contains(dock_pin_rect(index), event.x, event.y)) {
+                    return activate_dock_pin(index);
+                }
+            }
             for (size_t position = 0U; position < g_count; ++position) {
                 if (rect_contains(ribbon_item_rect(position), event.x, event.y)) {
                     return activate_ribbon_item(position);
@@ -639,23 +769,25 @@ Status dispatch(const input::Event& event) {
             static_cast<void>(focus(target));
             Slot* slot = find(target);
             if (slot == nullptr) return Status::NotFound;
-            const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
-            if (rect_contains(chrome.dismiss_control, event.x, event.y)) return close(target);
-            if (rect_contains(chrome.minimize_control, event.x, event.y)) return minimize(target);
-            if (rect_contains(chrome.expand_control, event.x, event.y)) {
-                return slot->info.state == WindowState::Maximized ? restore(target) : maximize(target);
-            }
-            if (slot->info.state == WindowState::Normal &&
-                rect_contains(chrome.resize_grip, event.x, event.y)) {
-                g_resized = target;
-                g_dragged = INVALID_WINDOW;
-                return Status::Ok;
-            }
-            if (slot->info.state == WindowState::Normal && title_hit(*slot, event.x, event.y)) {
-                g_dragged = target;
-                g_resized = INVALID_WINDOW;
-                g_drag_offset_x = event.x - slot->info.bounds.x;
-                g_drag_offset_y = event.y - slot->info.bounds.y;
+            if (!is_login_surface(*slot)) {
+                const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
+                if (rect_contains(chrome.dismiss_control, event.x, event.y)) return close(target);
+                if (rect_contains(chrome.minimize_control, event.x, event.y)) return minimize(target);
+                if (rect_contains(chrome.expand_control, event.x, event.y)) {
+                    return slot->info.state == WindowState::Maximized ? restore(target) : maximize(target);
+                }
+                if (slot->info.state == WindowState::Normal &&
+                    rect_contains(chrome.resize_grip, event.x, event.y)) {
+                    g_resized = target;
+                    g_dragged = INVALID_WINDOW;
+                    return Status::Ok;
+                }
+                if (slot->info.state == WindowState::Normal && title_hit(*slot, event.x, event.y)) {
+                    g_dragged = target;
+                    g_resized = INVALID_WINDOW;
+                    g_drag_offset_x = event.x - slot->info.bounds.x;
+                    g_drag_offset_y = event.y - slot->info.bounds.y;
+                }
             }
         }
     } else if (event.type == input::EventType::MouseMove &&
