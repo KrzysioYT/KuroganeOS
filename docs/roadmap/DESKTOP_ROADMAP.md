@@ -16,16 +16,16 @@ Warstwa wizualna nie może udawać gotowego subsystemu, którego nie ma.
 - [x] WindowManager: focus, z-order, drag, minimize/maximize/restore/close;
 - [x] pierwsze aplikacje GUI Ring 3 i `libui`;
 - [x] SDK oraz Windows/WSL/macOS build workflow;
-- [x] natywne IMG i instalowalne ISO na macOS.
+- [x] natywne development IMG na macOS;
 
 ## 2.3.0 — Desktop Boot Repair — ZREALIZOWANE
 
 Cel: normalny userspace boot ma kończyć się realną sesją graficzną, a nie tylko
 `/apps/shell`.
 
-- [x] nowy kernelowy host sesji `flux-session`;
+- [x] kernelowy host sesji `flux-session`;
 - [x] automatyczna inicjalizacja WindowManagera przy normalnym userspace boot;
-- [x] Safe Mode nadal pozostaje tekstowym trybem awaryjnym;
+- [x] Safe Mode pozostaje tekstowym trybem awaryjnym;
 - [x] PID1 uruchamia `/gui/terminal`, `/gui/files`, `/gui/sysmon`,
   `/gui/settings` i `/gui/about`;
 - [x] PID1 nadzoruje i restartuje zakończone aplikacje desktopowe;
@@ -34,12 +34,12 @@ Cel: normalny userspace boot ma kończyć się realną sesją graficzną, a nie 
 - [x] markery runtime `desktop_session`, `desktop_userspace_apps` i
   `userspace_desktop_session`.
 
-## 2.4 — Flux Window Core — W TRAKCIE
+## 2.4 — Flux Window Core — CORE ZREALIZOWANE
 
-Cel: usunąć ostatnie elementy starego Desktop Alpha i zbudować własny język
-zarządzania oknami Kurogane Flux.
+Cel: usunąć elementy starego Desktop Alpha z głównego WindowManagera i zbudować
+własny język zarządzania oknami Kurogane Flux.
 
-### 2.4.0 — wykonane
+### 2.4.0 / 2.4.1 — wykonane
 
 - [x] usunięcie klasycznego taskbara z głównego WindowManagera;
 - [x] usunięcie tekstowych kontrolek `-`, `[]`, `X` z głównej ścieżki WM;
@@ -51,27 +51,52 @@ zarządzania oknami Kurogane Flux.
 - [x] jawny `work_area` używany przez maximize i drag clamp;
 - [x] wspólne `WorkspaceGeometry` i `ChromeGeometry` dla renderingu i hit-testu;
 - [x] wydzielony resize grip jako przygotowanie pod 2.7;
-- [x] rozszerzony hosted test WindowManagera o Pulse Ribbon i control geometry.
+- [x] rozszerzony hosted test WindowManagera;
+- [x] 2.4.1 usuwa okresowy pełnoekranowy repaint powodujący miganie w QEMU;
+- [x] zwykły `KU_SYS_UI_PRESENT` korzysta z content repaint zamiast wymuszać clear;
+- [x] kursor nie wymusza już pełnego repaintu workspace.
 
-### Pozostałe 2.4.x
+### Cleanup równoległy 2.4.x
 
 - [ ] usunąć komunikaty `DESKTOP ALPHA` z bootloadera UEFI;
 - [ ] ujednolicić wybór desktop/console/safe/diagnostics na poziomie boot flags;
 - [ ] usunąć legacy `ui::taskbar()` z diagnostycznych Ring-0 surfaces;
 - [ ] dodać QEMU input smoke test dla Pulse Ribbon i Flux control rail;
-- [ ] potwierdzić pełny runtime build na macOS oraz Windows/WSL.
+- [ ] dopracować problematyczny tor instalowalnego ISO na macOS.
 
-## 2.5 — Flux UI Runtime
+Te zadania mogą być naprawiane jako hotfixy i nie blokują userspace UI runtime.
 
-Cel: odejść od obecnego stałego `ku_ui_frame` z kilkoma liniami tekstu.
+## 2.5 — Flux UI Runtime — W TRAKCIE
 
-- widget/view tree;
-- layout engine;
-- label, button, input, list, progress, scroll view i custom surface;
-- dirty regions i częściowe repaint;
-- modal surfaces i dialogs;
-- focus traversal;
-- rozszerzenie `libui` i publicznego UI ABI bez kernel-shell backdoorów.
+Cel: aplikacje przestają ręcznie składać `ku_ui_frame` jako numerowane linie.
+
+### 2.5.0 — wykonane
+
+- [x] `kui_scene` jako właściciel sceny aplikacji;
+- [x] `kui_view` ze stabilnym ID i parent ID;
+- [x] parent-child view tree budowane bez cykli przez kolejność insercji;
+- [x] pionowy `kui_flow` jako pierwszy layout primitive;
+- [x] view types: panel, label, button, input, list item, progress, separator;
+- [x] mutacja tekstu, flag i value/maximum;
+- [x] selection/focus traversal dla elementów interaktywnych;
+- [x] logiczne scrollowanie sceny;
+- [x] kompatybilny backend serializujący scenę do istniejącego `ku_ui_frame`;
+- [x] migracja Files do scene/list model;
+- [x] migracja Settings do scene/button/focus model;
+- [x] migracja System Monitor do scene/progress model;
+- [x] migracja About do hierarchicznej sceny;
+- [x] markery runtime `flux_scene_*` dla migrowanych aplikacji.
+
+### Pozostałe 2.5.x
+
+- [ ] natywne kernelowe widget records zamiast line serialization;
+- [ ] widget ID zwracane przez pointer hit testing;
+- [ ] wheel routing do scroll view;
+- [ ] modal surfaces i dialogs;
+- [ ] custom surface primitive;
+- [ ] dokładniejsze dirty/damage regions;
+- [ ] migracja Flux Terminal z legacy frame API;
+- [ ] rozszerzenie layoutów poza pionowy flow.
 
 ## 2.6 — Desktop Applications
 
@@ -227,9 +252,6 @@ Warunki 3.6:
 - kernel logs i developer console nie są wymagane do zwykłego korzystania.
 
 ## Zasada kolejności
-
-Nie wracamy do schematu „ładny screenshot → dokumentacja mówi desktop → boot nadal
-kończy się terminalem”. Kolejność pozostaje:
 
 ```text
 2.3 session/boot
