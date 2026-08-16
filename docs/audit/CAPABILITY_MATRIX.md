@@ -1,4 +1,6 @@
-# Capability matrix
+# Capability matrix (historical baseline)
+
+This table records the pre-Foundation baseline. See `../FOUNDATION_PROGRESS.md` for current results; AHCI/GPT and read-only FAT32/VFS are now runtime-tested.
 
 | Capability | Status | Evidence |
 |---|---|---|

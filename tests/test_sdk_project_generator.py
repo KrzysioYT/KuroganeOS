@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Integration test for the compile-only KuroganeOS SDK project generator."""
+"""Integration test for runnable KuroganeOS SDK project generation."""
 
 from __future__ import annotations
 
@@ -78,10 +78,10 @@ def main() -> int:
             ]
         )
         manifest = json.loads((project / "kurogane-project.json").read_text("utf-8"))
-        if manifest["artifact_kind"] != "freestanding-object":
+        if manifest["artifact_kind"] != "elf64-executable":
             raise AssertionError("generator produced an unexpected artifact kind")
-        if manifest["runtime_supported"] or manifest["link_supported"]:
-            raise AssertionError("compile-only template falsely advertises runtime support")
+        if not manifest["runtime_supported"] or not manifest["link_supported"]:
+            raise AssertionError("runnable template does not advertise its link contract")
         run(
             [
                 args.make,
@@ -91,9 +91,12 @@ def main() -> int:
                 f"KUROGANE_SYSROOT={sysroot}",
             ]
         )
-        expected_object = project / "build" / f"{name}.o"
-        if not expected_object.is_file() or expected_object.stat().st_size == 0:
-            raise AssertionError(f"generated project did not build {expected_object}")
+        expected_elf = project / "build" / name
+        if not expected_elf.is_file() or expected_elf.stat().st_size < 64:
+            raise AssertionError(f"generated project did not build {expected_elf}")
+        header = expected_elf.read_bytes()[:20]
+        if header[:5] != b"\x7fELF\x02" or int.from_bytes(header[16:18], "little") != 2:
+            raise AssertionError(f"generated project is not ELF64 ET_EXEC: {expected_elf}")
 
     protected_project = workspace / "sdk-console-probe"
     protected_source = protected_project / "src" / "capability_probe.cpp"

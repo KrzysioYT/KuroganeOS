@@ -5,7 +5,8 @@ KUROGANE_SYSROOT ?=
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror
 CPPFLAGS ?=
 
-TARGET := build/@PROJECT_NAME@.o
+TARGET := build/@PROJECT_NAME@
+OBJECT := build/@PROJECT_NAME@.o
 SOURCE := src/capability_probe.cpp
 
 .PHONY: all clean check-sysroot explain
@@ -25,10 +26,17 @@ check-sysroot:
 $(TARGET): $(SOURCE) check-sysroot
 	@mkdir -p build
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -ffreestanding -fno-exceptions -fno-rtti \
-		-I"$(KUROGANE_SYSROOT)/usr/include" -c $(SOURCE) -o $(TARGET)
+		-fno-stack-protector -fno-pic -fno-pie -mcmodel=large -mno-red-zone \
+		-I"$(KUROGANE_SYSROOT)/usr/include" -c $(SOURCE) -o $(OBJECT)
+	$(CXX) -nostdlib -static -no-pie -Wl,--fatal-warnings \
+		-Wl,--build-id=none -Wl,-z,noexecstack -Wl,-z,separate-code \
+		-Wl,--gc-sections -T"$(KUROGANE_SYSROOT)/usr/lib/kurogane-user.ld" \
+		-o $(TARGET) "$(KUROGANE_SYSROOT)/usr/lib/crt0.o" $(OBJECT) \
+		-L"$(KUROGANE_SYSROOT)/usr/lib" -Wl,--start-group \
+		-lui -lc -lkurogane -lgcc -Wl,--end-group
 
 explain:
-	@echo "compile-only: no KuroganeOS application linker/startup/syscall runtime exists"
+	@echo "$(TARGET) is a static KuroganeOS ELF64 executable; copy it into /apps"
 
 clean:
 	rm -rf -- build

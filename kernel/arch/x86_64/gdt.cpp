@@ -2,8 +2,6 @@
 
 #include <stddef.h>
 
-extern "C" char kernel_stack_top[];
-
 namespace arch::x86_64::gdt {
 
 namespace {
@@ -37,6 +35,10 @@ static_assert(sizeof(TaskStateSegment) == 104,
               "x86-64 TSS must be 104 bytes without an I/O bitmap");
 
 constexpr size_t kEmergencyStackSize = 16 * 1024;
+static_assert(
+    (KERNEL_ENTRY_STACK_SIZE & UINT64_C(0xF)) == 0,
+    "kernel entry stack size must preserve ABI alignment");
+alignas(16) uint8_t g_kernel_entry_stack[KERNEL_ENTRY_STACK_SIZE];
 alignas(16) uint8_t g_double_fault_stack[kEmergencyStackSize];
 alignas(16) uint8_t g_nmi_stack[kEmergencyStackSize];
 alignas(16) uint8_t g_machine_check_stack[kEmergencyStackSize];
@@ -55,6 +57,11 @@ alignas(16) uint64_t g_table[] = {
 };
 
 bool g_initialized = false;
+
+bool is_canonical(uintptr_t address) {
+    const uint64_t upper = static_cast<uint64_t>(address) >> 47;
+    return upper == 0 || upper == UINT64_C(0x1FFFF);
+}
 
 uintptr_t emergency_stack_top(uint8_t* stack) {
     return reinterpret_cast<uintptr_t>(stack + kEmergencyStackSize);
@@ -76,7 +83,7 @@ void install_tss_descriptor() {
 
 void initialize() {
     g_tss = {};
-    g_tss.rsp0 = reinterpret_cast<uintptr_t>(kernel_stack_top);
+    g_tss.rsp0 = kernel_entry_stack_top();
     g_tss.ist1 = emergency_stack_top(g_double_fault_stack);
     g_tss.ist2 = emergency_stack_top(g_nmi_stack);
     g_tss.ist3 = emergency_stack_top(g_machine_check_stack);
@@ -114,6 +121,25 @@ void initialize() {
 
 bool initialized() {
     return g_initialized;
+}
+
+uintptr_t kernel_entry_stack_top() {
+    return reinterpret_cast<uintptr_t>(
+        g_kernel_entry_stack + KERNEL_ENTRY_STACK_SIZE);
+}
+
+bool set_kernel_stack(uintptr_t stack_top) {
+    if (!g_initialized || stack_top == 0 || !is_canonical(stack_top) ||
+        (stack_top & UINT64_C(0xF)) != 0) {
+        return false;
+    }
+
+    g_tss.rsp0 = stack_top;
+    return true;
+}
+
+uintptr_t rsp0() {
+    return static_cast<uintptr_t>(g_tss.rsp0);
 }
 
 } // namespace arch::x86_64::gdt

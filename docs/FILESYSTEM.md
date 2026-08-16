@@ -2,7 +2,7 @@
 
 ## Aktualny zakres
 
-Jedynym systemem plików dostępnym po starcie jest hierarchiczny RAMFS z `kernel/fs/ramfs.*`. Drzewo, metadane i treść plików są zaalokowane z 2 MiB heapu kernela. Obraz FAT32 służy firmware oraz loaderowi do dostarczenia `BOOTX64.EFI` i `kernel.elf`; kernel go nie montuje.
+Kernel shell używa hierarchicznego RAMFS z `kernel/fs/ramfs.*`; jego drzewo i treść są zaalokowane z 2 MiB heapu. Foundation IMG zawiera osobny root FAT32, który kernel montuje read-only przez `AHCI → GPT → PartitionDevice → FAT32 → VFS` i z którego odczytuje `/etc/system.conf`. Ten mount jest rzeczywistą funkcją runtime, ale nie obsługuje jeszcze mutacji ani namespace shella.
 
 RAMFS obsługuje:
 
@@ -79,6 +79,6 @@ rm [-r] <path>
 
 ## Czego nie ma
 
-Nie istnieją jeszcze VFS, inode o trwałym identyfikatorze, deskryptory plików per proces, uprawnienia, użytkownicy, dowiązania, punkty montowania, cache bloków, journaling ani sterownik nośnika. Nie ma poleceń `mount`/`unmount`, a restart zawsze usuwa wszystkie zmiany RAMFS.
+Block device, GPT, PartitionDevice, read-only FAT32 i VFS działają i mają test hostowy na wygenerowanym obrazie oraz test QEMU przez AHCI. Nie są jeszcze podłączone jako zapisywalny root shella. Brakuje FAT32 create/write/rename/delete, trwałego inode/handle modelu, deskryptorów per proces, uprawnień, użytkowników, dowiązań i block cache. Nie ma poleceń `mount`/`unmount`, a restart nadal usuwa wszystkie zmiany RAMFS.
 
 Ograniczenia nośników startowych i kernela opisują [BUILDING.md](BUILDING.md) oraz [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md).

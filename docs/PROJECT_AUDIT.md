@@ -3,6 +3,8 @@
 Data audytu: 6 sierpnia 2026 r.  
 Audytowana gałąź robocza: lokalny katalog `E:\KuroganeOS` (repozytorium nie zawiera metadanych Git).
 
+> Dokument historyczny opisujący stan zastany 6 sierpnia. Aktualny audyt Foundation znajduje się w [FOUNDATION_AUDIT.md](FOUNDATION_AUDIT.md); w szczególności AHCI/GPT i read-only FAT32/VFS zostały od tego czasu uruchomione w QEMU.
+
 ## Podsumowanie
 
 KuroganeOS jest rzeczywistym, samodzielnym projektem systemowym dla x86-64. Nie używa kernela Linux podczas rozruchu. W repozytorium znajduje się własny loader UEFI, kernel freestanding, sterowniki niskiego poziomu, allocator, RAMFS, powłoka oraz proste aplikacje rysowane bezpośrednio do framebufferu.
@@ -75,7 +77,7 @@ Kod właściwy jest napisany w C++, C, asemblerze GNU, PowerShell, Bash i Python
 - Kernel posiada statyczną stertę z wyrównanymi alokacjami i operacjami odpowiadającymi `malloc`, `calloc`, `realloc` i `free`.
 - PMM wykorzystuje bitmapę ramek 4 KiB z największego obsługiwanego regionu wolnej pamięci przekazanego przez UEFI.
 - Testy hostowe sprawdzają wielokrotne alokacje, wyrównanie, ponowne użycie, duże bloki i podstawowe zachowanie przy błędach.
-- Manager pamięci wirtualnej jest wdrażany jako niezależny, testowalny walker czteropoziomowych tablic x86-64. Jego integracja z aktywnym CR3 jest osobnym etapem i nie jest w tym raporcie oznaczona jako ukończona.
+- Manager pamięci wirtualnej zawiera testowalny walker czteropoziomowych tablic x86-64. Integracja runtime kopiuje aktywny PML4 UEFI do prywatnej ramki, przełącza `CR3` oraz testuje map/write/translate/unmap; niższe tablice nadal są dziedziczone z firmware.
 
 ### Pliki i terminal
 
@@ -103,7 +105,7 @@ PMM zarządza tylko jednym wybranym regionem UEFI i jest ograniczony statyczną 
 
 ### Pamięć wirtualna
 
-Loader/firmware pozostawia aktywne mapowanie, dzięki któremu kernel działa z adresami przekazanymi przez UEFI. To nie jest zarządzana przestrzeń wirtualna KuroganeOS. Moduł mapowania 4 KiB ma testowany backend, lecz dopóki kernel nie przejmie CR3 i nie zbuduje własnej mapy kernela, nie wolno deklarować ochrony stron ani izolacji.
+Loader/firmware pozostawia aktywne mapowanie, na podstawie którego kernel tworzy prywatną kopię PML4 i przełącza `CR3`. Moduł mapowania 4 KiB działa także w runtime, ale niższe tablice, identity map i prawa odziedziczone z UEFI nie stanowią kompletnej, samodzielnie zbudowanej przestrzeni KuroganeOS. Nie wolno jeszcze deklarować pełnej ochrony sekcji ani izolacji procesów.
 
 ### Scheduler i model aplikacji
 
@@ -175,7 +177,7 @@ Do dalszego rozwoju nadają się bez przepisywania od zera:
 ## Moduły wymagające przebudowy lub nowych implementacji
 
 - PMM: obsługa wielu regionów i rezerwacji;
-- VMM: własne tablice kernela, HHDM lub inny spójny dostęp do pamięci fizycznej, CR3 i przestrzenie procesów;
+- VMM: własne niższe tablice kernela, HHDM lub inny spójny dostęp do pamięci fizycznej, ochrona sekcji i przestrzenie procesów;
 - scheduler: zapis/odtworzenie kontekstu, stosy, wywłaszczanie i cleanup;
 - procesy, loader ELF userspace, syscalle i walidacja pamięci użytkownika;
 - VFS, deskryptory, sterownik blokowy i trwały filesystem;

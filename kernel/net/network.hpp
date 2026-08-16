@@ -19,6 +19,7 @@ static constexpr size_t ICMP_ECHO_MAX_PAYLOAD =
     ETHERNET_MTU - IPV4_MIN_HEADER_SIZE - ICMP_ECHO_HEADER_SIZE;
 static constexpr size_t LOOPBACK_QUEUE_DEPTH = 8;
 static constexpr size_t NEIGHBOR_TABLE_CAPACITY = 16;
+static constexpr size_t TRANSPORT_INBOX_CAPACITY = 512;
 
 static constexpr uint16_t ETHER_TYPE_IPV4 = UINT16_C(0x0800);
 static constexpr uint16_t ETHER_TYPE_ARP = UINT16_C(0x0806);
@@ -273,6 +274,10 @@ struct NetworkStats {
     uint64_t echo_requests_received;
     uint64_t echo_replies_sent;
     uint64_t echo_replies_received;
+    uint64_t udp_received;
+    uint64_t udp_transmitted;
+    uint64_t tcp_received;
+    uint64_t tcp_transmitted;
     uint64_t neighbor_updates;
     uint64_t neighbor_evictions;
     uint64_t arp_resolution_requests;
@@ -286,12 +291,38 @@ struct PingReply {
     size_t payload_length;
 };
 
+struct UdpDatagram {
+    bool valid;
+    IPv4Address source;
+    IPv4Address destination;
+    uint16_t source_port;
+    uint16_t destination_port;
+    uint8_t payload[TRANSPORT_INBOX_CAPACITY];
+    size_t payload_length;
+};
+
+struct TcpSegment {
+    bool valid;
+    IPv4Address source;
+    IPv4Address destination;
+    uint16_t source_port;
+    uint16_t destination_port;
+    uint32_t sequence;
+    uint32_t acknowledgement;
+    uint8_t flags;
+    uint16_t window;
+    uint8_t payload[TRANSPORT_INBOX_CAPACITY];
+    size_t payload_length;
+};
+
 struct NetworkStack {
     NetworkInterface* interface;
     IPv4Config config;
     NeighborEntry neighbors[NEIGHBOR_TABLE_CAPACITY];
     NetworkStats stats;
     PingReply last_ping_reply;
+    UdpDatagram last_udp_datagram;
+    TcpSegment last_tcp_segment;
     uint8_t receive_buffer[ETHERNET_MAX_FRAME_SIZE];
     uint8_t transmit_buffer[ETHERNET_MAX_FRAME_SIZE];
     uint16_t next_identification;
@@ -315,6 +346,26 @@ Status send_ping(
     const uint8_t* payload,
     size_t payload_length
 );
+Status send_udp(
+    NetworkStack* stack,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length
+);
+Status send_tcp(
+    NetworkStack* stack,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t sequence,
+    uint32_t acknowledgement,
+    uint8_t flags,
+    uint16_t window,
+    const uint8_t* payload,
+    size_t payload_length
+);
 Status lookup_neighbor(
     const NetworkStack* stack,
     const IPv4Address& address,
@@ -327,6 +378,8 @@ Status list_neighbors(
 );
 Status get_stats(const NetworkStack* stack, NetworkStats* out_stats);
 Status get_last_ping_reply(const NetworkStack* stack, PingReply* out_reply);
+Status take_udp_datagram(NetworkStack* stack, UdpDatagram* out_datagram);
+Status take_tcp_segment(NetworkStack* stack, TcpSegment* out_segment);
 const char* status_message(Status status);
 
 } // namespace net

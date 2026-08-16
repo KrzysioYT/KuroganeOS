@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('debug', 'release')]
+    [ValidateSet('debug', 'release', 'test')]
     [string]$Configuration = 'debug',
     [switch]$Clean,
     [switch]$Rebuild,
@@ -18,6 +18,8 @@ $ObjectDir = Join-Path $BuildDir 'obj'
 $KernelElf = Join-Path $BuildDir 'kernel.elf'
 $KernelMap = Join-Path $BuildDir 'kernel.map'
 $LinkerScript = Join-Path $RootDir 'linker.ld'
+$VersionHeader = Join-Path $RootDir 'common\version.h'
+$FeatureConfigPath = Join-Path $RootDir 'config\features.conf'
 $BootSource = Join-Path $RootDir 'boot\efi\standalone.c'
 $BootLinkerScript = Join-Path $RootDir 'boot\efi\standalone-linker.ld'
 $BootBuildDir = Join-Path $BuildDir 'boot'
@@ -27,12 +29,20 @@ $BootBinary = Join-Path $BootBuildDir 'standalone.bin'
 $BuiltEfiBootloader = Join-Path $BuildDir 'BOOTX64.EFI'
 $EfiConverter = Join-Path $RootDir 'scripts\elf-to-efi.ps1'
 $ImageBuilder = Join-Path $RootDir 'scripts\build-image.ps1'
+$FoundationImageBuilder = Join-Path $RootDir 'scripts\build-foundation-image.ps1'
+$InstallerImageBuilder = Join-Path $RootDir 'scripts\build-installer.ps1'
+$DeveloperSdkBuilder = Join-Path $RootDir 'scripts\build-sdk.ps1'
 $DiskImage = Join-Path $RootDir 'kurogane.img'
 $IsoImage = Join-Path $RootDir 'kurogane.iso'
 $StagingDir = Join-Path $RootDir 'iso'
 $EfiBootDir = Join-Path $StagingDir 'EFI\BOOT'
 $EfiBootloader = Join-Path $EfiBootDir 'BOOTX64.EFI'
+$UserspaceDir = Join-Path $RootDir 'userspace'
+$UserspaceBuildDir = Join-Path $BuildDir 'userspace'
+$UserspaceRootFs = Join-Path $UserspaceBuildDir 'rootfs'
 $ToolchainDir = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin'
+$StateDir = Join-Path $RootDir 'state'
+$BuildLockPath = Join-Path $StateDir '.build.lock'
 $tools = @{
     CC      = Join-Path $ToolchainDir 'x86_64-elf-gcc.exe'
     CXX     = Join-Path $ToolchainDir 'x86_64-elf-g++.exe'
@@ -83,6 +93,114 @@ function Assert-Tool {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "Missing repository-local tool: $Path"
     }
+}
+
+function Read-FeatureConfiguration {
+    if (-not (Test-Path -LiteralPath $FeatureConfigPath -PathType Leaf)) {
+        throw "Missing central feature configuration: $FeatureConfigPath"
+    }
+
+    $features = [ordered]@{}
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $FeatureConfigPath) {
+        ++$lineNumber
+        $trimmed = $line.Trim()
+        if ($trimmed.Length -eq 0 -or $trimmed.StartsWith('#')) {
+            continue
+        }
+        if ($trimmed -notmatch '^(CONFIG_[A-Z0-9_]+)=(y|n)$') {
+            throw "Invalid feature configuration at line ${lineNumber}: $trimmed"
+        }
+        $name = $Matches[1]
+        if ($features.Contains($name)) {
+            throw "Duplicate feature configuration key: $name"
+        }
+        $features[$name] = $Matches[2] -eq 'y'
+    }
+    if ($features.Count -eq 0) {
+        throw 'Central feature configuration is empty.'
+    }
+    return $features
+}
+
+function Write-BuildManifest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Profile,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$CompilerFlags,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$LinkerFlags,
+
+        [Parameter(Mandatory = $true)]
+        [System.Collections.IDictionary]$Features
+    )
+
+    $versionText = Get-Content -LiteralPath $VersionHeader -Raw
+    if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
+        throw "Cannot read KuroganeOS version from $VersionHeader"
+    }
+    $version = $Matches[1]
+    $compilerVersion = [string](@(& $tools.CXX '--version')[0])
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to query the C++ compiler version.'
+    }
+    $linkerVersion = [string](@(& $tools.LD '--version')[0])
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to query the linker version.'
+    }
+
+    $gitCommit = 'unavailable (source tree has no .git metadata)'
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if ($null -ne $gitCommand -and
+        (Test-Path -LiteralPath (Join-Path $RootDir '.git'))) {
+        $candidate = [string](& $gitCommand.Source -C $RootDir rev-parse HEAD)
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($candidate)) {
+            $gitCommit = $candidate.Trim()
+        }
+    }
+
+    $enabledDrivers = @(
+        foreach ($name in @('CONFIG_PCI', 'CONFIG_AHCI', 'CONFIG_VIRTIO',
+                             'CONFIG_USB', 'CONFIG_XHCI', 'CONFIG_NETWORK')) {
+            if ($Features.Contains($name) -and $Features[$name]) {
+                $name.Substring('CONFIG_'.Length).ToLowerInvariant()
+            }
+        }
+    )
+    $compatibilityLayers = @()
+    if ($Features.Contains('CONFIG_POSIX') -and $Features['CONFIG_POSIX']) {
+        $compatibilityLayers += 'kuroposix'
+    }
+    $featureSummary = @(
+        foreach ($entry in $Features.GetEnumerator()) {
+            '{0}={1}' -f $entry.Key, $(if ($entry.Value) { 'y' } else { 'n' })
+        }
+    )
+
+    $manifest = @(
+        "version=$version"
+        "profile=$Profile"
+        "compiler=$($tools.CXX)"
+        "compiler_version=$compilerVersion"
+        "linker=$($tools.LD)"
+        "linker_version=$linkerVersion"
+        'architecture=x86_64'
+        "git_commit=$gitCommit"
+        "build_options=$($CompilerFlags -join ' ')"
+        "link_options=$($LinkerFlags -join ' ')"
+        "enabled_drivers=$($enabledDrivers -join ',')"
+        "enabled_compatibility_layers=$($compatibilityLayers -join ',')"
+        "features=$($featureSummary -join ',')"
+    )
+    $manifestPath = Join-Path $BuildDir 'build-info.txt'
+    [System.IO.File]::WriteAllLines(
+        $manifestPath,
+        $manifest,
+        (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host "[manifest] $manifestPath"
 }
 
 function Assert-KernelElf {
@@ -161,7 +279,16 @@ function Assert-EfiApplication {
 
 function Remove-KernelOutputs {
     $targets = @(
-        $BuildDir,
+        $ObjectDir,
+        $BootBuildDir,
+        $UserspaceBuildDir,
+        (Join-Path $BuildDir 'sdk'),
+        (Join-Path $BuildDir 'images'),
+        $KernelElf,
+        $KernelMap,
+        $BuiltEfiBootloader,
+        (Join-Path $BuildDir 'compile-config.sha256'),
+        (Join-Path $BuildDir 'build-info.txt'),
         $DiskImage,
         $IsoImage,
         (Join-Path $StagingDir 'kernel.elf'),
@@ -173,6 +300,93 @@ function Remove-KernelOutputs {
             Write-Host "[clean] $target"
             Remove-Item -LiteralPath $target -Recurse -Force
         }
+    }
+}
+
+function Build-UserApplications {
+    $linkerScript = Join-Path $UserspaceDir 'linker.ld'
+    $applications = @(
+        @{ Name = 'hello'; Source = 'apps\hello\main.S'; Output = 'apps/hello'; Assembly = $true },
+        @{ Name = 'bad'; Source = 'apps\bad\main.S'; Output = 'apps/bad'; Assembly = $true },
+        @{ Name = 'spin'; Source = 'apps\spin\main.S'; Output = 'apps/spin'; Assembly = $true },
+        @{ Name = 'probe'; Source = 'apps\probe\main.S'; Output = 'apps/probe'; Assembly = $true },
+        @{ Name = 'shell'; Source = 'apps\shell\main.c'; Output = 'apps/shell'; Assembly = $false },
+        @{ Name = 'files'; Source = 'apps\files\main.c'; Output = 'apps/files'; Assembly = $false },
+        @{ Name = 'monitor'; Source = 'apps\monitor\main.c'; Output = 'apps/monitor'; Assembly = $false },
+        @{ Name = 'about'; Source = 'apps\about\main.c'; Output = 'apps/about'; Assembly = $false },
+        @{ Name = 'init'; Source = 'system\init\main.c'; Output = 'system/init'; Assembly = $false }
+    )
+    if (-not (Test-Path -LiteralPath $linkerScript -PathType Leaf)) {
+        throw "Missing userspace linker script: $linkerScript"
+    }
+
+    if (Test-Path -LiteralPath $UserspaceRootFs) {
+        Remove-Item -LiteralPath $UserspaceRootFs -Recurse -Force
+    }
+    [System.IO.Directory]::CreateDirectory($UserspaceRootFs) | Out-Null
+    Push-Location $RootDir
+    try {
+        foreach ($application in $applications) {
+            $name = [string]$application.Name
+            $source = Join-Path $UserspaceDir ([string]$application.Source)
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                throw "Missing userspace application source: $source"
+            }
+            $objectRelative = "build/userspace/$name.o"
+            $outputRelative = "build/userspace/rootfs/$($application.Output)"
+            [System.IO.Directory]::CreateDirectory(
+                (Split-Path -Parent (Join-Path $RootDir $outputRelative))) |
+                Out-Null
+            $compileArguments = @(
+                '-ffreestanding', '-fno-stack-protector', '-m64',
+                '-mno-red-zone', '-Wa,--noexecstack',
+                '-I', 'sdk/include', '-I', 'userspace/runtime', '-I', 'common'
+            )
+            if ([bool]$application.Assembly) {
+                $compileArguments += @('-c', '-x', 'assembler-with-cpp')
+            } else {
+                $compileArguments += @(
+                    '-std=c11', '-O2', '-Wall', '-Wextra', '-Wpedantic',
+                    '-Werror', '-fno-builtin', '-fno-pic', '-fno-pie',
+                    '-mcmodel=large', '-c'
+                )
+            }
+            $compileArguments += @(
+                (Get-RootRelativePath -Path $source), '-o', $objectRelative)
+            Invoke-NativeTool -Tool $tools.CC -Arguments $compileArguments
+            Invoke-NativeTool -Tool $tools.LD -Arguments @(
+                '--fatal-warnings', '--build-id=none', '-nostdlib',
+                '-z', 'noexecstack', '-z', 'separate-code',
+                '-T', 'userspace/linker.ld',
+                '-o', $outputRelative, $objectRelative
+            )
+
+            $headers = @(& $tools.READELF '-hW' $outputRelative)
+            if ($LASTEXITCODE -ne 0 -or
+                ($headers -join "`n") -notmatch 'Type:\s+EXEC' -or
+                ($headers -join "`n") -notmatch 'Machine:\s+Advanced Micro Devices X86-64') {
+                throw "Invalid x86-64 ET_EXEC userspace image: $name"
+            }
+            $programHeaders = @(& $tools.READELF '-lW' $outputRelative)
+            if ($LASTEXITCODE -ne 0 -or
+                ($programHeaders -join "`n") -match '(?m)^\s*(LOAD|GNU_STACK)\s+.*\bRWE\b') {
+                throw "Userspace image has an executable writable segment or stack: $name"
+            }
+            Write-Host "[userspace] /$($application.Output)"
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Build-DeveloperSdk {
+    if (-not (Test-Path -LiteralPath $DeveloperSdkBuilder -PathType Leaf)) {
+        throw "Missing developer SDK builder: $DeveloperSdkBuilder"
+    }
+    & $DeveloperSdkBuilder
+    if ($LASTEXITCODE -ne 0) {
+        throw "Developer SDK builder failed with exit code $LASTEXITCODE."
     }
 }
 
@@ -289,7 +503,40 @@ function Build-DiskImage {
     }
 }
 
+function Build-FoundationDiskImage {
+    if (-not (Test-Path -LiteralPath $FoundationImageBuilder -PathType Leaf)) {
+        throw "Missing Foundation GPT image builder: $FoundationImageBuilder"
+    }
+    & $FoundationImageBuilder
+    if (-not $?) {
+        throw 'Failed to create the KuroganeOS Foundation GPT image.'
+    }
+}
+
+function Build-InstallerImage {
+    if (-not (Test-Path -LiteralPath $InstallerImageBuilder -PathType Leaf)) {
+        throw "Missing installer image builder: $InstallerImageBuilder"
+    }
+    & $InstallerImageBuilder -Configuration $Configuration -NoBuild
+    if (-not $?) {
+        throw 'Failed to create the KuroganeOS installer image.'
+    }
+}
+
+$BuildLock = $null
 try {
+    [System.IO.Directory]::CreateDirectory($StateDir) | Out-Null
+    try {
+        $BuildLock = [System.IO.File]::Open(
+            $BuildLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    catch [System.IO.IOException] {
+        throw 'Another KuroganeOS build is already running for this repository.'
+    }
+
     if ($StageOnly -and ($Clean -or $Rebuild)) {
         throw '-StageOnly cannot be combined with -Clean or -Rebuild.'
     }
@@ -359,6 +606,10 @@ try {
             '-I', 'kernel/fs',
             '-I', 'sdk/include'
         )
+        $features = Read-FeatureConfiguration
+        foreach ($entry in $features.GetEnumerator()) {
+            $includeFlags += '-D{0}={1}' -f $entry.Key, $(if ($entry.Value) { 1 } else { 0 })
+        }
         $cxxFlags = @(
             '-std=c++17',
             '-Wall',
@@ -380,15 +631,25 @@ try {
             $cxxFlags += @(
                 '-O0',
                 '-g3',
-                '-DKUROGANE_DEBUG=1'
+                '-DKUROGANE_DEBUG=1',
+                '-DKUROGANE_TEST=0'
             )
         }
-        else {
+        elseif ($Configuration -eq 'release') {
             $cxxFlags += @(
                 '-O2',
                 '-g1',
                 '-DNDEBUG',
-                '-DKUROGANE_DEBUG=0'
+                '-DKUROGANE_DEBUG=0',
+                '-DKUROGANE_TEST=0'
+            )
+        }
+        else {
+            $cxxFlags += @(
+                '-O1',
+                '-g3',
+                '-DKUROGANE_DEBUG=1',
+                '-DKUROGANE_TEST=1'
             )
         }
 
@@ -632,6 +893,11 @@ try {
             }
             Set-Content -LiteralPath $fingerprintPath `
                 -Value $fingerprintHash -Encoding ascii
+            Write-BuildManifest `
+                -Profile $Configuration `
+                -CompilerFlags (@($commonFlags) + @($cxxFlags) + @($includeFlags)) `
+                -LinkerFlags $kernelLinkFlags `
+                -Features $features
         }
         finally {
             Pop-Location
@@ -639,9 +905,13 @@ try {
     }
 
     if (-not $NoStage) {
+        Build-UserApplications
+        Build-DeveloperSdk
         Build-EfiBootloader
         Stage-Artifacts
         Build-DiskImage
+        Build-FoundationDiskImage
+        Build-InstallerImage
     }
 
     if (Test-Path -LiteralPath $KernelElf -PathType Leaf) {
@@ -653,4 +923,9 @@ try {
 catch {
     Write-Error $_
     exit 1
+}
+finally {
+    if ($null -ne $BuildLock) {
+        $BuildLock.Dispose()
+    }
 }

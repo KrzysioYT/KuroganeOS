@@ -52,10 +52,10 @@ kurogane:/home $
 
 ```text
 help clear version uname abi echo date uptime
-mem free pci net [ping] tasks ps history whoami
+mem free pci net [ping] tasks history whoami
 ```
 
-`free` jest aliasem `mem`, a `ps` aliasem `tasks`. `ps` pokazuje callbacki schedulera, nie procesy systemowe. `whoami` wypisuje `kernel`, co celowo ujawnia brak użytkowników.
+`free` jest aliasem `mem`. `tasks` pokazuje callbacki schedulera, nie procesy systemowe; nazwa `ps` jest zarezerwowana dla przyszłej, prawdziwej tabeli procesów. `whoami` wypisuje `kernel`, co celowo ujawnia brak użytkowników.
 
 ### RAMFS
 

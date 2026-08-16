@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../input/input.hpp"
+
 namespace applications {
 
 constexpr size_t MAX_APPLICATIONS = 16;
@@ -24,6 +26,7 @@ using StartCallback = bool (*)(const char* arguments);
 using KeyCallback = void (*)(char character);
 using TickCallback = void (*)(uint64_t tick);
 using StopCallback = void (*)();
+using InputCallback = void (*)(const input::Event& event);
 
 struct Definition {
     const char* name;
@@ -32,6 +35,7 @@ struct Definition {
     KeyCallback key;
     TickCallback tick;
     StopCallback stop;
+    InputCallback input;
 };
 
 using ListCallback = bool (*)(const Definition& application, void* context);
@@ -43,6 +47,7 @@ Status stop();
 bool running();
 const char* active_name();
 void dispatch_key(char character);
+void dispatch_input(const input::Event& event);
 void dispatch_tick(uint64_t tick);
 void list(ListCallback callback, void* context);
 const char* status_message(Status status);

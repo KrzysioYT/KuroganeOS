@@ -27,22 +27,19 @@ struct [[gnu::packed]] IdtRegister {
 static_assert(sizeof(IdtEntry) == 16, "x86-64 IDT entries are 16 bytes");
 static_assert(sizeof(IdtRegister) == 10, "x86-64 IDTR operand is 10 bytes");
 static_assert(
-    offsetof(InterruptFrame, vector) == 15 * sizeof(uint64_t),
-    "assembly/C++ interrupt-frame register layout mismatch");
-static_assert(
-    offsetof(InterruptFrame, error_code) == 16 * sizeof(uint64_t),
-    "assembly/C++ interrupt-frame error-code layout mismatch");
-static_assert(
-    offsetof(InterruptFrame, rip) == 17 * sizeof(uint64_t),
-    "assembly/C++ interrupt-frame CPU layout mismatch");
-static_assert(
     IRQ_VECTOR_BASE == drivers::pic::MASTER_VECTOR_OFFSET &&
         IRQ_COUNT == drivers::pic::IRQ_COUNT,
     "IDT IRQ layout must match the remapped PIC");
 
+constexpr uint8_t kPresentInterruptGate = 0x8E;
+constexpr uint8_t kPresentTrapGate = 0x8F;
+constexpr uint8_t kGateDplShift = 5;
+constexpr uint8_t kFirstSoftwareVector = IRQ_VECTOR_BASE + IRQ_COUNT;
+
 alignas(16) static IdtEntry g_idt[IDT_ENTRY_COUNT];
 static InterruptHandler g_handlers[IDT_ENTRY_COUNT];
 static IrqHandler g_irq_handlers[IRQ_COUNT];
+static IrqScheduleHook g_irq_schedule_hook = nullptr;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
 
 static bool g_initialized = false;
@@ -79,7 +76,7 @@ void set_gate(
     } else {
         gate.ist = 0;
     }
-    gate.type_attributes = 0x8E; // present, ring 0, interrupt gate
+    gate.type_attributes = kPresentInterruptGate;
     gate.offset_middle =
         static_cast<uint16_t>((address >> 16) & 0xFFFF);
     gate.offset_high =
@@ -113,6 +110,7 @@ void initialize() {
     for (size_t i = 0; i < IRQ_COUNT; ++i) {
         g_irq_handlers[i] = nullptr;
     }
+    g_irq_schedule_hook = nullptr;
 
     g_last_exception_vector = 0xFF;
     g_last_exception_error_code = 0;
@@ -130,12 +128,67 @@ bool register_handler(uint8_t vector, InterruptHandler handler) {
         return false;
     }
 
-    g_handlers[vector] = handler;
+    __atomic_store_n(&g_handlers[vector], handler, __ATOMIC_RELEASE);
     return true;
 }
 
 void unregister_handler(uint8_t vector) {
-    g_handlers[vector] = nullptr;
+    if (g_initialized) {
+        // Revoke ring-3 access before removing the handler. Store ordering on
+        // x86 keeps the IDT update visible before the null handler slot.
+        __atomic_store_n(
+            &g_idt[vector].type_attributes,
+            kPresentInterruptGate,
+            __ATOMIC_RELEASE);
+    }
+    __atomic_store_n(
+        &g_handlers[vector],
+        static_cast<InterruptHandler>(nullptr),
+        __ATOMIC_RELEASE);
+}
+
+bool set_gate_privilege(uint8_t vector, GatePrivilege privilege) {
+    if (!g_initialized) {
+        return false;
+    }
+
+    const uint8_t level = static_cast<uint8_t>(privilege);
+    if (level != static_cast<uint8_t>(GatePrivilege::Kernel) &&
+        level != static_cast<uint8_t>(GatePrivilege::User)) {
+        return false;
+    }
+
+    if (level == static_cast<uint8_t>(GatePrivilege::User)) {
+        if (vector < kFirstSoftwareVector ||
+            __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE) == nullptr) {
+            return false;
+        }
+    }
+
+    const uint8_t attributes = static_cast<uint8_t>(
+        kPresentInterruptGate | (level << kGateDplShift));
+    __atomic_store_n(
+        &g_idt[vector].type_attributes,
+        attributes,
+        __ATOMIC_RELEASE);
+    return true;
+}
+
+bool set_gate_type(uint8_t vector, GateType type) {
+    if (!g_initialized || vector < kFirstSoftwareVector ||
+        __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE) == nullptr) {
+        return false;
+    }
+    const uint8_t current = __atomic_load_n(
+        &g_idt[vector].type_attributes, __ATOMIC_ACQUIRE);
+    const uint8_t type_bits = type == GateType::Trap
+        ? kPresentTrapGate
+        : kPresentInterruptGate;
+    const uint8_t attributes = static_cast<uint8_t>(
+        (current & UINT8_C(0x60)) | (type_bits & UINT8_C(0x9F)));
+    __atomic_store_n(
+        &g_idt[vector].type_attributes, attributes, __ATOMIC_RELEASE);
+    return true;
 }
 
 bool register_irq_handler(uint8_t irq, IrqHandler handler) {
@@ -150,6 +203,20 @@ bool register_irq_handler(uint8_t irq, IrqHandler handler) {
 void unregister_irq_handler(uint8_t irq) {
     if (irq < IRQ_COUNT) {
         g_irq_handlers[irq] = nullptr;
+    }
+}
+
+bool register_irq_schedule_hook(IrqScheduleHook hook) {
+    if (!g_initialized || hook == nullptr || g_irq_schedule_hook != nullptr) {
+        return false;
+    }
+    g_irq_schedule_hook = hook;
+    return true;
+}
+
+void unregister_irq_schedule_hook(IrqScheduleHook hook) {
+    if (hook != nullptr && g_irq_schedule_hook == hook) {
+        g_irq_schedule_hook = nullptr;
     }
 }
 
@@ -194,7 +261,8 @@ uintptr_t last_page_fault_address() {
 
 } // namespace arch::x86_64::interrupts
 
-extern "C" void x86_64_interrupt_dispatch(
+extern "C" arch::x86_64::interrupts::InterruptFrame*
+x86_64_interrupt_dispatch(
     arch::x86_64::interrupts::InterruptFrame* frame) {
     using namespace arch::x86_64::interrupts;
 
@@ -215,10 +283,11 @@ extern "C" void x86_64_interrupt_dispatch(
             g_last_page_fault_address = read_cr2();
         }
 
-        InterruptHandler handler = g_handlers[vector];
+        InterruptHandler handler =
+            __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
         if (handler != nullptr) {
             handler(*frame);
-            return;
+            return frame;
         }
 
         halt();
@@ -228,7 +297,7 @@ extern "C" void x86_64_interrupt_dispatch(
         const uint8_t irq =
             static_cast<uint8_t>(vector - IRQ_VECTOR_BASE);
         if (!drivers::pic::begin_irq(irq)) {
-            return;
+            return frame;
         }
 
         IrqHandler handler = g_irq_handlers[irq];
@@ -237,11 +306,20 @@ extern "C" void x86_64_interrupt_dispatch(
         }
 
         drivers::pic::send_eoi(irq);
-        return;
+        IrqScheduleHook schedule_hook = g_irq_schedule_hook;
+        if (schedule_hook != nullptr) {
+            InterruptFrame* selected = schedule_hook(irq, *frame);
+            if (selected != nullptr) {
+                return selected;
+            }
+        }
+        return frame;
     }
 
-    InterruptHandler handler = g_handlers[vector];
+    InterruptHandler handler =
+        __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
     if (handler != nullptr) {
         handler(*frame);
     }
+    return frame;
 }

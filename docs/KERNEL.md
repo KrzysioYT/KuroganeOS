@@ -15,6 +15,7 @@ Kernel publikuje na serialu i terminalu znaczniki self-testów. `ALL_REQUIRED_TE
 ## Deskryptory i przerwania
 
 - GDT zawiera segmenty kernela, przygotowane segmenty użytkownika oraz deskryptor TSS.
+- `TSS.RSP0` używa dedykowanego, wyrównanego 64 KiB entry stack zamiast boot stack; setter odrzuca zero, adres niekanoniczny i złe wyrównanie.
 - TSS ustawia `RSP0` i trzy stosy IST: double fault, NMI oraz machine check.
 - IDT ma 256 wpisów, wspólne stuby zapisujące rejestry i centralny dispatcher.
 - Legacy PIC jest przemapowany na wektory `0x20`–`0x2f`, obsługuje maskowanie i spurious IRQ7/IRQ15.
@@ -39,13 +40,13 @@ To nie jest pełny zarządca całej mapy fizycznej: pozostałe regiony użyteczn
 
 `kernel/memory/virtual_memory.*` implementuje czteropoziomowy walker x86-64 dla stron 4 KiB: inicjalizację przestrzeni, `map_page`, `unmap_page`, `query_page` i `translate`. Backend dostarcza przydział i zwolnienie tablic, dostęp fizyczny→wirtualny oraz synchroniczną invalidację TLB. Kod waliduje adresy kanoniczne, wyrównanie, szerokość adresu fizycznego, konflikty huge pages i uprawnień. Operacje alokujące wycofują częściowe zmiany po OOM; puste tablice są odłączane, invalidowane i dopiero zwalniane.
 
-`kernel/memory/kernel_virtual_memory.*` integruje walker z uruchomionym kernelem w ograniczonym modelu preview. Odrzuca 5-level paging, odczytuje i maskuje fizyczny korzeń z bieżącego `CR3`, wykrywa szerokość adresu przez CPUID, używa PMM do nowych tablic i lokalnego `invlpg`. Ponieważ dostęp do tablic i ramek jest realizowany przez rzutowanie adresu fizycznego na wskaźnik, adapter jawnie polega na identity mapping pozostawionym przez UEFI.
+`kernel/memory/kernel_virtual_memory.*` integruje walker z uruchomionym kernelem w ograniczonym modelu preview. Odrzuca 5-level paging, odczytuje i maskuje fizyczny korzeń z bieżącego `CR3`, kopiuje PML4 do nowej ramki PMM i przełącza procesor na ten prywatny root. Wykrywa szerokość adresu przez CPUID, używa PMM do nowych tablic i lokalnego `invlpg`. Ponieważ niższe tablice, pamięć fizyczna i ich dostęp nadal pochodzą z mapowań UEFI, adapter jawnie polega na identity mapping pozostawionym przez firmware.
 
 Self-test wybiera wolny kandydat w górnej połowie przestrzeni, mapuje jedną ramkę PMM, sprawdza translację i wspólny wzorzec danych przez alias wirtualny, następnie usuwa mapowanie i potwierdza brak wycieku ramek. Nie nadpisuje istniejącego wpisu.
 
 Istotne ograniczenia integracyjne:
 
-- kernel adoptuje aktywną przestrzeń firmware, ale nie buduje własnej kompletnej mapy ani nie przełącza `CR3`;
+- kernel ma prywatną kopię PML4 i przełącza `CR3`, ale nie buduje od zera niższych tablic ani kompletnej, chronionej mapy kernela;
 - poprawność adaptera zależy od identity mappingu pamięci fizycznej pozostawionego przez konkretne firmware;
 - caller musi zapewnić zewnętrzną synchronizację;
 - aktywny callback wykonuje tylko lokalne `invlpg`; przed SMP potrzebny jest synchroniczny cross-CPU shootdown;

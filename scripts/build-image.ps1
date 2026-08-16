@@ -7,7 +7,10 @@ param(
     [string]$OutputPath,
 
     [Parameter()]
-    [switch]$IncludeKernelInBootDirectory
+    [switch]$IncludeKernelInBootDirectory,
+
+    [Parameter()]
+    [string]$AdditionalRootFile
 )
 
 Set-StrictMode -Version Latest
@@ -297,10 +300,17 @@ function Assert-ByteArraysEqual {
     )
 
     Assert-Condition ($Left.Length -eq $Right.Length) $Message
-    for ($index = 0; $index -lt $Left.Length; $index++) {
-        if ($Left[$index] -ne $Right[$index]) {
-            throw "$Message (first difference at byte $index)."
-        }
+    # Byte-at-a-time loops in Windows PowerShell are prohibitively slow for
+    # multi-megabyte installer payloads. Hash both in managed code and compare
+    # the fixed-size digests; this retains full readback validation.
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $leftHash = $sha256.ComputeHash($Left)
+        $rightHash = $sha256.ComputeHash($Right)
+    }
+    finally { $sha256.Dispose() }
+    for ($index = 0; $index -lt $leftHash.Length; $index++) {
+        if ($leftHash[$index] -ne $rightHash[$index]) { throw $Message }
     }
 }
 
@@ -373,19 +383,34 @@ Assert-Condition (($BackupBootSector + 1) -lt $ReservedSectors) "The backup boot
 $stagePath = [System.IO.Path]::GetFullPath($StageDirectory)
 $efiPath = [System.IO.Path]::GetFullPath((Join-Path $stagePath "EFI\BOOT\BOOTX64.EFI"))
 $kernelPath = [System.IO.Path]::GetFullPath((Join-Path $stagePath "kernel.elf"))
+$additionalRootPath = if ([string]::IsNullOrWhiteSpace($AdditionalRootFile)) {
+    $null
+} else {
+    [System.IO.Path]::GetFullPath($AdditionalRootFile)
+}
 $finalPath = [System.IO.Path]::GetFullPath($OutputPath)
 
 Assert-Condition ([System.IO.File]::Exists($efiPath)) "Missing staged EFI loader: $efiPath"
 Assert-Condition ([System.IO.File]::Exists($kernelPath)) "Missing staged kernel: $kernelPath"
 Assert-Condition (-not $finalPath.Equals($efiPath, [System.StringComparison]::OrdinalIgnoreCase)) "The output path cannot overwrite the staged EFI loader."
 Assert-Condition (-not $finalPath.Equals($kernelPath, [System.StringComparison]::OrdinalIgnoreCase)) "The output path cannot overwrite the staged kernel."
+if ($null -ne $additionalRootPath) {
+    Assert-Condition ([System.IO.File]::Exists($additionalRootPath)) "Missing additional root file: $additionalRootPath"
+    Assert-Condition (-not $finalPath.Equals($additionalRootPath, [System.StringComparison]::OrdinalIgnoreCase)) "The output path cannot overwrite the additional root file."
+}
 
 $efiBytes = [System.IO.File]::ReadAllBytes($efiPath)
 $kernelBytes = [System.IO.File]::ReadAllBytes($kernelPath)
+$additionalRootBytes = if ($null -ne $additionalRootPath) {
+    [System.IO.File]::ReadAllBytes($additionalRootPath)
+} else { $null }
 Assert-Condition (($efiBytes.Length -gt 0) -and ($efiBytes.LongLength -le [uint32]::MaxValue)) "The staged EFI loader has an unsupported size."
 Assert-Condition (($kernelBytes.Length -gt 0) -and ($kernelBytes.LongLength -le [uint32]::MaxValue)) "The staged kernel has an unsupported size."
 Assert-EfiApplication $efiBytes $efiPath
 Assert-KernelElf $kernelBytes $kernelPath
+if ($null -ne $additionalRootBytes) {
+    Assert-Condition (($additionalRootBytes.Length -gt 0) -and ($additionalRootBytes.LongLength -le [uint32]::MaxValue)) "The additional root file has an unsupported size."
+}
 
 # Solve the FAT-size inequality, then minimize the answer.  This avoids the
 # off-by-one/oscillation bug common in simple FAT32 size calculators.
@@ -439,6 +464,9 @@ $efiShortName = ConvertTo-FatShortName "EFI"
 $bootShortName = ConvertTo-FatShortName "BOOT"
 $bootLoaderShortName = ConvertTo-FatShortName "BOOTX64.EFI"
 $kernelShortName = ConvertTo-FatShortName "KERNEL.ELF"
+$additionalRootShortName = if ($null -ne $additionalRootPath) {
+    ConvertTo-FatShortName ([System.IO.Path]::GetFileName($additionalRootPath))
+} else { $null }
 Assert-Condition (($efiShortName -ne $kernelShortName) -and ($bootLoaderShortName -ne $kernelShortName)) "A duplicate 8.3 directory name was generated."
 Assert-Condition ($VolumeLabel.Length -eq 11) "The FAT32 volume label must be exactly 11 characters."
 
@@ -466,6 +494,17 @@ if ($IncludeKernelInBootDirectory) {
     }
 }
 
+$additionalRootAllocation = $null
+if ($null -ne $additionalRootBytes) {
+    $additionalRootAllocation = [pscustomobject]@{
+        LogicalPath = "\" + [System.IO.Path]::GetFileName($additionalRootPath)
+        Bytes = $additionalRootBytes
+        FirstCluster = [uint32]0
+        ClusterCount = [int64]0
+    }
+    $allocations += $additionalRootAllocation
+}
+
 # Clusters 2, 3, and 4 are the root, EFI, and BOOT directories.
 $nextCluster = [int64]5
 foreach ($allocation in $allocations) {
@@ -485,7 +524,7 @@ $bootSector = New-Object byte[] ([int]$BytesPerSector)
 $bootSector[0] = 0xEB
 $bootSector[1] = 0x58
 $bootSector[2] = 0x90
-Set-Ascii $bootSector 3 "KRGN1.0 "
+Set-Ascii $bootSector 3 "KRGN2.0 "
 Set-UInt16LE $bootSector 11 ([uint16]$BytesPerSector)
 $bootSector[13] = [byte]$SectorsPerCluster
 Set-UInt16LE $bootSector 14 ([uint16]$ReservedSectors)
@@ -531,12 +570,14 @@ Set-FatEntry $fat 4 $EndOfChain
 foreach ($allocation in $allocations) {
     for ($clusterIndex = [int64]0; $clusterIndex -lt $allocation.ClusterCount; $clusterIndex++) {
         $cluster = [int64]$allocation.FirstCluster + $clusterIndex
-        if ($clusterIndex -eq ($allocation.ClusterCount - 1)) {
-            Set-FatEntry $fat $cluster $EndOfChain
-        }
-        else {
-            Set-FatEntry $fat $cluster ([uint32]($cluster + 1))
-        }
+        $value = if ($clusterIndex -eq ($allocation.ClusterCount - 1)) {
+            $EndOfChain
+        } else { [uint32]($cluster + 1) }
+        $offset = [int]($cluster * 4)
+        $fat[$offset] = [byte]($value -band 0xFF)
+        $fat[$offset + 1] = [byte](($value -shr 8) -band 0xFF)
+        $fat[$offset + 2] = [byte](($value -shr 16) -band 0xFF)
+        $fat[$offset + 3] = [byte](($value -shr 24) -band 0x0F)
     }
 }
 
@@ -549,6 +590,9 @@ $dotDotName = "..".PadRight(11, [char]' ')
 Copy-DirectoryEntry $rootDirectory 0 (New-FatDirectoryEntry $VolumeLabel 0x08 0 0)
 Copy-DirectoryEntry $rootDirectory 1 (New-FatDirectoryEntry $efiShortName 0x10 3 0)
 Copy-DirectoryEntry $rootDirectory 2 (New-FatDirectoryEntry $kernelShortName 0x20 $allocations[1].FirstCluster ([uint32]$kernelBytes.LongLength))
+if ($null -ne $additionalRootAllocation) {
+    Copy-DirectoryEntry $rootDirectory 3 (New-FatDirectoryEntry $additionalRootShortName 0x20 $additionalRootAllocation.FirstCluster ([uint32]$additionalRootBytes.LongLength))
+}
 
 Copy-DirectoryEntry $efiDirectory 0 (New-FatDirectoryEntry $dotName 0x10 3 0)
 # FAT32 encodes a subdirectory's parent as cluster 0 when that parent is the

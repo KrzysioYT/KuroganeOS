@@ -1,21 +1,25 @@
-#include <kurogane/abi.h>
+#include <string.h>
+#include <kurogane/libui.h>
+#include <kurogane/kurogane.h>
 
-// Compile-only GUI project contract. No windowing calls are invented here:
-// the public ABI does not expose a GUI transport yet.
-extern "C" uint64_t @PROJECT_SYMBOL@_required_features() {
-    return @REQUIRED_FEATURES@;
-}
-
-extern "C" ku_status_t @PROJECT_SYMBOL@_check_runtime(
-    const ku_abi_descriptor* descriptor) {
-    const ku_status_t status = ku_abi_validate_descriptor(descriptor);
-    if (!ku_status_is_success(status)) {
-        return status;
+int main() {
+    ku_ui_window_options options{sizeof(options), 120, 120, 420, 240};
+    const ku_result_t result = ku_ui_create(
+        "@PROJECT_NAME@", strlen("@PROJECT_NAME@"), &options);
+    if (result <= 0) return 1;
+    const ku_window_t window = static_cast<ku_window_t>(result);
+    ku_ui_frame frame;
+    kui_frame_initialize(&frame);
+    (void)kui_frame_set_line(&frame, 0, "@PROJECT_NAME@");
+    (void)kui_frame_set_line(&frame, 2, "External libui application");
+    (void)kui_present(window, &frame);
+    for (;;) {
+        ku_ui_event event;
+        const int available = kui_next_event(window, &event);
+        if (available < 0 ||
+            (available > 0 && event.type == KU_UI_EVENT_CLOSE)) break;
+        (void)kuro_sleep(1);
     }
-
-    const uint64_t required = @PROJECT_SYMBOL@_required_features();
-    if ((descriptor->available_features & required) != required) {
-        return KU_STATUS_NOT_SUPPORTED;
-    }
-    return KU_STATUS_OK;
+    (void)ku_ui_close(window);
+    return 0;
 }

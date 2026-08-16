@@ -2,6 +2,7 @@
 
 #include "../arch/x86_64/interrupts.hpp"
 #include "pic.hpp"
+#include "mouse.hpp"
 
 namespace drivers::keyboard {
 
@@ -404,6 +405,8 @@ size_t drain_controller() {
         if ((status & STATUS_AUXILIARY_DATA) == 0) {
             process_scancode(data);
             ++processed;
+        } else {
+            mouse::process_byte(data);
         }
     }
     return processed;

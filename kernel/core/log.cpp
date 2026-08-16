@@ -1,7 +1,6 @@
 #include "log.hpp"
 
 #include "../drivers/serial.hpp"
-#include "../task/scheduler.hpp"
 #include "../terminal.hpp"
 
 namespace log {
@@ -75,9 +74,10 @@ void prefix(Level level, const char* module) {
     emit_text(level_name(level));
     emit_text("][");
     emit_text(module ? module : "KERNEL");
-    emit_text("][CPU0][PID0:TID");
-    emit_u64(scheduler::current_task());
-    emit_text("] ");
+    // The callback dispatcher is not a process/thread scheduler. Do not label
+    // its slot number as a TID; a real PID/TID context will be added together
+    // with the process model.
+    emit_text("][CPU0][KERNEL] ");
 }
 
 void newline() {

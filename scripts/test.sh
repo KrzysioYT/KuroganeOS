@@ -25,21 +25,118 @@ run_test() {
 run_test memory "$root/tests/test_memory_allocator.cpp" \
     "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/memory/physical_memory.cpp"
+run_test libk "$root/tests/test_libk.cpp" \
+    "$root/kernel/libk/status.cpp" \
+    "$root/kernel/libk/memory.cpp" \
+    "$root/kernel/libk/string.cpp" \
+    "$root/kernel/libk/format.cpp" \
+    "$root/kernel/libk/hash.cpp" \
+    "$root/kernel/libk/crc.cpp" \
+    "$root/kernel/libk/utf8.cpp"
+run_test driver-core "$root/tests/test_driver_core.cpp" \
+    "$root/kernel/drivers/core/device_manager.cpp" \
+    "$root/kernel/drivers/core/driver_manager.cpp"
+run_test acpi "$root/tests/test_acpi.cpp" \
+    "$root/kernel/arch/x86_64/acpi.cpp"
+run_test install-package "$root/tests/test_install_package.cpp" \
+    "$root/kernel/install/package.cpp" \
+    "$root/kernel/libk/crc.cpp"
+run_test install-disk-layout "$root/tests/test_install_disk_layout.cpp" \
+    "$root/kernel/install/disk_layout.cpp" \
+    "$root/kernel/storage/gpt.cpp" \
+    "$root/kernel/storage/partition_device.cpp" \
+    "$root/kernel/fs/fat32.cpp" \
+    "$root/kernel/libk/crc.cpp"
+run_test input -DKUROGANE_HOST_TEST "$root/tests/test_input.cpp" \
+    "$root/kernel/input/input.cpp" \
+    "$root/kernel/drivers/mouse_protocol.cpp"
+run_test usb-protocol "$root/tests/test_usb_protocol.cpp" \
+    "$root/kernel/drivers/usb/protocol.cpp"
+run_test user-console "$root/tests/test_user_console.cpp" \
+    "$root/kernel/user/console.cpp"
+run_test window-manager -DKUROGANE_HOST_TEST \
+    "$root/tests/test_window_manager.cpp" \
+    "$root/kernel/ui/window_manager.cpp"
 run_test virtual-memory "$root/tests/test_virtual_memory.cpp" \
     "$root/kernel/memory/virtual_memory.cpp"
+run_test elf-loader "$root/tests/test_elf_loader.cpp" \
+    "$root/kernel/user/elf_loader.cpp" \
+    "$root/kernel/memory/virtual_memory.cpp" \
+    "$root/kernel/memory/physical_memory.cpp"
+run_test gpt "$root/tests/test_gpt.cpp" \
+    "$root/kernel/storage/gpt.cpp"
+run_test partition-device "$root/tests/test_partition_device.cpp" \
+    "$root/kernel/storage/partition_device.cpp"
+run_test storage-scratch "$root/tests/test_storage_scratch.cpp" \
+    "$root/kernel/storage/scratch_test.cpp"
+run_test ahci "$root/tests/test_ahci.cpp" \
+    "$root/kernel/storage/ahci_protocol.cpp" \
+    "$root/kernel/storage/dma.cpp" \
+    "$root/kernel/memory/physical_memory.cpp"
 run_test ramfs "$root/tests/test_ramfs.cpp" \
     "$root/kernel/fs/ramfs.cpp" "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/core/string.cpp"
+run_test vfs "$root/tests/test_vfs.cpp" \
+    "$root/kernel/fs/vfs.cpp"
+run_test fat32 "$root/tests/test_fat32.cpp" \
+    "$root/kernel/fs/fat32.cpp" \
+    "$root/kernel/fs/fat32_vfs.cpp" \
+    "$root/kernel/fs/vfs.cpp"
+if [[ -f "$root/build/images/KuroganeOS-base.img" ]]; then
+    echo "[build] root-volume-image"
+    "$cxx" "${flags[@]}" \
+        "$root/tests/test_root_volume_image.cpp" \
+        "$root/kernel/fs/root_volume.cpp" \
+        "$root/kernel/fs/fat32.cpp" \
+        "$root/kernel/fs/fat32_vfs.cpp" \
+        "$root/kernel/fs/vfs.cpp" \
+        "$root/kernel/storage/gpt.cpp" \
+        "$root/kernel/storage/partition_device.cpp" \
+        -o "$out/root-volume-image"
+    echo "[run] root-volume-image"
+    "$out/root-volume-image" "$root/build/images/KuroganeOS-base.img"
+    echo "[pass] root-volume-image"
+else
+    echo "[skip] root-volume-image (build Foundation image first)"
+fi
 run_test scheduler "$root/tests/test_scheduler.cpp" \
     "$root/kernel/task/scheduler.cpp"
+echo "[build] kernel-thread"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/tests/test_thread.cpp" -o "$out/test-thread.o"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/thread.cpp" -o "$out/thread.o"
+"$cxx" -DKUROGANE_HOST_TEST -c -x assembler-with-cpp \
+    "$root/kernel/arch/x86_64/context_switch.asm" \
+    -o "$out/context-switch.o"
+"$cxx" "$out/test-thread.o" "$out/thread.o" "$out/context-switch.o" \
+    -o "$out/kernel-thread"
+echo "[run] kernel-thread"
+"$out/kernel-thread"
+echo "[pass] kernel-thread"
+echo "[build] process-core"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/tests/test_process.cpp" -o "$out/test-process.o"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/process.cpp" -o "$out/process.o"
+"$cxx" "$out/test-process.o" "$out/process.o" \
+    "$out/thread.o" "$out/context-switch.o" -o "$out/process-core"
+echo "[run] process-core"
+"$out/process-core"
+echo "[pass] process-core"
 run_test network "$root/tests/test_network.cpp" \
-    "$root/kernel/net/network.cpp"
-run_test profiler "$root/tests/test_profiler.cpp" \
+    "$root/kernel/net/network.cpp" \
+    "$root/kernel/net/protocols.cpp"
+run_test network-protocols "$root/tests/test_network_protocols.cpp" \
+    "$root/kernel/net/network.cpp" \
+    "$root/kernel/net/protocols.cpp"
+run_test profiler -DKUROGANE_HOST_TEST "$root/tests/test_profiler.cpp" \
     "$root/kernel/diagnostics/profiler.cpp" \
     "$root/kernel/apps/framework.cpp" \
     "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/memory/physical_memory.cpp" \
     "$root/kernel/net/network.cpp" \
+    "$root/kernel/net/protocols.cpp" \
     "$root/kernel/net/service.cpp" \
     "$root/kernel/task/scheduler.cpp" \
     "$root/kernel/core/string.cpp"

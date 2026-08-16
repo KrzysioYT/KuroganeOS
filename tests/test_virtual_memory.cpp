@@ -305,6 +305,14 @@ bool test_initialization_and_validation() {
               UINT64_C(0x00200000),
               static_cast<vm::MapFlags>(UINT64_C(1) << 40)) ==
           vm::Status::InvalidFlags);
+    CHECK(vm::map_page(
+              &address_space,
+              UINT64_C(0x400000),
+              UINT64_C(0x00200000),
+              vm::MapFlags::User | vm::MapFlags::Global) ==
+          vm::Status::InvalidFlags);
+    CHECK(pool.allocation_successes == 0);
+    CHECK(pool.invalidation_count == 0);
     CHECK(vm::query_page(&address_space, 0, nullptr) ==
           vm::Status::InvalidArgument);
     CHECK(vm::translate(&address_space, 0, nullptr) ==
@@ -363,8 +371,7 @@ bool test_map_unmap_and_reuse() {
     CHECK(pool.allocation_successes == 3);
     CHECK(pool.invalidation_count == 1);
 
-    const vm::MapFlags second_flags =
-        vm::MapFlags::User | vm::MapFlags::Global;
+    const vm::MapFlags second_flags = vm::MapFlags::User;
     CHECK(vm::map_page(
               &address_space,
               virtual_address + vm::PAGE_SIZE,
@@ -429,7 +436,6 @@ bool test_flags_and_effective_permissions() {
         vm::MapFlags::User |
         vm::MapFlags::WriteThrough |
         vm::MapFlags::CacheDisable |
-        vm::MapFlags::Global |
         vm::MapFlags::NoExecute;
     CHECK(vm::map_page(
               &address_space,
@@ -447,6 +453,22 @@ bool test_flags_and_effective_permissions() {
               &mapping) == vm::Status::Ok);
     CHECK(mapping.flags == all_flags);
     CHECK(mapping.accessed && mapping.dirty);
+    CHECK(vm::unmap_page(&address_space, virtual_address) == vm::Status::Ok);
+
+    const vm::MapFlags global_flags =
+        vm::MapFlags::Writable |
+        vm::MapFlags::Global |
+        vm::MapFlags::NoExecute;
+    CHECK(vm::map_page(
+              &address_space,
+              virtual_address,
+              physical_address,
+              global_flags) == vm::Status::Ok);
+    CHECK(vm::query_page(
+              &address_space,
+              virtual_address,
+              &mapping) == vm::Status::Ok);
+    CHECK(mapping.flags == global_flags);
     CHECK(vm::unmap_page(&address_space, virtual_address) == vm::Status::Ok);
 
     reset_pool();

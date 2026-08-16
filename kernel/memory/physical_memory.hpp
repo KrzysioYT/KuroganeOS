@@ -20,6 +20,10 @@ bool init_physical_memory_with_bitmap(
     size_t bitmap_storage_size);
 
 void* alloc_frame();
+// Allocates one complete frame whose last byte is below exclusive_limit.
+// This is intended for devices with bounded DMA address widths. A failure
+// does not consume or temporarily reserve frames outside the requested range.
+void* alloc_frame_below(uintptr_t exclusive_limit);
 void free_frame(void* frame);
 bool try_free_frame(void* frame);
 bool is_frame_allocated(void* frame);

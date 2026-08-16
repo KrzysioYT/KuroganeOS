@@ -113,6 +113,7 @@ int main() {
         application_start,
         application_key,
         nullptr,
+        nullptr,
         nullptr
     };
     if (applications::register_application(application) !=

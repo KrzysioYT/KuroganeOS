@@ -1,0 +1,100 @@
+[up-to-date] build/obj/arch/x86_64/entry.o
+[up-to-date] build/obj/arch/x86_64/interrupt_stubs.o
+[up-to-date] build/obj/abi/service.o
+[up-to-date] build/obj/apps/builtin.o
+[up-to-date] build/obj/apps/framework.o
+[up-to-date] build/obj/arch/x86_64/gdt.o
+[up-to-date] build/obj/arch/x86_64/interrupts.o
+[up-to-date] build/obj/core/log.o
+[up-to-date] build/obj/core/memory.o
+[up-to-date] build/obj/core/string.o
+[up-to-date] build/obj/diagnostics/profiler.o
+[up-to-date] build/obj/drivers/core/device_manager.o
+[up-to-date] build/obj/drivers/core/driver_manager.o
+[up-to-date] build/obj/drivers/framebuffer.o
+[up-to-date] build/obj/drivers/keyboard.o
+[up-to-date] build/obj/drivers/pci.o
+[up-to-date] build/obj/drivers/pic.o
+[up-to-date] build/obj/drivers/pit.o
+[up-to-date] build/obj/drivers/rtc.o
+[up-to-date] build/obj/drivers/serial.o
+[up-to-date] build/obj/fs/fat32.o
+[up-to-date] build/obj/fs/fat32_vfs.o
+[up-to-date] build/obj/fs/ramfs.o
+[up-to-date] build/obj/fs/root_volume.o
+[up-to-date] build/obj/fs/vfs.o
+[up-to-date] build/obj/libk/assert.o
+[up-to-date] build/obj/libk/crc.o
+[up-to-date] build/obj/libk/format.o
+[up-to-date] build/obj/libk/hash.o
+[up-to-date] build/obj/libk/memory.o
+[up-to-date] build/obj/libk/status.o
+[up-to-date] build/obj/libk/string.o
+[up-to-date] build/obj/libk/utf8.o
+[x86_64-elf-g++.exe] -ffreestanding -fno-stack-protector -fno-omit-frame-pointer -fPIE -fno-plt -Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef -Werror=return-type -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit -fno-unwind-tables -fno-asynchronous-unwind-tables -fvisibility=hidden -O1 -g3 -DKUROGANE_DEBUG=1 -DKUROGANE_TEST=1 -I kernel -I kernel/include -I kernel/memory -I kernel/fs -I sdk/include -DCONFIG_CONSOLE=1 -DCONFIG_GUI=0 -DCONFIG_PCI=1 -DCONFIG_AHCI=1 -DCONFIG_VIRTIO=0 -DCONFIG_USB=0 -DCONFIG_XHCI=0 -DCONFIG_NETWORK=1 -DCONFIG_POSIX=0 -DCONFIG_ACPI=0 -DCONFIG_APIC=0 -MMD -MP -MF build/obj/main.d -MT build/obj/main.o -frandom-seed=kernel/main.cpp -c kernel/main.cpp -o build/obj/main.o
+[up-to-date] build/obj/memory/allocator.o
+[up-to-date] build/obj/memory/kernel_virtual_memory.o
+[up-to-date] build/obj/memory/physical_memory.o
+[up-to-date] build/obj/memory/virtual_memory.o
+[up-to-date] build/obj/net/network.o
+[up-to-date] build/obj/net/service.o
+[up-to-date] build/obj/shell/shell.o
+[up-to-date] build/obj/storage/ahci.o
+[up-to-date] build/obj/storage/ahci_protocol.o
+[up-to-date] build/obj/storage/dma.o
+[up-to-date] build/obj/storage/gpt.o
+[up-to-date] build/obj/storage/partition_device.o
+[up-to-date] build/obj/storage/scratch_test.o
+[up-to-date] build/obj/task/scheduler.o
+[up-to-date] build/obj/terminal.o
+[up-to-date] build/obj/ui/ui.o
+[x86_64-elf-ld.exe] --fatal-warnings --build-id=none -pie --no-dynamic-linker -z noexecstack -z text -z max-page-size=0x1000 -T linker.ld -Map build/kernel.map -o build/kernel.elf build/obj/arch/x86_64/entry.o build/obj/arch/x86_64/interrupt_stubs.o build/obj/abi/service.o build/obj/apps/builtin.o build/obj/apps/framework.o build/obj/arch/x86_64/gdt.o build/obj/arch/x86_64/interrupts.o build/obj/core/log.o build/obj/core/memory.o build/obj/core/string.o build/obj/diagnostics/profiler.o build/obj/drivers/core/device_manager.o build/obj/drivers/core/driver_manager.o build/obj/drivers/framebuffer.o build/obj/drivers/keyboard.o build/obj/drivers/pci.o build/obj/drivers/pic.o build/obj/drivers/pit.o build/obj/drivers/rtc.o build/obj/drivers/serial.o build/obj/fs/fat32.o build/obj/fs/fat32_vfs.o build/obj/fs/ramfs.o build/obj/fs/root_volume.o build/obj/fs/vfs.o build/obj/libk/assert.o build/obj/libk/crc.o build/obj/libk/format.o build/obj/libk/hash.o build/obj/libk/memory.o build/obj/libk/status.o build/obj/libk/string.o build/obj/libk/utf8.o build/obj/main.o build/obj/memory/allocator.o build/obj/memory/kernel_virtual_memory.o build/obj/memory/physical_memory.o build/obj/memory/virtual_memory.o build/obj/net/network.o build/obj/net/service.o build/obj/shell/shell.o build/obj/storage/ahci.o build/obj/storage/ahci_protocol.o build/obj/storage/dma.o build/obj/storage/gpt.o build/obj/storage/partition_device.o build/obj/storage/scratch_test.o build/obj/task/scheduler.o build/obj/terminal.o build/obj/ui/ui.o
+
+Elf file type is DYN (Position-Independent Executable file)
+Entry point 0x1000
+There are 5 program headers, starting at offset 64
+
+Program Headers:
+  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+  LOAD           0x000000 0x0000000000000000 0x0000000000000000 0x01cd11 0x01cd11 R E 0x1000
+  LOAD           0x01d000 0x000000000001d000 0x000000000001d000 0x005e88 0x005e88 R   0x1000
+  LOAD           0x023000 0x0000000000023000 0x0000000000023000 0x000be0 0x27bc21 RW  0x1000
+  DYNAMIC        0x023ae0 0x0000000000023ae0 0x0000000000023ae0 0x000100 0x000100 RW  0x8
+  GNU_STACK      0x000000 0x0000000000000000 0x0000000000000000 0x000000 0x000000 RW  0x8
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     .text 
+   01     .rodata .rela.dyn 
+   02     .data .dynamic .bss 
+   03     .dynamic 
+   04     
+[verify] 289 supported R_X86_64_RELATIVE relocations
+[manifest] E:\KuroganeOS\build\build-info.txt
+[x86_64-elf-gcc.exe] -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding -fshort-wchar -m64 -mno-red-zone -mno-mmx -mno-sse -fno-stack-protector -fno-omit-frame-pointer -fPIE -fno-plt -fno-builtin -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -Wa,--noexecstack -I boot/efi -I boot/include -I common -frandom-seed=boot/efi/standalone.c -c boot/efi/standalone.c -o build/boot/standalone.o
+[x86_64-elf-ld.exe] --build-id=none --no-warn-rwx-segments -T boot/efi/standalone-linker.ld -o build/boot/standalone.elf build/boot/standalone.o
+
+There are no relocations in this file.
+[x86_64-elf-objcopy.exe] -O binary build/boot/standalone.elf build/boot/standalone.bin
+[efi] E:\KuroganeOS\build\BOOTX64.EFI (8704 bytes, entry RVA 0x1000, image size 0x4000)
+[stage] E:\KuroganeOS\iso\EFI\BOOT\BOOTX64.EFI
+[stage] E:\KuroganeOS\iso\kernel.elf
+[stage] E:\KuroganeOS\iso\EFI\BOOT\kernel.elf
+[stage] generated and validated AMD64 EFI application
+Created deterministic FAT32 image: E:\KuroganeOS\kurogane.img
+  Size:       67108864 bytes (64 MiB)
+  Geometry:   131072 sectors, 1009 sectors/FAT, 129022 clusters
+  Free:       127360 clusters
+  SHA-256:    1ff52bff83aeafef4463e0831313b8f90f474fe0cb6bd7b461ce43c01393b321
+
+No problems found. 4029 free sectors (2.0 MiB) available in 2
+segments, the largest of which is 2015 (1007.5 KiB) in size.
+Created KuroganeOS Foundation GPT image: /mnt/e/KuroganeOS/build/images/KuroganeOS-base.img
+  disk: 512 MiB, GUID 4B55524F-4741-4E45-8F44-49534B000001
+  ESP:  LBA 2048-133119, FAT32 KURO_ESP
+  root: LBA 133120-1046527, FAT32 KURO_ROOT
+  SHA-256: 5645df5b18c0232c39c5e10526f34e08eb0151a278674da5b3e00ae7faeb1544
+Updated working-image ESP; root partition was not written: /mnt/e/KuroganeOS/state/KuroganeOS.img
+[working-image] root preserved; boot payload updated: E:\KuroganeOS\state\KuroganeOS.img
+[done] E:\KuroganeOS\build\kernel.elf
+[sha256] df63acfef8ade4b4cece5a886828b9a6d3d5df5921c3b525054239322e4b8213

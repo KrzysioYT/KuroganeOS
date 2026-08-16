@@ -9,7 +9,10 @@ Legacy pliki tekstowe w `boot/efi/src/` nie uczestniczą w buildzie. Aktywnym lo
 ## Kolejność po stronie loadera
 
 1. Firmware ładuje własną aplikację PE32+ `BOOTX64.EFI`.
-2. Loader wypisuje wersję i przez około 750 ms przyjmuje `S` albo `F8` jako żądanie safe mode.
+2. Loader wypisuje wersję i przez około 750 ms przyjmuje klawisze:
+   - `D` aby uruchomić desktop,
+   - `S` lub `F8` aby wejść w safe mode,
+   - `X` aby wejść w tryb diagnostyczny.
 3. Loader pozyskuje Graphics Output Protocol. Brak GOP kończy rozruch błędem.
 4. Otwiera `\kernel.elf`, odczytuje go do pamięci i waliduje jako 64-bitowy little-endian ELF dla AMD64 typu `ET_DYN`.
 5. Waliduje nagłówki programowe, zakresy, wyrównania, brak nakładających się segmentów i brak segmentu jednocześnie zapisywalnego oraz wykonywalnego.
@@ -42,7 +45,7 @@ Po zaakceptowaniu danych kolejność jest następująca:
 1. banner oraz informacja o safe mode;
 2. GDT, TSS i osobne stosy IST dla double fault, NMI i machine check;
 3. stały heap kernela i PMM z wybranego regionu UEFI;
-4. adopcja aktywnego czteropoziomowego `CR3` i runtime self-test map/write/translate/unmap;
+4. sklonowanie aktywnego PML4 UEFI do prywatnej ramki, przełączenie `CR3` i runtime self-test map/write/translate/unmap;
 5. self-test heapu i ramek fizycznych;
 6. inicjalizacja i zasianie RAMFS;
 7. w trybie normalnym skan PCI oraz start programowego stosu sieciowego;
@@ -62,6 +65,8 @@ Loader zapisuje wybór użytkownika w polu `flags`; nie zmienia samego obrazu ke
 - nadal wymaga działających GDT/TSS/IST, heapu, PMM, adaptera VMM i jego self-testu, RAMFS, schedulera, IDT/PIC, PIT, klawiatury i shella.
 
 Safe mode jest minimalnym rozruchem diagnostycznym. Nie montuje nośnika, nie naprawia trwałych danych i nie uruchamia alternatywnego kernela.
+
+Diagnostics mode to wariant safe mode z dodatkowym nadrukiem stanu diagnostycznego. Pomiń tryb desktop i zarejestruj wyłącznie diagnostyczne ograniczenia uruchamiania.
 
 ## Zatrzymanie i restart
 

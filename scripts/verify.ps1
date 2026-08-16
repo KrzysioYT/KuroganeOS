@@ -21,9 +21,16 @@ $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 $TestScript = Join-Path $PSScriptRoot 'test.sh'
 $IsoScript = Join-Path $PSScriptRoot 'build-iso.sh'
 $QemuScript = Join-Path $PSScriptRoot 'run-qemu.ps1'
+$FoundationImageTest = Join-Path $PSScriptRoot 'test-foundation-image.ps1'
+$ScratchImageBuilder = Join-Path $PSScriptRoot 'new-ahci-scratch.ps1'
 $VirtualBoxScript = Join-Path $PSScriptRoot 'run-virtualbox.ps1'
 $ImagePath = Join-Path $RepoRoot 'kurogane.img'
 $IsoPath = Join-Path $RepoRoot 'kurogane.iso'
+$FoundationBaseImage = Join-Path $RepoRoot 'build\images\KuroganeOS-base.img'
+$ScratchImage = Join-Path $RepoRoot 'build\test-disks\ahci-scratch.img'
+$BuildManifest = Join-Path $RepoRoot 'build\build-info.txt'
+$StateDir = Join-Path $RepoRoot 'state'
+$VerifyLockPath = Join-Path $StateDir '.verify.lock'
 $LogRoot = Join-Path $RepoRoot 'build\logs'
 $LogRoot = [System.IO.Path]::GetFullPath($LogRoot)
 [System.IO.Directory]::CreateDirectory($LogRoot) | Out-Null
@@ -61,6 +68,19 @@ function Assert-ScriptParameters {
         if (-not $command.Parameters.ContainsKey($parameter)) {
             throw "$(Split-Path -Leaf $Path) does not expose the required -$parameter parameter."
         }
+    }
+}
+
+function Assert-BuildManifestProfile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Expected
+    )
+
+    Assert-File -Path $BuildManifest -Description 'Build manifest'
+    $manifest = Get-Content -LiteralPath $BuildManifest -Raw
+    if ($manifest -notmatch "(?m)^profile=$([regex]::Escape($Expected))\r?$") {
+        throw "Build manifest does not describe the expected '$Expected' profile."
     }
 }
 
@@ -225,7 +245,20 @@ function Get-FreeMonitorPort {
     }
 }
 
+$VerifyLock = $null
 try {
+    [System.IO.Directory]::CreateDirectory($StateDir) | Out-Null
+    try {
+        $VerifyLock = [System.IO.File]::Open(
+            $VerifyLockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None)
+    }
+    catch [System.IO.IOException] {
+        throw 'Another KuroganeOS verification run is already active for this repository.'
+    }
+
     if ($RunVirtualBox -and $SkipVirtualBox) {
         throw '-RunVirtualBox and -SkipVirtualBox cannot be used together.'
     }
@@ -235,6 +268,8 @@ try {
         @{ Path = $TestScript; Description = 'WSL host-test script' },
         @{ Path = $IsoScript; Description = 'WSL ISO build script' },
         @{ Path = $QemuScript; Description = 'QEMU runner' },
+        @{ Path = $FoundationImageTest; Description = 'Foundation image validator' },
+        @{ Path = $ScratchImageBuilder; Description = 'AHCI scratch-image builder' },
         @{ Path = $VirtualBoxScript; Description = 'VirtualBox runner' }
     )) {
         Assert-File -Path $requiredFile.Path -Description $requiredFile.Description
@@ -297,6 +332,7 @@ done
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $BuildScript -Configuration debug -Rebuild
     } | Out-Null
     Assert-File -Path $ImagePath -Description 'Debug disk image'
+    Assert-BuildManifestProfile -Expected 'debug'
 
     Invoke-Step -Name 'Host tests in WSL2' -Slug 'host-tests' -Action {
         $script = New-WslRepositoryScript -WslRepositoryPath $WslRepoRoot -Body @'
@@ -310,6 +346,11 @@ bash ./scripts/test.sh
 fsck.fat -vn "$WslImagePath"
 "@
         Invoke-WslBash -WslExecutable $WslExe -Script $script
+    } | Out-Null
+
+    Invoke-Step -Name 'Foundation GPT/FAT image validation' -Slug 'foundation-image' -Action {
+        & $PowerShellExe -NoProfile -ExecutionPolicy Bypass `
+            -File $FoundationImageTest
     } | Out-Null
 
     $diskPort = Get-FreeMonitorPort
@@ -333,10 +374,34 @@ fsck.fat -vn "$WslImagePath"
             -LogName "$LogStem-qemu-safe"
     } | Out-Null
 
+    Invoke-Step -Name 'Clean test-profile build' -Slug 'test-build' -Action {
+        & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $BuildScript -Configuration test -Rebuild
+    } | Out-Null
+    Assert-File -Path $FoundationBaseImage -Description 'Test-profile Foundation GPT image'
+    Assert-BuildManifestProfile -Expected 'test'
+
+    Invoke-Step -Name 'Create tagged AHCI scratch image' -Slug 'ahci-scratch' -Action {
+        & $PowerShellExe -NoProfile -ExecutionPolicy Bypass `
+            -File $ScratchImageBuilder -OutputPath $ScratchImage -Force
+    } | Out-Null
+
+    $testPort = Get-FreeMonitorPort
+    Invoke-Step -Name 'QEMU test profile AHCI/GPT read-write ShellTest' -Slug 'qemu-test-profile' -Action {
+        & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $QemuScript `
+            -UseDiskImage `
+            -DiskImagePath $FoundationBaseImage `
+            -WritableScratchDiskPath $ScratchImage `
+            -ShellTest `
+            -TimeoutSeconds $TimeoutSeconds `
+            -MonitorPort $testPort `
+            -LogName "$LogStem-qemu-test-profile"
+    } | Out-Null
+
     Invoke-Step -Name 'Release build' -Slug 'release-build' -Action {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $BuildScript -Configuration release -Rebuild
     } | Out-Null
     Assert-File -Path $ImagePath -Description 'Release disk image'
+    Assert-BuildManifestProfile -Expected 'release'
 
     Invoke-Step -Name 'Release ISO build in WSL2' -Slug 'release-iso-build' -Action {
         $script = New-WslRepositoryScript -WslRepositoryPath $WslRepoRoot -Body @'
@@ -388,4 +453,9 @@ catch {
         Write-Error ([string]$_.Exception.Message)
     }
     exit 1
+}
+finally {
+    if ($null -ne $VerifyLock) {
+        $VerifyLock.Dispose()
+    }
 }

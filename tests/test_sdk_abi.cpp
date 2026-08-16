@@ -1,9 +1,31 @@
 #include <kurogane/abi.h>
+#include <kurogane/syscall.h>
+#include <kurogane/ui.h>
 
 #include <cassert>
 #include <cstddef>
 
 int main() {
+    static_assert(KU_SYS_EXIT == 1);
+    static_assert(KU_SYS_WRITE == 2);
+    static_assert(KU_SYS_GETPID == 3);
+    static_assert(KU_SYS_READ == 4);
+    static_assert(KU_SYS_OPEN == 5);
+    static_assert(KU_SYS_CLOSE == 6);
+    static_assert(KU_SYS_ALLOC == 7);
+    static_assert(KU_SYS_FREE == 8);
+    static_assert(KU_SYS_SLEEP == 9);
+    static_assert(KU_SYS_YIELD == 10);
+    static_assert(KU_SYS_GETTID == 11);
+    static_assert(KU_SYS_SPAWN == 12);
+    static_assert(KU_SYS_WAIT == 13);
+    static_assert(KU_SYS_UI_CREATE == 14);
+    static_assert(KU_SYS_UI_PRESENT == 15);
+    static_assert(KU_SYS_UI_POLL == 16);
+    static_assert(KU_SYS_UI_CLOSE == 17);
+    static_assert(sizeof(ku_ui_window_options) == 20);
+    static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
 

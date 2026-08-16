@@ -10,7 +10,8 @@ constexpr size_t PAGE_TABLE_ENTRY_COUNT = 512;
 constexpr uint8_t ARCHITECTURAL_PHYSICAL_ADDRESS_BITS = 52;
 
 // Flags describe the effective permissions of a 4 KiB mapping. Presence is
-// implicit: a successful query always describes a present mapping.
+// implicit: a successful query always describes a present mapping. Global is
+// restricted to supervisor mappings; map_page rejects User | Global.
 enum class MapFlags : uint64_t {
     None = 0,
     Writable = UINT64_C(1) << 0,

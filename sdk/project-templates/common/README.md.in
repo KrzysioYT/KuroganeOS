@@ -1,14 +1,8 @@
 # @PROJECT_NAME@
 
-This is a KuroganeOS `@TEMPLATE@` SDK scaffold. At the current Developer
-checkpoint it intentionally builds **only a freestanding object file**. The
-system does not yet expose ring-3 startup code, a syscall transport, or an
-application linker contract, so this project cannot be linked or run.
-
-The generated capability probe performs real ABI validation and requires these
-future runtime features: `@REQUIRED_FEATURE_NAMES@`. It returns
-`KU_STATUS_NOT_SUPPORTED` when the supplied kernel ABI descriptor does not
-advertise all of them.
+This is a runnable KuroganeOS `@TEMPLATE@` SDK scaffold. It links statically
+against the public CRT, libc, libkurogane and libui ABI and requires these
+runtime features: `@REQUIRED_FEATURE_NAMES@`.
 
 Build against a generated SDK sysroot:
 
@@ -16,5 +10,7 @@ Build against a generated SDK sysroot:
 make KUROGANE_SYSROOT=/path/to/kurogane/sysroot
 ```
 
-The only expected artifact is `build/@PROJECT_NAME@.o`. Do not treat successful
-object compilation as evidence that the template can execute on KuroganeOS.
+The output `build/@PROJECT_NAME@` is an ELF64 ET_EXEC image. Copy it to the
+system filesystem (normally `/apps/@PROJECT_NAME@`) and launch it from the
+userspace shell. This SDK is KuroganeOS-native and does not claim POSIX binary
+compatibility.

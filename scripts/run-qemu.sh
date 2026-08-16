@@ -4,6 +4,18 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-smoke}"
 case "$mode" in
+    img)
+        shift
+        exec bash "$root/scripts/run-qemu-img.sh" "$@"
+        ;;
+    headless)
+        shift
+        exec bash "$root/scripts/run-qemu-headless.sh" "$@"
+        ;;
+    debug)
+        shift
+        exec bash "$root/scripts/run-qemu-debug.sh" "$@"
+        ;;
     smoke) extra=(-Display -LogName smoke) ;;
     system)
         extra=(-Display -ShellTest -UseDiskImage -TimeoutSeconds 30 -LogName system)
@@ -14,8 +26,11 @@ case "$mode" in
     safe)
         extra=(-Display -ShellTest -SafeMode -UseDiskImage -TimeoutSeconds 30 -LogName safe)
         ;;
+    desktop)
+        extra=(-Display -ShellTest -DesktopMode -UseDiskImage -TimeoutSeconds 30 -LogName desktop)
+        ;;
     *)
-        echo "usage: $0 {smoke|system|iso|safe}" >&2
+        echo "usage: $0 {smoke|system|iso|safe|desktop|img|headless|debug} [mode options]" >&2
         exit 2
         ;;
 esac

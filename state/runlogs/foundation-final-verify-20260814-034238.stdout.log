@@ -1,0 +1,31 @@
+[2026-08-14 03:42:39] [INFO ] Verification started. Timeout: 35 seconds.
+[2026-08-14 03:42:39] [START] WSL2 and toolchain preflight (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-wsl2-preflight.log)
+[2026-08-14 03:42:40] [PASS ] WSL2 and toolchain preflight completed in 0,2 seconds.
+[2026-08-14 03:42:40] [START] Resolve repository path in WSL2 (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-wsl2-path.log)
+[2026-08-14 03:42:40] [PASS ] Resolve repository path in WSL2 completed in 0,1 seconds.
+[2026-08-14 03:42:40] [START] Clean debug build (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-debug-build.log)
+[2026-08-14 03:46:12] [PASS ] Clean debug build completed in 212,3 seconds.
+[2026-08-14 03:46:12] [START] Host tests in WSL2 (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-host-tests.log)
+[2026-08-14 03:46:25] [PASS ] Host tests in WSL2 completed in 13,0 seconds.
+[2026-08-14 03:46:25] [START] FAT image validation (read-only) (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-fat-fsck.log)
+[2026-08-14 03:46:25] [PASS ] FAT image validation (read-only) completed in 0,2 seconds.
+[2026-08-14 03:46:25] [START] Foundation GPT/FAT image validation (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-foundation-image.log)
+[2026-08-14 03:46:39] [PASS ] Foundation GPT/FAT image validation completed in 13,2 seconds.
+[2026-08-14 03:46:39] [START] QEMU disk ShellTest (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-qemu-disk.log)
+[2026-08-14 03:46:58] [PASS ] QEMU disk ShellTest completed in 19,5 seconds.
+[2026-08-14 03:46:58] [START] QEMU disk SafeMode ShellTest (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-qemu-safe.log)
+[2026-08-14 03:47:05] [PASS ] QEMU disk SafeMode ShellTest completed in 6,7 seconds.
+[2026-08-14 03:47:05] [START] Clean test-profile build (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-test-build.log)
+[2026-08-14 03:50:42] [PASS ] Clean test-profile build completed in 217,4 seconds.
+[2026-08-14 03:50:42] [START] Create tagged AHCI scratch image (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-ahci-scratch.log)
+[2026-08-14 03:50:44] [PASS ] Create tagged AHCI scratch image completed in 1,4 seconds.
+[2026-08-14 03:50:44] [START] QEMU test profile AHCI/GPT read-write ShellTest (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-qemu-test-profile.log)
+[2026-08-14 03:51:02] [PASS ] QEMU test profile AHCI/GPT read-write ShellTest completed in 18,2 seconds.
+[2026-08-14 03:51:02] [START] Release build (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-release-build.log)
+[2026-08-14 03:54:07] [PASS ] Release build completed in 185,0 seconds.
+[2026-08-14 03:54:07] [START] Release ISO build in WSL2 (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-release-iso-build.log)
+[2026-08-14 03:55:08] [PASS ] Release ISO build in WSL2 completed in 61,1 seconds.
+[2026-08-14 03:55:08] [START] QEMU ISO smoke and ShellTest (log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-qemu-iso.log)
+[2026-08-14 03:55:24] [PASS ] QEMU ISO smoke and ShellTest completed in 16,5 seconds.
+[2026-08-14 03:55:24] [SKIP ] VirtualBox ISO smoke test skipped (default). Enable with -RunVirtualBox.
+[2026-08-14 03:55:24] [PASS ] All requested verification stages passed. Status log: E:\KuroganeOS\build\logs\verify-20260814-034239-f3dbda09-status.log

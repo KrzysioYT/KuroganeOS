@@ -327,6 +327,7 @@ static EFI_STATUS apply_dynamic_relocations(
 
 static EFI_STATUS load_file(EFI_BOOT_SERVICES* services,
                             EFI_HANDLE image_handle,
+                            const CHAR16* path,
                             VOID** output,
                             UINTN* output_size,
                             UINTN* output_pages) {
@@ -336,12 +337,8 @@ static EFI_STATUS load_file(EFI_BOOT_SERVICES* services,
     EFI_FILE_PROTOCOL* root = NULL;
     EFI_FILE_PROTOCOL* file = NULL;
     UINT64 file_size = 0;
-    static const CHAR16 kernel_path[] = {
-        '\\', 'k', 'e', 'r', 'n', 'e', 'l', '.', 'e', 'l', 'f', 0
-    };
-
     if (!services || !services->AllocatePages || !services->FreePages ||
-        !output || !output_size || !output_pages) {
+        !path || !output || !output_size || !output_pages) {
         return EFI_INVALID_PARAMETER;
     }
     *output = NULL;
@@ -365,7 +362,7 @@ static EFI_STATUS load_file(EFI_BOOT_SERVICES* services,
         return EFI_ERROR(status) ? status : EFI_NOT_FOUND;
     }
     status = root->Open(
-        root, &file, kernel_path, EFI_FILE_MODE_READ, 0);
+        root, &file, path, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status) || !file) {
         root->Close(root);
         return EFI_ERROR(status) ? status : EFI_NOT_FOUND;
@@ -861,9 +858,12 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
 
     console_write(
         system_table,
-        (const CHAR16*)L"Press D for desktop, S or F8 for safe mode, "
-                        L"X for diagnostics...\r\n");
-    for (attempt = 0; attempt < 75; ++attempt) {
+        (const CHAR16*)L"Default boot=console. Press D for "
+                        L"boot=desktop (DESKTOP ALPHA), S or F8 for safe "
+                        L"mode, X for diagnostics...\r\n");
+    /* Keep the choice window long enough for a headless serial-file watcher
+       to observe the prompt and inject a QEMU monitor key deterministically. */
+    for (attempt = 0; attempt < 300; ++attempt) {
         EFI_INPUT_KEY key;
         EFI_STATUS status;
         key.ScanCode = 0;
@@ -881,7 +881,8 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
             if (key.UnicodeChar == 'd' || key.UnicodeChar == 'D') {
                 console_write(
                     system_table,
-                    (const CHAR16*)L"Desktop mode requested\r\n");
+                    (const CHAR16*)L"boot=desktop (DESKTOP ALPHA) "
+                                    L"requested\r\n");
                 return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
             }
             if (key.UnicodeChar == 'x' || key.UnicodeChar == 'X') {
@@ -901,12 +902,22 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
                            EFI_SYSTEM_TABLE* system_table) {
+    static const CHAR16 kernel_path[] = {
+        '\\', 'k', 'e', 'r', 'n', 'e', 'l', '.', 'e', 'l', 'f', 0
+    };
+    static const CHAR16 installer_path[] = {
+        '\\', 'i', 'n', 's', 't', 'a', 'l', 'l', '.', 'p', 'k', 'g', 0
+    };
     EFI_BOOT_SERVICES* services;
     EFI_GRAPHICS_OUTPUT_PROTOCOL* graphics = NULL;
     KuroganeBootInfo* boot_info = NULL;
     VOID* kernel_file = NULL;
     UINTN kernel_file_size = 0;
     UINTN kernel_file_pages = 0;
+    VOID* installation_package = NULL;
+    UINTN installation_package_size = 0;
+    UINTN installation_package_pages = 0;
+    UINT64 boot_flags;
     LoadedKernel kernel;
     EFI_STATUS status;
 
@@ -917,7 +928,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     console_write(
         system_table,
         (const CHAR16*)L"KuroganeOS loader " KUROGANE_VERSION_WIDE L"\r\n");
-    const UINT64 boot_flags = request_boot_flags(system_table);
+    boot_flags = request_boot_flags(system_table);
 
     status = services->HandleProtocol(
         system_table->ConsoleOutHandle,
@@ -934,11 +945,32 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     }
 
     status = load_file(
-        services, image_handle, &kernel_file, &kernel_file_size,
+        services, image_handle, kernel_path, &kernel_file, &kernel_file_size,
         &kernel_file_pages);
     if (EFI_ERROR(status)) {
         console_write(system_table,
                       (const CHAR16*)L"ERROR: kernel.elf unavailable\r\n");
+        return status;
+    }
+
+    status = load_file(
+        services, image_handle, installer_path, &installation_package,
+        &installation_package_size, &installation_package_pages);
+    if (!EFI_ERROR(status)) {
+        if (installation_package_size > 16U * 1024U * 1024U) {
+            services->FreePages(
+                (EFI_PHYSICAL_ADDRESS)(UINTN)installation_package,
+                installation_package_pages);
+            console_write(system_table,
+                          (const CHAR16*)L"ERROR: install.pkg too large\r\n");
+            return EFI_LOAD_ERROR;
+        }
+        boot_flags = KUROGANE_BOOT_FLAG_INSTALLER;
+        console_write(system_table,
+                      (const CHAR16*)L"Installer package loaded\r\n");
+    } else if (status != EFI_NOT_FOUND) {
+        console_write(system_table,
+                      (const CHAR16*)L"ERROR: cannot load install.pkg\r\n");
         return status;
     }
     status = load_kernel(
@@ -970,6 +1002,8 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     boot_info->kernel_physical_start = kernel.start;
     boot_info->kernel_physical_end = kernel.end;
     boot_info->flags = boot_flags;
+    boot_info->installation_package = installation_package;
+    boot_info->installation_package_size = installation_package_size;
     console_write(system_table,
                   (const CHAR16*)L"Exiting boot services...\r\n");
 

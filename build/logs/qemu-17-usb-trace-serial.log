@@ -1,0 +1,73 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+KuroganeOS loader 1.6
+Default boot=console. Press D for boot=desktop (EXPERIMENTAL), S or F8 for safe mode, X for diagnostics...
+Exiting boot services...
+[INFO][BOOT][CPU0][KERNEL] KuroganeOS kernel entry
+
+[terminal cleared]
+KUROGANE OS
+x86-64 UEFI kernel 1.6
+boot protocol: v2 (memory map + boot flags)
+boot=console
+[INFO][BOOT][CPU0][KERNEL] boot=console
+[INFO][KERNEL][CPU0][KERNEL] GDT, TSS and IST stacks initialized
+[INFO][KERNEL][CPU0][KERNEL] IDT initialized
+[INFO][KERNEL][CPU0][KERNEL] CPU exception handlers installed
+[INFO][MEMORY][CPU0][KERNEL] kernel heap bytes=2097120
+[INFO][MEMORY][CPU0][KERNEL] cloning active UEFI four-level page-table root
+[INFO][MEMORY][CPU0][KERNEL] page-table backend initialized; running CPU mapping test
+[INFO][MEMORY][CPU0][KERNEL] virtual memory manager ready, CR3=0x1780000
+[TEST] paging: PASS
+[INFO][ACPI][CPU0][KERNEL] MADT processors=1
+[INFO][ACPI][CPU0][KERNEL] MADT I/O APICs=1
+[TEST] acpi_madt: PASS
+[INFO][APIC][CPU0][KERNEL] Local APIC id=0
+[INFO][APIC][CPU0][KERNEL] mapped I/O APICs=1
+[TEST] apic_discovery: PASS (PIC fallback active)
+[INFO][USER][CPU0][KERNEL] ring-3 runtime and int 0x80 syscall gate initialized
+[TEST] user_runtime: PASS
+[TEST] memory_allocator: PASS
+[TEST] ramfs_bootstrap: PASS
+[INFO][FS][CPU0][KERNEL] root RAMFS mounted
+[INFO][XHCI][CPU0][KERNEL] connected USB port reset completed
+[WARN][XHCI][CPU0][KERNEL] command completion timeout
+[WARN][XHCI][CPU0][KERNEL] xHCI command failed
+[WARN][DRIVER][CPU0][KERNEL] device fault
+[INFO][DEVICE][CPU0][KERNEL] registered devices=11
+[INFO][AHCI][CPU0][KERNEL] PCI AHCI controllers detected=1
+[INFO][AHCI][CPU0][KERNEL] active AHCI controllers=1
+[INFO][AHCI][CPU0][KERNEL] registered SATA block devices=1
+[INFO][AHCI][CPU0][KERNEL] QEMU HARDDISK
+[INFO][AHCI][CPU0][KERNEL] logical sector bytes=512
+[INFO][AHCI][CPU0][KERNEL] logical sector count=1032192
+[INFO][GPT][CPU0][KERNEL] invalid GPT signature
+[INFO][USER][CPU0][KERNEL] persistent root unavailable; ring-3 image probe skipped
+[INFO][SCHED][CPU0][KERNEL] scheduler initialized
+[INFO][THREAD][CPU0][KERNEL] two kernel threads switched on separate stacks
+[TEST] kernel_context_switch: PASS
+[INFO][TIME][CPU0][KERNEL] PIT monotonic clock ready
+[INFO][INTERRUPTS][CPU0][KERNEL] PIC, PIT, keyboard, mouse and input queue ready
+interrupts/timer/input: READY
+PS/2 controller: configured
+PS/2 mouse: configured (wheel)
+[TEST] ps2_mouse: PASS
+[INFO][THREAD][CPU0][KERNEL] IRQ0 preempted two non-yielding kernel threads
+[TEST] kernel_preemption: PASS
+PCI devices: 7
+network: E1000 link READY
+[TEST] e1000_link: PASS
+[TEST] dhcp_lease: PASS
+[TEST] udp_transport: PASS
+gateway ICMP: PASS
+[TEST] network_gateway_icmp: PASS
+DNS A example.com: PASS
+[TEST] dns_resolver: PASS
+[TEST] tcp_http_optional: PASS
+[TEST] network_online_icmp: PASS
+[TEST] ALL_REQUIRED_TESTS_PASSED
+Starting /system/init and the userspace console...
+
+[TEST] userspace_init_spawn: FAIL
+[FATAL][INIT][CPU0][KERNEL] cannot create /system/init as PID 1
+[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL

@@ -1,0 +1,25 @@
+#include <string.h>
+#include <kurogane/libui.h>
+#include <kurogane/kurogane.h>
+
+int main() {
+    ku_ui_window_options options{sizeof(options), 120, 120, 420, 240};
+    const ku_result_t result = ku_ui_create(
+        "sdk-gui-probe", strlen("sdk-gui-probe"), &options);
+    if (result <= 0) return 1;
+    const ku_window_t window = static_cast<ku_window_t>(result);
+    ku_ui_frame frame;
+    kui_frame_initialize(&frame);
+    (void)kui_frame_set_line(&frame, 0, "sdk-gui-probe");
+    (void)kui_frame_set_line(&frame, 2, "External libui application");
+    (void)kui_present(window, &frame);
+    for (;;) {
+        ku_ui_event event;
+        const int available = kui_next_event(window, &event);
+        if (available < 0 ||
+            (available > 0 && event.type == KU_UI_EVENT_CLOSE)) break;
+        (void)kuro_sleep(1);
+    }
+    (void)ku_ui_close(window);
+    return 0;
+}

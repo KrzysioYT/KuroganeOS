@@ -13,8 +13,12 @@
 | Klawiatura PS/2 | konfiguracja kontrolera w ograniczonym czasie, IRQ1, dekoder scancode, modyfikatory i bufor 128 zdarzeń; polling fallback |
 | RTC/CMOS | stabilizowany odczyt daty i czasu oraz konwersja BCD/12 h |
 | PCI | odczyt i zapis konfiguracji, enumeracja bus/slot/function, BAR, wyszukiwanie klasy/ID oraz włączenie bus mastering |
+| Device/Driver Manager | centralny rejestr, parent/child, ownership, match/probe/attach, priorytet i timeout budget |
+| AHCI | QEMU q35: IDENTIFY, bounded polling read/write/flush, block devices i diagnostyka błędów |
 
 Enumeracja PCI nie jest sterownikiem urządzenia. Znalezienie kontrolera SATA, NIC albo GPU nie powoduje obsługi tego sprzętu.
+
+Warstwa storage ma synchroniczny kontrakt block device, defensywny parser GPT i bounded widok partycji. QEMU potwierdza `IDENTIFY`, odczyt GPT oraz write/flush/readback/restore na osobnym tagged scratch. Root FAT32 jest montowany read-only przez wspólny VFS.
 
 ## Framebuffer i terminal
 
@@ -46,8 +50,8 @@ Shell próbuje resetu przez historyczne porty kontrolera PS/2, PCI reset control
 
 Nie zaimplementowano:
 
-- kontrolera dysku AHCI, NVMe, IDE ani VirtIO-blk;
-- sterownika FAT32 po stronie kernela i ogólnej warstwy blokowej;
+- NVMe, IDE ani VirtIO-blk oraz kwalifikacji AHCI na realnym sprzęcie;
+- zapisywalnego FAT32, block cache i testu persistence (read-only FAT32/VFS działa);
 - fizycznej lub wirtualnej karty sieciowej;
 - myszy PS/2, USB HID i kontrolerów USB;
 - APIC/IOAPIC, HPET i uruchamiania wielu CPU;

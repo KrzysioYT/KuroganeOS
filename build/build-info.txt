@@ -1,0 +1,13 @@
+version=2.0
+profile=debug
+compiler=E:\KuroganeOS\tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe
+compiler_version=x86_64-elf-g++.exe (GCC) 15.2.0
+linker=E:\KuroganeOS\tools\compiler\x86_64-elf\bin\x86_64-elf-ld.exe
+linker_version=GNU ld (GNU Binutils) 2.45
+architecture=x86_64
+git_commit=unavailable (source tree has no .git metadata)
+build_options=-ffreestanding -fno-stack-protector -fno-omit-frame-pointer -fPIE -fno-plt -Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float -std=c++17 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef -Werror=return-type -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit -fno-unwind-tables -fno-asynchronous-unwind-tables -fvisibility=hidden -O0 -g3 -DKUROGANE_DEBUG=1 -DKUROGANE_TEST=0 -I kernel -I kernel/include -I kernel/memory -I kernel/fs -I sdk/include -DCONFIG_CONSOLE=1 -DCONFIG_GUI=1 -DCONFIG_PCI=1 -DCONFIG_AHCI=1 -DCONFIG_VIRTIO=0 -DCONFIG_USB=1 -DCONFIG_XHCI=1 -DCONFIG_NETWORK=1 -DCONFIG_POSIX=0 -DCONFIG_ACPI=1 -DCONFIG_APIC=1
+link_options=--fatal-warnings --build-id=none -pie --no-dynamic-linker -z noexecstack -z text -z max-page-size=0x1000 -T linker.ld
+enabled_drivers=pci,ahci,usb,xhci,network
+enabled_compatibility_layers=
+features=CONFIG_CONSOLE=y,CONFIG_GUI=y,CONFIG_PCI=y,CONFIG_AHCI=y,CONFIG_VIRTIO=n,CONFIG_USB=y,CONFIG_XHCI=y,CONFIG_NETWORK=y,CONFIG_POSIX=n,CONFIG_ACPI=y,CONFIG_APIC=y

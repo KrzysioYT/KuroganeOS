@@ -17,8 +17,8 @@ die() {
 }
 
 case "$CONFIGURATION" in
-  debug|release) ;;
-  *) die "Usage: $0 [debug|release]" ;;
+  debug|release|test) ;;
+  *) die "Usage: $0 [debug|release|test]" ;;
 esac
 
 require_command() {

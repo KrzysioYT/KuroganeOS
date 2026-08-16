@@ -1,4 +1,6 @@
-# Known limitations
+# Known limitations (historical baseline)
+
+This file records the pre-Foundation baseline. Current limitations are maintained in `../KNOWN_ISSUES.md`.
 
 - Kernel and applications share ring 0 and one address space.
 - The scheduler runs callbacks cooperatively; it is not a process/thread model.

@@ -90,13 +90,34 @@ interrupt_common_entry:
     pushq %r14
     pushq %r15
 
+    /* A ring-3 interrupt leaves DS/ES unchanged. Use kernel data selectors
+       while C++ handles the frame; restore selectors for the target CPL just
+       before restoring the saved general-purpose registers. */
+    movw $0x10, %ax
+    movw %ax, %ds
+    movw %ax, %es
+
     /* An interrupt can arrive at any stack alignment. Preserve the exact
        frame pointer in a callee-saved register and align for the SysV call. */
     movq %rsp, %rdi
     movq %rsp, %r12
     andq $-16, %rsp
     call x86_64_interrupt_dispatch
-    movq %r12, %rsp
+    movq %rax, %rsp
+
+    .global x86_64_interrupt_restore_frame
+    .type x86_64_interrupt_restore_frame, @function
+x86_64_interrupt_restore_frame:
+    movq %rsp, %r12
+    testb $3, 144(%r12)
+    jz 1f
+    movw $0x1b, %ax
+    jmp 2f
+1:
+    movw $0x10, %ax
+2:
+    movw %ax, %ds
+    movw %ax, %es
 
     popq %r15
     popq %r14
@@ -116,6 +137,7 @@ interrupt_common_entry:
 
     addq $16, %rsp
     iretq
+    .size x86_64_interrupt_restore_frame, .-x86_64_interrupt_restore_frame
     .size interrupt_common_entry, .-interrupt_common_entry
 
     /*

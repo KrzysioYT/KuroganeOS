@@ -1,52 +1,48 @@
-# Interfejs graficzny
+# Graphics, input and Desktop Alpha
 
-## Rzeczywisty model
+UEFI supplies a GOP framebuffer. The kernel renders pixels, bitmap text,
+controls and cursor in software; there is no accelerated GPU driver.
 
-Kernel otrzymuje od loadera liniowy framebuffer GOP i rysuje do niego bezpośrednio. Terminal tekstowy, shell i warstwa `ui` współdzielą jedną pełnoekranową powierzchnię. Jest to framebufferowy interfejs kernela, nie system okienkowy.
+PS/2 keyboard/mouse and the xHCI USB HID boot keyboard feed a unified bounded
+InputManager. Mouse packets become clamped absolute coordinates, buttons and
+wheel. Consumers receive copied events, never driver-owned buffers.
 
-`kernel/ui/ui.*` dostarcza prostokąty, panele, etykiety, wizualne przyciski, pasek postępu, separatory i pasek stanu. „Przycisk” jest wyłącznie narysowanym komponentem — nie można go kliknąć, ponieważ nie ma myszy ani hit-testingu zdarzeń wskaźnika.
+## WindowManager
 
-## Wbudowane widoki
+Twelve generation-checked slots carry bounds, restore bounds, owner PID,
+normal/minimized/maximized state, z-order, focus, title and callbacks. The
+manager implements hit testing, focus raise, title dragging, close, minimize,
+maximize/restore, taskbar restore/focus, Alt+Tab, Alt+F4 and software cursor.
+Rendering is an immediate full redraw of visible windows when dirty.
 
-W trybie normalnym rejestrowane są cztery wpisy:
+## Public ABI and libui
 
-| Nazwa | Zawartość | Sterowanie |
-| --- | --- | --- |
-| `desktop` | launcher z zegarem RTC i skrótami do pozostałych widoków | `M` monitor, `F` files, `A` about, `Q` powrót |
-| `monitor` | uptime, heap, liczba alokacji, wolne ramki PMM i liczba urządzeń PCI | automatyczne odświeżenie, `Q` powrót |
-| `files` | tylko odczyt listy katalogu głównego RAMFS | `R` odświeżenie, `Q` powrót |
-| `about` | wersja i skrócony opis możliwości kernela | `Q` powrót |
+Syscalls 14-17 create, present, poll and close. Each process owns one live
+window. The kernel copies an exact 800-byte frame with up to 12 fixed lines and
+an optional progress value. Key, pointer and close events are copied into a
+16-entry process queue; overflow discards the oldest event safely. `libui`
+initializes structures/colors, copies bounded lines and normalizes polling.
 
-Uruchomienie:
+## Ring 3 applications
 
-```text
-apps
-gui
-run monitor
-run files
-run about
-```
+Desktop mode starts five simultaneous ELF64 processes:
 
-Warstwa aplikacji mieści maksymalnie 16 definicji, ale wbudowane są cztery. W danej chwili aktywny jest co najwyżej jeden widok. Zamknięcie czyści ekran, drukuje `KuroganeOS application closed.` i przywraca prompt shella.
+| Application | Real behavior |
+|---|---|
+| Terminal | accepts `help`, `pid`, `about`, `clear` via public ABI |
+| Files | reads real `/etc/system.cfg` through libc/VFS |
+| System Monitor | shows live PID/TID and scheduler heartbeat |
+| About | reports current 2.0 architecture |
+| Settings | toggles actual per-session frame colors |
 
-Nie istnieją osobne aplikacje **Terminal** ani **Settings**. „Terminal” to zwykły ekran shella framebufferowego. Ustawień systemu nie da się zmieniać przez GUI.
+The legacy kernel Monitor/Files windows remain diagnostic/launcher surfaces.
+With a system window focused, `T`, `X`, `U`, `I`, `S` launch apps and `Q` closes
+that window. A key focused on a user window is delivered only to its process.
 
-## Tryb safe
+Hosted tests cover focus, z-order, generation, controls and routing. QEMU
+injects actual PS/2 motion/button/key events and requires multiwindow, drag,
+close and all five userspace app markers.
 
-Safe mode inicjalizuje framework aplikacji, lecz celowo nie rejestruje widoków wbudowanych. Shell nadal działa, a `apps` nie wypisuje wpisów. Jest to zamierzone ograniczenie powierzchni diagnostycznej.
-
-## Czego nie ma
-
-Nie zaimplementowano:
-
-- sterownika myszy, kursora i zdarzeń wskaźnika;
-- kompozytora, serwera wyświetlania ani menedżera okien;
-- wielu powierzchni, z-order, focusu, przeciągania, zmiany rozmiaru, minimalizacji i maksymalizacji;
-- double buffering, damage tracking, animacji i synchronizacji pionowej;
-- fontów skalowalnych, Unicode, schowka, drag-and-drop i dostępności;
-- osobnego procesu dla GUI oraz izolacji awarii aplikacji;
-- eksploratora z nawigacją i operacjami — `files` tylko listuje `/`;
-- terminal emulatora uruchamiającego proces i edytora tekstowego;
-- zapisu konfiguracji motywu albo układu między restartami.
-
-Kod interfejsu ma własny spójny motyw, ale obecnego zestawu pełnoekranowych widoków nie należy opisywać jako kompletnego desktopu. Zależności od framebufferu opisuje [DRIVERS.md](DRIVERS.md).
+Limitations include no GPU composition, resize, Unicode input, clipboard,
+accessibility, persistent global theme, desktop associations or multi-monitor.
+Settings is intentionally small and has no placeholder pages.

@@ -92,6 +92,22 @@ void invalidate_page(void*, uint64_t virtual_address) {
         : "memory");
 }
 
+virtual_memory::Backend page_table_backend() {
+    return {
+        nullptr,
+        allocate_table,
+        free_table,
+        physical_to_virtual,
+        invalidate_page,
+        g_physical_address_bits
+    };
+}
+
+uint64_t active_root_physical() {
+    constexpr uint64_t address_mask = UINT64_C(0x000FFFFFFFFFF000);
+    return read_control_register_3() & address_mask;
+}
+
 } // namespace
 
 Status initialize() {
@@ -140,14 +156,7 @@ Status initialize() {
         private_root | (previous_cr3 & cr3_low_control_mask);
     write_control_register_3(private_cr3);
 
-    const virtual_memory::Backend backend = {
-        nullptr,
-        allocate_table,
-        free_table,
-        physical_to_virtual,
-        invalidate_page,
-        g_physical_address_bits
-    };
+    const virtual_memory::Backend backend = page_table_backend();
     const virtual_memory::Status status = virtual_memory::initialize(
         &g_address_space,
         private_root,
@@ -163,6 +172,82 @@ Status initialize() {
                    : Status::BackendInitializationFailed;
     }
     g_root_frame = root_frame;
+    return Status::Ok;
+}
+
+Status create_address_space(OwnedAddressSpace* output) {
+    if (!output || !initialized()) {
+        return Status::BackendInitializationFailed;
+    }
+    *output = {};
+
+    void* root_frame = memory::alloc_frame();
+    if (!root_frame) {
+        return Status::AddressSpaceAllocationFailed;
+    }
+    auto* source = reinterpret_cast<const uint64_t*>(
+        static_cast<uintptr_t>(g_address_space.root_table_physical));
+    auto* destination = static_cast<uint64_t*>(root_frame);
+    for (size_t index = 0;
+         index < virtual_memory::PAGE_TABLE_ENTRY_COUNT;
+         ++index) {
+        destination[index] = source[index];
+    }
+
+    const virtual_memory::Backend backend = page_table_backend();
+    const virtual_memory::Status status = virtual_memory::initialize(
+        &output->address_space,
+        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(root_frame)),
+        &backend);
+    if (status != virtual_memory::Status::Ok) {
+        memory::free_frame(root_frame);
+        *output = {};
+        return Status::AddressSpaceInitializationFailed;
+    }
+    output->root_frame = root_frame;
+    output->initialized = true;
+    return Status::Ok;
+}
+
+Status activate(OwnedAddressSpace* address_space) {
+    if (!address_space || !address_space->initialized ||
+        !address_space->address_space.initialized ||
+        address_space->root_frame == nullptr) {
+        return Status::AddressSpaceInitializationFailed;
+    }
+    constexpr uint64_t low_control_mask = UINT64_C(0xFFF);
+    const uint64_t controls = read_control_register_3() & low_control_mask;
+    write_control_register_3(
+        address_space->address_space.root_table_physical | controls);
+    return Status::Ok;
+}
+
+Status activate_kernel() {
+    if (!initialized()) {
+        return Status::BackendInitializationFailed;
+    }
+    constexpr uint64_t low_control_mask = UINT64_C(0xFFF);
+    const uint64_t controls = read_control_register_3() & low_control_mask;
+    write_control_register_3(g_address_space.root_table_physical | controls);
+    return Status::Ok;
+}
+
+bool is_active(const OwnedAddressSpace* address_space) {
+    return address_space != nullptr && address_space->initialized &&
+        active_root_physical() ==
+            address_space->address_space.root_table_physical;
+}
+
+Status destroy_address_space(OwnedAddressSpace* address_space) {
+    if (!address_space || !address_space->initialized ||
+        address_space->root_frame == nullptr) {
+        return Status::AddressSpaceInitializationFailed;
+    }
+    if (is_active(address_space)) {
+        return Status::AddressSpaceActive;
+    }
+    memory::free_frame(address_space->root_frame);
+    *address_space = {};
     return Status::Ok;
 }
 
@@ -264,6 +349,10 @@ uint64_t root_table_physical() {
     return g_address_space.root_table_physical;
 }
 
+uint64_t active_root_table_physical() {
+    return active_root_physical();
+}
+
 uint8_t physical_address_bits() {
     return g_physical_address_bits;
 }
@@ -294,6 +383,12 @@ const char* status_message(Status status) {
         case Status::TestUnmapFailed: return "self-test unmap failed";
         case Status::TestFrameLeak:
             return "self-test leaked page-table frames";
+        case Status::AddressSpaceAllocationFailed:
+            return "address-space root allocation failed";
+        case Status::AddressSpaceInitializationFailed:
+            return "address-space initialization failed";
+        case Status::AddressSpaceActive:
+            return "address space is still active";
     }
     return "unknown virtual-memory status";
 }

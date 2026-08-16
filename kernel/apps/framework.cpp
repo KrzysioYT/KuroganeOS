@@ -96,6 +96,17 @@ void dispatch_key(char character) {
     }
 }
 
+void dispatch_input(const input::Event& event) {
+    if (!running()) return;
+    Definition& application = g_applications[g_active];
+    if (application.input != nullptr) {
+        application.input(event);
+    } else if (event.type == input::EventType::KeyDown &&
+               event.character != 0 && application.key != nullptr) {
+        application.key(event.character);
+    }
+}
+
 void dispatch_tick(uint64_t tick) {
     if (running() && g_applications[g_active].tick) {
         g_applications[g_active].tick(tick);

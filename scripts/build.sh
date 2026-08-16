@@ -4,14 +4,14 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="${1:-debug}"
 case "$mode" in
-    debug|release)
+    debug|release|test)
         args=(-Configuration "$mode")
         ;;
     rebuild)
         args=(-Configuration debug -Rebuild)
         ;;
     *)
-        echo "usage: $0 {debug|release|rebuild}" >&2
+        echo "usage: $0 {debug|release|test|rebuild}" >&2
         exit 2
         ;;
 esac

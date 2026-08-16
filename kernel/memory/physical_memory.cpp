@@ -224,6 +224,33 @@ void* alloc_frame() {
     return nullptr;
 }
 
+void* alloc_frame_below(uintptr_t exclusive_limit) {
+    if (!g_bitmap || exclusive_limit <= g_base ||
+        exclusive_limit < g_frame_size) {
+        return nullptr;
+    }
+
+    for (size_t i = 0; i < g_frame_count; ++i) {
+        const uintptr_t address = g_base + i * g_frame_size;
+        if (address >= exclusive_limit ||
+            g_frame_size > exclusive_limit - address) {
+            break;
+        }
+
+        const size_t byte_index = i / 8;
+        const size_t bit_index = i % 8;
+        const unsigned char bit = static_cast<unsigned char>(
+            static_cast<unsigned char>(1u) << bit_index);
+        if ((g_bitmap[byte_index] & bit) == 0) {
+            g_bitmap[byte_index] |= bit;
+            ++g_used_frames;
+            return reinterpret_cast<void*>(address);
+        }
+    }
+
+    return nullptr;
+}
+
 void free_frame(void* frame) {
     try_free_frame(frame);
 }

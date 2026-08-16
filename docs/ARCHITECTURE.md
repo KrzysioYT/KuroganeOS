@@ -1,71 +1,95 @@
-# Architektura KuroganeOS
+# Architecture
 
-## Status architektury
-
-KuroganeOS jest samodzielnym kernelem x86-64 uruchamianym przez własną aplikację UEFI. Nie używa kernela Linux w systemie gościa. WSL2 i Windows są wyłącznie środowiskiem budowania oraz testowania.
-
-Obecna wersja jest **kernel preview**, a nie kompletnym systemem użytkowym. Cały kod po wyjściu z UEFI wykonuje się w ring 0, na jednym procesorze i w jednej przestrzeni adresowej. Nie ma jeszcze procesów użytkownika, syscalli ani granicy ochrony między shellem, aplikacjami i kernelem.
-
-## Przepływ wykonania
+KuroganeOS 2.0 is qualified on a single-CPU QEMU q35 guest with EDK2.
 
 ```text
-firmware UEFI
-  -> EFI/BOOT/BOOTX64.EFI
-  -> walidacja i relokacja kernel.elf
-  -> KuroganeBootInfo v2
-  -> ExitBootServices
-  -> kmain
-  -> GDT/TSS/IST, heap, PMM, przejęcie tablic UEFI, RAMFS, scheduler, przerwania
-  -> shell framebufferowy i pętla zdarzeń kernela
+UEFI firmware
+    v
+BOOTX64.EFI -- validates ELF64 PIE and boot protocol v3
+    v
+Kernel (Ring 0)
+ |-- physical/virtual memory and heap
+ |-- Process/Thread scheduler and int 0x80 ABI
+ |-- VFS -- RAMFS/FAT32 -- GPT/PartitionDevice -- AHCI
+ |-- PCI device model -- AHCI/E1000/xHCI
+ |-- Ethernet/ARP/IPv4/ICMP/UDP/TCP/DHCP/DNS
+ `-- framebuffer + unified input + WindowManager
+             v
+       Ring 3, private CR3
+             v
+          PID 1 init
+             v
+      shell and ELF64 applications
 ```
 
-Szczegółowy przebieg opisuje [BOOT_PROCESS.md](BOOT_PROCESS.md).
+## Boot flow
 
-## Warstwy repozytorium
+EDK2 loads `EFI/BOOT/BOOTX64.EFI`. The loader obtains GOP and the UEFI memory
+map, validates/maps the x86-64 PIE kernel, applies only supported
+`R_X86_64_RELATIVE` relocations, optionally loads the bounded installer package,
+and exits boot services. Boot protocol v3 supplies framebuffer, memory map,
+ACPI pointer, flags and installer payload. The kernel rejects invalid versions,
+sizes, ranges and flag/payload combinations.
 
-| Warstwa | Kod | Rzeczywista odpowiedzialność |
-| --- | --- | --- |
-| Loader | `boot/efi/` | aplikacja PE32+ UEFI, odczyt ELF64 PIE, GOP, mapa pamięci, flaga safe mode i `ExitBootServices` |
-| Protokół startowy | `common/boot_protocol.h` | wersjonowany kontrakt loader–kernel: framebuffer, mapa pamięci, RSDP, zakres kernela i flagi |
-| Architektura | `kernel/arch/x86_64/` | wejście ASM, GDT, TSS, stosy IST, IDT, stuby przerwań i operacje I/O |
-| Kernel | `kernel/main.cpp` | walidacja danych startowych, kolejność inicjalizacji, self-testy i główna pętla zdarzeń |
-| Pamięć | `kernel/memory/` | stały heap, allocator ramek, walker tablic stron i adapter adoptujący aktywne czteropoziomowe tablice UEFI |
-| Sterowniki | `kernel/drivers/` | framebuffer, port szeregowy, 8259 PIC, PIT, PS/2 keyboard, RTC i enumeracja PCI |
-| Usługi ring 0 | `kernel/fs/`, `kernel/task/`, `kernel/net/` | ulotny RAMFS, scheduler wywołań zwrotnych i stos sieciowy używany z loopbackiem |
-| Interfejs | `kernel/terminal.cpp`, `kernel/shell/`, `kernel/ui/`, `kernel/apps/` | terminal framebufferowy, shell oraz pełnoekranowe widoki wykonywane w kernelu |
-| Publiczny ABI/SDK | `kernel/abi/`, `sdk/` | deskryptor ABI i nagłówki do kompilacji; bez transportu syscall, linkowania i uruchamiania programów |
-| Narzędzia hosta | `scripts/`, `tests/` | build, obrazy FAT32/ISO, QEMU, VirtualBox i testy uruchamiane na hoście |
+The kernel establishes logging, GDT/TSS/IST, IDT, memory, drivers, persistent
+root, self-tests, interrupts and networking. Normal boot starts `/system/init`
+as PID 1. Desktop boot also initializes WindowManager and spawns `/gui/*`.
+Safe/diagnostics boot avoids normal PID 1 and exposes the emergency Ring 0 shell.
 
-## Model wykonania
+## Memory and privilege
 
-PIT generuje monotoniczne tyknięcia. Handler przerwania tylko aktualizuje czas i gotowość zadań. Pętla w `kernel/main.cpp` wykonuje z ograniczonym budżetem callbacki schedulera, odpytuje usługę sieciową i przekazuje znaki klawiatury do aktywnego widoku albo shella. `yield()` jest prośbą o ponowne wywołanie callbacku po jego powrocie; nie przełącza stosu ani kontekstu CPU.
+The kernel is Ring 0. Every ELF process receives a cloned PML4 whose kernel
+mappings remain supervisor-only and whose 64 MiB user window is private.
+Executable pages are RX, data/stack/heap are NX, a stack guard stays unmapped,
+CR0.WP is enabled and EFER.NXE enforces NX. Interrupts from Ring 3 use that
+thread's TSS Ring 0 stack. A user exception terminates only its process through
+a controlled return trampoline; a kernel exception remains fatal.
 
-Warstwa aplikacji utrzymuje rejestr callbacków i co najwyżej jeden aktywny widok. `desktop`, `monitor`, `files` i `about` nie są procesami. Używają tych samych globalnych usług i tego samego heapu co reszta kernela.
+## Processes and scheduling
 
-## Granice, których jeszcze nie ma
+Process and Thread tables are bounded, independent and generation checked.
+Every process currently has one main thread. PIT IRQ0 drives round-robin
+preemption; sleep and yield use the same thread state machine. Context switches
+change stack, CR3 and TSS.RSP0. PID 1 supervises the console shell, and only a
+parent may wait for and reap its zombie child.
 
-- `kernel/memory/kernel_virtual_memory.*` odczytuje aktywny `CR3`, adoptuje istniejące czteropoziomowe tablice UEFI i wykonuje rzeczywisty self-test map/write/translate/unmap. Nie buduje jednak własnej kompletnej mapy kernela, nie przełącza `CR3` i zakłada, że potrzebna pamięć fizyczna pozostaje dostępna przez identity mapping firmware.
-- PMM wybiera jeden największy użyteczny region z mapy UEFI; nie zarządza wszystkimi regionami fizycznymi.
-- RAMFS jest jedynym systemem plików kernela. Pliki z obrazu startowego nie są montowane po starcie, a zmiany RAMFS nie trafiają na dysk.
-- Stos sieciowy ma rzeczywiste parsery Ethernet/ARP/IPv4/ICMP, lecz aktywnym transportem jest tylko interfejs programowy loopback. Nie istnieje sterownik NIC.
-- Framebuffer jest powierzchnią pełnoekranową. Nie ma serwera wyświetlania, kompozytora ani menedżera okien.
-- Deskryptor ABI reklamuje `available_features == 0`; nie istnieje ścieżka z programu ring 3 do usług kernela.
+## Syscalls and ELF
 
-## Tryb normalny i safe mode
+A DPL3 gate at `int 0x80` carries ABI v1 (`RAX` number/result, three arguments
+in `RDI/RSI/RDX`). The kernel identifies the caller by private CR3 and validates
+full pointer ranges, PTE permissions, structures, handles and ownership.
 
-| Element | Tryb normalny | Safe mode |
-| --- | --- | --- |
-| Walidacja protokołu, GDT/TSS/IST, heap, PMM i self-test VMM | tak | tak |
-| RAMFS, scheduler, PIC, PIT i klawiatura | tak | tak |
-| Skan PCI | tak | pominięty |
-| Usługa sieciowa i test loopback | tak | pominięte (`SKIP`) |
-| Rejestracja widoków graficznych | tak | pominięta |
-| Shell diagnostyczny | tak | tak |
+The ELF loader accepts bounded x86-64 `ET_EXEC` only. It checks all header/table
+arithmetic, segment ranges and overlap, entry location and W+X rejection before
+mapping. There is no dynamic loader, shared object or PE compatibility.
 
-Safe mode ogranicza liczbę inicjalizowanych modułów, ale nie zapewnia izolacji, trwałego trybu naprawczego ani sterownika dysku. Więcej: [KERNEL.md](KERNEL.md) i [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md).
+## Storage, devices and network
 
-## Zasady awarii
+AHCI exposes checked 512-byte block devices. GPT signatures, CRCs, ranges and
+overlap are validated before PartitionDevice creation. VFS mounts writable
+FAT32 on the normal root, with RAMFS fallback. FAT32 mirrors allocation updates
+and flushes the block device. Installer media create protective MBR,
+primary/backup GPT, ESP and root from a bounded package.
 
-Loader odrzuca niezgodny ELF, brak GOP lub nieudaną mapę pamięci. Kernel odrzuca nieznaną wersję albo flagi protokołu oraz niepoprawny framebuffer. Błąd wymaganego PMM, RAMFS, schedulera, timera, klawiatury lub normalnego testu loopback kończy rozruch kontrolowanym zatrzymaniem. Wyjątki CPU drukują wektor, kod błędu i rejestry, po czym zatrzymują system.
+The device table records platform, PCI and child relationships. ACPI/MADT maps
+Local/I/O APIC identity but the active qualified interrupt route remains the
+8259 PIC. E1000 owns DMA rings; frames pass through Ethernet, ARP and IPv4 to
+ICMP/UDP/minimal TCP. DHCP installs address/route/DNS, with bounded polling.
 
-Pełny audyt stanu znajduje się w [PROJECT_AUDIT.md](PROJECT_AUDIT.md).
+## GUI architecture
+
+GOP is software rendered. PS/2 and xHCI HID input enter one event queue.
+WindowManager owns 12 windows, z-order, focus, drag, taskbar and window state.
+It redraws visible windows when dirty; there is no GPU compositor.
+
+One GUI process owns at most one public window. `UI_PRESENT` copies an exact
+fixed frame into kernel memory before drawing; callbacks retain no userspace
+pointer. Key/pointer/close events are copied into a bounded per-process queue.
+Process cleanup closes the window and releases all other resources.
+
+## Ownership boundary
+
+Kernel VFS handles, process slots, page tables, network buffers and window slots
+are private. Public handles combine process-local slot and generation. Files,
+heap records, child waits and windows are checked against the caller; all are
+closed/unmapped on normal exit or isolated user fault.

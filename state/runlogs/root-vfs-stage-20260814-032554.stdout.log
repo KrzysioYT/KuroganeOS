@@ -1,0 +1,27 @@
+[x86_64-elf-gcc.exe] -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding -fshort-wchar -m64 -mno-red-zone -mno-mmx -mno-sse -fno-stack-protector -fno-omit-frame-pointer -fPIE -fno-plt -fno-builtin -fno-unwind-tables -fno-asynchronous-unwind-tables -ffunction-sections -fdata-sections -Wa,--noexecstack -I boot/efi -I boot/include -I common -frandom-seed=boot/efi/standalone.c -c boot/efi/standalone.c -o build/boot/standalone.o
+[x86_64-elf-ld.exe] --build-id=none --no-warn-rwx-segments -T boot/efi/standalone-linker.ld -o build/boot/standalone.elf build/boot/standalone.o
+
+There are no relocations in this file.
+[x86_64-elf-objcopy.exe] -O binary build/boot/standalone.elf build/boot/standalone.bin
+[efi] E:\KuroganeOS\build\BOOTX64.EFI (8704 bytes, entry RVA 0x1000, image size 0x4000)
+[stage] E:\KuroganeOS\iso\EFI\BOOT\BOOTX64.EFI
+[stage] E:\KuroganeOS\iso\kernel.elf
+[stage] E:\KuroganeOS\iso\EFI\BOOT\kernel.elf
+[stage] generated and validated AMD64 EFI application
+Created deterministic FAT32 image: E:\KuroganeOS\kurogane.img
+  Size:       67108864 bytes (64 MiB)
+  Geometry:   131072 sectors, 1009 sectors/FAT, 129022 clusters
+  Free:       127362 clusters
+  SHA-256:    02e575f8e0e77f0ace29a21901599c14e59f9134619aa1991d175c66401f8367
+
+No problems found. 4029 free sectors (2.0 MiB) available in 2
+segments, the largest of which is 2015 (1007.5 KiB) in size.
+Created KuroganeOS Foundation GPT image: /mnt/e/KuroganeOS/build/images/KuroganeOS-base.img
+  disk: 512 MiB, GUID 4B55524F-4741-4E45-8F44-49534B000001
+  ESP:  LBA 2048-133119, FAT32 KURO_ESP
+  root: LBA 133120-1046527, FAT32 KURO_ROOT
+  SHA-256: 716946afb7058ff91821bcc30effee4b59aa03d248857bc5cd0523aa011bea37
+Updated working-image ESP; root partition was not written: /mnt/e/KuroganeOS/state/KuroganeOS.img
+[working-image] root preserved; boot payload updated: E:\KuroganeOS\state\KuroganeOS.img
+[done] E:\KuroganeOS\build\kernel.elf
+[sha256] c8c5521b5c9ac4c36b71084dae42c9a91cc2d666e82fcc83b46c7ebc9726256d

@@ -9,8 +9,9 @@ constexpr size_t IDT_ENTRY_COUNT = 256;
 constexpr uint8_t IRQ_VECTOR_BASE = 0x20;
 constexpr uint8_t IRQ_COUNT = 16;
 
-// Layout produced by interrupt_stubs.asm. rsp and ss are present only when the
-// processor changed privilege level while entering the interrupt.
+// Layout produced by interrupt_stubs.asm. In IA-32e mode the processor saves
+// a uniform SS:RSP/RFLAGS/CS:RIP frame, including same-privilege entries, so a
+// scheduler may resume a complete frame on another kernel stack.
 struct InterruptFrame {
     uint64_t r15;
     uint64_t r14;
@@ -36,8 +37,46 @@ struct InterruptFrame {
     uint64_t ss;
 };
 
+static_assert(
+    offsetof(InterruptFrame, vector) == 15 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame register layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, error_code) == 16 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame error-code layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, rip) == 17 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame RIP layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, cs) == 18 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame CS layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, rflags) == 19 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame RFLAGS layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, rsp) == 20 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame RSP layout mismatch");
+static_assert(
+    offsetof(InterruptFrame, ss) == 21 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame SS layout mismatch");
+static_assert(
+    sizeof(InterruptFrame) == 22 * sizeof(uint64_t),
+    "assembly/C++ interrupt-frame size mismatch");
+
 using InterruptHandler = void (*)(InterruptFrame& frame);
 using IrqHandler = void (*)();
+using IrqScheduleHook = InterruptFrame* (*)(
+    uint8_t irq,
+    InterruptFrame& frame);
+
+enum class GatePrivilege : uint8_t {
+    Kernel = 0,
+    User = 3,
+};
+
+enum class GateType : uint8_t {
+    Interrupt = 0,
+    Trap
+};
 
 // Loads a complete 256-entry IDT and leaves maskable interrupts disabled.
 void initialize();
@@ -45,8 +84,23 @@ bool initialized();
 
 bool register_handler(uint8_t vector, InterruptHandler handler);
 void unregister_handler(uint8_t vector);
+
+// A ring-3 callable gate is permitted only for a software-defined vector that
+// already has a handler. Removing that handler first demotes the gate to ring
+// 0, so this API cannot leave an unhandled user-callable gate behind.
+bool set_gate_privilege(uint8_t vector, GatePrivilege privilege);
+// Trap gates preserve IF and are suitable for preemptible software syscalls.
+// Exception and hardware IRQ gates remain interrupt gates.
+bool set_gate_type(uint8_t vector, GateType type);
+
 bool register_irq_handler(uint8_t irq, IrqHandler handler);
 void unregister_irq_handler(uint8_t irq);
+
+// Installs the single low-level scheduling hook invoked after an IRQ handler
+// and EOI. Returning a different complete interrupt frame performs the stack
+// switch in the common assembly epilogue. Intended for the thread scheduler.
+bool register_irq_schedule_hook(IrqScheduleHook hook);
+void unregister_irq_schedule_hook(IrqScheduleHook hook);
 
 void enable();
 void disable();
@@ -61,5 +115,6 @@ uintptr_t last_page_fault_address();
 
 } // namespace arch::x86_64::interrupts
 
-extern "C" void x86_64_interrupt_dispatch(
+extern "C" arch::x86_64::interrupts::InterruptFrame*
+x86_64_interrupt_dispatch(
     arch::x86_64::interrupts::InterruptFrame* frame);

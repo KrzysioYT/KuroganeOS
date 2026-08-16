@@ -5,11 +5,15 @@
 #include "../arch/x86_64/io.hpp"
 #include "../core/string.hpp"
 #include "../drivers/pci.hpp"
+#include "../drivers/core/device_manager.hpp"
+#include "../drivers/core/driver_manager.hpp"
 #include "../drivers/rtc.hpp"
 #include "../fs/ramfs.hpp"
+#include "../fs/root_volume.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
+#include "../storage/ahci.hpp"
 #include "../task/scheduler.hpp"
 #include "../terminal.hpp"
 #include "../../common/version.h"
@@ -31,6 +35,7 @@ char g_current_directory[fs::RAMFS_MAX_PATH_LENGTH + 1] = "/";
 char g_history[kHistoryCapacity][kLineCapacity]{};
 size_t g_history_count = 0;
 size_t g_history_next = 0;
+bool g_experimental_gui_enabled = false;
 
 void print_error(const char* subsystem, const char* message) {
     terminal::write("error");
@@ -355,7 +360,13 @@ bool list_application(const applications::Definition& application, void*) {
 void command_help() {
     terminal::println("KuroganeOS commands:");
     terminal::println("  help clear version uname abi echo date uptime");
-    terminal::println("  mem free pci net [ping] tasks ps apps run <app> gui");
+    terminal::println("  mem free pci device [list|info <id>] driver [list|info <name>]");
+    terminal::println("  diskinfo net [ping] ip ifconfig route arp ping [IPv4]");
+    terminal::println("  nslookup <name> tasks");
+    if (g_experimental_gui_enabled) {
+        terminal::println(
+            "  apps run <app> gui  (EXPERIMENTAL boot=desktop only)");
+    }
     terminal::println("  pwd cd <path> ls [path] cat <path> stat <path>");
     terminal::println("  touch <path> mkdir <path> rmdir <path>");
     terminal::println("  write <path> <text> cp <src> <dst> mv <src> <dst>");
@@ -380,7 +391,7 @@ void command_abi() {
     terminal::println(
         abi::application_transport_available()
             ? "transport: available"
-            : "transport: unavailable (ring-3/syscalls not implemented)");
+            : "transport: unavailable (runtime initialization failed)");
 }
 
 void command_mem() {
@@ -435,6 +446,152 @@ void command_pci() {
     }
 }
 
+void print_device(const drivers::device::Device& device) {
+    terminal::write_u64(device.id);
+    terminal::write("  ");
+    terminal::write(drivers::device::type_name(device.type));
+    terminal::write("  ");
+    terminal::write(
+        device.driver != drivers::device::INVALID_DRIVER_ID
+            ? device.driver_name
+            : "-");
+    terminal::write("  ");
+    terminal::println(drivers::device::status_name(device.status));
+}
+
+void command_device(size_t count, char** arguments) {
+    if (count >= 2 && kstd::streq(arguments[1], "info")) {
+        uint64_t requested = 0;
+        if (count < 3 || !kstd::parse_u64(arguments[2], requested) ||
+            requested > UINT32_MAX) {
+            print_error("device", "usage: device info <id>");
+            return;
+        }
+        const drivers::device::Device* device = drivers::device::get(
+            static_cast<drivers::device::DeviceId>(requested));
+        if (device == nullptr) {
+            print_error("device", "device not found");
+            return;
+        }
+        terminal::write("Device ");
+        terminal::write_u64(device->id);
+        terminal::println();
+        terminal::write("Name: ");
+        terminal::println(device->name);
+        terminal::write("Bus: ");
+        terminal::println(drivers::device::bus_name(device->bus));
+        terminal::write("Class: ");
+        terminal::println(drivers::device::type_name(device->type));
+        terminal::write("Vendor: ");
+        terminal::write_hex(device->vendor_id);
+        terminal::write(" Device: ");
+        terminal::write_hex(device->device_id);
+        terminal::println();
+        terminal::write("Driver: ");
+        terminal::println(
+            device->driver != drivers::device::INVALID_DRIVER_ID
+                ? device->driver_name
+                : "none");
+        terminal::write("Status: ");
+        terminal::println(drivers::device::status_name(device->status));
+        terminal::write("Children: ");
+        terminal::write_u64(device->child_count);
+        terminal::println();
+        return;
+    }
+
+    terminal::write("Device Manager: ");
+    terminal::write_u64(drivers::device::count());
+    terminal::println(" devices");
+    terminal::println("ID  CLASS  DRIVER  STATUS");
+    for (drivers::device::DeviceId id = 0;
+         id < drivers::device::count();
+         ++id) {
+        const drivers::device::Device* device = drivers::device::get(id);
+        if (device != nullptr) {
+            print_device(*device);
+        }
+    }
+}
+
+void print_driver(const drivers::driver::Driver& driver) {
+    terminal::write(driver.name);
+    terminal::write("  ");
+    terminal::write(drivers::driver::status_name(driver.status));
+    terminal::write("  attached=");
+    terminal::write_u64(driver.attached_count);
+    terminal::println();
+}
+
+void command_driver(size_t count, char** arguments) {
+    if (count >= 2 && kstd::streq(arguments[1], "info")) {
+        if (count < 3) {
+            print_error("driver", "usage: driver info <name>");
+            return;
+        }
+        const drivers::driver::Driver* driver =
+            drivers::driver::find(arguments[2]);
+        if (driver == nullptr) {
+            print_error("driver", "driver not found");
+            return;
+        }
+        terminal::write("Driver: ");
+        terminal::println(driver->name);
+        terminal::write("Status: ");
+        terminal::println(drivers::driver::status_name(driver->status));
+        terminal::write("Probes: ");
+        terminal::write_u64(driver->probe_count);
+        terminal::write(" Attached: ");
+        terminal::write_u64(driver->attached_count);
+        terminal::write(" Failures: ");
+        terminal::write_u64(driver->failure_count);
+        terminal::println();
+        return;
+    }
+    terminal::write("Driver Manager: ");
+    terminal::write_u64(drivers::driver::count());
+    terminal::println(" drivers");
+    drivers::driver::visit(
+        [](const drivers::driver::Driver& driver, void*) {
+            print_driver(driver);
+            return true;
+        },
+        nullptr);
+}
+
+void command_diskinfo() {
+    terminal::write("Disks: ");
+    terminal::write_u64(storage::ahci::device_count());
+    terminal::println();
+    for (size_t index = 0; index < storage::ahci::device_count(); ++index) {
+        const storage::ahci::DeviceInfo* info =
+            storage::ahci::device_info_at(index);
+        if (info == nullptr) {
+            continue;
+        }
+        terminal::write("Disk ");
+        terminal::write_u64(index);
+        terminal::write(" driver=AHCI model=");
+        terminal::write(info->model);
+        terminal::write(" blocks=");
+        terminal::write_u64(info->sector_count);
+        terminal::write(" block_size=");
+        terminal::write_u64(info->sector_size);
+        terminal::println(" status=READY");
+    }
+    if (fs::root_volume::mounted()) {
+        terminal::write("RootFS: FAT32 label=");
+        terminal::write(fs::root_volume::volume_label());
+        terminal::write(" first_lba=");
+        terminal::write_u64(fs::root_volume::first_lba());
+        terminal::write(" blocks=");
+        terminal::write_u64(fs::root_volume::sector_count());
+        terminal::println(" mode=read-write vfs=READY");
+    } else {
+        terminal::println("RootFS: unavailable (kernel shell uses RAMFS)");
+    }
+}
+
 void command_date() {
     rtc::DateTime value{};
     if (!rtc::read(value)) {
@@ -469,6 +626,40 @@ void write_ipv4(const net::IPv4Address& address) {
     }
 }
 
+void write_mac(const net::MacAddress& address) {
+    constexpr char hex[] = "0123456789abcdef";
+    for (size_t index = 0U; index < net::MAC_ADDRESS_LENGTH; ++index) {
+        if (index != 0U) terminal::put(':');
+        terminal::put(hex[address.bytes[index] >> 4U]);
+        terminal::put(hex[address.bytes[index] & UINT8_C(0x0f)]);
+    }
+}
+
+bool parse_ipv4_text(const char* text, net::IPv4Address* output) {
+    if (text == nullptr || output == nullptr) return false;
+    net::IPv4Address result{};
+    size_t cursor = 0U;
+    for (size_t component = 0U; component < 4U; ++component) {
+        if (text[cursor] < '0' || text[cursor] > '9') return false;
+        uint16_t value = 0U;
+        size_t digits = 0U;
+        while (text[cursor] >= '0' && text[cursor] <= '9') {
+            value = static_cast<uint16_t>(
+                value * 10U + static_cast<uint16_t>(text[cursor] - '0'));
+            if (++digits > 3U || value > 255U) return false;
+            ++cursor;
+        }
+        result.bytes[component] = static_cast<uint8_t>(value);
+        if (component != 3U) {
+            if (text[cursor] != '.') return false;
+            ++cursor;
+        }
+    }
+    if (text[cursor] != '\0') return false;
+    *output = result;
+    return true;
+}
+
 void command_network(bool ping) {
     if (!net::service::ready()) {
         print_error("net", "network stack is not initialized");
@@ -478,7 +669,7 @@ void command_network(bool ping) {
         static uint16_t sequence = 1;
         net::PingReply reply{};
         const auto status =
-            net::service::ping_loopback(sequence++, &reply);
+            net::service::ping_gateway(sequence++, &reply);
         if (status != net::Status::Ok) {
             print_error("net", net::status_message(status));
             return;
@@ -500,10 +691,14 @@ void command_network(bool ping) {
         print_error("net", net::status_message(status));
         return;
     }
-    terminal::write("interface loopback address=");
+    terminal::write("interface ");
+    terminal::write(net::service::interface_name());
+    terminal::write(" address=");
     write_ipv4(config->address);
     terminal::write(" mask=");
     write_ipv4(config->netmask);
+    terminal::write(" gateway=");
+    write_ipv4(config->gateway);
     terminal::println();
     terminal::write("tx=");
     terminal::write_u64(stats.frames_transmitted);
@@ -513,6 +708,91 @@ void command_network(bool ping) {
     terminal::write_u64(stats.dropped_frames);
     terminal::write(" icmp replies=");
     terminal::write_u64(stats.echo_replies_received);
+    terminal::println();
+}
+
+void command_ping(const char* target) {
+    if (!net::service::ready()) {
+        print_error("ping", "network stack is not initialized");
+        return;
+    }
+    static uint16_t sequence = 100U;
+    net::PingReply reply{};
+    net::Status status = net::Status::InvalidArgument;
+    if (target == nullptr) {
+        status = net::service::ping_gateway(sequence++, &reply);
+    } else {
+        net::IPv4Address address{};
+        if (!parse_ipv4_text(target, &address)) {
+            print_error("ping", "expected a dotted-decimal IPv4 address");
+            return;
+        }
+        status = net::service::ping_address(address, sequence++, &reply);
+    }
+    if (status != net::Status::Ok) {
+        print_error("ping", net::status_message(status));
+        return;
+    }
+    terminal::write("reply from ");
+    write_ipv4(reply.source);
+    terminal::write(": sequence=");
+    terminal::write_u64(reply.sequence);
+    terminal::write(" bytes=");
+    terminal::write_u64(reply.payload_length);
+    terminal::println();
+}
+
+void command_route() {
+    const net::IPv4Config* config = net::service::configuration();
+    if (config == nullptr) {
+        print_error("route", "network stack is not initialized");
+        return;
+    }
+    terminal::write("connected ");
+    write_ipv4(config->address);
+    terminal::write(" mask ");
+    write_ipv4(config->netmask);
+    terminal::write(" dev ");
+    terminal::println(net::service::interface_name());
+    terminal::write("default via ");
+    write_ipv4(config->gateway);
+    terminal::write(" dev ");
+    terminal::println(net::service::interface_name());
+}
+
+bool write_neighbor(const net::NeighborEntry* entry, void*) {
+    write_ipv4(entry->ip);
+    terminal::write(" at ");
+    write_mac(entry->mac);
+    terminal::println(" REACHABLE");
+    return true;
+}
+
+void command_arp() {
+    const net::Status status = net::service::list_neighbors(write_neighbor, nullptr);
+    if (status != net::Status::Ok) {
+        print_error("arp", net::status_message(status));
+    }
+}
+
+void command_nslookup(const char* name) {
+    if (name == nullptr) {
+        print_error("nslookup", "usage: nslookup <name>");
+        return;
+    }
+    net::IPv4Address address{};
+    const net::Status status = net::service::resolve_a(name, &address);
+    if (status != net::Status::Ok) {
+        print_error("nslookup", net::status_message(status));
+        return;
+    }
+    const net::IPv4Address* server = net::service::dns_server();
+    terminal::write("server ");
+    if (server != nullptr) write_ipv4(*server);
+    terminal::write("\nname ");
+    terminal::write(name);
+    terminal::write(" address ");
+    write_ipv4(address);
     terminal::println();
 }
 
@@ -800,25 +1080,44 @@ void dispatch(size_t count, char** arguments) {
         command_mem();
     } else if (kstd::streq(command, "pci")) {
         command_pci();
+    } else if (kstd::streq(command, "device")) {
+        command_device(count, arguments);
+    } else if (kstd::streq(command, "driver")) {
+        command_driver(count, arguments);
+    } else if (kstd::streq(command, "diskinfo")) {
+        command_diskinfo();
     } else if (kstd::streq(command, "date")) {
         command_date();
     } else if (kstd::streq(command, "net")) {
         command_network(count >= 2 && kstd::streq(arguments[1], "ping"));
+    } else if (kstd::streq(command, "ip") ||
+               kstd::streq(command, "ifconfig")) {
+        command_network(false);
+    } else if (kstd::streq(command, "route")) {
+        command_route();
+    } else if (kstd::streq(command, "arp")) {
+        command_arp();
+    } else if (kstd::streq(command, "ping")) {
+        command_ping(count >= 2 ? arguments[1] : nullptr);
+    } else if (kstd::streq(command, "nslookup")) {
+        command_nslookup(count >= 2 ? arguments[1] : nullptr);
     } else if (kstd::streq(command, "uptime")) {
         terminal::write_u64(scheduler::now());
         terminal::println(" ticks");
-    } else if (kstd::streq(command, "tasks") ||
-               kstd::streq(command, "ps")) {
+    } else if (kstd::streq(command, "tasks")) {
         scheduler::list(list_task, nullptr);
-    } else if (kstd::streq(command, "apps")) {
+    } else if (g_experimental_gui_enabled &&
+               kstd::streq(command, "apps")) {
         applications::list(list_application, nullptr);
-    } else if (kstd::streq(command, "run") && count >= 2) {
+    } else if (g_experimental_gui_enabled &&
+               kstd::streq(command, "run") && count >= 2) {
         const auto status = applications::launch(
             arguments[1], count >= 3 ? arguments[2] : "");
         if (status != applications::Status::Ok) {
             print_error("apps", applications::status_message(status));
         }
-    } else if (kstd::streq(command, "gui")) {
+    } else if (g_experimental_gui_enabled &&
+               kstd::streq(command, "gui")) {
         const auto status = applications::launch("desktop");
         if (status != applications::Status::Ok) {
             print_error("apps", applications::status_message(status));
@@ -909,18 +1208,19 @@ void dispatch(size_t count, char** arguments) {
 }
 } // namespace
 
-void initialize() {
+void initialize(bool experimental_gui_enabled) {
     g_line_length = 0;
     g_line[0] = '\0';
     kstd::copy(g_current_directory, sizeof(g_current_directory), "/");
     reset_history();
+    g_experimental_gui_enabled = experimental_gui_enabled;
     g_initialized = true;
     show_prompt();
 }
 
 void feed(char character) {
     if (!g_initialized) {
-        initialize();
+        initialize(false);
     }
     if (character == '\r' || character == '\n') {
         terminal::println();

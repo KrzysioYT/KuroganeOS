@@ -1,0 +1,116 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+KuroganeOS loader 2.0
+Default boot=console. Press D for boot=desktop (EXPERIMENTAL), S or F8 for safe mode, X for diagnostics...
+Exiting boot services...
+[INFO][BOOT][CPU0][KERNEL] KuroganeOS kernel entry
+
+[terminal cleared]
+KUROGANE OS
+x86-64 UEFI kernel 2.0
+boot protocol: v3 (memory map + boot flags + installer payload)
+boot=console
+[INFO][BOOT][CPU0][KERNEL] boot=console
+[INFO][KERNEL][CPU0][KERNEL] GDT, TSS and IST stacks initialized
+[INFO][KERNEL][CPU0][KERNEL] IDT initialized
+[INFO][KERNEL][CPU0][KERNEL] CPU exception handlers installed
+[INFO][MEMORY][CPU0][KERNEL] kernel heap bytes=2097120
+[INFO][MEMORY][CPU0][KERNEL] cloning active UEFI four-level page-table root
+[INFO][MEMORY][CPU0][KERNEL] page-table backend initialized; running CPU mapping test
+[INFO][MEMORY][CPU0][KERNEL] virtual memory manager ready, CR3=0x1780000
+[TEST] paging: PASS
+[INFO][ACPI][CPU0][KERNEL] MADT processors=1
+[INFO][ACPI][CPU0][KERNEL] MADT I/O APICs=1
+[TEST] acpi_madt: PASS
+[INFO][APIC][CPU0][KERNEL] Local APIC id=0
+[INFO][APIC][CPU0][KERNEL] mapped I/O APICs=1
+[TEST] apic_discovery: PASS (PIC fallback active)
+[INFO][USER][CPU0][KERNEL] ring-3 runtime and int 0x80 syscall gate initialized
+[TEST] user_runtime: PASS
+[TEST] memory_allocator: PASS
+[TEST] ramfs_bootstrap: PASS
+[INFO][FS][CPU0][KERNEL] root RAMFS mounted
+[INFO][DEVICE][CPU0][KERNEL] registered devices=10
+[INFO][AHCI][CPU0][KERNEL] PCI AHCI controllers detected=1
+[INFO][AHCI][CPU0][KERNEL] active AHCI controllers=1
+[INFO][AHCI][CPU0][KERNEL] registered SATA block devices=1
+[INFO][AHCI][CPU0][KERNEL] QEMU HARDDISK
+[INFO][AHCI][CPU0][KERNEL] logical sector bytes=512
+[INFO][AHCI][CPU0][KERNEL] logical sector count=1048576
+[INFO][GPT][CPU0][KERNEL] validated primary GPT partitions=2
+[INFO][VFS][CPU0][KERNEL] persistent FAT32 root mounted read-write
+[INFO][VFS][CPU0][KERNEL] /etc/system.cfg bytes=51
+[TEST] fat32_vfs_read: PASS
+[TEST] fat32_persistence_prepare: PASS
+hello from ring3 via SYS_WRITE
+[TEST] ring3_hello_syscalls: PASS
+[WARN][USER][CPU0][KERNEL] isolated ring-3 exception vector=14
+[TEST] ring3_fault_isolation: PASS
+[INFO][SCHED][CPU0][KERNEL] scheduler initialized
+[INFO][THREAD][CPU0][KERNEL] two kernel threads switched on separate stacks
+[TEST] kernel_context_switch: PASS
+hello from ring3 via SYS_WRITE
+hello from ring3 via SYS_WRITE
+[INFO][PROCESS][CPU0][KERNEL] two ELF processes reached zombie and were reaped
+[TEST] process_spawn_wait: PASS
+[INFO][TIME][CPU0][KERNEL] PIT monotonic clock ready
+[INFO][INTERRUPTS][CPU0][KERNEL] PIC, PIT, keyboard, mouse and input queue ready
+interrupts/timer/input: READY
+PS/2 controller: configured
+PS/2 mouse: configured (wheel)
+[TEST] ps2_mouse: PASS
+[INFO][THREAD][CPU0][KERNEL] IRQ0 preempted two non-yielding kernel threads
+[TEST] kernel_preemption: PASS
+hello from ring3 via SYS_WRITE
+userspace ABI probe passed
+[INFO][PROCESS][CPU0][KERNEL] Ring-3 probe timer ticks=1000
+[INFO][PROCESS][CPU0][KERNEL] Ring-3 probe preemptions=10
+[INFO][PROCESS][CPU0][KERNEL] Ring-3 probe completed threads=2
+[INFO][PROCESS][CPU0][KERNEL] IRQ0 preempted a non-cooperating Ring-3 process
+[TEST] ring3_preemption: PASS
+[TEST] user_multitasking: PASS
+[TEST] syscall_process_abi: PASS
+PCI devices: 6
+network: E1000 link READY
+[TEST] e1000_link: PASS
+[TEST] dhcp_lease: PASS
+[TEST] udp_transport: PASS
+gateway ICMP: PASS
+[TEST] network_gateway_icmp: PASS
+DNS A example.com: PASS
+[TEST] dns_resolver: PASS
+[TEST] tcp_http_optional: PASS
+[TEST] network_online_icmp: PASS
+[TEST] ALL_REQUIRED_TESTS_PASSED
+Starting /system/init and the userspace console...
+
+[TEST] userspace_init_spawn: PASS
+[INFO][INIT][CPU0][KERNEL] spawned /system/init as PID 1
+/system/init: PID 1 online
+[TEST] userspace_init_pid1: PASS
+[TEST] userspace_shell_spawn: PASS
+KuroganeOS userspace shell (Ring 3)
+kurogane:user$ help
+help pid echo hello external files monitor about exit
+kurogane:user$ pid
+shell pid=770 tid=1282
+kurogane:user$ files
+Files [Ring 3] /etc/system.cfg:
+HOSTNAME=kurogane
+BOOT_MODE=console
+LOG_LEVEL=info
+[TEST] userspace_files_app: PASS
+kurogane:user$ monitor
+System Monitor [Ring 3] pid=771 tid=771
+[TEST] userspace_monitor_app: PASS
+kurogane:user$ about
+About KuroganeOS 2.0 [Ring 3 application]
+[TEST] userspace_about_app: PASS
+kurogane:user$ hello
+hello from ring3 via SYS_WRITE
+kurogane:user$ external
+Hello from external Kurogane application
+[TEST] external_sdk_application: PASS
+kurogane:user$ echo usershellpass
+usershellpass
+kurogane:user$ 

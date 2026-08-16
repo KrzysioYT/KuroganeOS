@@ -1,0 +1,10 @@
+Step: Create tagged AHCI scratch image
+Started: 2026-08-14T04:31:51.6677444+02:00
+Finished: 2026-08-14T04:31:52.9082678+02:00
+Duration: 1,2 seconds
+Exit code: 0
+
+Created tagged AHCI scratch image: E:\KuroganeOS\build\test-disks\ahci-scratch.img
+  Size: 16 MiB (32768 sectors)
+  Writable test range: LBA 8-15
+  SHA-256: 6e4f3520ba1398ecae590dc24b65b579ba8d4334a141146c575a76fff8e75546

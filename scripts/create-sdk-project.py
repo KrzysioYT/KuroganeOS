@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an honest compile-only project for the experimental KuroganeOS SDK."""
+"""Create a linkable KuroganeOS ELF64 application project."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ SUPPORTED_TEMPLATES = {
         ),
     },
     "service": {
-        "features": ["processes", "ipc"],
-        "feature_expression": "KU_ABI_FEATURE_PROCESSES | KU_ABI_FEATURE_IPC",
+        "features": ["processes"],
+        "feature_expression": "KU_ABI_FEATURE_PROCESSES",
     },
 }
 UNAVAILABLE_TEMPLATES = {
@@ -51,8 +51,7 @@ class GeneratorError(RuntimeError):
 def parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate a freestanding, compile-only KuroganeOS SDK project. "
-            "Generated projects are not linkable or runnable yet."
+            "Generate a freestanding, statically linked KuroganeOS ELF64 project."
         )
     )
     parser.add_argument("--template", help="console, gui, service, or driver")
@@ -80,7 +79,7 @@ def parse_arguments(argv: list[str]) -> argparse.Namespace:
 
 def print_templates() -> None:
     for name in sorted(SUPPORTED_TEMPLATES):
-        print(f"{name}: compile-only capability probe")
+        print(f"{name}: runnable ELF64 application")
     for name, reason in sorted(UNAVAILABLE_TEMPLATES.items()):
         print(f"{name}: unavailable ({reason})")
 
@@ -163,9 +162,9 @@ def generate_project(
             "schema_version": 1,
             "name": name,
             "template": template,
-            "artifact_kind": "freestanding-object",
-            "runtime_supported": False,
-            "link_supported": False,
+            "artifact_kind": "elf64-executable",
+            "runtime_supported": True,
+            "link_supported": True,
             "required_abi": {"major": 1, "minor": 0},
             "required_features": metadata["features"],
         }
@@ -199,8 +198,8 @@ def main(argv: list[str]) -> int:
         print(f"error: could not create project: {error}", file=sys.stderr)
         return 2
 
-    print(f"Created compile-only KuroganeOS SDK project: {destination}")
-    print("This project can compile an object, but cannot link or run on KuroganeOS yet.")
+    print(f"Created runnable KuroganeOS SDK project: {destination}")
+    print("Build it to produce a static ELF64 application for KuroganeOS.")
     return 0
 
 

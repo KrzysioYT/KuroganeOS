@@ -92,7 +92,14 @@ Status validate_physical_page(
 }
 
 bool valid_map_flags(MapFlags flags) {
-    return (static_cast<uint64_t>(flags) & ~VALID_MAP_FLAGS) == 0;
+    if ((static_cast<uint64_t>(flags) & ~VALID_MAP_FLAGS) != 0) {
+        return false;
+    }
+
+    // Global translations are shared across address-space switches and must
+    // never be used for pages accessible from ring 3.
+    return !(has_flag(flags, MapFlags::User) &&
+             has_flag(flags, MapFlags::Global));
 }
 
 uint64_t table_index(uint64_t virtual_address, size_t level) {

@@ -37,8 +37,10 @@ WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
 	-Werror=return-type
 ifeq ($(CONFIG),release)
 OPTFLAGS := -O2 -g1 -DNDEBUG -DKUROGANE_DEBUG=0
+else ifeq ($(CONFIG),test)
+OPTFLAGS := -O1 -g3 -DKUROGANE_DEBUG=1 -DKUROGANE_TEST=1
 else
-OPTFLAGS := -O0 -g3 -DKUROGANE_DEBUG=1
+OPTFLAGS := -O0 -g3 -DKUROGANE_DEBUG=1 -DKUROGANE_TEST=0
 endif
 FREESTANDING_FLAGS := \
 	-ffreestanding -fno-exceptions -fno-rtti -fno-threadsafe-statics \

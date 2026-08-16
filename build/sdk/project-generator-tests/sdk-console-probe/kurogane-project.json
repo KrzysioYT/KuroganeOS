@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "sdk-console-probe",
+  "template": "console",
+  "artifact_kind": "elf64-executable",
+  "runtime_supported": true,
+  "link_supported": true,
+  "required_abi": {
+    "major": 1,
+    "minor": 0
+  },
+  "required_features": [
+    "processes"
+  ]
+}

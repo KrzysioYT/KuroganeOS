@@ -1,100 +1,64 @@
-# Testowanie i regresja
+# Testing and QEMU validation
 
-## Pełna macierz
+Hosted tests cover deterministic logic; QEMU proves CPU privilege, timer
+preemption, hardware/DMA paths, persistence, networking, GUI input and install.
+A marker counts only with a successful runner exit and no `[TEST] ...: FAIL`.
 
-Głównym agregatorem jest PowerShell:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1
-```
-
-Domyślny przebieg zatrzymuje się przy pierwszym błędzie i wykonuje:
-
-1. preflight WSL2 oraz narzędzi `bash`, `fsck.fat`, `g++`, `make`, Python 3, PowerShell, `wslpath` i `xorriso`;
-2. czysty build `debug`;
-3. wszystkie testy hostowe;
-4. read-only `fsck.fat -vn` obrazu;
-5. QEMU ShellTest z `kurogane.img`;
-6. QEMU ShellTest safe mode;
-7. czysty build `release`;
-8. budowę release ISO;
-9. QEMU ShellTest z ISO.
-
-VirtualBox jest domyślnie pomijany, ponieważ jest zewnętrzną i wolniejszą zależnością. Pełna macierz z nim:
+## Hosted tests
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1 -RunVirtualBox
+wsl.exe bash -lc "cd /mnt/e/KuroganeOS && bash scripts/test.sh"
 ```
 
-`-TimeoutSeconds` ustala timeout emulatorów w zakresie 5–120. `-KeepLogs` nadaje przebiegowi unikalną nazwę zamiast zestawu `verify-latest`; włącza też zachowanie diagnostyki VirtualBox w razie błędu. `-SkipVirtualBox` pozostaje przełącznikiem dla wspólnych poleceń automatyzacji, które chcą jawnie wyłączyć ten etap; nie można łączyć go z `-RunVirtualBox`.
+`build/logs/host-tests.log` covers memory/page permissions, Process/Thread and
+context switching, scheduler, ELF/ABI, RAMFS/VFS/FAT32, GPT/Partition/AHCI,
+input/WindowManager/USB HID, network protocols, installer layout/package and
+runnable SDK project generation.
 
-## Testy hostowe
+## QEMU matrix and logs
 
-Z WSL2:
+Use unique `-LogName` values. Each run writes separate `-serial`, `-stdout` and
+`-stderr` logs under `build/logs`.
 
-```bash
-./scripts/test.sh
-```
-
-Runner kompiluje testy przez `${CXX:-g++}` z C++17, `-O2 -Wall -Wextra -Wpedantic`, uruchamia je kolejno i zapisuje wspólny log w `build/logs/host-tests.log`.
-
-| Test | Zakres |
-| --- | --- |
-| `memory` | heap, wyrównania, odzyskiwanie bloków, walidacja i bitmapa PMM |
-| `virtual-memory` | inicjalizacja, walidacja, map/unmap/reuse, flagi, granice, konflikty, tablice zewnętrzne i rollback OOM/backendu |
-| `ramfs` | hierarchia, limity, błędy, kopia, move/rename, cykle, niezależność danych, shrink i atomowość przy OOM |
-| `scheduler` | cykl życia callbacków, tick/dispatch, budżet, suspend/resume/cancel/yield i metryki |
-| `network` | Ethernet/ARP/IPv4/ICMP, checksumy, błędy, sąsiedzi i loopback |
-| `profiler` | snapshoty statystyk modułów i odporność na brak inicjalizacji |
-| `sdk-abi` | rozmiary, wersja i walidacja publicznego deskryptora |
-| `sdk-test` | makra/asercje eksperymentalnego frameworka testowego SDK |
-| generator SDK | sysroot, kompilacja przykładu i zachowanie szablonów projektów |
-
-Są to testy uruchamiane jako procesy hosta. Same nie dowodzą użycia kodu przez urządzenie ani uruchomiony kernel. Dlatego `kmain` wykonuje dodatkowo runtime self-test na aktywnych tablicach UEFI: mapuje ramkę pod wolnym adresem, zapisuje przez alias, sprawdza translację, usuwa mapowanie i kontroluje wyciek. Test QEMU zalicza ten etap tylko wtedy, gdy rozruch dociera do promptu.
-
-## Walidacja podczas budowania
-
-`scripts/build.ps1` odrzuca niezgodny ELF/PE, segment RWE, brak `PT_DYNAMIC`, nieobsługiwaną relokację oraz symbol niezdefiniowany. Generator FAT32 po zapisie odczytuje obraz i porównuje boot sector, FSInfo, kopie FAT, katalogi oraz zawartość staged plików. `scripts/build-iso.sh` używa tego obrazu jako UEFI El Torito.
-
-To są testy strukturalne artefaktów. Do potwierdzenia rozruchu nadal potrzebne jest QEMU lub VirtualBox.
-
-## QEMU
-
-Skrócone wejścia:
-
-```bash
-./scripts/run-qemu.sh smoke
-./scripts/run-qemu.sh system
-./scripts/run-qemu.sh iso
-./scripts/run-qemu.sh safe
-```
-
-Scenariusze, logi i warunki sukcesu opisuje [QEMU_TESTING.md](QEMU_TESTING.md). Najszerszy test QEMU w `verify.ps1` uruchamia ShellTest zarówno z dysku, safe mode, jak i z ISO; wrapper `run-qemu.sh iso` sam sprawdza tylko prompt.
-
-## VirtualBox
-
-Pojedynczy smoke test:
+| Scenario | Runner | Required evidence |
+|---|---|---|
+| boot | `run-qemu.ps1 -UseDiskImage -Headless` | prompt, no panic |
+| userspace | add `-ShellTest` | PID1/shell/apps/external ELF |
+| multitasking | `-ShellTest` | kernel + Ring3 preemption |
+| filesystem/network | `-ShellTest` on base image | FAT mount + E1000/DHCP/ICMP |
+| persistence | `test-persistence.ps1` | prepare and verify boots |
+| desktop | `-DesktopMode -ShellTest` | five apps + PS/2 drag/close |
+| safe mode | `-SafeMode` | emergency Ring 0 prompt, minimal drivers |
+| USB | `-UsbTest` | xHCI enumeration + injected HID key |
+| installer | `test-installer.ps1` | deploy + two HDD-only boots |
+| full system | `validate-2.0.ps1` | clean build/tests/images/QEMU/installer |
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-virtualbox.ps1
+.\scripts\run-qemu.ps1 -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -Headless -ShellTest -TimeoutSeconds 180 -LogName qemu-userspace
+
+.\scripts\run-qemu.ps1 -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -Headless -DesktopMode -ShellTest -TimeoutSeconds 180 `
+  -LogName qemu-desktop
 ```
 
-Instrukcja i bezpieczne sprzątanie są opisane w [VIRTUALBOX_TESTING.md](VIRTUALBOX_TESTING.md).
+The QEMU monitor injects real emulated keyboard/mouse packets; the runner does
+not write expected text into serial logs. Key markers include
+`ALL_REQUIRED_TESTS_PASSED`, `ring3_fault_isolation`, both preemption proofs,
+FAT persistence, `network_gateway_icmp`, `external_sdk_application`, all
+desktop apps, `window_drag_input` and `installer_complete`.
+The desktop scenario also requires `window_close_input`; the full validator
+includes separate safe-mode and USB runs plus a 120-second stability run by
+default.
 
-## Logi agregatora
+Persistence and installer targets are purpose-built files in
+`build/test-disks`. Installer automation requires a blank 512 MiB disk, exact
+`INSTALL`, detaches the ISO, then boots the same disk twice. Never attach a
+physical disk.
 
-Domyślnie powstają:
-
-```text
-build/logs/verify-latest-status.log
-build/logs/verify-latest-<etap>.log
-build/logs/verify-latest-qemu-*-serial.log
-```
-
-Status zawiera `START`, `PASS`, `FAIL`, `SKIP` i czas etapu. Przy błędzie agregator pokazuje końcówkę logu i pozostawia pełny plik. `-KeepLogs` używa prefiksu `verify-<data>-<id>`.
-
-## Co nadal wymaga testów
-
-Nie ma testu długiego działania, realnego sprzętu, SMP, własnej kompletnej przestrzeni adresowej kernela, ring 3, syscalls, sterownika dysku/NIC/myszy, trwałości ani kompozytora. Brak takiego testu wynika przede wszystkim z braku odpowiadającej implementacji, a nie z pominięcia gotowej funkcji.
-
-Aktualny, datowany wynik znajduje się w [BUILD_STATUS.md](BUILD_STATUS.md).
+For stability observation use a long unique-log QEMU run, exercise processes,
+filesystem, network and several GUI apps, and inspect for faults, FAIL markers,
+deadlock/starvation and cleanup failures. External DNS/HTTP/ICMP probes can
+depend on host connectivity; E1000/DHCP/UDP/gateway are required.

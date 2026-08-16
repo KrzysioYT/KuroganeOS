@@ -1,5 +1,7 @@
 #include "service.hpp"
 
+#include "../user/runtime.hpp"
+
 namespace abi {
 namespace {
 
@@ -8,7 +10,7 @@ constexpr ku_abi_descriptor g_descriptor{
     KU_ABI_VERSION_CURRENT,
     KU_ARCHITECTURE_X86_64,
     4096,
-    0, // No public services are reachable before ring-3/syscall support.
+    0, // WRITE/EXIT have no matching capability bit; process/files stay off.
     {0, 0, 0}
 };
 
@@ -24,7 +26,7 @@ const ku_abi_descriptor& descriptor() {
 }
 
 bool application_transport_available() {
-    return false;
+    return user::runtime::initialized();
 }
 
 } // namespace abi

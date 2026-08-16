@@ -1,0 +1,21 @@
+xorriso 1.5.6 : RockRidge filesystem manipulator, libburnia project.
+
+Drive current: -outdev 'stdio:/mnt/e/KuroganeOS/kurogane.iso'
+Media current: stdio file, overwriteable
+Media status : is blank
+Media summary: 0 sessions, 0 data blocks, 0 data, 56.4g free
+Added to ISO image: directory '/'='/mnt/e/KuroganeOS/build/iso-staging'
+xorriso : UPDATE :       6 files added in 1 seconds
+xorriso : UPDATE :       6 files added in 1 seconds
+xorriso : WARNING : Boot image load size exceeds 65535 blocks of 512 bytes. Will record 0 in El Torito to extend ESP to end-of-medium.
+xorriso : UPDATE :  1.63% done
+xorriso : UPDATE :  20.24% done
+xorriso : UPDATE :  33.84% done, estimate finish Fri Aug 14 02:38:35 2026
+xorriso : UPDATE :  48.84% done, estimate finish Fri Aug 14 02:38:35 2026
+xorriso : UPDATE :  64.25% done, estimate finish Fri Aug 14 02:38:35 2026
+xorriso : UPDATE :  80.52% done, estimate finish Fri Aug 14 02:38:35 2026
+xorriso : UPDATE :  95.70% done
+ISO image produced: 33349 sectors
+Written to medium : 33349 sectors at LBA 0
+Writing to 'stdio:/mnt/e/KuroganeOS/kurogane.iso' completed successfully.
+

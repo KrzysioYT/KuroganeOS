@@ -1,4 +1,5 @@
 #include "network.hpp"
+#include "protocols.hpp"
 
 namespace net {
 
@@ -432,6 +433,72 @@ Status send_icmp(
     return status;
 }
 
+Status resolve_destination(
+    NetworkStack& stack,
+    const IPv4Address& destination,
+    const MacAddress** out_mac) {
+    IPv4Address next_hop = destination;
+    if (!ipv4_on_same_network(
+            stack.config.address, destination, stack.config.netmask)) {
+        if (ipv4_is_zero(stack.config.gateway)) return Status::NoRoute;
+        next_hop = stack.config.gateway;
+    }
+    const NeighborEntry* neighbor = find_neighbor(stack, next_hop);
+    if (neighbor == nullptr) {
+        const Status arp_status = send_arp_request(stack, next_hop);
+        return arp_status == Status::Ok
+            ? Status::NeighborResolutionPending
+            : arp_status;
+    }
+    *out_mac = &neighbor->mac;
+    return Status::Ok;
+}
+
+Status send_transport_packet(
+    NetworkStack& stack,
+    const MacAddress& destination_mac,
+    const IPv4Address& destination_ip,
+    uint8_t protocol,
+    const uint8_t* transport,
+    size_t transport_length) {
+    const size_t transport_offset = ETHERNET_HEADER_SIZE + IPV4_MIN_HEADER_SIZE;
+    if (transport != stack.transmit_buffer + transport_offset) {
+        return Status::InvalidArgument;
+    }
+    const IPv4Header header = {
+        stack.config.address,
+        destination_ip,
+        protocol,
+        64U,
+        stack.next_identification,
+        true
+    };
+    ++stack.next_identification;
+    size_t ipv4_length = 0U;
+    Status status = serialize_ipv4(
+        header,
+        transport,
+        transport_length,
+        stack.transmit_buffer + ETHERNET_HEADER_SIZE,
+        ETHERNET_MTU,
+        &ipv4_length);
+    if (status != Status::Ok) return status;
+    size_t frame_length = 0U;
+    status = serialize_ethernet(
+        destination_mac,
+        stack.interface->hardware_address,
+        ETHER_TYPE_IPV4,
+        stack.transmit_buffer + ETHERNET_HEADER_SIZE,
+        ipv4_length,
+        stack.transmit_buffer,
+        sizeof(stack.transmit_buffer),
+        &frame_length);
+    if (status != Status::Ok) return status;
+    status = transmit_stack_frame(stack, frame_length);
+    if (status == Status::Ok) increment(stack.stats.ipv4_transmitted);
+    return status;
+}
+
 Status handle_arp(
     NetworkStack& stack,
     const EthernetFrameView& ethernet
@@ -484,9 +551,56 @@ Status handle_ipv4(
     if (!ipv4_is_valid_unicast(ipv4.source)) {
         return Status::MalformedPacket;
     }
-    if (ipv4.protocol != IPV4_PROTOCOL_ICMP) {
-        return Status::UnsupportedProtocol;
+    status = update_neighbor(stack, ipv4.source, ethernet.source);
+    if (status != Status::Ok) return status;
+
+    if (ipv4.protocol == IPV4_PROTOCOL_UDP) {
+        UdpDatagramView udp{};
+        status = parse_udp(
+            ipv4.source, ipv4.destination,
+            ipv4.payload, ipv4.payload_length, &udp);
+        if (status != Status::Ok) return status;
+        if (udp.payload_length > TRANSPORT_INBOX_CAPACITY) {
+            return Status::BufferTooSmall;
+        }
+        stack.last_udp_datagram = {};
+        stack.last_udp_datagram.valid = true;
+        stack.last_udp_datagram.source = ipv4.source;
+        stack.last_udp_datagram.destination = ipv4.destination;
+        stack.last_udp_datagram.source_port = udp.source_port;
+        stack.last_udp_datagram.destination_port = udp.destination_port;
+        stack.last_udp_datagram.payload_length = udp.payload_length;
+        copy_bytes(stack.last_udp_datagram.payload, udp.payload,
+                   udp.payload_length);
+        increment(stack.stats.udp_received);
+        return Status::Ok;
     }
+    if (ipv4.protocol == IPV4_PROTOCOL_TCP) {
+        TcpSegmentView tcp{};
+        status = parse_tcp(
+            ipv4.source, ipv4.destination,
+            ipv4.payload, ipv4.payload_length, &tcp);
+        if (status != Status::Ok) return status;
+        if (tcp.payload_length > TRANSPORT_INBOX_CAPACITY) {
+            return Status::BufferTooSmall;
+        }
+        stack.last_tcp_segment = {};
+        stack.last_tcp_segment.valid = true;
+        stack.last_tcp_segment.source = ipv4.source;
+        stack.last_tcp_segment.destination = ipv4.destination;
+        stack.last_tcp_segment.source_port = tcp.source_port;
+        stack.last_tcp_segment.destination_port = tcp.destination_port;
+        stack.last_tcp_segment.sequence = tcp.sequence;
+        stack.last_tcp_segment.acknowledgement = tcp.acknowledgement;
+        stack.last_tcp_segment.flags = tcp.flags;
+        stack.last_tcp_segment.window = tcp.window;
+        stack.last_tcp_segment.payload_length = tcp.payload_length;
+        copy_bytes(stack.last_tcp_segment.payload, tcp.payload,
+                   tcp.payload_length);
+        increment(stack.stats.tcp_received);
+        return Status::Ok;
+    }
+    if (ipv4.protocol != IPV4_PROTOCOL_ICMP) return Status::UnsupportedProtocol;
 
     IcmpEchoView echo = {};
     status = parse_icmp_echo(ipv4.payload, ipv4.payload_length, &echo);
@@ -494,11 +608,6 @@ Status handle_ipv4(
         return status;
     }
     increment(stack.stats.icmp_received);
-
-    status = update_neighbor(stack, ipv4.source, ethernet.source);
-    if (status != Status::Ok) {
-        return status;
-    }
 
     if (echo.type == IcmpEchoType::Request) {
         increment(stack.stats.echo_requests_received);
@@ -1057,6 +1166,8 @@ Status configure_ipv4(NetworkStack* stack, const IPv4Config& config) {
     stack->config = config;
     clear_bytes(stack->neighbors, sizeof(stack->neighbors));
     clear_bytes(&stack->last_ping_reply, sizeof(stack->last_ping_reply));
+    clear_bytes(&stack->last_udp_datagram, sizeof(stack->last_udp_datagram));
+    clear_bytes(&stack->last_tcp_segment, sizeof(stack->last_tcp_segment));
     stack->neighbor_eviction_cursor = 1;
     stack->neighbor_update_sequence = 1;
 
@@ -1207,6 +1318,77 @@ Status send_ping(
     );
 }
 
+Status send_udp(
+    NetworkStack* stack,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length) {
+    if (stack == nullptr || !stack->initialized) return Status::NotInitialized;
+    if (!stack->ipv4_configured) return Status::NotConfigured;
+    if ((!payload && payload_length != 0U) || source_port == 0U ||
+        destination_port == 0U || !ipv4_is_valid_unicast(destination)) {
+        return Status::InvalidArgument;
+    }
+    const MacAddress* destination_mac = nullptr;
+    Status status = resolve_destination(*stack, destination, &destination_mac);
+    if (status != Status::Ok) return status;
+    const size_t offset = ETHERNET_HEADER_SIZE + IPV4_MIN_HEADER_SIZE;
+    size_t udp_length = 0U;
+    status = serialize_udp(
+        stack->config.address, destination,
+        source_port, destination_port,
+        payload, payload_length,
+        stack->transmit_buffer + offset,
+        sizeof(stack->transmit_buffer) - offset,
+        &udp_length);
+    if (status != Status::Ok) return status;
+    status = send_transport_packet(
+        *stack, *destination_mac, destination,
+        IPV4_PROTOCOL_UDP, stack->transmit_buffer + offset, udp_length);
+    if (status == Status::Ok) increment(stack->stats.udp_transmitted);
+    return status;
+}
+
+Status send_tcp(
+    NetworkStack* stack,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t sequence,
+    uint32_t acknowledgement,
+    uint8_t flags,
+    uint16_t window,
+    const uint8_t* payload,
+    size_t payload_length) {
+    if (stack == nullptr || !stack->initialized) return Status::NotInitialized;
+    if (!stack->ipv4_configured) return Status::NotConfigured;
+    if ((!payload && payload_length != 0U) || source_port == 0U ||
+        destination_port == 0U || !ipv4_is_valid_unicast(destination)) {
+        return Status::InvalidArgument;
+    }
+    const MacAddress* destination_mac = nullptr;
+    Status status = resolve_destination(*stack, destination, &destination_mac);
+    if (status != Status::Ok) return status;
+    const size_t offset = ETHERNET_HEADER_SIZE + IPV4_MIN_HEADER_SIZE;
+    size_t tcp_length = 0U;
+    status = serialize_tcp(
+        stack->config.address, destination,
+        source_port, destination_port,
+        sequence, acknowledgement, flags, window,
+        payload, payload_length,
+        stack->transmit_buffer + offset,
+        sizeof(stack->transmit_buffer) - offset,
+        &tcp_length);
+    if (status != Status::Ok) return status;
+    status = send_transport_packet(
+        *stack, *destination_mac, destination,
+        IPV4_PROTOCOL_TCP, stack->transmit_buffer + offset, tcp_length);
+    if (status == Status::Ok) increment(stack->stats.tcp_transmitted);
+    return status;
+}
+
 Status lookup_neighbor(
     const NetworkStack* stack,
     const IPv4Address& address,
@@ -1268,6 +1450,24 @@ Status get_last_ping_reply(const NetworkStack* stack, PingReply* out_reply) {
     }
     *out_reply = stack->last_ping_reply;
     return out_reply->valid ? Status::Ok : Status::WouldBlock;
+}
+
+Status take_udp_datagram(NetworkStack* stack, UdpDatagram* out_datagram) {
+    if (stack == nullptr || !stack->initialized) return Status::NotInitialized;
+    if (out_datagram == nullptr) return Status::InvalidArgument;
+    if (!stack->last_udp_datagram.valid) return Status::WouldBlock;
+    *out_datagram = stack->last_udp_datagram;
+    stack->last_udp_datagram.valid = false;
+    return Status::Ok;
+}
+
+Status take_tcp_segment(NetworkStack* stack, TcpSegment* out_segment) {
+    if (stack == nullptr || !stack->initialized) return Status::NotInitialized;
+    if (out_segment == nullptr) return Status::InvalidArgument;
+    if (!stack->last_tcp_segment.valid) return Status::WouldBlock;
+    *out_segment = stack->last_tcp_segment;
+    stack->last_tcp_segment.valid = false;
+    return Status::Ok;
 }
 
 const char* status_message(Status status) {

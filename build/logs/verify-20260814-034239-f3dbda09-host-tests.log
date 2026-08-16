@@ -1,0 +1,102 @@
+Step: Host tests in WSL2
+Started: 2026-08-14T03:46:12.6645123+02:00
+Finished: 2026-08-14T03:46:25.6947323+02:00
+Duration: 13,0 seconds
+Exit code: 0
+
+[build] memory
+[run] memory
+[pass] memory
+[build] libk
+[run] libk
+libk tests: PASS
+[pass] libk
+[build] driver-core
+[run] driver-core
+driver core tests: PASS
+[pass] driver-core
+[build] virtual-memory
+[run] virtual-memory
+PASS: initialization and validation
+PASS: map, unmap, and reuse
+PASS: flags and effective permissions
+PASS: boundaries and non-overlap
+PASS: conflicts and external tables
+PASS: OOM and backend rollback
+[pass] virtual-memory
+[build] gpt
+[run] gpt
+[PASS] block-device contract
+[PASS] GPT happy path
+[PASS] GPT header validation
+[PASS] GPT layout/overflow guards
+[PASS] GPT CRC/range validation
+[PASS] GPT fixed result limit
+[PASS] GPT backend failures
+[pass] gpt
+[build] partition-device
+[run] partition-device
+partition-device tests: PASS
+[pass] partition-device
+[build] storage-scratch
+[run] storage-scratch
+storage scratch tests: PASS
+[pass] storage-scratch
+[build] ahci
+[run] ahci
+[PASS] BAR5 decode
+[PASS] IDENTIFY 512-byte sectors
+[PASS] IDENTIFY 4K and rejection paths
+[PASS] register H2D FIS
+[PASS] DMA 32-bit address bound
+[pass] ahci
+[build] ramfs
+[run] ramfs
+[pass] ramfs
+[build] vfs
+[run] vfs
+PASS: mount routing, cwd and chroot
+PASS: path limits and transactional outputs
+PASS: open I/O, seek and generations
+PASS: readdir and mutations
+PASS: busy, cross-device, read-only and rollback
+PASS: capacity, missing operations and initialization
+[pass] vfs
+[build] fat32
+[run] fat32
+FAT32 read-only tests passed
+[pass] fat32
+[build] root-volume-image
+[run] root-volume-image
+Foundation root PartitionDevice/FAT32/VFS read: PASS
+[pass] root-volume-image
+[build] scheduler
+[run] scheduler
+[pass] scheduler
+[build] network
+[run] network
+[pass] network
+[build] profiler
+[run] profiler
+[pass] profiler
+[build] sdk-abi
+[run] sdk-abi
+[pass] sdk-abi
+[build] sdk-test
+[run] sdk-test
+[==========] suite sdk-test-framework
+[ RUN      ] assertions
+[       OK ] assertions (3 assertions)
+[ RUN      ] grouping
+[       OK ] grouping (1 assertions)
+[==========] sdk-test-framework: 2 groups, 4 assertions
+[  PASSED  ] sdk-test-framework
+[selftest] SDK test framework PASS
+[pass] sdk-test
+[build] sdk-sysroot
+Built experimental SDK sysroot: /mnt/e/KuroganeOS/build/sdk/sysroot
+Compiled external ABI consumer: /mnt/e/KuroganeOS/build/sdk/examples/abi-inspect.o
+[run] sdk-project-generator
+SDK project generator tests passed
+[pass] sdk-project-generator
+[pass] all host tests
