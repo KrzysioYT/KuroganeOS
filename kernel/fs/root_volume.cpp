@@ -26,6 +26,7 @@ fat32::FileSystem g_fat32{};
 fat32_vfs::Adapter g_adapter{};
 install::package_vfs::Adapter g_package_adapter{};
 install::package::View g_package_view{};
+install::package::Status g_package_detail_status = install::package::Status::Ok;
 vfs::FileSystem g_backend{};
 vfs::State g_vfs{};
 vfs::PathContext g_path_context{};
@@ -207,9 +208,9 @@ Status initialize_live_package(const void* package_bytes, size_t package_size) {
     g_attempted = true;
     g_live_media = true;
     g_package_view = {};
-    if (install::package::parse(
-            package_bytes, package_size, &g_package_view) !=
-        install::package::Status::Ok) {
+    g_package_detail_status = install::package::parse(
+        package_bytes, package_size, &g_package_view);
+    if (g_package_detail_status != install::package::Status::Ok) {
         return fail(Status::LivePackageInvalid);
     }
     if (install::package_vfs::initialize(
@@ -463,9 +464,7 @@ const char* detail_message() {
         return fat32::status_message(g_fat32_detail_status);
     }
     if (g_status == Status::LivePackageInvalid) {
-        return install::package::status_message(
-            install::package::parse(
-                g_package_view.bytes, g_package_view.size, &g_package_view));
+        return install::package::status_message(g_package_detail_status);
     }
     return vfs::status_message(g_detail_status);
 }
