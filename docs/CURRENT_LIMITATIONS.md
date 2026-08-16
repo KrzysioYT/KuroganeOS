@@ -1,73 +1,123 @@
-# Aktualne ograniczenia — KuroganeOS 2.2
+# Aktualne ograniczenia — KuroganeOS 3.3.1-dev
 
-KuroganeOS 2.2 jest **Installable System + Desktop Developer Preview**, a nie
-stabilnym systemem codziennego użytku. Ten dokument opisuje aktualny kod; stare
-wersje twierdzące, że wszystko działa w Ring 0, są nieaktualne.
+KuroganeOS 3.3.1-dev jest **DEV BETA**, a nie stabilnym systemem codziennego
+użytku. Ten dokument mówi wprost co działa, co jest eksperymentalne i czego nie
+należy jeszcze oczekiwać.
+
+Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE.md).
 
 ## Co już istnieje
 
-- UEFI x86-64 bootloader i boot protocol v3;
+- własny UEFI x86-64 bootloader i boot protocol v3;
 - VMM, GDT/TSS/IST, IDT i obsługa wyjątków;
 - Ring 3, procesy ELF64, PID/TID, spawn/wait/exit i preempcja;
 - `/system/init` jako PID 1;
 - AHCI, GPT, writable FAT32/VFS i persistent root;
-- instalator oraz boot z zainstalowanego dysku;
+- Try/Install media i read-only live package root;
+- instalator GPT/FAT32 z językiem, lokalnym profilem i opcjonalnym hasłem DEV;
 - PS/2 keyboard/mouse, PCI, ACPI MADT/APIC discovery;
-- E1000/networking w zakresie zaimplementowanym przez bieżący kernel;
-- WindowManager i GUI Ring 3;
-- SDK oraz development na Windows/WSL i macOS;
-- Flux Console 2.2 i Kurogane Flux Desktop Developer Preview.
+- E1000 `8086:100E` z Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS i podstawowym TCP probe;
+- loopback fallback, gdy DHCP/fizyczny interfejs nie może się skonfigurować;
+- Intel ICH AC'97 `8086:2415` jako bazowy kernelowy PCM output backend;
+- WindowManager, Red Flux Desktop, Dock i aplikacje GUI Ring 3;
+- software backbuffer i damage-style GOP scanout;
+- SDK oraz build na Windows/WSL, macOS i Linux x86-64;
+- ISO z El Torito EFI + GPT ESP i obowiązkowym 20-pass verifierem;
+- helper realnego VirtualBox smoke na hostach x86-64.
 
 ## Pamięć i wykonanie
 
-- brak SMP i uruchamiania wielu CPU;
-- brak demand paging, copy-on-write, swap i mmap files;
+- brak SMP i wykorzystania wielu CPU przez kernel;
+- brak demand paging, copy-on-write, swap i pełnego mmap files;
 - część struktur kernela nadal wymaga dalszego utwardzenia pod długotrwałą
   preempcję i przyszłe SMP;
-- publiczne ABI jest eksperymentalne i może zmieniać się między preview.
+- publiczne ABI jest eksperymentalne i może zmieniać się między DEV BETA.
 
 ## Userspace i shell
 
-- `open` w syscall ABI jest read-only;
-- brak userspace `stat/readdir` oraz writable VFS API;
-- dlatego `ls/stat/touch/mkdir/write/cp/mv/rm` nie są jeszcze pełnymi komendami
-  Flux Console mimo że odpowiedniki developerskie istnieją w kernel shellu;
+- publiczny `open` w syscall ABI jest nadal read-only;
+- brak kompletnego publicznego userspace `stat/readdir/write/create/unlink/rename`;
 - brak pipes, redirection, glob, zmiennych środowiskowych i języka skryptowego;
 - brak pełnego modelu users/groups/ACL;
-- background jobs w Flux Console są celowo małą tabelą, nie pełnym job control.
+- background jobs są uproszczone względem pełnego Unix-like job control.
 
 ## Desktop
 
-- Kurogane Flux jest framebufferowym Developer Preview, nie kompozytorem GPU;
-- WindowManager ma focus, z-order, drag, minimize/maximize/restore/close, ale
-  resize i zaawansowane layouty nadal są ograniczone;
-- część legacy widoków Ring 0 pozostaje w repo do diagnostyki;
-- font/rendering, skalowanie i animacje są jeszcze proste;
-- brak audio i pełnego desktop service layer.
+- Red Flux nadal renderuje programowo; nie jest jeszcze kompozytorem GPU;
+- font/rendering, HiDPI, Unicode i animacje wymagają dalszej pracy;
+- brak pełnego clipboard i multi-monitor;
+- część compatibility `ku_ui_frame` nadal istnieje;
+- brak natywnego per-window accelerated surface API.
 
 ## Storage / instalacja
 
 - główny persistent filesystem pozostaje FAT32;
 - brak pełnego recovery environment i transakcyjnych aktualizacji;
 - NVMe nie jest jeszcze równorzędnym, szeroko zweryfikowanym backendem;
-- instalatora nie należy kierować na dysk z ważnymi danymi.
+- instalatora nie należy kierować na dysk z ważnymi danymi;
+- `FNV1A64-DEV` jest tymczasowym verifierem hasła, nie bezpiecznym KDF.
 
-## Hardware
+## VirtualBox
 
-- QEMU/EDK2 jest głównym środowiskiem kwalifikacji;
-- real hardware UEFI ma mniejsze pokrycie;
-- USB/xHCI, audio, GPU acceleration i szerszy ACPI nadal wymagają pracy;
-- Apple Silicon jest hostem developerskim: KuroganeOS pozostaje x86-64 i jest
-  tam emulowany przez QEMU TCG.
+Referencyjny profil 3.3.1 to x86-64 UEFI, SATA/AHCI, E1000 82540EM i AC'97.
+
+Builder potrafi dowieść struktury nośnika i repo ma realny smoke boot helper, ale
+nie istnieje matematyczna "100% gwarancja" dla każdej wersji VirtualBox, hosta i
+ustawień VM. Release qualification wymaga zarówno automatycznych testów, jak i
+realnego smoke na x86-64 VirtualBox.
+
+Na Apple Silicon x86-64 KuroganeOS należy uruchamiać przez QEMU/TCG.
 
 ## Sieć
 
-Kernel posiada rozwinięty stos i testy E1000/IPv4/DHCP/DNS w obsługiwanych
-scenariuszach QEMU, ale userspace nie ma jeszcze socket API. Komendy sieciowe
-Flux Console czekają na jawne capability/socket syscalls.
+Kernel posiada rzeczywisty stos i referencyjny driver E1000 dla VirtualBox NAT.
+
+**Userspace nie ma jeszcze stabilnego socket API.** Obecne kernelowe DNS/ping
+helpers mają synchroniczny model pollingu. Zamiast utrwalać je jako długie
+blocking syscalls, publiczne API zostanie zaprojektowane jako async handle/event
+service.
+
+## Audio
+
+3.3.1 ma kernelowy Intel ICH AC'97 PCM output backend:
+
+```text
+S16LE / stereo / 48 kHz / DMA32
+```
+
+Nie ma jeszcze stabilnego publicznego Ring-3 audio stream API, miksera
+per-process, capture/microphone ani konwersji formatów.
+
+## Grafika / DirectX
+
+**KuroganeOS 3.3.1-dev nie obsługuje jeszcze pełnego DirectX/Direct3D 9/10/11/12.**
+
+Obecnie dostępny jest software framebuffer/UI stack. Pełna zgodność D3D wymaga
+native graphics runtime, zasobów, shaderów, command submission i backendu GPU.
+Projekt ma architekturę/plan kompatybilności, ale nie udaje feature level, którego
+realnie nie implementuje.
+
+Zobacz [`GRAPHICS_COMPATIBILITY.md`](GRAPHICS_COMPATIBILITY.md).
+
+## Hardware
+
+- AHCI/SATA, PS/2, E1000 i AC'97 mają konkretne wspierane modele;
+- real hardware UEFI ma mniejsze pokrycie niż VM;
+- USB/xHCI nadal wymaga dalszej stabilizacji;
+- brak produkcyjnego GPU acceleration, NVMe/audio-HDA support i szerokiej
+  kwalifikacji ACPI/SMP;
+- Guest Additions VirtualBox nie są portowane do KuroganeOS.
 
 ## Reliability
 
-Commitowane logi 2.1 są dowodem wcześniejszych testów install/persistence, ale
-każda nowa wersja powinna być ponownie budowana i bootowana. Sam commit 2.2 nie
-jest dowodem fresh runtime PASS w QEMU/VirtualBox/macOS.
+Każda rewizja systemu musi zostać ponownie zbudowana i uruchomiona. Sam fakt, że
+kod się kompiluje albo że plik ISO istnieje, nie jest wystarczającym dowodem
+runtime PASS.
+
+Dla 3.3.1 kwalifikacja ISO składa się z:
+
+1. build od zera;
+2. 20-pass El Torito/FAT/GPT/PE verifier;
+3. niezależny UEFI optical smoke przez OVMF/QEMU;
+4. realny VirtualBox smoke na x86-64 hoście;
+5. test `ISO -> Install -> target HDD -> reboot -> Login`.
