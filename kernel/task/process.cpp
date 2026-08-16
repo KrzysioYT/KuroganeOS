@@ -200,11 +200,13 @@ Status spawn(const char* executable, ProcessId* pid) {
     }
 #if !defined(KUROGANE_HOST_TEST)
     // 3.2 desktop ownership rule: GUI programs belong to a userspace session
-    // tree. Anonymous Ring-0 callers may start services/console utilities, but
-    // may not inject windows ahead of Login/Home. This also retires the old
-    // kernel main() five-GUI autospawn without creating zombie process slots.
+    // tree. The old kernel main() still issues five anonymous /gui/* launch
+    // requests for compatibility with pre-3.0 logs. Acknowledge those no-op
+    // requests without allocating process slots; real GUI launches always
+    // originate from PID1/Login/Home or descendants and therefore have a
+    // non-zero current process.
     if (current() == INVALID_PROCESS_ID && path_starts_with(executable, "/gui/")) {
-        return Status::PermissionDenied;
+        return Status::Ok;
     }
 #endif
     size_t index = MAX_PROCESSES;
