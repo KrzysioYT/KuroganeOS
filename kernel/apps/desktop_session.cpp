@@ -23,6 +23,12 @@ bool flux_session_start(const char*) {
 
     terminal::println("[TEST] desktop_session: PASS");
     log::write(log::Level::Info, "GUI", "Kurogane Flux desktop session online");
+
+    // Flux owns GOP from this point onward. stdout/stderr and diagnostic
+    // messages remain visible on serial, but the boot terminal may no longer
+    // draw glyphs or call framebuffer scroll_up() underneath the desktop.
+    terminal::set_framebuffer_output(false);
+
     windowing::invalidate();
     static_cast<void>(windowing::render_if_needed());
     return true;
@@ -31,15 +37,14 @@ bool flux_session_start(const char*) {
 void flux_session_key(char) {}
 
 void flux_session_tick(uint64_t) {
-    // 2.4.0 invalidated the complete workspace every ten PIT ticks. Since the
-    // framebuffer is scanned out while software rendering is in progress,
-    // that produced a visible clear/redraw flash even when nothing changed.
-    // Window operations and KU_SYS_UI_PRESENT now invalidate explicitly.
+    // Repaint only when a window operation or userspace UI present marks the
+    // WindowManager dirty. Idle desktop must not continuously touch GOP.
     static_cast<void>(windowing::render_if_needed());
 }
 
 void flux_session_stop() {
-    log::write(log::Level::Warn, "GUI", "Flux desktop session stopped");
+    terminal::set_framebuffer_output(true);
+    log::write(log::Level::Warn, "GUI", "Flux desktop session stopped; terminal display restored");
 }
 
 void flux_session_input(const input::Event& event) {
