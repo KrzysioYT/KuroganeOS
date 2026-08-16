@@ -46,18 +46,51 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-cc="${CC:-x86_64-elf-gcc}"
-cxx="${CXX:-x86_64-elf-g++}"
-ld="${LD:-x86_64-elf-ld}"
-objcopy="${OBJCOPY:-x86_64-elf-objcopy}"
-readelf="${READELF:-x86_64-elf-readelf}"
-for tool in "$cc" "$cxx" "$ld" "$objcopy" "$readelf" python3 make; do
+# macOS/Apple Silicon hotfix:
+# Never inherit generic CC/CXX/LD variables here. On an M-series Mac those
+# commonly point at Apple clang/clang++, which produces Mach-O arm64 host
+# objects and eventually fails with "symbol(s) not found for architecture
+# arm64". KuroganeOS is an x86-64 ELF target, so only the dedicated cross
+# toolchain is valid. Explicit Kurogane-specific overrides remain available for
+# developers with a custom cross-toolchain path.
+cc="${KUROGANE_CC:-x86_64-elf-gcc}"
+cxx="${KUROGANE_CXX:-x86_64-elf-g++}"
+ld="${KUROGANE_LD:-x86_64-elf-ld}"
+ar="${KUROGANE_AR:-x86_64-elf-ar}"
+objcopy="${KUROGANE_OBJCOPY:-x86_64-elf-objcopy}"
+readelf="${KUROGANE_READELF:-x86_64-elf-readelf}"
+for tool in "$cc" "$cxx" "$ld" "$ar" "$objcopy" "$readelf" python3 make; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing build tool: $tool" >&2
         echo "run ./scripts/setup-macos.sh --install" >&2
         exit 1
     }
 done
+
+verify_x86_64_toolchain() {
+    local probe_dir probe_src probe_obj
+    probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-x86_64-probe.XXXXXX")"
+    probe_src="$probe_dir/probe.c"
+    probe_obj="$probe_dir/probe.o"
+    printf '%s\n' 'void kurogane_toolchain_probe(void) {}' > "$probe_src"
+    if ! "$cc" -ffreestanding -fno-stack-protector -m64 -c "$probe_src" -o "$probe_obj" >/dev/null 2>&1; then
+        rm -rf -- "$probe_dir"
+        echo "[macos] x86-64 cross-compiler probe failed: $cc" >&2
+        echo "[macos] run ./scripts/setup-macos.sh --install" >&2
+        return 1
+    fi
+    if ! "$readelf" -hW "$probe_obj" 2>/dev/null | \
+        grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64'; then
+        rm -rf -- "$probe_dir"
+        echo "[macos] refusing host compiler output: KuroganeOS requires x86-64 ELF" >&2
+        echo "[macos] selected compiler: $cc" >&2
+        echo "[macos] do not use Apple clang/clang++; install x86_64-elf-gcc" >&2
+        return 1
+    fi
+    rm -rf -- "$probe_dir"
+    echo "[macos] cross-toolchain target: x86-64 ELF"
+}
+verify_x86_64_toolchain
 
 clean_outputs() {
     rm -rf -- build/obj build/boot build/userspace build/sdk build/images
@@ -78,7 +111,10 @@ mkdir -p build build/userspace/rootfs build/boot iso/EFI/BOOT dist
 
 if ! $stage_only; then
     echo "[macos] building x86-64 kernel ($configuration)"
-    make CONFIG="$configuration" kernel
+    # Pin the Makefile target prefix as well. An exported TARGET_PREFIX from a
+    # host development environment must never redirect this build to Apple
+    # clang/ld on arm64.
+    make CONFIG="$configuration" TARGET_PREFIX=x86_64-elf- kernel
 elif [[ ! -f build/kernel.elf ]]; then
     echo "--stage-only requires build/kernel.elf" >&2
     exit 1
@@ -124,8 +160,13 @@ for spec in "${applications[@]}"; do
 done
 
 # SDK build adds the external sample and Ring-3 GUI applications to the same
-# userspace overlay.
-"$root/scripts/build-sdk.sh"
+# userspace overlay. Pass only Kurogane-specific tool variables so ambient
+# CC/CXX=clang/clang++ cannot leak into the x86-64 target build.
+KUROGANE_CC="$cc" \
+KUROGANE_CXX="$cxx" \
+KUROGANE_AR="$ar" \
+KUROGANE_READELF="$readelf" \
+    "$root/scripts/build-sdk.sh"
 
 # User-built applications installed with build-app-macos.sh live in state/ so
 # clean/rebuild does not silently destroy developer work.
