@@ -13,6 +13,7 @@ constexpr char kPartitionName[] = "Kurogane Root";
 constexpr char kConfigurationPath[] = "/etc/system.cfg";
 constexpr char kRequiredConfigurationKey[] = "HOSTNAME=";
 constexpr size_t kConfigurationCapacity = 512U;
+constexpr size_t kReadBounceCapacity = 4096U;
 
 bool g_attempted = false;
 Status g_status = Status::InvalidArgument;
@@ -27,6 +28,7 @@ char g_configuration[kConfigurationCapacity]{};
 size_t g_configuration_size = 0U;
 vfs::Status g_detail_status = vfs::Status::Ok;
 fat32::Status g_fat32_detail_status = fat32::Status::Ok;
+alignas(16) uint8_t g_read_bounce[kReadBounceCapacity]{};
 alignas(1) uint8_t g_vfs_lock = 0U;
 
 void lock_vfs() {
@@ -292,8 +294,43 @@ vfs::Status read(
     size_t size,
     size_t* bytes_read) {
     if (!g_mounted) return vfs::Status::NotInitialized;
+    if (size != 0U && buffer == nullptr) return vfs::Status::InvalidArgument;
+    if (bytes_read != nullptr) *bytes_read = 0U;
+
     VfsGuard guard{};
-    return vfs::read(&g_vfs, handle, buffer, size, bytes_read);
+    if (size == 0U) {
+        return vfs::read(&g_vfs, handle, nullptr, 0U, bytes_read);
+    }
+
+    // Never expose a userspace virtual address to FAT32/block I/O. The storage
+    // stack operates on kernel-owned memory, then the syscall path copies the
+    // completed bytes into the already-validated Ring-3 mapping.
+    auto* output = static_cast<uint8_t*>(buffer);
+    size_t total = 0U;
+    while (total < size) {
+        const size_t remaining = size - total;
+        const size_t chunk = remaining < kReadBounceCapacity
+            ? remaining
+            : kReadBounceCapacity;
+        size_t completed = 0U;
+        const vfs::Status status = vfs::read(
+            &g_vfs, handle, g_read_bounce, chunk, &completed);
+        if (status != vfs::Status::Ok) {
+            if (bytes_read != nullptr) *bytes_read = total;
+            return status;
+        }
+        if (completed > chunk) {
+            if (bytes_read != nullptr) *bytes_read = total;
+            return vfs::Status::BackendFailure;
+        }
+        for (size_t index = 0U; index < completed; ++index) {
+            output[total + index] = g_read_bounce[index];
+        }
+        total += completed;
+        if (completed < chunk) break;
+    }
+    if (bytes_read != nullptr) *bytes_read = total;
+    return vfs::Status::Ok;
 }
 
 vfs::Status write(
