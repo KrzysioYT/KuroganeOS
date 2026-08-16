@@ -1,17 +1,22 @@
 #include "runtime.hpp"
 
+#include <kurogane/desktop.h>
+#include <kurogane/network.h>
 #include <kurogane/status.h>
 #include <kurogane/syscall.h>
+#include <kurogane/system.h>
 #include <kurogane/ui.h>
 
 #include "elf_loader.hpp"
 #include "console.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
+#include "../core/system_metrics.hpp"
 #include "../fs/root_volume.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/physical_memory.hpp"
+#include "../net/service.hpp"
 #include "../task/process.hpp"
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
@@ -266,14 +271,10 @@ bool enable_memory_protection() {
     uint32_t ecx = 0U;
     uint32_t edx = 0U;
     cpuid(UINT32_C(0x80000000), eax, ebx, ecx, edx);
-    if (eax < UINT32_C(0x80000001)) {
-        return false;
-    }
+    if (eax < UINT32_C(0x80000001)) return false;
     cpuid(UINT32_C(0x80000001), eax, ebx, ecx, edx);
     constexpr uint32_t nx_capability = UINT32_C(1) << 20U;
-    if ((edx & nx_capability) == 0U) {
-        return false;
-    }
+    if ((edx & nx_capability) == 0U) return false;
 
     constexpr uint32_t efer_msr = UINT32_C(0xC0000080);
     constexpr uint64_t nxe = UINT64_C(1) << 11U;
@@ -292,23 +293,15 @@ bool validate_user_buffer(
     uint64_t address,
     size_t size,
     bool require_writable = false) {
-    if (!context.active) {
-        return false;
-    }
-    if (size == 0U) {
-        return true;
-    }
+    if (!context.active) return false;
+    if (size == 0U) return true;
     if (address < elf::USER_REGION_BASE ||
         address >= elf::USER_REGION_END ||
-        size > elf::USER_REGION_END - address) {
-        return false;
-    }
+        size > elf::USER_REGION_END - address) return false;
 
     const uint64_t last = address + size - 1U;
-    uint64_t page =
-        address & ~(memory::virtual_memory::PAGE_SIZE - 1U);
-    const uint64_t last_page =
-        last & ~(memory::virtual_memory::PAGE_SIZE - 1U);
+    uint64_t page = address & ~(memory::virtual_memory::PAGE_SIZE - 1U);
+    const uint64_t last_page = last & ~(memory::virtual_memory::PAGE_SIZE - 1U);
     for (;;) {
         memory::virtual_memory::Mapping mapping{};
         if (memory::virtual_memory::query_page(
@@ -317,16 +310,12 @@ bool validate_user_buffer(
                 page,
                 &mapping) != memory::virtual_memory::Status::Ok ||
             !memory::virtual_memory::has_flag(
-                mapping.flags,
-                memory::virtual_memory::MapFlags::User) ||
+                mapping.flags, memory::virtual_memory::MapFlags::User) ||
             (require_writable && !memory::virtual_memory::has_flag(
-                mapping.flags,
-                memory::virtual_memory::MapFlags::Writable))) {
+                mapping.flags, memory::virtual_memory::MapFlags::Writable))) {
             return false;
         }
-        if (page == last_page) {
-            return true;
-        }
+        if (page == last_page) return true;
         page += memory::virtual_memory::PAGE_SIZE;
     }
 }
@@ -351,21 +340,42 @@ ku_status_t vfs_status(fs::vfs::Status status) {
         case fs::vfs::Status::PermissionDenied:
         case fs::vfs::Status::ReadOnly: return KU_STATUS_ACCESS_DENIED;
         case fs::vfs::Status::OutOfMemory:
-        case fs::vfs::Status::OpenFileTableFull:
-            return KU_STATUS_OUT_OF_MEMORY;
+        case fs::vfs::Status::OpenFileTableFull: return KU_STATUS_OUT_OF_MEMORY;
         case fs::vfs::Status::InvalidArgument:
         case fs::vfs::Status::InvalidFlags:
         case fs::vfs::Status::InvalidPath:
         case fs::vfs::Status::InvalidHandle:
-        case fs::vfs::Status::StaleHandle:
-            return KU_STATUS_INVALID_ARGUMENT;
+        case fs::vfs::Status::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
         case fs::vfs::Status::OutOfRange:
-        case fs::vfs::Status::ArithmeticOverflow:
-            return KU_STATUS_OUT_OF_RANGE;
-        case fs::vfs::Status::Unsupported:
-            return KU_STATUS_NOT_SUPPORTED;
+        case fs::vfs::Status::ArithmeticOverflow: return KU_STATUS_OUT_OF_RANGE;
+        case fs::vfs::Status::Unsupported: return KU_STATUS_NOT_SUPPORTED;
         default: return KU_STATUS_IO_ERROR;
     }
+}
+
+ku_status_t network_status(net::Status status) {
+    switch (status) {
+        case net::Status::Ok: return KU_STATUS_OK;
+        case net::Status::WouldBlock:
+        case net::Status::NeighborResolutionPending: return KU_STATUS_WOULD_BLOCK;
+        case net::Status::InvalidArgument:
+        case net::Status::InvalidConfiguration: return KU_STATUS_INVALID_ARGUMENT;
+        case net::Status::BufferTooSmall:
+        case net::Status::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case net::Status::NotInitialized:
+        case net::Status::NotConfigured: return KU_STATUS_BAD_STATE;
+        case net::Status::UnsupportedProtocol:
+        case net::Status::UnsupportedFragment: return KU_STATUS_NOT_SUPPORTED;
+        default: return KU_STATUS_IO_ERROR;
+    }
+}
+
+bool fixed_string_terminated(const char* text, size_t capacity) {
+    if (text == nullptr || capacity == 0U) return false;
+    for (size_t index = 0U; index < capacity; ++index) {
+        if (text[index] == '\0') return index != 0U;
+    }
+    return false;
 }
 
 bool copy_user_path(
@@ -418,8 +428,7 @@ uint64_t allocate_user(Context& context, uint64_t requested) {
                 &context.image,
                 base + mapped * page_size,
                 memory::virtual_memory::MapFlags::Writable |
-                    memory::virtual_memory::MapFlags::NoExecute) !=
-            elf::Status::Ok) {
+                    memory::virtual_memory::MapFlags::NoExecute) != elf::Status::Ok) {
             while (mapped != 0U) {
                 --mapped;
                 static_cast<void>(elf::unmap_owned_page(
@@ -462,44 +471,30 @@ void finish_from_interrupt(
     int32_t exit_code) {
     context.result.exit_code = exit_code;
     context.active = false;
-    frame.rip = reinterpret_cast<uint64_t>(
-        &x86_64_interrupt_return_to_kernel);
+    frame.rip = reinterpret_cast<uint64_t>(&x86_64_interrupt_return_to_kernel);
     frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
-    // In 64-bit mode IRET validates the complete five-word frame left by the
-    // outer-privilege interrupt even when the target CS is ring 0. Replace the
-    // user SS:RSP pair as well, otherwise the user selector (0x1b) causes #GP.
     frame.rsp = context.return_state.kernel_rsp;
     frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
-    // IF remains clear until the assembly return path is back on the original
-    // kernel stack and restores the launcher's complete RFLAGS value.
     frame.rflags = UINT64_C(0x2);
-    // The trampoline receives the launcher's flags in a caller-saved register
-    // after the interrupt stub has restored the rewritten frame.
     frame.rdi = context.return_state.kernel_rflags;
 }
 
 void syscall_handler(
     arch::x86_64::interrupts::InterruptFrame& frame) {
     Context* context = current_context();
-    if (context == nullptr ||
-        (frame.cs & 3U) != 3U) {
+    if (context == nullptr || (frame.cs & 3U) != 3U) {
         if ((frame.cs & 3U) == 3U) log_missing_context();
         frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
         return;
     }
-    if ((frame.cs & UINT64_C(0xFFFF)) ==
-            arch::x86_64::gdt::USER_CODE_SELECTOR &&
-        (frame.ss & UINT64_C(0xFFFF)) ==
-            arch::x86_64::gdt::USER_DATA_SELECTOR) {
+    if ((frame.cs & UINT64_C(0xFFFF)) == arch::x86_64::gdt::USER_CODE_SELECTOR &&
+        (frame.ss & UINT64_C(0xFFFF)) == arch::x86_64::gdt::USER_DATA_SELECTOR) {
         context->result.entered_ring3 = true;
     }
 
     switch (frame.rax) {
         case KU_SYS_EXIT:
-            finish_from_interrupt(
-                *context,
-                frame,
-                static_cast<int32_t>(frame.rdi));
+            finish_from_interrupt(*context, frame, static_cast<int32_t>(frame.rdi));
             return;
         case KU_SYS_WRITE: {
             const uint64_t descriptor = frame.rdi;
@@ -521,12 +516,8 @@ void syscall_handler(
             }
             const auto* bytes = reinterpret_cast<const char*>(
                 static_cast<uintptr_t>(user_buffer));
-            // A trap gate leaves IF set. Keep each write contiguous so two
-            // preempted processes cannot splice their serial/terminal lines.
             const uint64_t interrupt_flags = save_and_disable_interrupts();
-            for (size_t index = 0U; index < count; ++index) {
-                terminal::put(bytes[index]);
-            }
+            for (size_t index = 0U; index < count; ++index) terminal::put(bytes[index]);
             restore_interrupts(interrupt_flags);
             context->result.bytes_written += count;
             frame.rax = count;
@@ -541,8 +532,7 @@ void syscall_handler(
                 return;
             }
             const size_t count = static_cast<size_t>(requested);
-            if (!validate_user_buffer(
-                    *context, user_buffer, count, true)) {
+            if (!validate_user_buffer(*context, user_buffer, count, true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
@@ -555,12 +545,9 @@ void syscall_handler(
                     static_cast<uintptr_t>(user_buffer));
                 size_t bytes_read = 0U;
                 while (bytes_read < count &&
-                       user::console::try_read(&output[bytes_read])) {
-                    ++bytes_read;
-                }
+                       user::console::try_read(&output[bytes_read])) ++bytes_read;
                 frame.rax = bytes_read == 0U
-                    ? static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK)
-                    : bytes_read;
+                    ? static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK) : bytes_read;
                 return;
             }
             HandleSlot* handle = decode_handle(*context, descriptor);
@@ -575,8 +562,7 @@ void syscall_handler(
                 count,
                 &bytes_read);
             frame.rax = status == fs::vfs::Status::Ok
-                ? bytes_read
-                : static_cast<uint64_t>(vfs_status(status));
+                ? bytes_read : static_cast<uint64_t>(vfs_status(status));
             return;
         }
         case KU_SYS_OPEN: {
@@ -621,8 +607,7 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            const fs::vfs::Status status =
-                fs::root_volume::close(slot->file);
+            const fs::vfs::Status status = fs::root_volume::close(slot->file);
             if (status == fs::vfs::Status::Ok) {
                 slot->active = false;
                 slot->file = {};
@@ -646,14 +631,11 @@ void syscall_handler(
             return;
         case KU_SYS_YIELD:
             frame.rax = threading::request_yield() == threading::Status::Ok
-                ? KU_STATUS_OK
-                : KU_STATUS_BAD_STATE;
+                ? KU_STATUS_OK : KU_STATUS_BAD_STATE;
             return;
         case KU_SYS_SLEEP:
-            frame.rax = threading::sleep_current(frame.rdi) ==
-                    threading::Status::Ok
-                ? KU_STATUS_OK
-                : KU_STATUS_INVALID_ARGUMENT;
+            frame.rax = threading::sleep_current(frame.rdi) == threading::Status::Ok
+                ? KU_STATUS_OK : KU_STATUS_INVALID_ARGUMENT;
             return;
         case KU_SYS_SPAWN: {
             char path[fs::vfs::MAX_PATH_LENGTH + 1U]{};
@@ -667,13 +649,11 @@ void syscall_handler(
                 ? pid
                 : static_cast<uint64_t>(
                     status == process::Status::CapacityReached
-                        ? KU_STATUS_OUT_OF_MEMORY
-                        : KU_STATUS_BAD_STATE);
+                        ? KU_STATUS_OUT_OF_MEMORY : KU_STATUS_BAD_STATE);
             return;
         }
         case KU_SYS_WAIT: {
-            if (!validate_user_buffer(
-                    *context, frame.rsi, sizeof(int32_t), true)) {
+            if (!validate_user_buffer(*context, frame.rsi, sizeof(int32_t), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
@@ -681,8 +661,7 @@ void syscall_handler(
             const process::Status status = process::wait(
                 static_cast<process::ProcessId>(frame.rdi), &exit_code);
             if (status == process::Status::Ok) {
-                *reinterpret_cast<int32_t*>(
-                    static_cast<uintptr_t>(frame.rsi)) = exit_code;
+                *reinterpret_cast<int32_t*>(static_cast<uintptr_t>(frame.rsi)) = exit_code;
                 frame.rax = KU_STATUS_OK;
             } else if (status == process::Status::WouldBlock) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
@@ -698,8 +677,7 @@ void syscall_handler(
                 frame.rsi == 0U || frame.rsi > 32U || frame.rsi > SIZE_MAX ||
                 !validate_user_buffer(
                     *context, frame.rdi, static_cast<size_t>(frame.rsi)) ||
-                !validate_user_buffer(
-                    *context, frame.rdx, sizeof(ku_ui_window_options))) {
+                !validate_user_buffer(*context, frame.rdx, sizeof(ku_ui_window_options))) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
                 return;
             }
@@ -712,8 +690,7 @@ void syscall_handler(
             char title[33]{};
             const auto* user_title = reinterpret_cast<const char*>(
                 static_cast<uintptr_t>(frame.rdi));
-            for (size_t index = 0U;
-                 index < static_cast<size_t>(frame.rsi); ++index) {
+            for (size_t index = 0U; index < static_cast<size_t>(frame.rsi); ++index) {
                 if (user_title[index] == '\0' ||
                     static_cast<uint8_t>(user_title[index]) < 0x20U ||
                     static_cast<uint8_t>(user_title[index]) > 0x7EU) {
@@ -735,8 +712,7 @@ void syscall_handler(
             if (status != windowing::Status::Ok) {
                 frame.rax = static_cast<uint64_t>(
                     status == windowing::Status::CapacityReached
-                        ? KU_STATUS_OUT_OF_MEMORY
-                        : KU_STATUS_INVALID_ARGUMENT);
+                        ? KU_STATUS_OUT_OF_MEMORY : KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
             context->ui.active = true;
@@ -746,23 +722,20 @@ void syscall_handler(
         case KU_SYS_UI_PRESENT: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
                 frame.rdx != sizeof(ku_ui_frame) ||
-                !validate_user_buffer(
-                    *context, frame.rsi, sizeof(ku_ui_frame))) {
+                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ui_frame))) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
             const auto* user_frame = reinterpret_cast<const ku_ui_frame*>(
                 static_cast<uintptr_t>(frame.rsi));
             if (user_frame->structure_size != sizeof(ku_ui_frame) ||
-                user_frame->line_count > KU_UI_MAX_LINES ||
-                user_frame->reserved != 0U) {
+                user_frame->line_count > KU_UI_MAX_LINES || user_frame->reserved != 0U) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
                 return;
             }
             for (uint32_t line = 0U; line < user_frame->line_count; ++line) {
                 bool terminated = false;
-                for (size_t character = 0U;
-                     character < KU_UI_LINE_CAPACITY; ++character) {
+                for (size_t character = 0U; character < KU_UI_LINE_CAPACITY; ++character) {
                     if (user_frame->lines[line][character] == '\0') {
                         terminated = true;
                         break;
@@ -774,6 +747,8 @@ void syscall_handler(
                 }
             }
             context->ui.frame = *user_frame;
+            system_metrics::record_graphics_work(
+                UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
             windowing::invalidate();
             frame.rax = KU_STATUS_OK;
             return;
@@ -781,16 +756,14 @@ void syscall_handler(
         case KU_SYS_UI_POLL: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
                 frame.rdx != sizeof(ku_ui_event) ||
-                !validate_user_buffer(
-                    *context, frame.rsi, sizeof(ku_ui_event), true)) {
+                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ui_event), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
             auto* user_event = reinterpret_cast<ku_ui_event*>(
                 static_cast<uintptr_t>(frame.rsi));
             windowing::WindowInfo info{};
-            if (windowing::query(context->ui.window, &info) !=
-                windowing::Status::Ok) {
+            if (windowing::query(context->ui.window, &info) != windowing::Status::Ok) {
                 *user_event = {};
                 user_event->structure_size = sizeof(ku_ui_event);
                 user_event->type = KU_UI_EVENT_CLOSE;
@@ -814,13 +787,171 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            const windowing::Status status =
-                windowing::close(context->ui.window);
+            const windowing::Status status = windowing::close(context->ui.window);
             context->ui.active = false;
             context->ui.window = windowing::INVALID_WINDOW;
             frame.rax = status == windowing::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
                 : static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+            return;
+        }
+        case KU_SYS_SYSTEM_SNAPSHOT: {
+            if (frame.rsi != sizeof(ku_system_snapshot) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_system_snapshot), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_system_snapshot*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (output->structure_size != sizeof(ku_system_snapshot)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            const system_metrics::ActivitySnapshot activity = system_metrics::sample();
+            const uint64_t frame_size = static_cast<uint64_t>(memory::physical_frame_size());
+            const uint64_t total_frames = static_cast<uint64_t>(memory::total_frames());
+            const uint64_t free_frames = static_cast<uint64_t>(memory::free_frames());
+            const uint64_t total_bytes = frame_size != 0U &&
+                total_frames <= UINT64_MAX / frame_size
+                    ? total_frames * frame_size : 0U;
+            const uint64_t free_bytes = frame_size != 0U &&
+                free_frames <= UINT64_MAX / frame_size
+                    ? free_frames * frame_size : 0U;
+            const uint64_t used_bytes = total_bytes >= free_bytes
+                ? total_bytes - free_bytes : 0U;
+            const uint32_t ram_percent = total_bytes == 0U
+                ? 0U : static_cast<uint32_t>(
+                    used_bytes >= total_bytes ? 100U :
+                    (used_bytes * UINT64_C(100)) / total_bytes);
+            *output = {};
+            output->structure_size = sizeof(*output);
+            output->version = KU_SYSTEM_SNAPSHOT_VERSION;
+            output->cpu_percent = activity.cpu_percent;
+            output->gpu_percent = activity.gpu_percent;
+            output->ram_percent = ram_percent;
+            output->disk_percent = activity.disk_percent;
+            output->memory_total_bytes = total_bytes;
+            output->memory_free_bytes = free_bytes;
+            output->uptime_ticks = threading::timer_ticks();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_PIN: {
+            if (frame.rsi != sizeof(ku_desktop_pin_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_pin_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_pin_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
+                request->app_id >= KU_DESKTOP_APP_COUNT ||
+                request->action > KU_DESKTOP_PIN_TOGGLE) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            bool pinned = false;
+            const windowing::Status status = windowing::desktop_pin(
+                request->app_id,
+                request->action,
+                request->value != 0U,
+                &pinned);
+            request->pinned = pinned ? 1U : 0U;
+            frame.rax = status == windowing::Status::Ok
+                ? static_cast<uint64_t>(KU_STATUS_OK)
+                : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            return;
+        }
+        case KU_SYS_NET_STATUS: {
+            if (frame.rsi != sizeof(ku_network_status) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_network_status), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_network_status*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (output->structure_size != sizeof(*output)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            net::NetworkStats stats{};
+            const net::Status stats_status = net::service::stats(&stats);
+            const net::IPv4Config* config = net::service::configuration();
+            const net::IPv4Address* dns = net::service::dns_server();
+            *output = {};
+            output->structure_size = sizeof(*output);
+            output->ready = net::service::ready() ? 1U : 0U;
+            output->physical = net::service::physical_interface() ? 1U : 0U;
+            output->dhcp = net::service::dhcp_configured() ? 1U : 0U;
+            if (config != nullptr) {
+                for (size_t index = 0U; index < 4U; ++index) {
+                    output->address[index] = config->address.bytes[index];
+                    output->gateway[index] = config->gateway.bytes[index];
+                }
+            }
+            if (dns != nullptr) {
+                for (size_t index = 0U; index < 4U; ++index) {
+                    output->dns[index] = dns->bytes[index];
+                }
+            }
+            if (stats_status == net::Status::Ok) {
+                output->bytes_received = stats.bytes_received;
+                output->bytes_transmitted = stats.bytes_transmitted;
+            }
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_HTTP_GET: {
+            if (frame.rsi != sizeof(ku_http_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_http_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_http_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) || request->flags != 0U ||
+                request->reserved != 0U ||
+                !fixed_string_terminated(request->host, sizeof(request->host)) ||
+                !fixed_string_terminated(request->path, sizeof(request->path)) ||
+                request->path[0] != '/' || request->output == nullptr ||
+                request->output_capacity == 0U ||
+                request->output_capacity > KU_HTTP_RESPONSE_CAPACITY_LIMIT ||
+                request->output_capacity > SIZE_MAX ||
+                !validate_user_buffer(
+                    *context,
+                    static_cast<uint64_t>(reinterpret_cast<uintptr_t>(request->output)),
+                    static_cast<size_t>(request->output_capacity),
+                    true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            char host[KU_NET_HOST_CAPACITY]{};
+            char path[KU_NET_PATH_CAPACITY]{};
+            for (size_t index = 0U; index < sizeof(host); ++index) {
+                host[index] = request->host[index];
+                if (host[index] == '\0') break;
+            }
+            for (size_t index = 0U; index < sizeof(path); ++index) {
+                path[index] = request->path[index];
+                if (path[index] == '\0') break;
+            }
+            auto* output = reinterpret_cast<uint8_t*>(request->output);
+            size_t received = 0U;
+            uint16_t http_status = 0U;
+            const net::Status status = net::service::http_get(
+                host,
+                path,
+                output,
+                static_cast<size_t>(request->output_capacity),
+                &received,
+                &http_status);
+            request->bytes_received = received;
+            request->http_status = http_status;
+            frame.rax = static_cast<uint64_t>(network_status(status));
             return;
         }
         default:
@@ -832,8 +963,7 @@ void syscall_handler(
 Status cleanup(Context& context) {
     Status result = Status::Ok;
     if (context.ui.active) {
-        const windowing::Status ui_status =
-            windowing::close(context.ui.window);
+        const windowing::Status ui_status = windowing::close(context.ui.window);
         if (ui_status != windowing::Status::Ok &&
             ui_status != windowing::Status::NotFound) {
             result = Status::CleanupFailed;
@@ -860,14 +990,9 @@ Status cleanup(Context& context) {
     }
     if (context.address_space.initialized &&
         memory::kernel_virtual_memory::destroy_address_space(
-            &context.address_space) !=
-            memory::kernel_virtual_memory::Status::Ok) {
+            &context.address_space) != memory::kernel_virtual_memory::Status::Ok) {
         result = Status::CleanupFailed;
     }
-    // A global PMM delta is not a valid ownership proof while other Ring-3
-    // processes allocate concurrently. The ELF Image is the authoritative
-    // owner of executable, stack and heap pages; successful unload plus a
-    // cleared private address-space object proves this context released them.
     context.result.resources_reclaimed = result == Status::Ok &&
         context.image.page_count == 0U && !context.image.loaded &&
         context.image.address_space == nullptr &&
@@ -882,23 +1007,14 @@ Status cleanup(Context& context) {
 } // namespace
 
 Status initialize() {
-    if (g_initialized) {
-        return Status::AlreadyInitialized;
-    }
-    if (!enable_memory_protection()) {
-        return Status::CpuUnsupported;
-    }
-    for (Context*& context : g_contexts) {
-        context = nullptr;
-    }
-    if (!arch::x86_64::interrupts::register_handler(
-            kSyscallVector, syscall_handler) ||
+    if (g_initialized) return Status::AlreadyInitialized;
+    if (!enable_memory_protection()) return Status::CpuUnsupported;
+    for (Context*& context : g_contexts) context = nullptr;
+    if (!arch::x86_64::interrupts::register_handler(kSyscallVector, syscall_handler) ||
         !arch::x86_64::interrupts::set_gate_privilege(
-            kSyscallVector,
-            arch::x86_64::interrupts::GatePrivilege::User) ||
+            kSyscallVector, arch::x86_64::interrupts::GatePrivilege::User) ||
         !arch::x86_64::interrupts::set_gate_type(
-            kSyscallVector,
-            arch::x86_64::interrupts::GateType::Trap)) {
+            kSyscallVector, arch::x86_64::interrupts::GateType::Trap)) {
         arch::x86_64::interrupts::unregister_handler(kSyscallVector);
         return Status::InterruptRegistrationFailed;
     }
@@ -906,14 +1022,10 @@ Status initialize() {
     return Status::Ok;
 }
 
-bool initialized() {
-    return g_initialized;
-}
+bool initialized() { return g_initialized; }
 
 void set_process_identity(uint64_t pid) {
-    if (current_context() == nullptr) {
-        g_process_identity = pid;
-    }
+    if (current_context() == nullptr) g_process_identity = pid;
 }
 
 uint64_t process_identity() {
@@ -930,43 +1042,25 @@ Status run(const char* path, uint64_t pid, Result* result) {
         *result = {};
         result->fault_vector = 0xFFU;
     }
-    if (!g_initialized) {
-        return Status::NotInitialized;
-    }
-    if (path == nullptr || result == nullptr) {
-        return Status::FileReadFailed;
-    }
-    if (!fs::root_volume::mounted()) {
-        return Status::RootUnavailable;
-    }
+    if (!g_initialized) return Status::NotInitialized;
+    if (path == nullptr || result == nullptr) return Status::FileReadFailed;
+    if (!fs::root_volume::mounted()) return Status::RootUnavailable;
 
     fs::vfs::FileStat file_info{};
     fs::vfs::Status file_status = fs::root_volume::stat(path, &file_info);
-    if (file_status == fs::vfs::Status::NotFound) {
-        return Status::FileNotFound;
-    }
+    if (file_status == fs::vfs::Status::NotFound) return Status::FileNotFound;
     if (file_status != fs::vfs::Status::Ok ||
-        file_info.type != fs::vfs::NodeType::Regular) {
-        return Status::FileReadFailed;
-    }
+        file_info.type != fs::vfs::NodeType::Regular) return Status::FileReadFailed;
     if (file_info.size == 0U || file_info.size > kMaximumExecutableSize ||
-        file_info.size > SIZE_MAX) {
-        return Status::FileTooLarge;
-    }
+        file_info.size > SIZE_MAX) return Status::FileTooLarge;
 
     const size_t file_size = static_cast<size_t>(file_info.size);
     void* file_bytes = memory::kmalloc(file_size, 16U);
-    if (file_bytes == nullptr) {
-        return Status::OutOfMemory;
-    }
+    if (file_bytes == nullptr) return Status::OutOfMemory;
     size_t bytes_read = 0U;
     uint64_t measured_size = 0U;
     file_status = fs::root_volume::read_file(
-        path,
-        file_bytes,
-        file_size,
-        &bytes_read,
-        &measured_size);
+        path, file_bytes, file_size, &bytes_read, &measured_size);
     if (file_status != fs::vfs::Status::Ok || bytes_read != file_size ||
         measured_size != file_info.size) {
         memory::kfree(file_bytes);
@@ -979,16 +1073,12 @@ Status run(const char* path, uint64_t pid, Result* result) {
     context.next_heap = kHeapBase;
     context.result.fault_vector = 0xFFU;
     if (memory::kernel_virtual_memory::create_address_space(
-            &context.address_space) !=
-        memory::kernel_virtual_memory::Status::Ok) {
+            &context.address_space) != memory::kernel_virtual_memory::Status::Ok) {
         memory::kfree(file_bytes);
         return Status::AddressSpaceFailed;
     }
     const elf::Status load_status = elf::load(
-        file_bytes,
-        file_size,
-        &context.address_space.address_space,
-        &context.image);
+        file_bytes, file_size, &context.address_space.address_space, &context.image);
     memory::kfree(file_bytes);
     if (load_status != elf::Status::Ok) {
         static_cast<void>(cleanup(context));
@@ -1003,17 +1093,16 @@ Status run(const char* path, uint64_t pid, Result* result) {
                 &context.image,
                 page,
                 memory::virtual_memory::MapFlags::Writable |
-                    memory::virtual_memory::MapFlags::NoExecute) !=
-            elf::Status::Ok) {
+                    memory::virtual_memory::MapFlags::NoExecute) != elf::Status::Ok) {
             static_cast<void>(cleanup(context));
             return Status::StackMappingFailed;
         }
     }
 
     const uint8_t fault_exit_code[] = {
-        0xB8, 0x01, 0x00, 0x00, 0x00, // mov $KU_SYS_EXIT, %eax
-        0xCD, 0x80,                   // int $0x80
-        0x0F, 0x0B                    // ud2 (SYS_EXIT must not return)
+        0xB8, 0x01, 0x00, 0x00, 0x00,
+        0xCD, 0x80,
+        0x0F, 0x0B
     };
     if (elf::map_anonymous_page(
             &context.image,
@@ -1031,8 +1120,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         context.active = false;
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
-        __asm__ volatile(
-            "pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
         return Status::Busy;
     }
     const threading::Status bind_status = threading::bind_address_space(
@@ -1043,8 +1131,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         context.active = false;
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
-        __asm__ volatile(
-            "pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
         return Status::AddressSpaceActivationFailed;
     }
     if (memory::kernel_virtual_memory::activate(&context.address_space) !=
@@ -1052,14 +1139,10 @@ Status run(const char* path, uint64_t pid, Result* result) {
         context.active = false;
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
-        __asm__ volatile(
-            "pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
         return Status::AddressSpaceActivationFailed;
     }
-    x86_64_enter_user(
-        context.image.entry,
-        kStackTop - 16U,
-        &context.return_state);
+    x86_64_enter_user(context.image.entry, kStackTop - 16U, &context.return_state);
 
     const Status cleanup_status = cleanup(context);
     *result = context.result;
@@ -1069,8 +1152,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
 bool handle_exception(
     arch::x86_64::interrupts::InterruptFrame& frame) {
     Context* context = current_context();
-    if (context == nullptr ||
-        (frame.cs & 3U) != 3U || frame.vector >= 32U) {
+    if (context == nullptr || (frame.cs & 3U) != 3U || frame.vector >= 32U) {
         return false;
     }
     context->result.fault_vector = static_cast<uint8_t>(frame.vector);
@@ -1084,9 +1166,7 @@ bool handle_exception(
 bool request_termination(uint64_t pid, int32_t exit_code) {
     for (Context* context : g_contexts) {
         if (context == nullptr || !context->active || context->pid != pid ||
-            context->tid == threading::INVALID_THREAD_ID) {
-            continue;
-        }
+            context->tid == threading::INVALID_THREAD_ID) continue;
         return threading::redirect_user(
                    context->tid,
                    kFaultTrampoline,
@@ -1114,8 +1194,7 @@ const char* status_message(Status status) {
         case Status::AddressSpaceFailed: return "address-space creation failed";
         case Status::ElfLoadFailed: return "ELF validation or load failed";
         case Status::StackMappingFailed: return "user stack mapping failed";
-        case Status::TrampolineMappingFailed:
-            return "fault trampoline mapping failed";
+        case Status::TrampolineMappingFailed: return "fault trampoline mapping failed";
         case Status::AddressSpaceActivationFailed:
             return "address-space activation failed";
         case Status::CleanupFailed: return "user image cleanup failed";
