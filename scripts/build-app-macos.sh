@@ -67,9 +67,12 @@ if "$readelf" -lW "$elf" | grep -Eq '^[[:space:]]*(LOAD|GNU_STACK).*RWE'; then
 fi
 
 if $install; then
-    mkdir -p "$root/build/userspace/rootfs/apps"
-    cp "$elf" "$root/build/userspace/rootfs/apps/$name"
-    echo "[app] installed into development rootfs as /apps/$name"
+    # state/ is intentionally ignored by Git. Keeping development apps here
+    # means a full system rebuild can regenerate build/ without losing them.
+    mkdir -p "$root/state/macos-apps"
+    cp "$elf" "$root/state/macos-apps/$name"
+    echo "[app] staged persistently as /apps/$name"
+    echo "[app] run ./scripts/build-macos.sh --configuration debug --stage-only to refresh the image"
 fi
 
 echo "[app] built: $elf"
