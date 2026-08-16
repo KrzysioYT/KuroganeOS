@@ -31,7 +31,13 @@ alignas(1) uint8_t g_vfs_lock = 0U;
 
 void lock_vfs() {
     while (__atomic_test_and_set(&g_vfs_lock, __ATOMIC_ACQUIRE)) {
+#if defined(__x86_64__) || defined(_M_X64)
         __asm__ volatile("pause");
+#elif defined(__aarch64__)
+        __asm__ volatile("yield");
+#else
+        __asm__ volatile("" ::: "memory");
+#endif
     }
 }
 
