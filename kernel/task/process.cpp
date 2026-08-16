@@ -101,6 +101,27 @@ bool find(ProcessId pid, size_t* index) {
         g_slots[*index].pid == pid;
 }
 
+bool live_parent(ProcessId pid) {
+    size_t index = 0U;
+    if (!find(pid, &index)) return false;
+    return g_slots[index].state != State::Zombie &&
+        g_slots[index].state != State::Terminated;
+}
+
+void reap_orphan_zombies() {
+    for (size_t index = 0U; index < MAX_PROCESSES; ++index) {
+        Slot& slot = g_slots[index];
+        if (slot.state != State::Zombie) continue;
+        if (slot.parent_pid != INVALID_PROCESS_ID && live_parent(slot.parent_pid)) {
+            continue;
+        }
+        const uint64_t generation = slot.generation;
+        clear_bytes(&slot, sizeof(slot));
+        slot.generation = generation;
+        slot.state = State::Empty;
+    }
+}
+
 int32_t run_image(Slot& slot) {
 #if defined(KUROGANE_HOST_TEST)
     if (g_host_runner == nullptr) {
@@ -206,6 +227,7 @@ Status spawn(const char* executable, ProcessId* pid) {
     if (current() == INVALID_PROCESS_ID && path_starts_with(executable, "/gui/")) {
         return Status::Ok;
     }
+    reap_orphan_zombies();
     size_t index = MAX_PROCESSES;
     for (size_t candidate = 0U; candidate < MAX_PROCESSES; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
