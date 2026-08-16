@@ -95,11 +95,25 @@ example_elf="$examples/hello"
 validate_elf "$example_elf" "external SDK example"
 cp "$example_elf" "$overlay_apps/external"
 
-declare -a gui_names=(login launcher terminal files sysmon performance browser about settings)
-for name in "${gui_names[@]}"; do
-    source="$root/userspace/gui/$name/main.c"
-    object="$obj/gui-$name.o"
-    elf="$overlay_gui/$name"
+# source-directory:installed-name. Installed names stay FAT 8.3 compatible
+# because the current installation package intentionally uses short names.
+declare -a gui_specs=(
+    login:login
+    launcher:launcher
+    terminal:terminal
+    files:files
+    sysmon:sysmon
+    performance:perf
+    browser:browser
+    about:about
+    settings:settings
+)
+for spec in "${gui_specs[@]}"; do
+    source_name="${spec%%:*}"
+    install_name="${spec##*:}"
+    source="$root/userspace/gui/$source_name/main.c"
+    object="$obj/gui-$source_name.o"
+    elf="$overlay_gui/$install_name"
     "$cc" "${common[@]}" -std=c11 -I "$root/userspace/gui" -c "$source" -o "$object"
     "$cc" -nostdlib -static -no-pie \
         -Wl,--fatal-warnings -Wl,--build-id=none -Wl,-z,noexecstack \
@@ -107,8 +121,8 @@ for name in "${gui_names[@]}"; do
         -T "$lib/kurogane-user.ld" -o "$elf" \
         "$lib/crt0.o" "$object" -L "$lib" \
         -Wl,--start-group -lui -lc -lkurogane -lgcc -Wl,--end-group
-    validate_elf "$elf" "desktop SDK ELF $name"
-    echo "[sdk] /gui/$name"
+    validate_elf "$elf" "desktop SDK ELF $source_name"
+    echo "[sdk] /gui/$install_name"
 done
 
 echo "[sdk] sysroot: $sysroot"
