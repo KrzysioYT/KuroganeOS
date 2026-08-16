@@ -28,12 +28,17 @@ constexpr int32_t DOCK_PIN_SIZE = 42;
 constexpr int32_t DOCK_HOME_WIDTH = 78;
 constexpr int32_t DOCK_PIN_GAP = 8;
 constexpr int32_t DOCK_SEPARATOR = 16;
-constexpr int32_t DESKTOP_HOME_WIDTH = 76;
-constexpr int32_t DESKTOP_HOME_HEIGHT = 78;
+constexpr int32_t DESKTOP_SHORTCUT_WIDTH = 76;
+constexpr int32_t DESKTOP_SHORTCUT_HEIGHT = 78;
+constexpr int32_t DESKTOP_SHORTCUT_STEP_X = 88;
+constexpr int32_t DESKTOP_SHORTCUT_STEP_Y = 84;
 constexpr int32_t RIBBON_GAP = 6;
 constexpr int32_t RIBBON_ITEM_MAX = 96;
 constexpr int32_t RIBBON_ITEM_MIN = 48;
-constexpr size_t DOCK_PIN_COUNT = 6U;
+constexpr size_t DOCK_PIN_COUNT = 8U;
+constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
+constexpr uint32_t DESKTOP_PIN_SET = 1U;
+constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -53,19 +58,24 @@ struct DockPin {
     const char* title;
     char command;
     ui::DockIcon icon;
+    const char* shortcut_label;
 };
 
+// Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {"RED FLUX HOME", 0, ui::DockIcon::Home},
-    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal},
-    {"FILES", 'f', ui::DockIcon::Files},
-    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor},
-    {"SETTINGS", 's', ui::DockIcon::Settings},
-    {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About},
+    {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
+    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
+    {"FILES", 'f', ui::DockIcon::Files, "FILES"},
+    {"PERFORMANCE", 'v', ui::DockIcon::Monitor, "PERF"},
+    {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
+    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
+    {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
+    {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About, "ABOUT"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
 uint8_t g_order[MAX_WINDOWS]{};
+bool g_desktop_pinned[DOCK_PIN_COUNT]{};
 size_t g_count = 0U;
 int32_t g_screen_width = 0;
 int32_t g_screen_height = 0;
@@ -148,6 +158,10 @@ bool is_login_surface(const Slot& slot) {
 
 bool is_home_surface(const char* title) {
     return text_equals(title, "RED FLUX HOME");
+}
+
+bool is_performance_surface(const char* title) {
+    return text_equals(title, "PERFORMANCE");
 }
 
 Slot* login_surface() {
@@ -303,13 +317,22 @@ ui::Rect dock_pin_rect(size_t position) {
     };
 }
 
-ui::Rect desktop_home_rect() {
+ui::Rect desktop_shortcut_rect(size_t app_id) {
+    if (app_id >= DOCK_PIN_COUNT || !g_desktop_pinned[app_id]) return {};
     const WorkspaceGeometry workspace = calculate_workspace();
+    size_t ordinal = 0U;
+    for (size_t index = 0U; index < app_id; ++index) {
+        if (g_desktop_pinned[index]) ++ordinal;
+    }
+    int32_t rows = workspace.work_area.height / DESKTOP_SHORTCUT_STEP_Y;
+    if (rows < 1) rows = 1;
+    const int32_t row = static_cast<int32_t>(ordinal % static_cast<size_t>(rows));
+    const int32_t column = static_cast<int32_t>(ordinal / static_cast<size_t>(rows));
     return {
-        workspace.work_area.x + 20,
-        workspace.work_area.y + 22,
-        DESKTOP_HOME_WIDTH,
-        DESKTOP_HOME_HEIGHT,
+        workspace.work_area.x + 20 + column * DESKTOP_SHORTCUT_STEP_X,
+        workspace.work_area.y + 22 + row * DESKTOP_SHORTCUT_STEP_Y,
+        DESKTOP_SHORTCUT_WIDTH,
+        DESKTOP_SHORTCUT_HEIGHT,
     };
 }
 
@@ -351,6 +374,22 @@ bool valid_bounds(const ui::Rect& bounds) {
         bounds.y >= workspace.work_area.y &&
         bounds.x <= workspace.work_area.x + workspace.work_area.width - bounds.width &&
         bounds.y <= workspace.work_area.y + workspace.work_area.height - bounds.height;
+}
+
+ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requested) {
+    if (!is_performance_surface(title)) return requested;
+    const WorkspaceGeometry workspace = calculate_workspace();
+    if (workspace.work_area.width < 300 || workspace.work_area.height < 240) {
+        return requested;
+    }
+    const int32_t width = workspace.work_area.width >= 390 ? 360 : 300;
+    const int32_t height = workspace.work_area.height >= 390 ? 350 : 240;
+    return {
+        workspace.work_area.x + workspace.work_area.width - width - 18,
+        workspace.work_area.y + (workspace.work_area.height - height) / 2,
+        width,
+        height,
+    };
 }
 
 void update_z_order() {
@@ -609,18 +648,26 @@ void render_layers() {
     const size_t tasks = exposed_window_count();
     ui::signal_spine(workspace.signal_spine, tasks, focused_position());
 
-    const ui::Rect shortcut = desktop_home_rect();
-    const ui::Rect shortcut_icon = {
-        shortcut.x + (shortcut.width - DOCK_PIN_SIZE) / 2,
-        shortcut.y,
-        DOCK_PIN_SIZE,
-        DOCK_PIN_SIZE,
-    };
-    ui::dock_item(shortcut_icon, ui::DockIcon::Home, true, false);
     const ui::Theme& theme = ui::default_theme();
-    graphics::draw_text(
-        shortcut.x + 20, shortcut.y + 53, "HOME",
-        theme.text, theme.desktop, 1U, true);
+    for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
+        if (!g_desktop_pinned[app]) continue;
+        const ui::Rect shortcut = desktop_shortcut_rect(app);
+        const ui::Rect shortcut_icon = {
+            shortcut.x + (shortcut.width - DOCK_PIN_SIZE) / 2,
+            shortcut.y,
+            DOCK_PIN_SIZE,
+            DOCK_PIN_SIZE,
+        };
+        const Slot* running = find_by_title(kDockPins[app].title);
+        ui::dock_item(
+            shortcut_icon,
+            kDockPins[app].icon,
+            running != nullptr,
+            running != nullptr && running->info.focused);
+        graphics::draw_text(
+            shortcut.x + 14, shortcut.y + 53, kDockPins[app].shortcut_label,
+            theme.text, theme.desktop, 1U, true);
+    }
 
     for (size_t position = 0U; position < g_count; ++position) {
         draw_window_slot(g_slots[g_order[position]]);
@@ -663,6 +710,11 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
         g_slots[index] = {};
         g_slots[index].generation = previous_generation;
     }
+    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+        g_desktop_pinned[index] = false;
+    }
+    g_desktop_pinned[0U] = true;
+    g_desktop_pinned[3U] = true;
     g_count = 0U;
     g_screen_width = static_cast<int32_t>(screen_width);
     g_screen_height = static_cast<int32_t>(screen_height);
@@ -690,9 +742,11 @@ Status create_window(
     WindowId* out_id) {
     if (!g_initialized) return Status::NotInitialized;
     if (title == nullptr || out_id == nullptr || text_length(title, 33U) == 0U ||
-        text_length(title, 33U) > 32U || !valid_bounds(bounds)) {
+        text_length(title, 33U) > 32U) {
         return Status::InvalidArgument;
     }
+    const ui::Rect requested_bounds = normalize_new_window_bounds(title, bounds);
+    if (!valid_bounds(requested_bounds)) return Status::InvalidArgument;
 
     const bool home = is_home_surface(title);
 #ifndef KUROGANE_HOST_TEST
@@ -722,12 +776,9 @@ Status create_window(
     slot.occupied = true;
     slot.info = {};
     slot.info.id = make_id(selected, slot.generation);
-    slot.info.bounds = bounds;
-    slot.info.restore_bounds = bounds;
+    slot.info.bounds = requested_bounds;
+    slot.info.restore_bounds = requested_bounds;
     slot.info.owner_pid = owner_pid;
-    // Legacy Ring-0 surfaces and the Home launcher surface start hidden. Home
-    // remains alive as the session root and is opened explicitly through the
-    // pinned Dock button or desktop shortcut instead of covering the desktop.
     slot.info.state = (owner_pid == 0U || home)
         ? WindowState::Minimized : WindowState::Normal;
     copy_title(slot.info.title, title);
@@ -748,10 +799,6 @@ Status close(WindowId id) {
     Slot* slot = find(id, &slot_index);
     if (slot == nullptr) return Status::NotFound;
 
-    // Home owns the graphical session process tree. Treating its window close
-    // button as process/session termination made an ordinary UI action log the
-    // user out. Home is now a persistent shell surface: close/X/Alt+F4 hides
-    // it exactly like minimize. Logout must be a separate explicit action.
     if (is_home_surface(slot->info.title)) {
         if (slot->info.state == WindowState::Minimized) return Status::Ok;
         return minimize(id);
@@ -892,6 +939,38 @@ Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     return Status::Ok;
 }
 
+Status desktop_pin(
+    uint32_t app_id,
+    uint32_t action,
+    bool value,
+    bool* out_pinned) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_pinned == nullptr || app_id >= DOCK_PIN_COUNT) {
+        return Status::InvalidArgument;
+    }
+    if (app_id == 0U) {
+        g_desktop_pinned[0U] = true;
+        *out_pinned = true;
+        return action <= DESKTOP_PIN_TOGGLE ? Status::Ok : Status::InvalidArgument;
+    }
+    switch (action) {
+        case DESKTOP_PIN_QUERY:
+            break;
+        case DESKTOP_PIN_SET:
+            g_desktop_pinned[app_id] = value;
+            mark_full_dirty();
+            break;
+        case DESKTOP_PIN_TOGGLE:
+            g_desktop_pinned[app_id] = !g_desktop_pinned[app_id];
+            mark_full_dirty();
+            break;
+        default:
+            return Status::InvalidArgument;
+    }
+    *out_pinned = g_desktop_pinned[app_id];
+    return Status::Ok;
+}
+
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
     if (event.type == input::EventType::KeyDown && event.alt &&
@@ -922,9 +1001,13 @@ Status dispatch(const input::Event& event) {
         }
 
         const WindowId target = hit_test(event.x, event.y);
-        if (target == INVALID_WINDOW && login_surface() == nullptr &&
-            rect_contains(desktop_home_rect(), event.x, event.y)) {
-            return activate_dock_pin(0U);
+        if (target == INVALID_WINDOW && login_surface() == nullptr) {
+            for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
+                if (g_desktop_pinned[app] &&
+                    rect_contains(desktop_shortcut_rect(app), event.x, event.y)) {
+                    return activate_dock_pin(app);
+                }
+            }
         }
         if (target != INVALID_WINDOW) {
             static_cast<void>(focus(target));
