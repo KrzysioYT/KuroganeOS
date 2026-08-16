@@ -12,8 +12,6 @@ if command -v x86_64-elf-gcc >/dev/null 2>&1; then
     default_readelf=x86_64-elf-readelf
 elif [[ "$host_os" == Linux && "$host_arch" == x86_64 ]] && \
      command -v gcc >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then
-    # Native x86-64 Linux can build the freestanding target with the host GNU
-    # binutils toolchain because no host libc/ABI is linked into KuroganeOS.
     default_cc=gcc
     default_cxx=g++
     default_ar=ar
@@ -97,7 +95,7 @@ example_elf="$examples/hello"
 validate_elf "$example_elf" "external SDK example"
 cp "$example_elf" "$overlay_apps/external"
 
-declare -a gui_names=(login launcher terminal files sysmon about settings)
+declare -a gui_names=(login launcher terminal files sysmon performance browser about settings)
 for name in "${gui_names[@]}"; do
     source="$root/userspace/gui/$name/main.c"
     object="$obj/gui-$name.o"
