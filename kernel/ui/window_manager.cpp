@@ -143,9 +143,11 @@ bool is_login_surface(const Slot& slot) {
     return text_equals(slot.info.title, "KUROGANE LOGIN");
 }
 
+#ifndef KUROGANE_HOST_TEST
 bool is_home_surface(const char* title) {
     return text_equals(title, "RED FLUX HOME");
 }
+#endif
 
 Slot* login_surface() {
     Slot* login = find_by_title("KUROGANE LOGIN");
@@ -336,6 +338,32 @@ void update_z_order() {
             g_slots[g_order[position]].info.id == g_focused;
     }
 }
+
+#ifndef KUROGANE_HOST_TEST
+void purge_exposed_session() {
+    size_t write_position = 0U;
+    for (size_t position = 0U; position < g_count; ++position) {
+        const uint8_t slot_index = g_order[position];
+        Slot& slot = g_slots[slot_index];
+        if (!slot.occupied) continue;
+        if (slot.info.owner_pid == 0U) {
+            g_order[write_position++] = slot_index;
+            continue;
+        }
+        static_cast<void>(process::terminate(slot.info.owner_pid, 0));
+        slot.occupied = false;
+        slot.draw = nullptr;
+        slot.input_callback = nullptr;
+        slot.context = nullptr;
+    }
+    g_count = write_position;
+    g_focused = INVALID_WINDOW;
+    g_dragged = INVALID_WINDOW;
+    g_resized = INVALID_WINDOW;
+    update_z_order();
+    mark_full_dirty();
+}
+#endif
 
 void choose_top_focus() {
     g_focused = INVALID_WINDOW;
@@ -631,6 +659,7 @@ Status create_window(
     const bool login = text_equals(title, "KUROGANE LOGIN");
     const bool home = is_home_surface(title);
     if (login) {
+        purge_exposed_session();
         g_session_root_pid = process::INVALID_PROCESS_ID;
     } else if (home) {
         g_session_root_pid = owner_pid;
