@@ -85,6 +85,16 @@ Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds);
+
+// Public syscall bridge for session-local desktop shortcuts. `action` uses the
+// KU_DESKTOP_PIN_* values from the SDK. Home is intentionally immutable and
+// Performance starts pinned by default.
+Status desktop_pin(
+    uint32_t app_id,
+    uint32_t action,
+    bool value,
+    bool* out_pinned);
+
 void invalidate();
 bool render_if_needed();
 size_t window_count();
