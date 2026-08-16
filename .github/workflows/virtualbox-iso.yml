@@ -11,6 +11,7 @@ on:
       - 'sdk/**'
       - 'userspace/**'
       - 'scripts/**'
+      - 'tests/**'
       - 'Makefile'
       - 'linker.ld'
       - '.github/workflows/virtualbox-iso.yml'
@@ -45,6 +46,24 @@ jobs:
         run: |
           chmod +x scripts/*.sh
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Validate Foundation image through production FAT32/VFS
+        run: |
+          mkdir -p build/tests
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/test_root_volume_image.cpp \
+            tests/host_system_metrics_stub.cpp \
+            kernel/fs/root_volume.cpp \
+            kernel/fs/fat32.cpp \
+            kernel/fs/fat32_vfs.cpp \
+            kernel/fs/vfs.cpp \
+            kernel/install/package.cpp \
+            kernel/install/package_vfs.cpp \
+            kernel/libk/crc.cpp \
+            kernel/storage/gpt.cpp \
+            kernel/storage/partition_device.cpp \
+            -o build/tests/fat32_vfs_host_validation
+          build/tests/fat32_vfs_host_validation "$KUROGANE_IMG"
 
       - name: Verify ISO structure 20 times
         run: |
