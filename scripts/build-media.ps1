@@ -11,6 +11,7 @@ $ErrorActionPreference = 'Stop'
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $WindowsBuildFilesUrl = 'https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing'
 $Toolchain = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe'
+$WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
 
 if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
     throw "Windows build toolchain is missing.`nRequired files: $WindowsBuildFilesUrl`nDownload and copy/extract them into the KuroganeOS repository root."
@@ -18,6 +19,10 @@ if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
 if ($null -eq (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is required by the current Windows image/ISO tooling.'
 }
+if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
+    throw "Missing Windows/WSL path bridge: $WslBridge"
+}
+. $WslBridge
 
 $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 if ($Rebuild) {
@@ -47,21 +52,12 @@ foreach ($required in @($BaseImage, $Package, $Iso, $InjectScript)) {
     }
 }
 
-function Convert-ToWslPath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $converted = & wsl.exe --exec wslpath -a -u ([System.IO.Path]::GetFullPath($Path))
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
-        throw "Cannot convert path for WSL: $Path"
-    }
-    return $converted.Trim()
-}
-
 [System.IO.Directory]::CreateDirectory($Dist) | Out-Null
 Copy-Item -LiteralPath $BaseImage -Destination $Image -Force
 & wsl.exe bash `
-    (Convert-ToWslPath $InjectScript) `
-    (Convert-ToWslPath $Image) `
-    (Convert-ToWslPath $Package)
+    (Convert-ToKuroganeWslPath $InjectScript) `
+    (Convert-ToKuroganeWslPath $Image) `
+    (Convert-ToKuroganeWslPath $Package)
 if ($LASTEXITCODE -ne 0) {
     throw 'Failed to inject install.pkg into the Windows QEMU IMG.'
 }
