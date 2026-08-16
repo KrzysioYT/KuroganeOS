@@ -1,10 +1,25 @@
-# KuroganeOS 2.2.5
+# KuroganeOS 2.2.6
 
 KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym rozwijanym od
-podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.2.5** zachowuje
-Desktop Developer Preview 2.2.0 i dodaje ważny patch build/release: naprawiony
-Flux Terminal oraz **natywne budowanie instalowalnego `.iso` na macOS** bez
-PowerShella i bez konwersji `.img -> .iso`.
+podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.2.6** zachowuje
+Desktop Developer Preview 2.2.x, natywny build/ISO na macOS i naprawia runtime
+persistent FAT32 dla development IMG generowanego na Macu.
+
+## Hotfix 2.2.6 — macOS FAT32
+
+2.2.5 mogło zbudować obraz, który przechodził UEFI, AHCI i GPT, ale zatrzymywał
+boot na `fat32_vfs_read: FAIL`. 2.2.6 normalizuje zduplikowane metadane FAT32 i
+przed publikacją obrazu uruchamia projektowy test GPT/PartitionDevice/FAT32/VFS
+na całym IMG. Zły obraz nie powinien już trafić do `dist/`.
+
+Oczekiwany marker podczas builda:
+
+```text
+Foundation root PartitionDevice/FAT32/VFS read: PASS
+[macos] Foundation root FAT32/VFS validation: PASS
+```
+
+Szczegóły: [`docs/releases/2.2.6.md`](docs/releases/2.2.6.md).
 
 ## Kurogane Flux Desktop Developer Preview
 
@@ -85,7 +100,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installe
 Wynik:
 
 ```text
-dist/KuroganeOS-2.2.5-x86_64.iso
+dist/KuroganeOS-2.2.6-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -107,7 +122,7 @@ chmod +x scripts/*.sh
 Wynik:
 
 ```text
-dist/KuroganeOS-2.2.5-macos-qemu.img
+dist/KuroganeOS-2.2.6-macos-qemu.img
 ```
 
 ### Development IMG + instalowalne ISO
@@ -119,8 +134,8 @@ dist/KuroganeOS-2.2.5-macos-qemu.img
 Wyniki:
 
 ```text
-dist/KuroganeOS-2.2.5-macos-qemu.img
-dist/KuroganeOS-2.2.5-x86_64.iso
+dist/KuroganeOS-2.2.6-macos-qemu.img
+dist/KuroganeOS-2.2.6-x86_64.iso
 dist/SHA256SUMS.txt
 kurogane.iso
 ```
@@ -137,14 +152,11 @@ przez `xorriso`.
 
 ### Stara komenda `build-iso.sh`
 
-Na macOS od 2.2.5 również działa natywnie:
+Na macOS działa natywnie:
 
 ```bash
 ./scripts/build-iso.sh release
 ```
-
-Darwin automatycznie przechodzi do macOS installer buildera zamiast szukać
-PowerShella.
 
 ### QEMU
 
@@ -167,17 +179,6 @@ run app
 ```
 
 Szczegóły: [`docs/MACOS_DEVELOPMENT.md`](docs/MACOS_DEVELOPMENT.md).
-
-## Naprawa 2.2.5 — `version.h`
-
-2.2.0 mogło zatrzymać build GUI na macOS na:
-
-```text
-userspace/gui/terminal/main.c: fatal error: version.h: No such file or directory
-```
-
-2.2.5 naprawia include Flux Terminala i dodatkowo dodaje `common/` do ścieżek
-include SDK buildera macOS.
 
 ## QEMU — Windows
 
@@ -223,6 +224,7 @@ Aktualny opis: [`docs/CURRENT_LIMITATIONS.md`](docs/CURRENT_LIMITATIONS.md).
 
 ## Dokumentacja
 
+- [`docs/releases/2.2.6.md`](docs/releases/2.2.6.md)
 - [`docs/releases/2.2.5.md`](docs/releases/2.2.5.md)
 - [`docs/releases/2.2.0.md`](docs/releases/2.2.0.md)
 - [`docs/releases/DESKTOP_RELEASE.md`](docs/releases/DESKTOP_RELEASE.md)
