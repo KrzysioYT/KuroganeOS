@@ -1,6 +1,6 @@
 # Graphics, input and Kurogane Flux Desktop
 
-KuroganeOS 2.4 uses the UEFI GOP framebuffer with software rendering. There is
+KuroganeOS 2.5 uses the UEFI GOP framebuffer with software rendering. There is
 no accelerated GPU driver yet. PS/2 keyboard/mouse and supported xHCI HID input
 feed the shared InputManager.
 
@@ -8,8 +8,6 @@ feed the shared InputManager.
 
 Normal userspace boot starts the Flux desktop session introduced in 2.3. Safe
 Mode remains the text-only emergency environment.
-
-The normal path is:
 
 ```text
 UEFI
@@ -25,84 +23,117 @@ UEFI
  -> /gui/about
 ```
 
-PID1 supervises those Ring-3 desktop applications. A child that exits during a
-normal session is restarted. If most GUI children die immediately during the
-initial session probe, PID1 falls back to `/apps/shell` rather than spinning in
-a broken GUI respawn loop.
+PID1 supervises the Ring-3 desktop applications and restarts individual GUI
+children that exit. A broken initial GUI session falls back to `/apps/shell`.
 
-Runtime evidence for a healthy desktop includes:
+## Flux Window Core
+
+The 2.4 WindowManager provides generation-checked windows, focus/z-order,
+header drag, minimize, expand/restore, dismiss, Alt+Tab and Alt+F4.
+
+Its presentation is Kurogane Flux rather than classic desktop chrome:
+
+- Signal Spine for session activity/focus;
+- Pulse Ribbon for active/minimized surfaces;
+- geometric Flux control rail instead of `- [] X`;
+- explicit workspace geometry;
+- shared chrome geometry and reserved resize grip;
+- 2.4.1 repaint hotfix removes the periodic idle full-screen clear that caused
+  severe flicker in QEMU.
+
+## 2.5 Flux UI Runtime
+
+2.5.0 introduces a userspace scene/view layer in `libui`. Applications no
+longer need to treat the UI as a manually indexed set of text rows.
+
+### Scene model
+
+`kui_scene` owns up to 32 `kui_view` records. Each view has:
+
+- stable non-zero ID;
+- optional parent ID;
+- type;
+- flags;
+- text;
+- optional value/maximum pair.
+
+The parent must already exist when a child is inserted. This guarantees an
+acyclic construction order and gives later native render backends a stable tree
+to consume.
+
+### View types
+
+2.5.0 exposes:
+
+- panel;
+- label;
+- button;
+- input;
+- list item;
+- progress;
+- separator.
+
+`kui_flow` is the first layout primitive. It inserts views in a vertical flow
+under a chosen parent. More capable pixel/layout constraints can be added later
+without changing application ownership of the scene.
+
+### Interaction helpers
+
+The userspace runtime provides:
+
+- `kui_scene_select()`;
+- `kui_scene_select_next()`;
+- `kui_scene_selected()`;
+- `kui_scene_scroll()`;
+- text/flags/value mutation helpers.
+
+The first backend still transports the rendered result through the existing
+`KU_SYS_UI_PRESENT` frame ABI. That is deliberate: application code is migrated
+first, then later 2.5.x patches can replace the transport with native widget
+records, kernel hit testing, wheel routing, dialogs and custom surfaces without
+rewriting every application again.
+
+## Migrated Ring-3 applications
+
+| Application | 2.5 state |
+|---|---|
+| Files | scene + panel/list hierarchy + selection/scroll model |
+| Settings | scene + buttons + focus traversal + palette switching |
+| System Monitor | scene + labels + progress view |
+| About | scene + hierarchical information views |
+| Flux Terminal | legacy frame backend temporarily retained for its text buffer |
+
+Expected runtime markers include:
 
 ```text
-[TEST] desktop_session: PASS
-[TEST] userspace_init_spawn: PASS
-[TEST] desktop_userspace_apps: PASS
-[TEST] userspace_desktop_session: PASS
+[TEST] flux_scene_files: PASS
+[TEST] flux_scene_settings: PASS
+[TEST] flux_scene_sysmon: PASS
+[TEST] flux_scene_about: PASS
 ```
 
-## 2.4 Flux Window Core
+## Public kernel transport
 
-The WindowManager supports twelve generation-checked slots containing bounds,
-restore bounds, owner PID, normal/minimized/maximized state, z-order, focus,
-title and callbacks. It implements hit testing, focus raise, header drag, close,
-minimize, maximize/restore, Alt+Tab, Alt+F4 and a software cursor.
+Syscalls 14-17 still provide create, present, poll and close. Each process owns
+one live window. `KU_SYS_UI_PRESENT` remains the compatibility backend in 2.5.0.
 
-2.4 removes the classic desktop chrome from the main WindowManager path:
+Planned 2.5.x transport work:
 
-- no conventional full-width taskbar;
-- no textual `-`, `[]`, `X` controls;
-- dynamic `Signal Spine` shows real window order/focus;
-- floating `Pulse Ribbon` represents active/minimized surfaces;
-- Pulse Ribbon items restore or focus windows;
-- Flux control rail uses geometric minimize/expand/dismiss controls;
-- focused/background surfaces receive distinct signal treatment;
-- maximize uses an explicit Flux `work_area`;
-- dragging is clamped to that work area;
-- a shared bottom-right resize-grip geometry is already exposed for future
-  interactive resize.
-
-`WorkspaceGeometry` and `ChromeGeometry` are the single geometry source for
-rendering, hit testing and hosted tests. This removes the old duplicated magic
-numbers for taskbar height and textual control positions.
-
-Rendering is still immediate-mode and full-frame when invalidated. Damage
-tracking/backbuffers are planned for the compositor stages later in the roadmap.
-
-## Public ABI and libui
-
-Syscalls 14-17 currently provide create, present, poll and close. Each process
-owns one live window. The kernel copies a fixed `ku_ui_frame` and delivers key,
-pointer and close events through a bounded per-process queue.
-
-This API is intentionally still small. 2.5 will evolve it toward a real Flux UI
-runtime with views/widgets, layouts, scrolling, inputs, dialogs and dirty
-regions instead of treating an application as a fixed list of text lines.
-
-## Ring-3 applications
-
-The PID1 desktop set is:
-
-| Application | Path | Current role |
-|---|---|---|
-| Flux Terminal | `/gui/terminal` | commands, app launch and job tracking |
-| Files | `/gui/files` | persistent-root file view |
-| System Monitor | `/gui/sysmon` | live process/system information |
-| Settings | `/gui/settings` | session visual settings preview |
-| About | `/gui/about` | version/platform information |
-
-The old kernel Monitor/Files/About surfaces remain diagnostic legacy code and
-are not the primary desktop session. Their old `ui::taskbar()` compatibility
-helper remains temporarily and is scheduled for removal from those Ring-0
-surfaces during the remaining 2.4.x cleanup.
+- native widget records instead of line serialization;
+- pointer hit testing returning widget IDs;
+- mouse-wheel routing;
+- modal/dialog primitives;
+- custom surfaces;
+- more precise dirty/damage regions.
 
 ## Known GUI limitations
 
 - software framebuffer rendering only;
-- no general interactive resize yet (geometry is reserved in 2.4);
-- one live UI window per process in the public ABI;
-- fixed-frame `libui` model rather than a widget tree;
+- no general interactive resize yet;
+- one live UI window per process in the kernel ABI;
+- 2.5.0 scenes are rendered through the compatibility frame backend;
 - no clipboard, Unicode text input or accessibility layer yet;
 - no multi-monitor or GPU compositor;
-- legacy bootloader strings and a few diagnostic Ring-0 surfaces still need
-  cleanup in later 2.4.x patches.
+- native readdir/stat powered Files navigation remains a 2.6 task.
 
 See `docs/roadmap/DESKTOP_ROADMAP.md` for the 2.3 → 3.6 plan.
