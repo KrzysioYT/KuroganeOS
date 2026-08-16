@@ -2,22 +2,36 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+host_os="$(uname -s)"
+host_arch="$(uname -m)"
 
-# Preserve the old WSL entry point when the Unix cross-toolchain is not
-# available. On macOS (and native Unix hosts) use x86_64-elf tools directly.
-if ! command -v x86_64-elf-gcc >/dev/null 2>&1; then
-    if command -v powershell.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1; then
-        exec powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
-            -File "$(wslpath -w "$root/scripts/build-sdk.ps1")"
-    fi
-    echo "x86_64-elf-gcc is required; on macOS run ./scripts/setup-macos.sh --install" >&2
+if command -v x86_64-elf-gcc >/dev/null 2>&1; then
+    default_cc=x86_64-elf-gcc
+    default_cxx=x86_64-elf-g++
+    default_ar=x86_64-elf-ar
+    default_readelf=x86_64-elf-readelf
+elif [[ "$host_os" == Linux && "$host_arch" == x86_64 ]] && \
+     command -v gcc >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then
+    # Native x86-64 Linux can build the freestanding target with the host GNU
+    # binutils toolchain because no host libc/ABI is linked into KuroganeOS.
+    default_cc=gcc
+    default_cxx=g++
+    default_ar=ar
+    default_readelf=readelf
+elif command -v powershell.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1; then
+    exec powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass \
+        -File "$(wslpath -w "$root/scripts/build-sdk.ps1")"
+else
+    echo "KuroganeOS SDK needs x86_64-elf-gcc, or native x86_64 Linux gcc/g++." >&2
+    echo "macOS: ./scripts/setup-macos.sh --install" >&2
+    echo "Linux: ./scripts/setup-linux.sh --install" >&2
     exit 1
 fi
 
-cc="${CC:-x86_64-elf-gcc}"
-cxx="${CXX:-x86_64-elf-g++}"
-ar="${AR:-x86_64-elf-ar}"
-readelf="${READELF:-x86_64-elf-readelf}"
+cc="${CC:-$default_cc}"
+cxx="${CXX:-$default_cxx}"
+ar="${AR:-$default_ar}"
+readelf="${READELF:-$default_readelf}"
 for tool in "$cc" "$cxx" "$ar" "$readelf"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "missing SDK tool: $tool" >&2; exit 1; }
 done
