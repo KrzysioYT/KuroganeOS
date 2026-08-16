@@ -1,69 +1,129 @@
-# Graphics, input and Kurogane Flux Desktop
+# Graphics, input and Kurogane Red Flux Desktop
 
-KuroganeOS 2.5 uses the UEFI GOP framebuffer with software rendering. There is
-no accelerated GPU driver yet. PS/2 keyboard/mouse and supported xHCI HID input
-feed the shared InputManager.
+KuroganeOS 3.1 używa UEFI GOP framebuffer i własnego software renderera. Nie ma
+jeszcze akcelerowanego sterownika GPU. PS/2 keyboard/mouse oraz obsługiwane HID
+źródła zasilają wspólny InputManager.
 
 ## Desktop boot model
 
-Normal userspace boot starts the Flux desktop session introduced in 2.3. Safe
-Mode remains the text-only emergency environment.
+Normalny boot:
 
 ```text
 UEFI
  -> kernel
  -> persistent FAT32 root
  -> scheduler/input
- -> Flux desktop session
- -> /system/init (PID 1)
- -> /gui/terminal
- -> /gui/files
- -> /gui/sysmon
- -> /gui/settings
- -> /gui/about
+ -> Red Flux WindowManager
+ -> /system/init PID 1
+ -> /gui/launcher
+ -> aplikacje Ring 3 uruchamiane na żądanie
 ```
 
-PID1 supervises the Ring-3 desktop applications and restarts individual GUI
-children that exit. A broken initial GUI session falls back to `/apps/shell`.
+PID1 nadzoruje Launcher jako root sesji. Terminal, Files, System Monitor,
+Settings i About są dziećmi Launchera i mogą być normalnie zamykane bez
+natychmiastowego respawnu przez PID1. Jeżeli session root nie wystartuje,
+system zachowuje console fallback.
 
-## Flux Window Core
+## Red Flux Window Core
 
-The 2.4 WindowManager provides generation-checked windows, focus/z-order,
-header drag, minimize, expand/restore, dismiss, Alt+Tab and Alt+F4.
+WindowManager udostępnia:
 
-Its presentation is Kurogane Flux rather than classic desktop chrome:
+- generation-checked window IDs;
+- focus i z-order;
+- header drag;
+- interactive bottom-right resize;
+- minimize/maximize/restore/close;
+- Alt+Tab i Alt+F4;
+- Signal Spine;
+- Pulse Ribbon;
+- software pointer;
+- jawne workspace/chrome geometry.
 
-- Signal Spine for session activity/focus;
-- Pulse Ribbon for active/minimized surfaces;
-- geometric Flux control rail instead of `- [] X`;
-- explicit workspace geometry;
-- shared chrome geometry and reserved resize grip;
-- 2.4.1 repaint hotfix removes the periodic idle full-screen clear that caused
-  severe flicker in QEMU.
+3.1 zmienia główną identyfikację z wcześniejszego cyan/violet preview na:
 
-## 2.5 Flux UI Runtime
+- niemal czarne tło;
+- grafitowe surfaces;
+- stalowe, przygaszone granice;
+- czerwony focus/active signal;
+- jaśniejszą czerwień dla danger/close.
 
-2.5.0 introduces a userspace scene/view layer in `libui`. Applications no
-longer need to treat the UI as a manually indexed set of text rows.
+Kształty i asymetryczne czerwone sygnały są inspirowane ostrą geometrią logo
+KuroganeOS, bez kopiowania Windows/macOS/GNOME/KDE.
 
-### Scene model
+## Software full-frame backbuffer
 
-`kui_scene` owns up to 32 `kui_view` records. Each view has:
+Problem 3.0.1 polegał na tym, że poprawny pełny repaint nadal był wykonywany
+bezpośrednio do widocznego GOP. Podczas drag/resize użytkownik mógł więc zobaczyć
+kolejne fazy:
+
+```text
+clear -> desktop -> część okien -> kompletna klatka
+```
+
+3.1 dodaje statyczny software backbuffer dla GOP do 1600x1200. WindowManager:
+
+1. ukrywa software cursor;
+2. przełącza primitives na backbuffer;
+3. buduje kompletny desktop poza widocznym framebufferem;
+4. kopiuje ukończoną klatkę do GOP;
+5. rysuje cursor na gotowej klatce.
+
+Dla większego trybu renderer zachowuje bezpieczny direct-render fallback.
+Pełne per-window surfaces i damage compositor pozostają etapem 3.2.
+
+## Content clipping i body text scale
+
+Przed wywołaniem callbacku aplikacji WindowManager ustawia clip dokładnie na
+content area okna. `put_pixel`, `fill_rect`, `draw_rect`, `draw_char` i
+`draw_text` nie mogą zapisać pikseli poza clip.
+
+Dodatkowo legacy body text scale jest ograniczany zależnie od szerokości
+content area. Dzięki temu compatibility `ku_ui_frame` nie powinien już
+nadpisywać sąsiednich surfaces tylko dlatego, że linia tekstu jest za długa.
+
+Chrome/title renderuje się przed ustawieniem body clip/scale limitu.
+
+## Public UI key codes
+
+`sdk/include/kurogane/ui.h` publikuje nazwane wartości m.in.:
+
+```text
+KU_UI_KEY_ESCAPE
+KU_UI_KEY_BACKSPACE
+KU_UI_KEY_TAB
+KU_UI_KEY_ENTER
+KU_UI_KEY_HOME
+KU_UI_KEY_ARROW_UP
+KU_UI_KEY_ARROW_LEFT
+KU_UI_KEY_ARROW_RIGHT
+KU_UI_KEY_END
+KU_UI_KEY_ARROW_DOWN
+KU_UI_KEY_DELETE
+```
+
+Aplikacje nie powinny używać magicznych wartości PS/2 scan code jako
+`ku_ui_event.key`.
+
+Domyślny model 3.1:
+
+- arrows: selection/navigation;
+- Enter: activate;
+- Escape: cancel/reset lokalnej interakcji;
+- Tab: następny focus/selection;
+- J/K mogą istnieć jako opcjonalne aliasy, ale nie są głównym UX.
+
+## libui scene/view runtime
+
+`kui_scene` posiada do 32 `kui_view` records. View ma:
 
 - stable non-zero ID;
 - optional parent ID;
 - type;
 - flags;
 - text;
-- optional value/maximum pair.
+- optional value/maximum.
 
-The parent must already exist when a child is inserted. This guarantees an
-acyclic construction order and gives later native render backends a stable tree
-to consume.
-
-### View types
-
-2.5.0 exposes:
+Dostępne compatibility view types:
 
 - panel;
 - label;
@@ -73,67 +133,55 @@ to consume.
 - progress;
 - separator.
 
-`kui_flow` is the first layout primitive. It inserts views in a vertical flow
-under a chosen parent. More capable pixel/layout constraints can be added later
-without changing application ownership of the scene.
+`kui_flow` tworzy prosty pionowy flow. 3.1 pozostawia transport
+`KU_SYS_UI_PRESENT` / `ku_ui_frame`, ale upraszcza jego serializację: główne
+kontrolki nie są już przedstawiane jako `[> ... ]`, `>>` i `::`.
 
-### Interaction helpers
+Domyślna paleta `libui` jest Red Flux, więc również aplikacje tworzone przez SDK
+startują z tym samym profilem, jeśli nie ustawią własnej palety.
 
-The userspace runtime provides:
+## FluxShellCore i Terminal
 
-- `kui_scene_select()`;
-- `kui_scene_select_next()`;
-- `kui_scene_selected()`;
-- `kui_scene_scroll()`;
-- text/flags/value mutation helpers.
+`/apps/shell` oraz `/gui/terminal` są różnymi frontendami tego samego
+`userspace/common/flux_shell.h`.
 
-The first backend still transports the rendered result through the existing
-`KU_SYS_UI_PRESENT` frame ABI. That is deliberate: application code is migrated
-first, then later 2.5.x patches can replace the transport with native widget
-records, kernel hit testing, wheel routing, dialogs and custom surfaces without
-rewriting every application again.
+GUI Terminal dodaje:
 
-## Migrated Ring-3 applications
+- Up/Down history;
+- Left/Right cursor movement;
+- Home/End;
+- Delete/Backspace;
+- Escape/Ctrl-U clear input;
+- GUI scrollback.
 
-| Application | 2.5 state |
-|---|---|
-| Files | scene + panel/list hierarchy + selection/scroll model |
-| Settings | scene + buttons + focus traversal + palette switching |
-| System Monitor | scene + labels + progress view |
-| About | scene + hierarchical information views |
-| Flux Terminal | legacy frame backend temporarily retained for its text buffer |
+Parser, commands, jobs, cwd, history semantics i capability errors pozostają
+wspólne z recovery console.
 
-Expected runtime markers include:
+## Runtime markers 3.1
+
+Oczekiwane dodatkowe markery:
 
 ```text
-[TEST] flux_scene_files: PASS
-[TEST] flux_scene_settings: PASS
-[TEST] flux_scene_sysmon: PASS
-[TEST] flux_scene_about: PASS
+[TEST] desktop_arrow_navigation: PASS
+[TEST] desktop_files_3_1_navigation: PASS
+[TEST] desktop_settings_arrow_navigation: PASS
+[TEST] desktop_terminal_3_1_shared_shell: PASS
+[TEST] red_flux_sysmon: PASS
+[TEST] red_flux_about: PASS
 ```
 
-## Public kernel transport
-
-Syscalls 14-17 still provide create, present, poll and close. Each process owns
-one live window. `KU_SYS_UI_PRESENT` remains the compatibility backend in 2.5.0.
-
-Planned 2.5.x transport work:
-
-- native widget records instead of line serialization;
-- pointer hit testing returning widget IDs;
-- mouse-wheel routing;
-- modal/dialog primitives;
-- custom surfaces;
-- more precise dirty/damage regions.
+Markery oznaczają osiągnięcie odpowiedniej ścieżki kodu, a nie automatyczny
+dowód braku problemów wizualnych. Drag/resize musi zostać oceniony w QEMU.
 
 ## Known GUI limitations
 
-- software framebuffer rendering only;
-- no general interactive resize yet;
-- one live UI window per process in the kernel ABI;
-- 2.5.0 scenes are rendered through the compatibility frame backend;
-- no clipboard, Unicode text input or accessibility layer yet;
-- no multi-monitor or GPU compositor;
-- native readdir/stat powered Files navigation remains a 2.6 task.
+- software rendering only;
+- compatibility `ku_ui_frame` nadal jest transportem głównego scene backendu;
+- jeden live UI window per process w obecnym kernel ABI;
+- brak native widget pointer hit testing;
+- brak wheel routing, clipboard i context actions;
+- brak multi-monitor i GPU compositor;
+- brak publicznego `readdir/stat` dla pełnej nawigacji Files;
+- per-window surfaces/damage compositor są celem 3.2.
 
-See `docs/roadmap/DESKTOP_ROADMAP.md` for the 2.3 → 3.6 plan.
+See `docs/roadmap/DESKTOP_ROADMAP.md` for the plan through 3.6.
