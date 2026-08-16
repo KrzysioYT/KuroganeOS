@@ -4,6 +4,27 @@
 
 - No unreleased changes yet.
 
+## 2.1.1 - 2026-08-16
+
+### macOS development support
+
+- Added a native macOS build path that does not require WSL or Windows PowerShell.
+- Added Homebrew environment setup/checking for the x86_64-elf cross-toolchain, QEMU, FAT/GPT image tools and Python.
+- Made the kernel Makefile host-aware: macOS uses `x86_64-elf-*` from `PATH`, while Windows keeps the repository-local `.exe` toolchain and PowerShell frontend.
+- Added native macOS builds for the x86-64 kernel, basic Ring-3 userspace, the SDK libraries, the external SDK example and the desktop userspace applications.
+- Added a portable Python PE32+ converter so `BOOTX64.EFI` can be rebuilt on macOS from the same standalone loader source.
+- Added a macOS GPT/FAT32 Foundation-image builder containing the EFI loader, kernel, persistent root filesystem and generated userspace overlay.
+- Added a QEMU macOS runner with Homebrew EDK2 discovery, E1000 user networking, serial logging, required-test failure detection and PID 1/global-success smoke-test gating.
+- Added `build-app-macos.sh` for compiling C/C++ applications against the KuroganeOS SDK and optionally installing them into the development root filesystem.
+- Added `docs/MACOS_DEVELOPMENT.md` with setup, build, application development and QEMU testing instructions.
+- Bumped the product version to KuroganeOS 2.1.1.
+
+### Compatibility
+
+- The guest architecture and application ABI remain x86-64; macOS is a development host, not a separate KuroganeOS target.
+- Apple Silicon hosts use QEMU TCG to emulate the x86-64 guest.
+- Existing Windows/WSL build and test workflows remain available and are not replaced by the macOS backend.
+
 ## 2.1.0 - 2026-08-16
 
 ### Installable system
