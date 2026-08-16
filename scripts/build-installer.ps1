@@ -14,12 +14,29 @@ $StageDir = Join-Path $BuildDir 'installer-staging'
 $ExpectedStageDir = [System.IO.Path]::GetFullPath(
     (Join-Path $RootDir 'build\installer-staging'))
 $ImageDir = Join-Path $BuildDir 'images'
+$DistDir = Join-Path $RootDir 'dist'
 $EspImage = Join-Path $ImageDir 'KuroganeOS-installer-esp.img'
 $IsoImage = Join-Path $ImageDir 'KuroganeOS-installer.iso'
 $Package = Join-Path $BuildDir 'install.pkg'
 $Efi = Join-Path $BuildDir 'BOOTX64.EFI'
 $Kernel = Join-Path $BuildDir 'kernel.elf'
 $Overlay = Join-Path $BuildDir 'userspace\rootfs'
+$VersionHeader = Join-Path $RootDir 'common\version.h'
+
+if (-not (Test-Path -LiteralPath $VersionHeader -PathType Leaf)) {
+    throw "Missing version header: $VersionHeader"
+}
+$versionText = Get-Content -LiteralPath $VersionHeader -Raw
+if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
+    throw "Cannot read KuroganeOS version from $VersionHeader"
+}
+$Version = $Matches[1]
+$ReleaseName = "KuroganeOS-$Version-x86_64.iso"
+$ReleaseIso = Join-Path $DistDir $ReleaseName
+$ChecksumFile = Join-Path $DistDir 'SHA256SUMS.txt'
+# Compatibility output for existing emulator scripts. It is generated and
+# ignored by Git; dist/ is the canonical release-artifact location.
+$CompatibilityIso = Join-Path $RootDir 'kurogane.iso'
 
 if (-not $NoBuild) {
     & (Join-Path $PSScriptRoot 'build.ps1') `
@@ -53,6 +70,7 @@ if (Test-Path -LiteralPath $StageDir) {
 $BootDir = Join-Path $StageDir 'EFI\BOOT'
 [System.IO.Directory]::CreateDirectory($BootDir) | Out-Null
 [System.IO.Directory]::CreateDirectory($ImageDir) | Out-Null
+[System.IO.Directory]::CreateDirectory($DistDir) | Out-Null
 Copy-Item -LiteralPath $Efi -Destination (Join-Path $BootDir 'BOOTX64.EFI')
 Copy-Item -LiteralPath $Kernel -Destination (Join-Path $StageDir 'kernel.elf')
 Copy-Item -LiteralPath $Kernel -Destination (Join-Path $BootDir 'kernel.elf')
@@ -80,6 +98,19 @@ $isoScript = Convert-ToWslPath (Join-Path $PSScriptRoot 'build-installer-iso.sh'
     (Convert-ToWslPath $IsoImage)
 if ($LASTEXITCODE -ne 0) { throw 'Installer ISO construction failed.' }
 
-$hash = (Get-FileHash -LiteralPath $IsoImage -Algorithm SHA256).Hash.ToLowerInvariant()
-Write-Host "[installer] $IsoImage"
+Copy-Item -LiteralPath $IsoImage -Destination $ReleaseIso -Force
+Copy-Item -LiteralPath $IsoImage -Destination $CompatibilityIso -Force
+
+$hash = (Get-FileHash -LiteralPath $ReleaseIso -Algorithm SHA256).Hash.ToLowerInvariant()
+$checksumLine = "$hash  $ReleaseName"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText(
+    $ChecksumFile,
+    $checksumLine + [Environment]::NewLine,
+    $utf8NoBom)
+
+Write-Host "[installer-internal] $IsoImage"
+Write-Host "[release] $ReleaseIso"
+Write-Host "[compatibility] $CompatibilityIso"
 Write-Host "[sha256] $hash"
+Write-Host "[checksums] $ChecksumFile"

@@ -1,186 +1,149 @@
-# KuroganeOS 1.0
+# KuroganeOS 2.1
 
-KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym uruchamianym
-przez UEFI. Wydanie 1.0 łączy własny bootloader, kernel, terminal, podstawowe
-sterowniki, RAMFS, kooperacyjny planista, stos sieciowy z interfejsem loopback
-oraz proste aplikacje graficzne.
+KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym rozwijanym od podstaw dla architektury x86-64 i UEFI. Nie korzysta z kernela Linux. Wydanie **2.1** domyka fundamenty 2.0 i koncentruje się na praktycznym cyklu: boot UEFI → instalacja na SATA/AHCI → trwały FAT32 → boot z dysku → `/system/init` jako PID 1 w Ring 3.
 
-Określenie „1.0” oznacza tutaj pierwszy kompletny i uruchamialny zakres
-projektu, a nie gotowość produkcyjną ani zgodność z systemami POSIX.
-Zweryfikowaną platformą referencyjną jest QEMU/EDK2 na architekturze x86-64.
+Referencyjnym środowiskiem automatycznych testów pozostaje **QEMU + EDK2**. Repozytorium zawiera również helper do testów UEFI w **VirtualBox**.
 
-Szczegóły:
+## Najważniejsze elementy 2.1
 
-- [roadmap i status kamieni milowych](docs/roadmap-0.0.1.md),
-- [architektura systemu](docs/architektura.md).
-
-## Co działa
-
-- samodzielna aplikacja UEFI `BOOTX64.EFI`, która ładuje kernel ELF64;
-- przekazanie mapy pamięci, framebuffera GOP i danych ACPI do kernela;
-- zakończenie usług startowych UEFI przez `ExitBootServices`;
-- terminal na framebufferze z kopią wyjścia na port szeregowy;
-- sterta kernela i bitmapowy alokator ramek pamięci fizycznej;
-- IDT, obsługa wyjątków, PIC, timer PIT i klawiatura PS/2;
-- wykrywanie urządzeń PCI oraz odczyt zegara RTC;
-- hierarchiczny, zapisywalny RAMFS;
-- kooperacyjne zadania okresowe i jednorazowe;
-- Ethernet II, ARP, IPv4 i ICMP na interfejsie loopback;
-- shell oraz aplikacje `desktop`, `monitor`, `files` i `about`.
+- własny bootloader `BOOTX64.EFI` i boot protocol v3;
+- GDT/TSS/IST, IDT i obsługa wyjątków x86-64;
+- czteropoziomowe page tables i własny VMM;
+- prywatne przestrzenie adresowe procesów użytkownika;
+- Ring 3 oraz syscall gate `int 0x80`;
+- osobne stosy wątków i preempcja timerem PIT;
+- process spawn/wait/exit oraz uruchamianie ELF64;
+- `/system/init` uruchamiany jako **PID 1**;
+- PS/2 keyboard + mouse oraz kolejka input;
+- PCI, ACPI MADT i wykrywanie APIC;
+- sterownik SATA/AHCI z read/write/flush;
+- GPT oraz trwały root FAT32 montowany read-write przez VFS;
+- installer payload ładowany przez bootloader UEFI;
+- instalator tworzący GPT, ESP, root FAT32 i kopiujący system;
+- boot z zainstalowanego wirtualnego dysku po odłączeniu ISO;
+- test trwałości danych między restartami;
+- podstawowy userspace shell i aplikacje;
+- eksperymentalny desktop i aplikacje GUI w userspace;
+- fallback loopback oraz rozwijany stos sieciowy.
 
 ## Budowanie
 
-Kanoniczny proces budowania na Windows używa PowerShella i dołączonego do
-repozytorium cross-toolchaina `x86_64-elf` z katalogu
-`tools/compiler/x86_64-elf/bin`.
-
-W katalogu głównym repozytorium uruchom:
+Kanoniczny frontend na Windows:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
 ```
 
-Skrypt:
+Build korzysta z repozytoryjnego cross-toolchaina `x86_64-elf`, PowerShella, WSL oraz QEMU/EDK2 zgodnie z istniejącymi skryptami projektu.
 
-1. kompiluje wszystkie źródła kernela;
-2. linkuje `build/kernel.elf`;
-3. buduje bootloader UEFI i konwertuje go do PE32+;
-4. sprawdza formaty i podstawowe właściwości bezpieczeństwa obrazów;
-5. umieszcza pliki startowe w katalogu `iso`;
-6. tworzy deterministyczny, 64 MiB obraz FAT32 `kurogane.img`.
+### Instalacyjne ISO 2.1
 
-Najważniejsze wyniki:
+Installer można zbudować bezpośrednio:
 
-```text
-build/kernel.elf
-build/BOOTX64.EFI
-iso/kernel.elf
-iso/EFI/BOOT/BOOTX64.EFI
-kurogane.img
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
 ```
 
-Dodatkowe przełączniki skryptu:
+Po poprawnym buildzie kanoniczny artefakt wydania znajduje się tutaj:
 
-- `-Clean` — usuwa wyniki budowania;
-- `-NoStage` — buduje kernel bez przygotowania katalogu `iso`;
-- `-StageOnly` — ponownie buduje bootloader, przygotowuje `iso` oraz obraz
-  FAT32, korzystając z istniejącego `build/kernel.elf`.
+```text
+dist/KuroganeOS-2.1-x86_64.iso
+dist/SHA256SUMS.txt
+```
 
-## Uruchamianie w QEMU
+Skrypt tworzy również lokalny `kurogane.iso` dla kompatybilności ze starszymi runnerami emulatorów. Wygenerowane obrazy nie są przeznaczone do commitowania do repozytorium.
 
-Skrypt oczekuje QEMU i firmware EDK2 w katalogu `tools/qemu`. Automatyczny,
-bezokienkowy test startu wykonuje polecenie:
+## QEMU
+
+Podstawowy test:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1
 ```
 
-Test uruchamia maszynę `q35` z 256 MiB RAM, zapisuje konsolę szeregową do
-`build/qemu-serial.log`, czeka na prompt `kurogane:/ $`, a następnie zatrzymuje
-maszynę. Podczas startu loader obsługuje wybór trybu:
-- `D` uruchamia desktop bezpośrednio,
-- `S` lub `F8` wchodzi w safe mode,
-- `X` uruchamia tryb diagnostyczny.
-Limit czasu można zmienić, na przykład:
+Repozytorium zawiera także scenariusze instalacyjne, które wykorzystują pusty wirtualny dysk SATA/AHCI. Aktualne commitowane logi instalatora pokazują trzy kluczowe etapy:
+
+- `build/logs/installer-first-boot-serial.log` — boot środowiska instalacyjnego i start PID 1 z pakietu boot;
+- `build/logs/installer-deploy-serial.log` — detekcja dysku, GPT, format ESP/root FAT32, kopiowanie i weryfikacja systemu;
+- `build/logs/installer-second-boot-serial.log` — boot z persistent root po instalacji i ponowny start `/system/init` jako PID 1.
+
+Szczegóły testów znajdują się w `docs/TESTING.md` i `docs/BUILD_STATUS.md`.
+
+## VirtualBox
+
+KuroganeOS 2.1 jest przygotowany do UEFI x86-64 i SATA/AHCI. Helper testowy:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -TimeoutSeconds 30
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-virtualbox.ps1
 ```
 
-Pełny test klawiatury, shella, RAMFS, sieci i uruchomienia GUI bezpośrednio
-z obrazu FAT32:
+Szczegóły konfiguracji i ręcznego scenariusza instalacji znajdują się w:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -ShellTest -UseDiskImage -TimeoutSeconds 30
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
+- [`docs/VIRTUALBOX_TESTING.md`](docs/VIRTUALBOX_TESTING.md)
+
+VirtualBox nie powinien być oznaczany jako automatycznie zweryfikowany, jeżeli `VBoxManage` nie był dostępny w danym środowisku testowym.
+
+## Tryby startu
+
+Aktualny loader zachowuje tryby projektu:
+
+- normal/console;
+- desktop alpha;
+- safe mode;
+- diagnostics;
+- installer mode dla nośnika instalacyjnego.
+
+Safe mode celowo ogranicza część inicjalizacji urządzeń i udostępnia awaryjny kernel shell.
+
+## Stan storage i instalatora
+
+Przepływ instalacyjny 2.1 wygląda następująco:
+
+```text
+UEFI ISO
+  -> BOOTX64.EFI
+  -> kernel + install.pkg
+  -> SATA/AHCI target
+  -> protective MBR + GPT
+  -> EFI System Partition FAT32
+  -> KuroganeOS root FAT32
+  -> EFI/BOOT/BOOTX64.EFI + kernel + userspace
+  -> verification + flush
+  -> reboot
+  -> UEFI boot z HDD
+  -> persistent root
+  -> /system/init
+  -> PID 1 / Ring 3
 ```
 
-Do pracy interaktywnej z ekranem i klawiaturą:
+Instalator nie powinien być używany na dysku z ważnymi danymi. KuroganeOS 2.1 pozostaje projektem eksperymentalnym.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-qemu.ps1 -Display -KeepRunning
-```
+## Znane ograniczenia
 
-## Polecenia shella
+- recovery environment nie jest jeszcze pełnym środowiskiem naprawczym; safe mode i diagnostics są obecnymi mechanizmami awaryjnymi;
+- real hardware UEFI nie jest jeszcze tak szeroko zweryfikowany jak QEMU;
+- NVMe, audio i pełna obsługa nowoczesnego sprzętu nie są kompletne;
+- desktop pozostaje eksperymentalny;
+- publiczne ABI/SDK nadal ewoluuje i nie należy zakładać stabilności binarnej między wydaniami;
+- nie wszystkie opcjonalne testy sieciowe są wymagane do uznania instalatora za działający.
 
-| Polecenie | Działanie |
-| --- | --- |
-| `help` | Wyświetla listę poleceń. |
-| `clear` | Czyści terminal. |
-| `version`, `uname` | Pokazuje wersję i architekturę. |
-| `echo <tekst>` | Wypisuje argumenty. |
-| `date`, `uptime` | Pokazuje czas RTC lub czas działania kernela. |
-| `mem` | Pokazuje stan sterty i ramek fizycznych. |
-| `pci` | Wyświetla wykryte funkcje PCI. |
-| `net`, `net ping` | Pokazuje konfigurację/statystyki loopback lub wykonuje ping do `127.0.0.1`. |
-| `tasks` | Wyświetla zadania planisty. |
-| `apps` | Wyświetla zarejestrowane aplikacje. |
-| `run <aplikacja>` | Uruchamia aplikację `desktop`, `monitor`, `files` albo `about`. |
-| `gui` | Uruchamia graficzny pulpit. |
-| `ls [ścieżka]`, `cat <ścieżka>` | Wyświetla katalog lub zawartość pliku RAMFS. |
-| `touch <ścieżka>`, `mkdir <ścieżka>` | Tworzy plik lub katalog RAMFS. |
-| `write <ścieżka> <tekst>` | Zapisuje tekst w pliku RAMFS. |
-| `rm [-r] <ścieżka>` | Usuwa plik albo drzewo katalogów RAMFS. |
-| `calc <liczba> <operator> <liczba>` | Wykonuje działanie `+`, `-`, `*`, `/` lub `%`. |
-| `reboot`, `poweroff` | Próbuje zrestartować lub wyłączyć maszynę. |
+## Dokumentacja
 
-W aplikacjach graficznych klawisz `Q` lub `Esc` wraca do shella. Na pulpicie
-klawisze `M`, `F` i `A` otwierają odpowiednio monitor, przeglądarkę plików
-i informacje o systemie.
+Najważniejsze dokumenty:
 
-## Zweryfikowany stan wydania
+- [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md)
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
+- [`docs/VIRTUALBOX_TESTING.md`](docs/VIRTUALBOX_TESTING.md)
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/RECOVERY.md`](docs/RECOVERY.md)
+- [`CHANGELOG.md`](CHANGELOG.md)
 
-26 lipca 2026 r. kompletny zestaw startowy został uruchomiony w QEMU 11.0.0
-z firmware EDK2. Automatyczny test osiągnął interaktywny prompt. Konsola
-szeregowa potwierdziła:
+## Licencja
 
-- wejście do kernela po `ExitBootServices`;
-- `memory self-test: PASS`;
-- `interrupts/timer/keyboard: READY`;
-- skonfigurowany kontroler PS/2;
-- zakończone skanowanie PCI;
-- `network loopback: PASS (127.0.0.1)`;
-- prompt `kurogane:/ $`.
+Aktualne rewizje KuroganeOS są udostępniane na warunkach **KuroganeOS Source-Available License 1.0 (KSAL-1.0)**. Jest to licencja **source-available**, a nie licencja Open Source zatwierdzona przez OSI.
 
-Rozszerzony test przez emulowaną klawiaturę potwierdził również polecenia
-`version`, `mem`, `cat /system/version`, `net ping`, `apps` oraz uruchomienie
-i zamknięcie pulpitu przez `gui`.
-
-Źródła testów modułowych alokatora pamięci, RAMFS, planisty i stosu sieciowego
-znajdują się w katalogu `tests`. Obecny `build.ps1` nie uruchamia ich
-automatycznie; test startu QEMU jest osobnym krokiem.
-
-## Eksperymentalne SDK
-
-Publiczne nagłówki ABI są oddzielone od prywatnych nagłówków kernela w
-`sdk/include`. Polecenie `./scripts/build-sdk.sh` generuje sysroot w
-`build/sdk/sysroot` i kompiluje zewnętrzny przykład w trybie freestanding.
-Komenda shella `abi` pokazuje wersję deskryptora i dostępne funkcje.
-
-Jest to fundament ABI, nie gotowy runtime aplikacji. Transport syscalli,
-procesy ring 3, pliki startowe i linkowanie wykonywalnych aplikacji pozostają
-niezaimplementowane, dlatego deskryptor zgłasza bitmapę funkcji równą zero.
-
-## Ograniczenia
-
-KuroganeOS 1.0 pozostaje systemem demonstracyjnym:
-
-- RAMFS jest ulotny: cała zawartość znika po restarcie. Limit wynosi 256
-  węzłów, 64 KiB na plik i 1 MiB danych plików łącznie;
-- nie ma sterownika trwałego nośnika ani montowania FAT, AHCI lub NVMe;
-- planista jest kooperacyjny i wykonuje callbacki w kontekście kernela; nie
-  implementuje przełączania stosów, preempcji ani procesów użytkownika;
-- aplikacje działają w jednej przestrzeni adresowej kernela, bez izolacji,
-  uprawnień i stabilnego ABI użytkownika;
-- stos Ethernet/ARP/IPv4/ICMP działa wyłącznie przez pamięciowy loopback.
-  Brakuje sterownika fizycznej karty sieciowej, DHCP, TCP, UDP, DNS i dostępu
-  do Internetu;
-- GUI to podstawowe rysowanie w framebufferze i kilka aplikacji kernela.
-  Nie ma myszy, menedżera okien, kompozytora ani akceleracji graficznej;
-- zestaw sterowników jest ograniczony do sprzętu potrzebnego dla obecnej
-  demonstracji. Nie ma między innymi USB, audio ani obsługi wielu procesorów;
-- niezawodność została sprawdzona w jednej konfiguracji QEMU/EDK2. Start na
-  rzeczywistym sprzęcie UEFI nie jest jeszcze częścią zweryfikowanego zakresu.
-
-Projekt jest dobrym punktem wyjścia do dalszej pracy nad pamięcią wirtualną,
-trybem użytkownika, trwałym systemem plików, sterownikami urządzeń,
-preempcją i pełną komunikacją sieciową.
+- [`LICENSE`](LICENSE) — bieżąca KSAL-1.0;
+- [`LICENSE-MIT-LEGACY`](LICENSE-MIT-LEGACY) — historyczna licencja wcześniejszych rewizji;
+- [`docs/LICENSING.md`](docs/LICENSING.md) — opis modelu licencjonowania;
+- [`CLA.md`](CLA.md) i [`CONTRIBUTING.md`](CONTRIBUTING.md) — zasady contribution.

@@ -1,21 +1,37 @@
-# Testowanie w VirtualBox
+# Testowanie KuroganeOS 2.1 w VirtualBox
 
-## Zakres testu
+## Zakres
 
-`scripts/run-virtualbox.ps1` automatyzuje headless smoke test gotowego `kurogane.iso`. Potwierdza, że firmware EFI VirtualBox startuje ISO i że serial osiąga stabilny prompt shella. Nie instaluje systemu na VDI, nie testuje trwałości danych i nie wykonuje scenariusza komend klawiaturowych.
+`scripts/run-virtualbox.ps1` automatyzuje bezpieczny, tymczasowy smoke test UEFI w VirtualBox. Skrypt tworzy własną VM, konfiguruje EFI64 i Intel AHCI, podłącza wygenerowane `kurogane.iso`, kieruje COM1 do pliku i po teście usuwa tylko VM utworzoną przez siebie.
 
-## Wymagania
+Obecny helper **nie automatyzuje interaktywnego installera**. Dlatego pełnego scenariusza install → remove ISO → boot HDD → persistence nie wolno oznaczać jako automatycznie zweryfikowany tylko dlatego, że smoke test ISO przeszedł.
 
-1. Oracle VirtualBox z dostępnym `VBoxManage.exe` — na `PATH` albo w standardowym katalogu instalacji.
-2. Aktualne `kurogane.iso`, zbudowane na przykład przez:
+## Artefakt wejściowy
 
-```bash
-./scripts/build-iso.sh release
+Kanoniczne wydanie 2.1 powstaje przez:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
 ```
 
-3. PowerShell uruchomiony z katalogu głównego repozytorium.
+Wynik wydania:
 
-## Uruchomienie automatyczne
+```text
+dist/KuroganeOS-2.1-x86_64.iso
+dist/SHA256SUMS.txt
+```
+
+Ten sam build tworzy lokalny:
+
+```text
+kurogane.iso
+```
+
+jako compatibility copy dla istniejącego `run-virtualbox.ps1`. Plik jest generowany i nie powinien być commitowany.
+
+## Uruchomienie smoke testu
+
+Wymagany jest Oracle VirtualBox z dostępnym `VBoxManage.exe` na `PATH` albo w standardowym katalogu instalacji.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-virtualbox.ps1
@@ -27,36 +43,71 @@ Opcjonalnie:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-virtualbox.ps1 -TimeoutSeconds 90 -MemoryMiB 512 -KeepOnFailure
 ```
 
-`TimeoutSeconds` ma zakres 5–600 i domyślnie wynosi 45. `MemoryMiB` ma zakres 64–4096 i domyślnie wynosi 256. `-KeepOnFailure` zachowuje kopię diagnostyki, ale maszyna nadal jest wyłączana, wyrejestrowywana i usuwana.
+`TimeoutSeconds` ma zakres 5–600, a `MemoryMiB` 64–4096.
 
-## Co robi skrypt
+## Co konfiguruje helper
 
-Skrypt:
+Skrypt między innymi:
 
-1. sprawdza podpis ISO-9660 `CD001`;
-2. tworzy maszynę o unikalnej nazwie w `build/virtualbox/`;
-3. ustawia EFI64, 1 vCPU, chipset ICH9, IO-APIC, VMSVGA i 16 MiB VRAM;
-4. ustawia urządzenia wejściowe maszyny jako PS/2, wyłącza NIC, audio, USB i parawirtualizację;
-5. dołącza ISO tylko do odczytu jako napęd optyczny SATA;
-6. kieruje COM1 16550A do unikalnego pliku i uruchamia VM headless;
-7. odrzuca serial zawierający `fatal:`, panikę, wyjątek, triple fault lub wymagany test `FAIL`;
-8. uznaje test po utrzymaniu promptu `kurogane:/ $` przez co najmniej 750 ms;
-9. odłącza zewnętrzne ISO, wyłącza i usuwa wyłącznie utworzoną przez siebie VM.
+1. weryfikuje podpis ISO-9660 `CD001`;
+2. tworzy VM o unikalnej nazwie pod `build/virtualbox/`;
+3. włącza EFI64, ICH9 i IO-APIC;
+4. ustawia 1 vCPU oraz zadany RAM;
+5. konfiguruje PS/2 keyboard i PS/2 mouse;
+6. tworzy kontroler SATA typu **IntelAhci**;
+7. podłącza nośniki testowe wyłącznie do utworzonej VM;
+8. kieruje COM1 16550A do osobnego logu;
+9. odrzuca run zawierający fatal/panic/triple-fault lub wymagany test FAIL;
+10. sprząta VM po zakończeniu, z kontrolą UUID i ścieżek, aby nie usunąć obcej maszyny.
 
-Ustawienie `--mouse ps2` opisuje urządzenie po stronie VirtualBox; KuroganeOS nadal **nie ma sterownika myszy**.
+KuroganeOS 2.1 posiada sterownik myszy PS/2; stare informacje, że mysz nie jest obsługiwana, dotyczą wcześniejszego etapu projektu.
 
-## Logi i diagnostyka
+## Logi
 
-Serial pozostaje w:
+Serial znajduje się w:
 
 ```text
 build/logs/KuroganeOS-vbox-<unikalny-id>-serial.log
 ```
 
-Przy błędzie i `-KeepOnFailure` skrypt kopiuje `showvminfo` oraz logi VirtualBox do katalogu `build/logs/<nazwa-vm>-diagnostics/`. Sama VM nie jest zachowywana, ponieważ obowiązkowe sprzątanie chroni hosta przed pozostawianiem zarejestrowanych maszyn testowych.
+Przy `-KeepOnFailure` zachowywane są dodatkowe materiały diagnostyczne. Sama tymczasowa VM nadal jest bezpiecznie wyrejestrowywana i usuwana.
 
-## Test ręczny
+## Manual acceptance — instalacja 2.1
 
-Jeżeli potrzebny jest ekran, utwórz tymczasową maszynę typu 64-bit, włącz EFI, przydziel co najmniej 64 MiB RAM, dołącz `kurogane.iso` jako napęd optyczny i użyj klawiatury PS/2. NIC można wyłączyć — kernel nie ma sterownika karty. Do safe mode naciśnij `S` albo `F8` natychmiast po bannerze loadera.
+Pełny test wydania należy wykonać na świeżej VM:
 
-Nie traktuj testu promptu jako potwierdzenia GUI, wyłączania ACPI, dysku SATA, sieci, SMP ani realnego sprzętu. Zakres testów QEMU jest szerszy i opisany w [QEMU_TESTING.md](QEMU_TESTING.md).
+1. Nowa VM x86-64.
+2. EFI enabled.
+3. 256–512 MiB RAM.
+4. Nowy pusty VDI.
+5. Kontroler SATA / Intel AHCI.
+6. Podłącz `dist/KuroganeOS-2.1-x86_64.iso` jako DVD.
+7. Boot z ISO i uruchom instalator.
+8. Wybierz wyłącznie testowy VDI i wykonaj instalację.
+9. Po komunikacie o udanej weryfikacji wyłącz VM.
+10. Odłącz ISO.
+11. Ustaw HDD jako pierwszy nośnik startowy.
+12. Bootuj z VDI.
+13. Zweryfikuj persistent root oraz `/system/init` jako PID 1.
+14. Wykonaj drugi restart i sprawdź persistence.
+
+Oczekiwane markery po bootowaniu z HDD:
+
+```text
+[INFO][VFS] persistent FAT32 root mounted read-write
+[TEST] userspace_init_spawn: PASS
+[INFO][INIT] spawned /system/init as PID 1
+[TEST] ALL_REQUIRED_TESTS_PASSED
+```
+
+## Czego smoke test nie dowodzi
+
+Sam start ISO w VirtualBox nie jest dowodem na:
+
+- poprawną interaktywną instalację na VDI;
+- persistence po restarcie;
+- recovery;
+- wszystkie opcjonalne ścieżki networking/USB;
+- zgodność z rzeczywistym sprzętem UEFI.
+
+Referencyjne automatyczne testy storage/installera pozostają w QEMU. Instrukcja instalacji: [INSTALLATION.md](INSTALLATION.md).
