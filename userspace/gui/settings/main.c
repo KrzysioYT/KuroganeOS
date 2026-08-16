@@ -11,7 +11,7 @@ static void build_scene(kui_scene* scene, int light, uint32_t selected) {
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "SETTINGS // APPEARANCE");
-    (void)kui_flow_label(&root, 2U, "Flux theme is session-local in 2.5.");
+    (void)kui_flow_label(&root, 2U, "Flux visual profile // current session");
     (void)kui_flow_separator(&root, 3U);
 
     kui_flow_begin(&appearance, scene, 1U);
@@ -20,8 +20,8 @@ static void build_scene(kui_scene* scene, int light, uint32_t selected) {
     (void)kui_flow_label(
         &appearance, 12U, light ? "ACTIVE: LIGHT SIGNAL" : "ACTIVE: DARK SIGNAL");
     (void)kui_flow_separator(&appearance, 13U);
-    (void)kui_flow_label(&appearance, 14U, "J/K: focus  ENTER: apply  T: quick toggle");
-    (void)kui_flow_label(&appearance, 15U, "Persistent settings service is scheduled for 3.1.");
+    (void)kui_flow_label(&appearance, 14U, "J/K: focus   ENTER: apply   T: quick toggle");
+    (void)kui_flow_label(&appearance, 15U, "Persistent profile service follows in 3.1.");
 
     if (selected != 10U && selected != 11U) selected = light ? 11U : 10U;
     (void)kui_scene_select(scene, selected);
@@ -34,7 +34,7 @@ static int apply_selected(uint32_t selected, int current) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SETTINGS", 545, 385, 420, 280);
+    const ku_window_t window = gui_open("SETTINGS", 430, 235, 440, 300);
     if (window == KU_INVALID_WINDOW) return 1;
 
     int light = 0;
