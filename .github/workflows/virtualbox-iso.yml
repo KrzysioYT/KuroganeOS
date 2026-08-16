@@ -33,6 +33,14 @@ jobs:
             qemu-system-x86 ovmf \
             mtools dosfstools gdisk xorriso
 
+      - name: Resolve KuroganeOS version
+        run: |
+          version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
+          test -n "$version"
+          echo "KUROGANE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "KUROGANE_ISO=dist/KuroganeOS-$version-x86_64.iso" >> "$GITHUB_ENV"
+          echo "KUROGANE_IMG=dist/KuroganeOS-$version-linux-qemu.img" >> "$GITHUB_ENV"
+
       - name: Build Linux IMG and ISO
         run: |
           chmod +x scripts/*.sh
@@ -41,21 +49,21 @@ jobs:
       - name: Verify ISO structure 20 times
         run: |
           bash ./scripts/verify-virtualbox-iso.sh \
-            ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+            "$KUROGANE_ISO" \
             --passes 20
 
       - name: Boot ISO through OVMF
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
-            ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+            "$KUROGANE_ISO" \
             --timeout 60
 
       - name: Publish qualification artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kuroganeos-3.3.1-dev-uefi-media
+          name: kuroganeos-${{ env.KUROGANE_VERSION }}-uefi-media
           if-no-files-found: error
           path: |
-            dist/KuroganeOS-3.3.1-dev-x86_64.iso
-            dist/KuroganeOS-3.3.1-dev-linux-qemu.img
+            ${{ env.KUROGANE_ISO }}
+            ${{ env.KUROGANE_IMG }}
             dist/SHA256SUMS.txt
