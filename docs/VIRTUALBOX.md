@@ -84,8 +84,10 @@ Poprawne ISO ma zawierać jednocześnie:
 /efiboot.img
 ```
 
-`efiboot.img` jest dedykowanym FAT32 EFI System Partition używanym przez wpis
-El Torito UEFI. W jego wnętrzu muszą istnieć:
+`efiboot.img` jest dedykowanym **FAT16 30 MiB** obrazem EFI używanym przez wpis
+El Torito UEFI. Ma dokładnie 61440 sektorów po 512 B, czyli pozostaje poniżej
+16-bitowego limitu `<65535` sektorów obrazu bootowego. W jego wnętrzu muszą
+istnieć:
 
 ```text
 /EFI/BOOT/BOOTX64.EFI
@@ -93,6 +95,10 @@ El Torito UEFI. W jego wnętrzu muszą istnieć:
 /kernel.elf
 /install.pkg
 ```
+
+Ten sam EFI boot image jest również wystawiony w GPT jako EFI System Partition.
+Zainstalowany system nadal używa własnego ESP FAT32 i root FAT32; FAT16 dotyczy
+tylko nośnika optycznego/El Torito.
 
 Po wybraniu nośnika UEFI firmware powinno uruchomić:
 
@@ -167,6 +173,8 @@ Cable Connected = ON
 ```
 
 KuroganeOS ma sterownik urządzenia PCI `8086:100E` używany przez 82540EM.
+Jeżeli DHCP/NAT chwilowo nie odpowiada, 3.3.1-dev uruchamia desktop z loopback
+zamiast zatrzymywać cały boot.
 
 ### Brak dźwięku
 
@@ -178,7 +186,9 @@ Controller = Intel AC'97
 Audio Output = ON
 ```
 
-Sterownik 3.3.1-dev targetuje emulowany kontroler Intel ICH AC'97.
+Sterownik 3.3.1-dev targetuje emulowany kontroler Intel ICH AC'97 `8086:2415`.
+W tej wersji jest to kernelowy backend PCM; stabilne publiczne API playback dla
+programów Ring-3 nie jest jeszcze ukończone.
 
 ---
 
@@ -197,12 +207,14 @@ Każdy pass sprawdza między innymi:
 - czy ISO istnieje i nie jest puste;
 - czy xorriso potrafi odczytać obraz;
 - czy istnieje wpis El Torito EFI;
+- czy istnieje GPT i EFI System Partition;
 - czy istnieje `/efiboot.img`;
 - czy ISO zawiera loader/kernel/package;
-- czy `efiboot.img` jest prawidłowym FAT32;
-- czy FAT32 zawiera `EFI/BOOT/BOOTX64.EFI`;
-- czy loader ma `MZ` + `PE\0\0` i architekturę AMD64;
-- czy `kernel.elf` i `install.pkg` nie są puste;
+- czy `efiboot.img` ma mniej niż 65535 sektorów po 512 B;
+- czy `efiboot.img` przechodzi `fsck.fat`/`dosfsck`;
+- czy FAT16 zawiera `EFI/BOOT/BOOTX64.EFI`, kernel i `install.pkg`;
+- czy loader ma `MZ` + `PE\0\0`, PE32+, AMD64 i subsystem EFI application;
+- czy zewnętrzna i wewnętrzna kopia `BOOTX64.EFI` są identyczne;
 - czy SHA-256 ISO nie zmienia się pomiędzy passami.
 
 Jeżeli `VBoxManage` jest dostępny, można dodatkowo wykonać realny smoke boot:
@@ -214,8 +226,19 @@ bash ./scripts/verify-virtualbox-iso.sh \
   --virtualbox-smoke
 ```
 
+Na Windows preferowana jest integracja z media buildem:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-media.ps1 `
+  -Configuration release `
+  -Rebuild `
+  -VirtualBoxSmoke
+```
+
 Smoke tworzy tymczasową VM, ustawia EFI, SATA/AHCI, E1000 82540EM i AC'97,
-podpina ISO, uruchamia VM i zapisuje log. Tymczasowa VM jest później usuwana.
+podpina ISO, uruchamia VM i uznaje test za PASS dopiero po pojawieniu się markera
+kernela na COM1. Tymczasowa VM jest później usuwana.
 
 ---
 
