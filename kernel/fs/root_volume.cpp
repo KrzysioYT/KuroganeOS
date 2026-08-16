@@ -26,6 +26,7 @@ vfs::PathContext g_path_context{};
 char g_configuration[kConfigurationCapacity]{};
 size_t g_configuration_size = 0U;
 vfs::Status g_detail_status = vfs::Status::Ok;
+fat32::Status g_fat32_detail_status = fat32::Status::Ok;
 alignas(1) uint8_t g_vfs_lock = 0U;
 
 void lock_vfs() {
@@ -116,10 +117,10 @@ Status initialize(
         storage::block::Status::Ok) {
         return fail(Status::PartitionInitializationFailed);
     }
-    if (fat32::mount(
-            &g_fat32,
-            storage::partition::as_block_device(&g_partition)) !=
-        fat32::Status::Ok) {
+    g_fat32_detail_status = fat32::mount(
+        &g_fat32,
+        storage::partition::as_block_device(&g_partition));
+    if (g_fat32_detail_status != fat32::Status::Ok) {
         return fail(Status::Fat32MountFailed);
     }
     if (fat32_vfs::initialize(&g_adapter, &g_fat32, &g_backend) !=
@@ -371,6 +372,9 @@ const char* status_message(Status status) {
 }
 
 const char* detail_message() {
+    if (g_status == Status::Fat32MountFailed) {
+        return fat32::status_message(g_fat32_detail_status);
+    }
     return vfs::status_message(g_detail_status);
 }
 
