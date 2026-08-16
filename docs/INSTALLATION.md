@@ -1,99 +1,178 @@
-# Instalacja KuroganeOS 2.2
+# Instalacja KuroganeOS 3.3.0-dev — DEV BETA
 
-Mechanizm instalacyjny został wprowadzony w 2.1 i pozostaje fundamentem 2.2:
-UEFI ISO → SATA/AHCI → GPT → FAT32 → bootloader + kernel + userspace → boot z
-persistent HDD.
-
-> **Uwaga:** instalator zapisuje tablicę partycji i formatuje wybrany dysk.
-> Używaj go wyłącznie na pustym dysku testowym/nośniku przeznaczonym do skasowania.
-
-## Budowanie ISO
-
-Windows + WSL:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installer.ps1 -Configuration release
-```
-
-Wynik bieżącej wersji:
+KuroganeOS 3.3 używa jednego modelu nośnika dla IMG i ISO:
 
 ```text
-dist/KuroganeOS-2.2.0-x86_64.iso
+boot media
+  -> Red Flux Setup
+     -> Try KuroganeOS
+     -> Install KuroganeOS
+```
+
+> [!WARNING]
+> Ścieżka `Install KuroganeOS` zapisuje GPT i formatuje wybrany dysk. Testuj ją
+> wyłącznie na pustym wirtualnym dysku lub nośniku przeznaczonym do skasowania.
+> Pierwszy destrukcyjny krok następuje dopiero po wpisaniu dokładnego `INSTALL`.
+
+## Try KuroganeOS
+
+Try uruchamia system bez instalacji. `install.pkg` jest montowany jako read-only
+live root, z którego uruchamiane są `/system/init`, Login, Red Flux Home i
+aplikacje Ring 3.
+
+Sesja live ma służyć do poznania/testowania systemu. Root live jest tylko do
+odczytu i nie zapewnia persistence zmian po restarcie.
+
+## Install KuroganeOS
+
+Wizard prowadzi przez:
+
+1. `English` / `Polski`;
+2. nazwę lokalnego użytkownika;
+3. konto bez hasła albo z hasłem;
+4. wybór dysku SATA/AHCI;
+5. wpisanie `INSTALL`;
+6. protective MBR + primary/backup GPT;
+7. ESP FAT32 i Kurogane Root FAT32;
+8. kopiowanie bootloadera, kernela i userspace;
+9. zapis `/etc/locale.cfg`, `/etc/user.cfg` i `/etc/first.run`;
+10. verification i flush.
+
+W DEV BETA mechanizm hasła używa tymczasowego `FNV1A64-DEV`. Nie jest to
+produkcyjny credential store ani kryptograficzny password KDF. Użyj wyłącznie
+hasła testowego, którego nie stosujesz w innych usługach.
+
+## Budowanie IMG + ISO
+
+### Windows 11 + WSL
+
+Najpierw wymagany jest dodatkowy toolchain:
+
+https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
+
+Paczka ma zostać wypakowana do głównego katalogu repozytorium z zachowaniem
+`tools/compiler/x86_64-elf/bin/`.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-media.ps1 -Configuration release -Rebuild
+```
+
+### macOS
+
+```bash
+chmod +x scripts/*.sh
+./scripts/setup-macos.sh --install
+bash ./scripts/build-media-macos.sh --configuration release --rebuild
+```
+
+### Linux x86-64
+
+```bash
+bash ./scripts/setup-linux.sh --install
+bash ./scripts/build-media-linux.sh --configuration release --rebuild
+```
+
+## Wyniki
+
+IMG zależy od hosta:
+
+```text
+dist/KuroganeOS-3.3.0-dev-windows-qemu.img
+dist/KuroganeOS-3.3.0-dev-macos-qemu.img
+dist/KuroganeOS-3.3.0-dev-linux-qemu.img
+```
+
+ISO:
+
+```text
+dist/KuroganeOS-3.3.0-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
-`kurogane.iso` pozostaje lokalną compatibility copy dla starszych helperów.
+IMG i ISO zawierają `install.pkg`, dlatego oba powinny wyświetlić Red Flux
+Setup z wyborem Try/Install.
+
+## QEMU — bezpieczny test instalatora
+
+Najlepiej bootować nośnik instalacyjny i dodać **osobny pusty dysk SATA/AHCI**
+jako target. Nie instaluj na nośniku, z którego aktualnie bootujesz.
+
+Przykładowy układ VM:
+
+```text
+boot: KuroganeOS-3.3.0-dev-x86_64.iso
+SATA target: empty 512 MiB+ disk
+UEFI: enabled
+RAM: 768 MiB+
+```
+
+Po zakończeniu instalacji:
+
+1. wyłącz VM;
+2. odłącz ISO/IMG instalacyjne;
+3. pozostaw zainstalowany dysk jako UEFI boot disk;
+4. uruchom ponownie;
+5. Login powinien użyć języka, username i trybu hasła wybranego w instalatorze.
 
 ## VirtualBox
 
-1. Utwórz nową VM x86-64, np. `KuroganeOS-2.2-Test`.
-2. Włącz EFI/UEFI.
-3. Przydziel 256–512 MiB RAM i 1 vCPU na pierwszy test.
-4. Utwórz nowy pusty VDI.
-5. Podłącz go przez SATA / Intel AHCI.
-6. Podłącz `dist/KuroganeOS-2.2.0-x86_64.iso` jako DVD.
-7. Bootuj z ISO.
-8. W instalatorze wybierz wyłącznie testowy VDI.
+1. Utwórz maszynę x86-64 z EFI/UEFI.
+2. Dodaj osobny pusty VDI przez kontroler SATA/AHCI.
+3. Podłącz wersjonowany ISO jako napęd optyczny.
+4. Uruchom `Install KuroganeOS`.
+5. Zweryfikuj model/rozmiar dysku przed wpisaniem `INSTALL`.
+6. Po `INSTALL COMPLETE` wyłącz VM i odłącz ISO.
+7. Bootuj z VDI.
 
 ## Co instaluje system
 
-Instalator przygotowuje protective MBR, primary/backup GPT, ESP FAT32 oraz
-persistent KuroganeOS root FAT32. Kopiuje m.in.:
+Między innymi:
 
 ```text
 /EFI/BOOT/BOOTX64.EFI
-kernel.elf
+/boot/kernel.elf
 /system/init
-/system/...
-/apps/...
-/gui/...
-/etc/...
-/home/...
-/var/...
+/apps/*
+/gui/*
+/etc/system.cfg
+/etc/locale.cfg
+/etc/user.cfg
+/etc/first.run
 ```
 
-Po zapisie następuje verification i flush.
+## Markery testowe 3.3
 
-## Boot po instalacji
-
-1. Wyłącz VM.
-2. Odłącz ISO.
-3. Bootuj z dysku SATA.
-
-Ścieżka:
+Try:
 
 ```text
-UEFI
-  -> EFI/BOOT/BOOTX64.EFI
-  -> kernel.elf
-  -> AHCI + GPT
-  -> persistent FAT32 root
-  -> /system/init (PID 1)
-  -> Ring 3 userspace
-  -> Flux Console / Desktop Developer Preview
+[TEST] live_package_root: PASS
+[TEST] setup_try_mode: PASS
+[TEST] live_login_profile: PASS
 ```
 
-Oczekiwane markery obejmują:
+Install:
 
 ```text
-[INFO][VFS] persistent FAT32 root mounted read-write
-[TEST] userspace_init_spawn: PASS
-[INFO][INIT] spawned /system/init as PID 1
-[TEST] ALL_REQUIRED_TESTS_PASSED
+[TEST] installer_gpt: PASS
+[TEST] installer_filesystems: PASS
+[TEST] installer_uefi_bootloader: PASS
+[TEST] installer_profile: PASS
+[TEST] installer_complete: PASS
 ```
 
-## Persistence
+Zainstalowany profil:
 
-Poprawny start ISO nie jest testem persistence. Wymagany jest boot z tego samego
-HDD po odłączeniu ISO i ponowny restart z zachowaniem danych.
+```text
+[TEST] installed_account_profile: PASS
+[TEST] installed_login_password: PASS
+```
 
-## QEMU
+Ostatni marker występuje tylko po poprawnym uwierzytelnieniu konta chronionego
+hasłem.
 
-Referencyjne logi fundamentu 2.1 pozostają w `build/logs/installer-*-serial.log`.
-Po zmianach 2.2 należy wykonać świeży build/test przed deklaracją nowego runtime
-PASS.
+## Stan walidacji
 
-## Recovery
-
-Safe mode i diagnostics istnieją, ale pełne recovery/update rollback nadal nie
-jest ukończone. Zobacz [`RECOVERY.md`](RECOVERY.md).
+3.3 jest DEV BETA. Kod nie powinien być opisywany jako runtime-verified na
+Windows/macOS/Linux, dopóki świeże IMG/ISO i przynajmniej jedna pełna instalacja
+`media -> target disk -> reboot -> Login` nie zostaną sprawdzone na danym
+środowisku.
