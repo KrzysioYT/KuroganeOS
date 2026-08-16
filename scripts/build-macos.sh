@@ -58,7 +58,7 @@ clean_outputs() {
     rm -rf -- iso/EFI
     rm -f -- iso/kernel.elf
     rm -f -- dist/KuroganeOS-*-macos-qemu.img dist/KuroganeOS-*-macos-qemu.img.sha256
-    echo "[macos] build outputs cleaned"
+    echo "[macos] build outputs cleaned (state/macos-apps preserved)"
 }
 
 if $clean; then clean_outputs; exit 0; fi
@@ -116,6 +116,17 @@ done
 # SDK build adds the external sample and Ring-3 GUI applications to the same
 # userspace overlay.
 "$root/scripts/build-sdk.sh"
+
+# User-built applications installed with build-app-macos.sh live in state/ so
+# clean/rebuild does not silently destroy developer work.
+if [[ -d state/macos-apps ]]; then
+    mkdir -p build/userspace/rootfs/apps
+    while IFS= read -r -d '' app; do
+        name="$(basename "$app")"
+        cp "$app" "build/userspace/rootfs/apps/$name"
+        echo "[userspace] /apps/$name (macOS development app)"
+    done < <(find state/macos-apps -maxdepth 1 -type f -print0)
+fi
 
 # Standalone UEFI loader. Keep flags/layout identical to scripts/build.ps1.
 "$cc" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
