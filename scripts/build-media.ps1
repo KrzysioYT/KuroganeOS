@@ -2,7 +2,8 @@
 param(
     [ValidateSet('debug', 'release', 'test')]
     [string]$Configuration = 'release',
-    [switch]$Rebuild
+    [switch]$Rebuild,
+    [switch]$VirtualBoxSmoke
 )
 
 Set-StrictMode -Version Latest
@@ -65,6 +66,15 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Failed to inject install.pkg into the Windows QEMU IMG.'
 }
 
+# The installer ISO builder already runs the mandatory 20-pass structural UEFI
+# verifier. For release qualification on an x86-64 Windows host, this optional
+# switch adds a second, independent gate: Oracle VirtualBox must actually boot
+# the optical media and emit a KuroganeOS kernel marker on COM1.
+if ($VirtualBoxSmoke) {
+    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $Iso
+    if (-not $?) { throw 'Real VirtualBox ISO smoke boot failed.' }
+}
+
 $imageHash = (Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash.ToLowerInvariant()
 $isoHash = (Get-FileHash -LiteralPath $Iso -Algorithm SHA256).Hash.ToLowerInvariant()
 $lines = @(
@@ -81,5 +91,9 @@ $lines = @(
 Write-Host "[media-windows] KuroganeOS $Version"
 Write-Host "[media-windows] live/setup IMG: $Image"
 Write-Host "[media-windows] live/setup ISO: $Iso"
+Write-Host '[media-windows] ISO structural UEFI verification: 20/20 required'
+if ($VirtualBoxSmoke) {
+    Write-Host '[media-windows] real VirtualBox EFI optical boot: PASS'
+}
 Write-Host '[media-windows] both media enter Try / Install setup'
 Write-Host "[media-windows] checksums: $Checksums"
