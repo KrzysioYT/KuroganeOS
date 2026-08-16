@@ -2,7 +2,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define ENTRY_COUNT 8U
+#define ENTRY_COUNT 6U
 
 typedef struct quick_entry {
     const char* label;
@@ -17,8 +17,6 @@ static const quick_entry g_entries[ENTRY_COUNT] = {
     {"SYSTEM MONITOR", "/gui/sysmon", 1},
     {"SETTINGS", "/gui/settings", 1},
     {"ABOUT KUROGANEOS", "/gui/about", 1},
-    {"USER SHELL", "/apps/shell", 1},
-    {"SYSTEM INIT", "/system/init", 0},
 };
 
 static void append_text(char* destination, size_t capacity, const char* source) {
@@ -98,7 +96,6 @@ static void build_scene(
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FILES // 2.6 QUICK ACCESS");
     (void)kui_flow_label(&root, 2U, "J/K: select | ENTER: preview/launch | R: refresh");
-    (void)kui_flow_separator(&root, 3U);
 
     kui_flow_begin(&entries, scene, 1U);
     while (index < ENTRY_COUNT) {
@@ -109,12 +106,10 @@ static void build_scene(
         (void)kui_flow_list_item(&entries, 10U + (uint32_t)index, label);
         ++index;
     }
-    (void)kui_flow_separator(&root, 30U);
     (void)kui_flow_label(&root, 31U, status);
     (void)kui_flow_label(&root, 32U, preview1);
     (void)kui_flow_label(&root, 33U, preview2);
     (void)kui_scene_select(scene, 10U + (uint32_t)selected);
-    if (selected > 3U) (void)kui_scene_scroll(scene, (int32_t)(selected - 3U));
 }
 
 int main(void) {
