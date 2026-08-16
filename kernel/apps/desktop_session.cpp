@@ -30,12 +30,11 @@ bool flux_session_start(const char*) {
 
 void flux_session_key(char) {}
 
-void flux_session_tick(uint64_t tick) {
-    static uint64_t last_refresh = 0U;
-    if (tick - last_refresh >= 10U) {
-        last_refresh = tick;
-        windowing::invalidate();
-    }
+void flux_session_tick(uint64_t) {
+    // 2.4.0 invalidated the complete workspace every ten PIT ticks. Since the
+    // framebuffer is scanned out while software rendering is in progress,
+    // that produced a visible clear/redraw flash even when nothing changed.
+    // Window operations and KU_SYS_UI_PRESENT now invalidate explicitly.
     static_cast<void>(windowing::render_if_needed());
 }
 
