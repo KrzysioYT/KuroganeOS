@@ -4,10 +4,10 @@ Data: 16 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **3.2.0 — Red Flux Desktop Shell** jest aktualnym etapem Kurogane
-Desktop. Normalny start prowadzi przez graficzny boot splash i userspace session
-gate do Red Flux Home. Desktop posiada systemowy dock i session ownership dla
-GUI Ring 3.
+KuroganeOS **3.3.0-dev — DEV BETA Media & Installer** jest aktualną linią
+rozwojową. 3.3 rozszerza Red Flux Desktop Shell o wspólny model nośnika
+`Try / Install`, live root, profil językowy/konta oraz natywne workflow build na
+Windows/WSL, macOS i Linux x86-64.
 
 ## Working foundation
 
@@ -18,78 +18,92 @@ GUI Ring 3.
 - `/system/init` jako PID 1;
 - AHCI, GPT, writable FAT32/VFS, persistent root;
 - PS/2 keyboard/mouse, PCI, ACPI/APIC;
-- WindowManager: focus/z-order/drag/resize/minimize/maximize/restore/close;
-- software full-frame backbuffer i content clipping;
+- WindowManager + Red Flux Dock;
+- software backbuffer, clipping i damage-style GOP scanout;
 - Ring-3 `libui` scene/view runtime;
-- wspólny `FluxShellCore` dla console i GUI Terminala;
-- Windows/WSL build oraz natywny macOS x86_64-elf/QEMU workflow.
+- wspólny `FluxShellCore`;
+- rzeczywisty kernelowy installer GPT/FAT32;
+- read-only package-backed VFS dla live media.
 
-## 3.2 changes
+## 3.3 DEV BETA changes
 
-- Red Flux jest domyślnym UEFI desktop bootem;
-- Safe Mode: `S`/`F8`, Diagnostics: `X`;
-- graficzny boot splash z checkpointami paging/Ring3/FS/storage/preemption/PID1;
-- automatyczny service-console fallback dla Safe/Diagnostics/Installer/boot fail;
-- `/gui/login` jako session gate;
-- PID1: `login -> launcher -> login`;
-- Red Flux Dock z przypiętymi Home/Terminal/Files/Monitor/Settings/About;
-- geometryczne systemowe ikony i running/focus indicators;
-- dynamiczna sekcja żywych okien;
-- click Dock: focus/restore istniejącego okna albo quick-launch przez Home;
-- session ownership: nowe GUI surfaces muszą należeć do drzewa procesu Home;
-- legacy Ring-0 surfaces nie uczestniczą w widocznym desktopie;
-- anonimowe historyczne `/gui/*` requesty z kernela są kompatybilnościowym no-op;
-- nowe tło desktopu, top identity rail, Kurogane brand geometry i chrome;
-- login obsługuje Enter oraz kliknięcie myszą.
+- wersja `3.3.0-dev`, kanał `DEV BETA`;
+- IMG i ISO mają wspólny entry flow `Try KuroganeOS / Install KuroganeOS`;
+- `install.pkg` może działać jako read-only live root;
+- Try prowadzi do zwykłego Login/Home bez zapisu na dysk;
+- Installer ma Red Flux setup UI zamiast starego tekstowego promptu;
+- wybór `English` / `Polski`;
+- lokalna nazwa użytkownika;
+- konto bez hasła albo z hasłem;
+- graficzny wybór dysku SATA/AHCI;
+- dokładne `INSTALL` nadal chroni pierwszy destrukcyjny zapis;
+- profil instalacji zapisuje `/etc/locale.cfg` i `/etc/user.cfg`;
+- Login czyta zainstalowany profil i opcjonalnie weryfikuje hasło;
+- `FNV1A64-DEV` jest jawnie tymczasowym verifierem DEV BETA, nie produkcyjnym KDF;
+- ujednolicone media buildy tworzą IMG + ISO;
+- natywny Linux x86-64 build frontend i setup zależności;
+- macOS i Windows/WSL pozostają wspierane.
 
-## Build
+## Zalecane build commands
 
-macOS:
+### Windows + WSL
+
+Wymagane dodatkowe pliki:
+
+https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-media.ps1 -Configuration release -Rebuild
+```
+
+### macOS
 
 ```bash
 ./scripts/setup-macos.sh --install
-./scripts/build-macos.sh --configuration debug --rebuild
+bash ./scripts/build-media-macos.sh --configuration release --rebuild
 ```
 
-Development artifact:
+### Linux x86-64
+
+```bash
+bash ./scripts/setup-linux.sh --install
+bash ./scripts/build-media-linux.sh --configuration release --rebuild
+```
+
+## Expected artifacts
 
 ```text
-dist/KuroganeOS-3.2.0-macos-qemu.img
+dist/KuroganeOS-3.3.0-dev-windows-qemu.img
+dist/KuroganeOS-3.3.0-dev-macos-qemu.img
+dist/KuroganeOS-3.3.0-dev-linux-qemu.img
+dist/KuroganeOS-3.3.0-dev-x86_64.iso
+dist/SHA256SUMS.txt
 ```
 
-Windows:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Rebuild
-```
-
-Native macOS installer ISO pozostaje osobnym torem i nie jest warunkiem runtime
-acceptance development IMG.
+Jeden host tworzy swój host-specific IMG oraz wspólny ISO.
 
 ## Validation state
 
-Zmiany 3.2 zostały sprawdzone przez audit diffu, ścieżek buildowych i zależności
-session/WindowManager/process. **Pełny build oraz runtime QEMU na rzeczywistym
-macOS nie są deklarowane jako PASS**, dopóki nie zostaną wykonane na docelowym
-cross-toolchainie.
+3.3-dev **nie jest jeszcze runtime-verified**. Zmiany wymagają świeżego pełnego
+build/test po tej rewizji. Minimalne acceptance:
 
-Runtime acceptance 3.2 powinien potwierdzić:
+1. IMG -> Try -> Login -> Home;
+2. ISO -> Try -> Login -> Home;
+3. live root pozostaje read-only;
+4. EN install bez hasła -> reboot z target HDD -> Login -> Home;
+5. PL install z hasłem -> reboot -> błędne hasło odrzucone, poprawne zaakceptowane;
+6. brak zapisu na target przed poprawnym `INSTALL`;
+7. GPT/ESP/root i package verification PASS;
+8. System Monitor nie powoduje full-screen flickera;
+9. media build kończy się poprawnie na Windows, macOS i Linux.
 
-1. normalny boot bez naciskania `D`;
-2. boot splash przechodzi do Login;
-3. `S`/`F8` nadal otwiera Safe Mode;
-4. Enter i klik na Login uruchamia Red Flux Home;
-5. po Login nie pojawiają się stare automatycznie uruchomione okna;
-6. Dock uruchamia, focusuje i przywraca przypięte aplikacje;
-7. dynamiczne task items focusują/minimalizowane okna;
-8. drag/resize pozostaje bez ghostingu i widocznego partial-frame flickera.
+## Known gaps / DEV warnings
 
-## Known gaps
-
-- login nie ma jeszcze account/credential service ani hasła;
-- compatibility `ku_ui_frame` nadal jest transportem aplikacji;
-- brak per-window damage surfaces i natywnego widget hit-test ABI;
-- brak pełnego Ring-3 `stat/readdir/write/create/unlink/rename/mkdir/rmdir`;
-- brak IPC/settings/notification service;
-- brak clipboard/Unicode/audio/NVMe/multi-monitor;
-- macOS installer ISO wymaga dalszej walidacji.
+- `FNV1A64-DEV` nie jest bezpiecznym password KDF;
+- brak pełnej account service/credential store/lock screen;
+- live package VFS jest read-only i nie ma jeszcze pełnego `readdir`;
+- compatibility `ku_ui_frame` pozostaje transportem części aplikacji;
+- brak pełnego native widget ABI/per-window compositor;
+- brak kompletnego publicznego Ring-3 file capability API;
+- Linux support jest nową ścieżką 3.3 i wymaga runtime/build acceptance na realnym hoście;
+- ISO oraz instalacja na realnym sprzęcie nie są jeszcze oznaczone jako stabilne.
