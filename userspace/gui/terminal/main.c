@@ -1,5 +1,5 @@
 #include "../common.h"
-#include "version.h"
+#include "../../../common/version.h"
 
 #define INPUT_CAPACITY 48U
 #define OUTPUT_LINES 5U

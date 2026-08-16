@@ -1,49 +1,54 @@
-# KuroganeOS 2.2 — rozwój na macOS
+# KuroganeOS 2.2.5 — rozwój na macOS
 
-Natywny workflow macOS wprowadzony w 2.1.1 pozostaje wspieranym backendem w
-KuroganeOS 2.2. Nie wymaga WSL ani Windows PowerShell. Host może być Apple
-Silicon albo Intel; artefakty KuroganeOS nadal są budowane dla `x86_64-elf`.
+KuroganeOS 2.2.5 posiada natywny workflow macOS dla kernela, Ring-3 userspace,
+SDK, Kurogane Flux Desktop, obrazów QEMU oraz **instalowalnych ISO UEFI**.
+Nie wymaga WSL ani Windows PowerShell. Host może być Apple Silicon albo Intel;
+target KuroganeOS pozostaje `x86_64`.
 
-## Przygotowanie środowiska
+## 1. Przygotowanie środowiska
 
 ```bash
 chmod +x scripts/*.sh
 ./scripts/setup-macos.sh --install
 ```
 
-Instalowane są m.in. `x86_64-elf-gcc/binutils`, QEMU, mtools, dosfstools,
-gptfdisk, xorriso i Python.
+Skrypt instaluje/sprawdza m.in.:
 
-Sprawdzenie bez instalowania:
+```text
+x86_64-elf-binutils
+x86_64-elf-gcc
+qemu
+mtools
+dosfstools
+gptfdisk
+xorriso
+python
+```
+
+Samo sprawdzenie:
 
 ```bash
 ./scripts/setup-macos.sh
 ```
 
-## Pełny build
+`xorriso` jest od 2.2.5 obowiązkowym elementem macOS toolchaina, ponieważ
+builder ISO działa natywnie na Macu.
 
-Debug:
+## 2. Zwykły build development IMG
 
-```bash
-./scripts/build-macos.sh --configuration debug
-```
-
-Release:
-
-```bash
-./scripts/build-macos.sh --configuration release
-```
-
-Pełny rebuild:
+Pełny debug rebuild:
 
 ```bash
 ./scripts/build-macos.sh --configuration debug --rebuild
 ```
 
-Build tworzy kernel, Ring-3 userspace, SDK, GUI, `BOOTX64.EFI` oraz 512 MiB GPT
-image z ESP FAT32 i persistent root FAT32.
+Release IMG:
 
-Najważniejsze wyniki dla 2.2:
+```bash
+./scripts/build-macos.sh --configuration release --rebuild
+```
+
+Wyniki:
 
 ```text
 build/kernel.elf
@@ -51,72 +56,132 @@ build/BOOTX64.EFI
 build/sdk/sysroot/
 build/userspace/rootfs/
 build/images/KuroganeOS-macos.img
-dist/KuroganeOS-2.2.0-macos-qemu.img
+dist/KuroganeOS-2.2.5-macos-qemu.img
 ```
 
-## Własna aplikacja
+## 3. Build instalowalnego ISO na macOS
 
-C:
+### Najprostsza komenda
+
+Buduje IMG development **i** instalowalne ISO:
 
 ```bash
-./scripts/build-app-macos.sh moja-aplikacja.c -o moja-aplikacja
+./scripts/build-macos.sh --configuration release --rebuild --iso
 ```
 
-C++:
+ISO:
+
+```text
+dist/KuroganeOS-2.2.5-x86_64.iso
+```
+
+Checksum:
+
+```text
+dist/SHA256SUMS.txt
+```
+
+Compatibility copy:
+
+```text
+kurogane.iso
+```
+
+### Tylko installer/ISO
+
+Jeżeli nie potrzebujesz development IMG:
 
 ```bash
-./scripts/build-app-macos.sh moja-aplikacja.cpp -o moja-aplikacja
+./scripts/build-installer-macos.sh --configuration release --rebuild
 ```
 
-Instalacja do kolejnych development buildów:
+Builder kompiluje system przez natywny backend macOS, tworzy `install.pkg`,
+buduje osobny 64 MiB FAT32 EFI System Partition i następnie generuje właściwe
+UEFI/El Torito ISO przez `xorriso`. Nie wykonuje konwersji `.img -> .iso`.
+
+### Stara komenda zgodności
+
+Od 2.2.5 również to działa natywnie na macOS:
 
 ```bash
-./scripts/build-app-macos.sh moja-aplikacja.c -o moja-aplikacja --install
-./scripts/build-macos.sh --configuration debug --stage-only
+./scripts/build-iso.sh release
 ```
 
-Program jest przechowywany w:
+Na Darwin skrypt automatycznie przechodzi do `build-installer-macos.sh` zamiast
+szukać PowerShella.
+
+### Reuse istniejącego builda
+
+Jeżeli `build/kernel.elf`, `build/BOOTX64.EFI` oraz
+`build/userspace/rootfs/` są aktualne:
+
+```bash
+./scripts/build-installer-macos.sh --configuration release --no-build
+```
+
+## 4. Naprawa błędu `version.h`
+
+2.2.0 mogło zatrzymać macOS SDK build na:
 
 ```text
-state/macos-apps/moja-aplikacja
+userspace/gui/terminal/main.c: fatal error: version.h: No such file or directory
 ```
 
-Po starcie 2.2 można użyć krótszej składni Flux Console:
+Przyczyną było to, że GUI SDK compile path nie widział katalogu `common/`.
+2.2.5 naprawia zarówno ścieżkę include buildera SDK, jak i include Terminala,
+więc `KUROGANE_VERSION_STRING` nie zależy już od przypadkowego working directory.
 
-```text
-run moja-aplikacja
-```
+## 5. QEMU
 
-lub dokładnej ścieżki:
-
-```text
-run /apps/moja-aplikacja
-```
-
-## QEMU
-
-Smoke test:
+Automatyczny smoke test:
 
 ```bash
 ./scripts/run-qemu-macos.sh
 ```
 
-Okno graficzne / Desktop Developer Preview:
+Desktop Developer Preview:
 
 ```bash
 ./scripts/run-qemu-macos.sh --display
 ```
 
-Inny obraz:
+Konkretny obraz:
 
 ```bash
-./scripts/run-qemu-macos.sh --image ./dist/KuroganeOS-2.2.0-macos-qemu.img --display
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.2.5-macos-qemu.img \
+  --display
 ```
 
-Runner wykrywa EDK2 z Homebrew QEMU, używa q35, development GPT image, E1000 i
-logu szeregowego. Apple Silicon emuluje x86-64 przez TCG.
+Apple Silicon uruchamia gościa x86-64 przez QEMU TCG.
 
-## Makefile
+## 6. Własna aplikacja
+
+C:
+
+```bash
+./scripts/build-app-macos.sh moja-aplikacja.c -o moja-aplikacja --install
+```
+
+C++:
+
+```bash
+./scripts/build-app-macos.sh moja-aplikacja.cpp -o moja-aplikacja --install
+```
+
+Odśwież development image:
+
+```bash
+./scripts/build-macos.sh --configuration debug --stage-only
+```
+
+Następnie w Flux Console:
+
+```text
+run moja-aplikacja
+```
+
+## 7. Makefile
 
 ```bash
 make CONFIG=debug
@@ -126,22 +191,26 @@ make verify CONFIG=debug
 make clean
 ```
 
-Darwin używa `x86_64-elf-*` z `PATH`; Windows zachowuje istniejący backend
-PowerShell i repozytoryjny toolchain.
+## 8. Co buduje macOS
 
-## Wspólne ABI
-
-Windows i macOS budują ten sam:
+Windows i macOS wytwarzają ten sam target KuroganeOS:
 
 - ELF64 kernel x86-64;
-- PE32+ AMD64 UEFI loader;
+- PE32+ AMD64 `BOOTX64.EFI`;
 - ELF64 ET_EXEC Ring-3 apps;
 - publiczny SDK ABI;
-- GPT/FAT32 development image.
+- GPT/FAT32 development IMG;
+- instalowalny UEFI ISO.
 
-macOS jest hostem developerskim, a nie osobnym targetem KuroganeOS.
+macOS jest hostem developerskim, a nie osobnym systemowym targetem.
 
-## Weryfikacja
+## 9. Weryfikacja
 
-Sam commit nie jest dowodem wykonania Homebrew toolchaina. Akceptacja na Macu
-wymaga rzeczywistego `setup-macos.sh`, builda i QEMU smoke-testu.
+Skrypty 2.2.5 przechodzą kontrolę składni Bash w repozytorium. Pełny runtime
+PASS wymaga wykonania na rzeczywistym Macu:
+
+```bash
+./scripts/setup-macos.sh
+./scripts/build-macos.sh --configuration debug --rebuild --iso
+./scripts/run-qemu-macos.sh --display
+```

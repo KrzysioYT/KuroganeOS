@@ -21,6 +21,13 @@ case "$CONFIGURATION" in
   *) die "Usage: $0 [debug|release|test]" ;;
 esac
 
+# KuroganeOS 2.2.5: macOS has a native installer/ISO builder and must never
+# depend on PowerShell or an IMG -> ISO conversion step.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  exec "$ROOT_DIR/scripts/build-installer-macos.sh" \
+    --configuration "$CONFIGURATION"
+fi
+
 require_command() {
   command -v "$1" >/dev/null 2>&1 ||
     die "Missing required command '$1'. Install xorriso before building the ISO."
@@ -63,8 +70,7 @@ run_kernel_build() {
 
 require_command xorriso
 
-# PowerShell is the single source of truth for compiling and staging the
-# kernel and the self-contained UEFI bootloader.
+# PowerShell remains the Windows/WSL source of truth for compiling and staging.
 run_kernel_build
 
 [[ -f "$BUILD_DIR/kernel.elf" ]] ||
@@ -74,8 +80,6 @@ run_kernel_build
 [[ -f "$IMG_PATH" ]] ||
   die "Validated FAT32 image is missing from $IMG_PATH."
 
-# Embed the deterministic FAT32 image produced and validated by build.ps1 as
-# the sole UEFI El Torito boot image.
 case "$ISO_STAGING_DIR" in
   "$ROOT_DIR"/build/iso-staging) ;;
   *) die "Refusing to clear unexpected ISO staging path: $ISO_STAGING_DIR" ;;
@@ -83,10 +87,6 @@ esac
 rm -rf -- "$ISO_STAGING_DIR"
 mkdir -p "$ISO_STAGING_DIR"
 cp "$IMG_PATH" "$ISO_STAGING_DIR/efiboot.img"
-# Also expose the fallback UEFI path in the ISO filesystem. The embedded ESP
-# remains the actual El Torito boot image, while this copy makes the medium
-# understandable to firmware/tools that inspect the ISO tree directly and to
-# Windows utilities that look specifically for /EFI/BOOT/BOOTX64.EFI.
 cp -R "$STAGING_DIR/EFI" "$ISO_STAGING_DIR/EFI"
 cp "$STAGING_DIR/kernel.elf" "$ISO_STAGING_DIR/kernel.elf"
 

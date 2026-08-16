@@ -4,6 +4,27 @@
 
 - No unreleased changes yet.
 
+## 2.2.5 - 2026-08-16
+
+### macOS ISO build
+
+- Added `scripts/build-installer-macos.sh` for native installable UEFI ISO builds on macOS.
+- Added `--iso` to `scripts/build-macos.sh` so one command can build the development IMG and versioned installer ISO.
+- Made `scripts/build-iso.sh release` route to the native macOS installer builder on Darwin instead of requiring PowerShell.
+- The macOS installer builder creates `install.pkg`, a dedicated 64 MiB FAT32 EFI System Partition and an El Torito/UEFI ISO through `xorriso`; it does not convert the development IMG into an ISO.
+- macOS release output is `dist/KuroganeOS-2.2.5-x86_64.iso` with `dist/SHA256SUMS.txt` and compatibility copy `kurogane.iso`.
+- `setup-macos.sh` now validates `xorriso` as a required tool and prints current IMG/ISO build commands.
+
+### Build regression repair
+
+- Fixed the 2.2.0 Flux Terminal build regression that produced `fatal error: version.h: No such file or directory`.
+- Made the GUI Terminal version include independent of the compiler working directory.
+- Added `common/` to the Unix/macOS SDK include search path as an additional guard against version-header regressions.
+
+### Version
+
+- Bumped KuroganeOS to 2.2.5.
+
 ## 2.2.0 - 2026-08-16
 
 ### Desktop Developer Preview

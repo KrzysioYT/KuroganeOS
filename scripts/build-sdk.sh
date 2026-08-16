@@ -41,7 +41,7 @@ common=(
     -mno-mmx -mno-sse -msoft-float -fno-pic -fno-pie
     -mcmodel=large -fno-builtin -ffunction-sections -fdata-sections
     -Wa,--noexecstack -O2 -Wall -Wextra -Wpedantic -Werror
-    -I "$include"
+    -I "$include" -I "$root/common"
 )
 
 "$cc" "${common[@]}" -c -x assembler-with-cpp "$root/sdk/src/crt0.S" -o "$obj/crt0.o"

@@ -1,17 +1,15 @@
-# KuroganeOS 2.2.0
+# KuroganeOS 2.2.5
 
 KuroganeOS jest edukacyjnym, 64-bitowym systemem operacyjnym rozwijanym od
-podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.2.0** zachowuje
-instalowalny fundament 2.1 oraz natywny workflow macOS z 2.1.1, a następnie
-domyka obiecany wcześniej **Desktop Developer Preview**.
-
-2.2 skupia się na dwóch rzeczach, które po przejściu do Ring 3 pozostały w
-stanie prototypowym: pulpicie i powłoce użytkownika.
+podstaw dla x86-64 i UEFI. Nie używa kernela Linux. Wydanie **2.2.5** zachowuje
+Desktop Developer Preview 2.2.0 i dodaje ważny patch build/release: naprawiony
+Flux Terminal oraz **natywne budowanie instalowalnego `.iso` na macOS** bez
+PowerShella i bez konwersji `.img -> .iso`.
 
 ## Kurogane Flux Desktop Developer Preview
 
-2.2 wprowadza własny język wizualny **Kurogane Flux**. Celem nie jest kopiowanie
-Windows, macOS, GNOME, KDE ani innego desktop environment.
+2.2 rozwija własny język wizualny **Kurogane Flux** zamiast kopiować Windows,
+macOS, GNOME, KDE czy inny desktop environment.
 
 Flux używa:
 
@@ -29,10 +27,9 @@ Aplikacje `/gui/terminal`, `/gui/files`, `/gui/sysmon`, `/gui/settings` i
 
 Szczegóły: [`docs/releases/DESKTOP_RELEASE.md`](docs/releases/DESKTOP_RELEASE.md).
 
-## Flux Console 2.2
+## Flux Console
 
-Domyślny userspace shell nie jest już małym testem z kilkoma komendami. 2.2
-przywraca dużą część codziennego workflow przez istniejące ABI:
+Domyślny userspace shell obsługuje m.in.:
 
 ```text
 help clear version uname pid whoami status history jobs
@@ -43,7 +40,7 @@ echo calc sleep yield true false exit
 mem free tasks pci device driver diskinfo
 ```
 
-Najważniejsze:
+Przykłady:
 
 ```text
 run test              -> /apps/test
@@ -52,11 +49,6 @@ gui terminal          -> /gui/terminal
 jobs                   -> śledzone procesy w tle
 wait <pid>             -> oczekiwanie na dziecko
 ```
-
-Stary kernel developer console nadal posiada bardziej uprzywilejowane komendy.
-Jeżeli Ring-3 ABI nie ma jeszcze bezpiecznej capability dla danej operacji, Flux
-Console raportuje to jawnie zamiast udawać implementację albo kończyć zwykłym
-`command not found`.
 
 Opis: [`docs/USERSPACE.md`](docs/USERSPACE.md).
 
@@ -93,7 +85,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-installe
 Wynik:
 
 ```text
-dist/KuroganeOS-2.2.0-x86_64.iso
+dist/KuroganeOS-2.2.5-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -106,30 +98,55 @@ chmod +x scripts/*.sh
 ./scripts/setup-macos.sh --install
 ```
 
-Pełny development build:
+### Development IMG
 
 ```bash
 ./scripts/build-macos.sh --configuration debug --rebuild
 ```
 
-Release build:
+Wynik:
+
+```text
+dist/KuroganeOS-2.2.5-macos-qemu.img
+```
+
+### Development IMG + instalowalne ISO
 
 ```bash
-./scripts/build-macos.sh --configuration release
+./scripts/build-macos.sh --configuration release --rebuild --iso
 ```
 
 Wyniki:
 
 ```text
-build/kernel.elf
-build/BOOTX64.EFI
-build/sdk/sysroot/
-build/userspace/rootfs/
-build/images/KuroganeOS-macos.img
-dist/KuroganeOS-2.2.0-macos-qemu.img
+dist/KuroganeOS-2.2.5-macos-qemu.img
+dist/KuroganeOS-2.2.5-x86_64.iso
+dist/SHA256SUMS.txt
+kurogane.iso
 ```
 
-Test z GUI:
+### Tylko instalowalne ISO
+
+```bash
+./scripts/build-installer-macos.sh --configuration release --rebuild
+```
+
+Nie ma etapu konwersji IMG -> ISO. Builder tworzy osobny FAT32 EFI System
+Partition, `install.pkg`, staging installera oraz właściwe UEFI/El Torito ISO
+przez `xorriso`.
+
+### Stara komenda `build-iso.sh`
+
+Na macOS od 2.2.5 również działa natywnie:
+
+```bash
+./scripts/build-iso.sh release
+```
+
+Darwin automatycznie przechodzi do macOS installer buildera zamiast szukać
+PowerShella.
+
+### QEMU
 
 ```bash
 ./scripts/run-qemu-macos.sh --display
@@ -150,6 +167,17 @@ run app
 ```
 
 Szczegóły: [`docs/MACOS_DEVELOPMENT.md`](docs/MACOS_DEVELOPMENT.md).
+
+## Naprawa 2.2.5 — `version.h`
+
+2.2.0 mogło zatrzymać build GUI na macOS na:
+
+```text
+userspace/gui/terminal/main.c: fatal error: version.h: No such file or directory
+```
+
+2.2.5 naprawia include Flux Terminala i dodatkowo dodaje `common/` do ścieżek
+include SDK buildera macOS.
 
 ## QEMU — Windows
 
@@ -195,6 +223,7 @@ Aktualny opis: [`docs/CURRENT_LIMITATIONS.md`](docs/CURRENT_LIMITATIONS.md).
 
 ## Dokumentacja
 
+- [`docs/releases/2.2.5.md`](docs/releases/2.2.5.md)
 - [`docs/releases/2.2.0.md`](docs/releases/2.2.0.md)
 - [`docs/releases/DESKTOP_RELEASE.md`](docs/releases/DESKTOP_RELEASE.md)
 - [`docs/USERSPACE.md`](docs/USERSPACE.md)

@@ -9,16 +9,18 @@ stage_only=false
 clean=false
 rebuild=false
 no_image=false
+build_iso=false
 
 usage() {
-    cat >&2 <<'EOF'
+    cat >&2 <<'USAGE'
 usage: ./scripts/build-macos.sh [options]
   --configuration debug|release|test
   --clean          remove macOS build outputs and exit
   --rebuild        clean before building
   --stage-only     reuse build/kernel.elf, rebuild userspace/EFI/image
   --no-image       stop after staging EFI/kernel/userspace
-EOF
+  --iso            also build the installable versioned ISO in dist/
+USAGE
     exit 2
 }
 
@@ -29,10 +31,15 @@ while (($#)); do
         --rebuild) rebuild=true; shift ;;
         --stage-only) stage_only=true; shift ;;
         --no-image) no_image=true; shift ;;
+        --iso) build_iso=true; shift ;;
         *) usage ;;
     esac
 done
 case "$configuration" in debug|release|test) ;; *) usage ;; esac
+if $no_image && $build_iso; then
+    echo "--no-image cannot be combined with --iso" >&2
+    exit 2
+fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "build-macos.sh requires macOS. Windows remains supported by scripts/build.ps1." >&2
@@ -55,9 +62,12 @@ done
 clean_outputs() {
     rm -rf -- build/obj build/boot build/userspace build/sdk build/images
     rm -f -- build/kernel.elf build/kernel.map build/BOOTX64.EFI build/build-info.txt
+    rm -rf -- build/installer-staging build/installer-iso-staging
+    rm -f -- build/install.pkg
     rm -rf -- iso/EFI
     rm -f -- iso/kernel.elf
     rm -f -- dist/KuroganeOS-*-macos-qemu.img dist/KuroganeOS-*-macos-qemu.img.sha256
+    rm -f -- dist/KuroganeOS-*-x86_64.iso dist/SHA256SUMS.txt kurogane.iso
     echo "[macos] build outputs cleaned (state/macos-apps preserved)"
 }
 
@@ -200,3 +210,9 @@ echo "[macos] kernel: build/kernel.elf"
 echo "[macos] EFI: build/BOOTX64.EFI"
 echo "[macos] SDK: build/sdk/sysroot"
 echo "[macos] QEMU image: $release_image"
+
+if $build_iso; then
+    echo "[macos] building installable ISO"
+    "$root/scripts/build-installer-macos.sh" \
+        --configuration "$configuration" --no-build
+fi

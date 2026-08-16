@@ -26,11 +26,11 @@ packages=(
 )
 
 if ! command -v brew >/dev/null 2>&1; then
-    cat >&2 <<'EOF'
+    cat >&2 <<'MSG'
 Homebrew was not found.
 Install Homebrew first, then run:
   ./scripts/setup-macos.sh --install
-EOF
+MSG
     exit 1
 fi
 
@@ -42,7 +42,7 @@ fi
 required=(
     x86_64-elf-gcc x86_64-elf-g++ x86_64-elf-ld
     x86_64-elf-objcopy x86_64-elf-readelf x86_64-elf-ar
-    qemu-system-x86_64 mcopy mmd mdir mkfs.fat fsck.fat sgdisk python3
+    qemu-system-x86_64 mcopy mmd mdir mkfs.fat fsck.fat sgdisk xorriso python3
 )
 missing=()
 for tool in "${required[@]}"; do
@@ -59,8 +59,10 @@ arch="$(uname -m)"
 echo "[macos] host architecture: $arch"
 echo "[macos] cross compiler: $(x86_64-elf-gcc --version | head -n 1)"
 echo "[macos] QEMU: $(qemu-system-x86_64 --version | head -n 1)"
+echo "[macos] xorriso: $(xorriso -version 2>&1 | head -n 1)"
 echo "[macos] toolchain ready"
 echo
 echo "Next:"
-echo "  ./scripts/build-macos.sh --configuration debug"
-echo "  ./scripts/run-qemu-macos.sh"
+echo "  ./scripts/build-macos.sh --configuration debug --rebuild"
+echo "  ./scripts/build-installer-macos.sh --configuration release --rebuild"
+echo "  ./scripts/run-qemu-macos.sh --display"
