@@ -1,26 +1,31 @@
 #include "../common.h"
 #include "../../../common/version.h"
 
-#define APP_COUNT 5U
+#define APP_COUNT 7U
 #define CHILD_CAPACITY 10U
+#define NO_APP_ID UINT32_C(0xFFFFFFFF)
 
 typedef struct launcher_app {
     const char* label;
     const char* subtitle;
     const char* path;
+    uint32_t desktop_id;
 } launcher_app;
 
 static const launcher_app g_apps[APP_COUNT] = {
-    {"TERMINAL", "shared shell / development", "/gui/terminal"},
-    {"FILES", "persistent root / applications", "/gui/files"},
-    {"MONITOR", "runtime / process health", "/gui/sysmon"},
-    {"SETTINGS", "Red Flux appearance", "/gui/settings"},
-    {"ABOUT", "KuroganeOS platform", "/gui/about"},
+    {"TERMINAL", "shared shell / development", "/gui/terminal", KU_DESKTOP_APP_TERMINAL},
+    {"FILES", "persistent root / applications", "/gui/files", KU_DESKTOP_APP_FILES},
+    {"PERFORMANCE", "live CPU/GFX/RAM/disk", "/gui/performance", KU_DESKTOP_APP_PERFORMANCE},
+    {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER},
+    {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR},
+    {"SETTINGS", "Red Flux appearance", "/gui/settings", KU_DESKTOP_APP_SETTINGS},
+    {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT},
 };
 
 static uint64_t g_children[CHILD_CAPACITY];
+static uint32_t g_child_apps[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "HOME PINNED / DOCK READY / DESKTOP ROOT";
+static char g_status[64] = "HOME PINNED / PERFORMANCE AUTOSTART";
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -29,41 +34,71 @@ static void append_text(char* destination, size_t capacity, const char* source) 
 }
 
 static void reap_children(void) {
-    for (size_t index = 0U; index < CHILD_CAPACITY; ++index) {
+    size_t index;
+    for (index = 0U; index < CHILD_CAPACITY; ++index) {
         if (g_children[index] == 0U) continue;
-        int32_t status = 0;
-        const ku_status_t result = ku_process_wait(g_children[index], &status);
-        if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
-            g_children[index] = 0U;
+        {
+            int32_t status = 0;
+            const ku_status_t result = ku_process_wait(g_children[index], &status);
+            if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
+                g_children[index] = 0U;
+                g_child_apps[index] = NO_APP_ID;
+            }
         }
     }
 }
 
-static int remember_child(uint64_t pid) {
+static int app_is_running(uint32_t app_id) {
+    size_t index;
     reap_children();
-    for (size_t index = 0U; index < CHILD_CAPACITY; ++index) {
+    for (index = 0U; index < CHILD_CAPACITY; ++index) {
+        if (g_children[index] != 0U && g_child_apps[index] == app_id) return 1;
+    }
+    return 0;
+}
+
+static int remember_child(uint64_t pid, uint32_t app_id) {
+    size_t index;
+    reap_children();
+    for (index = 0U; index < CHILD_CAPACITY; ++index) {
         if (g_children[index] == 0U) {
             g_children[index] = pid;
+            g_child_apps[index] = app_id;
             return 1;
         }
     }
     return 0;
 }
 
-static void launch_selected(void) {
-    const launcher_app* app = &g_apps[g_selected];
-    const ku_result_t result = ku_process_spawn(app->path, strlen(app->path));
-    if (result <= 0) {
-        (void)strlcpy(g_status, "DOCK LAUNCH FAILED", sizeof(g_status));
-        return;
-    }
-    (void)remember_child((uint64_t)result);
+static int launch_app(size_t index, int quiet_if_running) {
+    const launcher_app* app;
+    ku_result_t result;
     char number[24];
+    if (index >= APP_COUNT) return 0;
+    app = &g_apps[index];
+    if (app_is_running(app->desktop_id)) {
+        if (!quiet_if_running) {
+            (void)strlcpy(g_status, "ALREADY RUNNING / USE DOCK TO FOCUS", sizeof(g_status));
+        }
+        return 1;
+    }
+
+    result = ku_process_spawn(app->path, strlen(app->path));
+    if (result <= 0) {
+        (void)strlcpy(g_status, "APP LAUNCH FAILED", sizeof(g_status));
+        return 0;
+    }
+    (void)remember_child((uint64_t)result, app->desktop_id);
     gui_u64(number, sizeof(number), (uint64_t)result);
     (void)strlcpy(g_status, "OPENED ", sizeof(g_status));
     append_text(g_status, sizeof(g_status), app->label);
     append_text(g_status, sizeof(g_status), " / PID ");
     append_text(g_status, sizeof(g_status), number);
+    return 1;
+}
+
+static void launch_selected(void) {
+    (void)launch_app(g_selected, 0);
 }
 
 static void select_and_launch(size_t index) {
@@ -72,9 +107,37 @@ static void select_and_launch(size_t index) {
     launch_selected();
 }
 
+static int pin_state(uint32_t app_id) {
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = app_id;
+    request.action = KU_DESKTOP_PIN_QUERY;
+    if (ku_desktop_pin(&request) != KU_STATUS_OK) return 0;
+    return request.pinned != 0U;
+}
+
+static void toggle_selected_pin(void) {
+    ku_desktop_pin_request request;
+    const launcher_app* app = &g_apps[g_selected];
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = app->desktop_id;
+    request.action = KU_DESKTOP_PIN_TOGGLE;
+    if (ku_desktop_pin(&request) != KU_STATUS_OK) {
+        (void)strlcpy(g_status, "DESKTOP PIN OPERATION FAILED", sizeof(g_status));
+        return;
+    }
+    (void)strlcpy(g_status, request.pinned != 0U ? "PINNED " : "UNPINNED ",
+                  sizeof(g_status));
+    append_text(g_status, sizeof(g_status), app->label);
+    append_text(g_status, sizeof(g_status), " / DESKTOP");
+}
+
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow apps;
+    size_t index;
     kui_scene_initialize(scene);
     scene->visible_rows = 12U;
     kui_scene_set_palette(
@@ -87,13 +150,13 @@ static void build_scene(kui_scene* scene) {
     (void)kui_flow_panel(&root, 1U, "RED FLUX HOME");
     (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DESKTOP ROOT");
     (void)kui_flow_label(&root, 3U,
-        "HOME IS PINNED / DOCK OPENS, RESTORES AND FOCUSES APPS");
+        "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN DESKTOP");
 
     kui_flow_begin(&apps, scene, 1U);
-    for (size_t index = 0U; index < APP_COUNT; ++index) {
-        char label[64];
-        label[0] = '\0';
-        (void)strlcpy(label, g_apps[index].label, sizeof(label));
+    for (index = 0U; index < APP_COUNT; ++index) {
+        char label[64] = "";
+        append_text(label, sizeof(label), pin_state(g_apps[index].desktop_id) ? "[PIN] " : "[   ] ");
+        append_text(label, sizeof(label), g_apps[index].label);
         append_text(label, sizeof(label), " / ");
         append_text(label, sizeof(label), g_apps[index].subtitle);
         (void)kui_flow_list_item(&apps, 10U + (uint32_t)index, label);
@@ -105,10 +168,13 @@ static void build_scene(kui_scene* scene) {
 
 int main(void) {
     const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
+    kui_scene scene;
+    size_t index;
     if (window == KU_INVALID_WINDOW) return 1;
 
-    for (size_t index = 0U; index < CHILD_CAPACITY; ++index) {
+    for (index = 0U; index < CHILD_CAPACITY; ++index) {
         g_children[index] = 0U;
+        g_child_apps[index] = NO_APP_ID;
     }
 
     puts("[TEST] desktop_launcher_ring3: PASS");
@@ -116,8 +182,14 @@ int main(void) {
     puts("[TEST] desktop_arrow_navigation: PASS");
     puts("[TEST] red_flux_dock_controller: PASS");
     puts("[TEST] red_flux_home_pinned: PASS");
+    puts("[TEST] desktop_app_pinning: PASS");
 
-    kui_scene scene;
+    if (launch_app(2U, 1)) {
+        puts("[TEST] desktop_performance_autostart: PASS");
+    } else {
+        puts("[TEST] desktop_performance_autostart: FAIL");
+    }
+
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
@@ -127,8 +199,7 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         reap_children();
-        const int available = gui_wait_event(window, &event);
-        if (available < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
@@ -139,19 +210,24 @@ int main(void) {
             (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
         } else if (gui_key_activate(&event)) {
             launch_selected();
+        } else if (event.character == 'p' || event.character == 'P') {
+            toggle_selected_pin();
         } else if (event.character == 't' || event.character == 'T') {
             select_and_launch(0U);
         } else if (event.character == 'f' || event.character == 'F') {
             select_and_launch(1U);
-        } else if (event.character == 'm' || event.character == 'M') {
+        } else if (event.character == 'v' || event.character == 'V') {
             select_and_launch(2U);
-        } else if (event.character == 's' || event.character == 'S') {
+        } else if (event.character == 'b' || event.character == 'B') {
             select_and_launch(3U);
-        } else if (event.character == 'a' || event.character == 'A') {
+        } else if (event.character == 'm' || event.character == 'M') {
             select_and_launch(4U);
+        } else if (event.character == 's' || event.character == 'S') {
+            select_and_launch(5U);
+        } else if (event.character == 'a' || event.character == 'A') {
+            select_and_launch(6U);
         } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_status, "HOME / PINNED DESKTOP ROOT / DOCK ACTIVE",
-                          sizeof(g_status));
+            (void)strlcpy(g_status, "HOME / DESKTOP ROOT / DOCK ACTIVE", sizeof(g_status));
         } else {
             continue;
         }
