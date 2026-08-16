@@ -64,7 +64,9 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     (void)kui_flow_label(&root, 9U, memory);
     (void)kui_flow_label(&root, 10U, uptime);
     (void)kui_flow_label(&root, 11U, "GPU = GOP/COMPOSITOR ACTIVITY, NOT GPU CORE LOAD");
-    (void)kui_flow_progress(&root, 12U, snapshot->cpu_percent, 100U);
+    (void)kui_flow_progress(
+        &root, 12U, "CPU ACTIVITY",
+        snapshot->cpu_percent, 100U);
 }
 
 int main(void) {
