@@ -275,11 +275,6 @@ static EFI_STATUS apply_dynamic_relocations(
     relocations = (const Elf64_Rela*)(
         (const UINT8*)file + relocation_file_offset);
 
-    /*
-     * Validate the complete immutable table before writing a single target.
-     * Requiring sorted, non-overlapping targets also rejects duplicate or
-     * partially overlapping 64-bit fixups.
-     */
     for (index = 0; index < (UINTN)relocation_count; ++index) {
         const Elf64_Rela* relocation = &relocations[index];
         UINT64 addend;
@@ -853,17 +848,15 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
     UINTN attempt;
     if (!system_table || !system_table->BootServices ||
         !system_table->ConIn || !system_table->ConIn->ReadKeyStroke) {
-        return 0;
+        return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
     }
 
     console_write(
         system_table,
-        (const CHAR16*)L"Default boot=console. Press D for "
-                        L"boot=desktop (DESKTOP ALPHA), S or F8 for safe "
-                        L"mode, X for diagnostics...\r\n");
-    /* Keep the choice window long enough for a headless serial-file watcher
-       to observe the prompt and inject a QEMU monitor key deterministically. */
-    for (attempt = 0; attempt < 300; ++attempt) {
+        (const CHAR16*)L"Red Flux desktop starts automatically. "
+                        L"Press S or F8 for Safe Mode, X for diagnostics, "
+                        L"D to continue now...\r\n");
+    for (attempt = 0; attempt < 150; ++attempt) {
         EFI_INPUT_KEY key;
         EFI_STATUS status;
         key.ScanCode = 0;
@@ -875,14 +868,13 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
                 key.UnicodeChar == 'S') {
                 console_write(
                     system_table,
-                    (const CHAR16*)L"Safe mode requested\r\n");
+                    (const CHAR16*)L"Safe Mode requested\r\n");
                 return KUROGANE_BOOT_FLAG_SAFE_MODE;
             }
             if (key.UnicodeChar == 'd' || key.UnicodeChar == 'D') {
                 console_write(
                     system_table,
-                    (const CHAR16*)L"boot=desktop (DESKTOP ALPHA) "
-                                    L"requested\r\n");
+                    (const CHAR16*)L"Red Flux desktop requested\r\n");
                 return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
             }
             if (key.UnicodeChar == 'x' || key.UnicodeChar == 'X') {
@@ -897,7 +889,7 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
             system_table->BootServices->Stall(10000);
         }
     }
-    return 0;
+    return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
 }
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
@@ -1005,7 +997,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle,
     boot_info->installation_package = installation_package;
     boot_info->installation_package_size = installation_package_size;
     console_write(system_table,
-                  (const CHAR16*)L"Exiting boot services...\r\n");
+                  (const CHAR16*)L"Starting KuroganeOS...\r\n");
 
     status = exit_boot_services(services, image_handle, boot_info);
     if (EFI_ERROR(status)) {
