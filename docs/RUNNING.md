@@ -1,4 +1,4 @@
-# Uruchamianie KuroganeOS 3.3.1-dev
+# Uruchamianie KuroganeOS 3.3.2-dev
 
 Ten dokument jest główną instrukcją uruchamiania systemu po zbudowaniu.
 Jeżeli nie wiesz, czym różni się IMG od ISO, użyj sekcji **Najprostsza opcja**.
@@ -10,8 +10,8 @@ Jeżeli nie wiesz, czym różni się IMG od ISO, użyj sekcji **Najprostsza opcj
 Po pełnym buildzie masz dwa główne nośniki:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-<host>-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.2-dev-<host>-qemu.img
+dist/KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 - **IMG**: najlepszy do szybkiego testowania w QEMU.
@@ -45,7 +45,7 @@ WSL również musi być zainstalowany.
 
 ## 2. Repo może być na C:, D:, I: lub innym dysku
 
-3.3.1 zawiera `scripts/wsl-path.ps1`. Jeżeli standardowy `wslpath` nie widzi
+3.3.x zawiera `scripts/wsl-path.ps1`. Jeżeli standardowy `wslpath` nie widzi
 np. `I:\KuroganeOS`, build spróbuje automatycznie zamontować dysk `I:` przez
 DrvFs jako:
 
@@ -78,8 +78,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 Oczekiwane pliki:
 
 ```text
-dist\KuroganeOS-3.3.1-dev-windows-qemu.img
-dist\KuroganeOS-3.3.1-dev-x86_64.iso
+dist\KuroganeOS-3.3.2-dev-windows-qemu.img
+dist\KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 ## 4. Uruchom IMG w QEMU
@@ -88,7 +88,7 @@ dist\KuroganeOS-3.3.1-dev-x86_64.iso
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\run-qemu.ps1 `
   -UseDiskImage `
-  -DiskImagePath .\dist\KuroganeOS-3.3.1-dev-windows-qemu.img `
+  -DiskImagePath .\dist\KuroganeOS-3.3.2-dev-windows-qemu.img `
   -Display `
   -KeepRunning `
   -MemoryMiB 1024
@@ -128,8 +128,8 @@ bash ./scripts/build-media-macos.sh --configuration release --rebuild
 Oczekiwane artefakty:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.2-dev-macos-qemu.img
+dist/KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 ## 3. Uruchom IMG
@@ -138,7 +138,7 @@ Wariant okienkowy:
 
 ```bash
 ./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-3.3.1-dev-macos-qemu.img \
+  --image ./dist/KuroganeOS-3.3.2-dev-macos-qemu.img \
   --windowed
 ```
 
@@ -146,7 +146,7 @@ Pełny ekran:
 
 ```bash
 ./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-3.3.1-dev-macos-qemu.img \
+  --image ./dist/KuroganeOS-3.3.2-dev-macos-qemu.img \
   --display
 ```
 
@@ -165,7 +165,7 @@ qemu-system-x86_64 \
   -vga std \
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
   -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_system,format=raw,file="./dist/KuroganeOS-3.3.1-dev-macos-qemu.img",cache=writeback \
+  -drive if=none,id=kurogane_system,format=raw,file="./dist/KuroganeOS-3.3.2-dev-macos-qemu.img",cache=writeback \
   -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
   -device e1000,netdev=net0 \
   -netdev user,id=net0 \
@@ -196,8 +196,8 @@ bash ./scripts/build-media-linux.sh --configuration release --rebuild
 Oczekiwane:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.2-dev-linux-qemu.img
+dist/KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 ## 3. QEMU
@@ -220,7 +220,7 @@ qemu-system-x86_64 \
   -vga std \
   -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
   -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_system,format=raw,file=./dist/KuroganeOS-3.3.1-dev-linux-qemu.img \
+  -drive if=none,id=kurogane_system,format=raw,file=./dist/KuroganeOS-3.3.2-dev-linux-qemu.img \
   -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
   -device e1000,netdev=net0 \
   -netdev user,id=net0 \
@@ -235,7 +235,7 @@ qemu-system-x86_64 \
 Do VirtualBox używaj ISO:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 Ustawienia referencyjne:
@@ -260,14 +260,14 @@ Windows może też automatycznie utworzyć VM:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\create-virtualbox-vm.ps1 `
-  -Iso .\dist\KuroganeOS-3.3.1-dev-x86_64.iso
+  -Iso .\dist\KuroganeOS-3.3.2-dev-x86_64.iso
 ```
 
 ---
 
 # Co powinno pojawić się po uruchomieniu
 
-Prawidłowa ścieżka 3.3.1-dev:
+Prawidłowa ścieżka 3.3.2-dev:
 
 ```text
 UEFI
@@ -275,19 +275,26 @@ UEFI
  -> Red Flux boot splash
  -> Try / Install (dla media instalacyjnego)
  -> Login
- -> Red Flux Home
- -> Dock
+ -> Red Flux Desktop
+      -> HOME icon na pulpicie
+      -> HOME button w Docku
+      -> pozostałe przypięte aplikacje
 ```
+
+Home jest procesem-rootem sesji, ale jego okno startuje schowane. Kliknij ikonę
+`HOME` na pulpicie albo przycisk `HOME` w Docku, aby je otworzyć. Kliknięcie `X`
+lub `Alt+F4` na oknie Home **nie wylogowuje** i nie kończy procesu Home — tylko
+minimalizuje/chowa jego surface. Logout będzie osobną świadomą akcją systemową.
 
 Dock ma stałe piny:
 
 ```text
-Home | Terminal | Files | Monitor | Settings | About
+HOME | Terminal | Files | Monitor | Settings | About
 ```
 
 Kliknięcie uruchomionej aplikacji ma ją przywrócić/focusować. Kliknięcie pinu
-aplikacji, która jeszcze nie działa, przekazuje żądanie do Red Flux Home i ją
-uruchamia.
+aplikacji, która jeszcze nie działa, przekazuje żądanie do żywego Red Flux Home
+i ją uruchamia.
 
 ---
 
@@ -318,8 +325,8 @@ Sprawdź kolejno:
 1. EFI/UEFI jest włączone;
 2. ISO jest w napędzie optycznym;
 3. DVD jest przed HDD w boot order;
-4. używasz wersjonowanego `KuroganeOS-3.3.1-dev-x86_64.iso`;
+4. używasz wersjonowanego `KuroganeOS-3.3.2-dev-x86_64.iso`;
 5. Secure Boot jest wyłączony.
 
-ISO 3.3.1 przechodzi obowiązkowy 20-pass verifier oraz niezależny optical UEFI
+ISO 3.3.x przechodzi obowiązkowy 20-pass verifier oraz niezależny optical UEFI
 smoke w CI przed uznaniem struktury nośnika za poprawną.
