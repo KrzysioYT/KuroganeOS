@@ -26,13 +26,48 @@ else
     exit 1
 fi
 
-cc="${CC:-$default_cc}"
-cxx="${CXX:-$default_cxx}"
-ar="${AR:-$default_ar}"
-readelf="${READELF:-$default_readelf}"
+# Generic CC/CXX environment variables are useful on native x86-64 Linux, but
+# are dangerous on macOS/Apple Silicon: CC=clang and CXX=clang++ build Mach-O
+# arm64 host objects instead of x86-64 ELF KuroganeOS binaries. On Darwin only
+# Kurogane-specific overrides are accepted.
+if [[ "$host_os" == Darwin ]]; then
+    cc="${KUROGANE_CC:-$default_cc}"
+    cxx="${KUROGANE_CXX:-$default_cxx}"
+    ar="${KUROGANE_AR:-$default_ar}"
+    readelf="${KUROGANE_READELF:-$default_readelf}"
+else
+    cc="${KUROGANE_CC:-${CC:-$default_cc}}"
+    cxx="${KUROGANE_CXX:-${CXX:-$default_cxx}}"
+    ar="${KUROGANE_AR:-${AR:-$default_ar}}"
+    readelf="${KUROGANE_READELF:-${READELF:-$default_readelf}}"
+fi
 for tool in "$cc" "$cxx" "$ar" "$readelf"; do
     command -v "$tool" >/dev/null 2>&1 || { echo "missing SDK tool: $tool" >&2; exit 1; }
 done
+
+if [[ "$host_os" == Darwin ]]; then
+    probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-sdk-probe.XXXXXX")"
+    trap 'rm -rf -- "$probe_dir"' EXIT
+    printf '%s\n' 'void kurogane_sdk_c_probe(void) {}' > "$probe_dir/probe.c"
+    printf '%s\n' 'void kurogane_sdk_cxx_probe() {}' > "$probe_dir/probe.cpp"
+    "$cc" -ffreestanding -fno-stack-protector -m64 -c \
+        "$probe_dir/probe.c" -o "$probe_dir/probe-c.o"
+    "$cxx" -ffreestanding -fno-stack-protector -m64 -fno-exceptions -fno-rtti -c \
+        "$probe_dir/probe.cpp" -o "$probe_dir/probe-cxx.o"
+    for probe in "$probe_dir/probe-c.o" "$probe_dir/probe-cxx.o"; do
+        if ! "$readelf" -hW "$probe" 2>/dev/null | \
+            grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64'; then
+            echo "[sdk] invalid macOS compiler target; expected x86-64 ELF" >&2
+            echo "[sdk] C compiler: $cc" >&2
+            echo "[sdk] C++ compiler: $cxx" >&2
+            echo "[sdk] Apple clang/clang++ cannot be used for KuroganeOS target binaries" >&2
+            exit 1
+        fi
+    done
+    rm -rf -- "$probe_dir"
+    trap - EXIT
+    echo "[sdk] macOS target toolchain verified: x86-64 ELF"
+fi
 
 build="$root/build/sdk"
 sysroot="$build/sysroot"
