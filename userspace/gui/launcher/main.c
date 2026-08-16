@@ -11,16 +11,16 @@ typedef struct launcher_app {
 } launcher_app;
 
 static const launcher_app g_apps[APP_COUNT] = {
-    {"TERMINAL", "commands / processes / development", "/gui/terminal"},
+    {"TERMINAL", "shared shell / development", "/gui/terminal"},
     {"FILES", "persistent root / applications", "/gui/files"},
-    {"MONITOR", "scheduler / process health", "/gui/sysmon"},
-    {"SETTINGS", "Flux appearance / session", "/gui/settings"},
-    {"ABOUT", "KuroganeOS platform information", "/gui/about"},
+    {"MONITOR", "runtime / process health", "/gui/sysmon"},
+    {"SETTINGS", "Red Flux appearance", "/gui/settings"},
+    {"ABOUT", "KuroganeOS platform", "/gui/about"},
 };
 
 static uint64_t g_children[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "FLUX SESSION READY";
+static char g_status[64] = "SESSION READY";
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -54,7 +54,7 @@ static void launch_selected(void) {
     const launcher_app* app = &g_apps[g_selected];
     const ku_result_t result = ku_process_spawn(app->path, strlen(app->path));
     if (result <= 0) {
-        (void)strlcpy(g_status, "LAUNCH FAILED // PROCESS ABI", sizeof(g_status));
+        (void)strlcpy(g_status, "LAUNCH FAILED", sizeof(g_status));
         return;
     }
     (void)remember_child((uint64_t)result);
@@ -62,7 +62,7 @@ static void launch_selected(void) {
     gui_u64(number, sizeof(number), (uint64_t)result);
     (void)strlcpy(g_status, "OPENED ", sizeof(g_status));
     append_text(g_status, sizeof(g_status), app->label);
-    append_text(g_status, sizeof(g_status), " // PID ");
+    append_text(g_status, sizeof(g_status), " / PID ");
     append_text(g_status, sizeof(g_status), number);
 }
 
@@ -73,42 +73,31 @@ static void build_scene(kui_scene* scene) {
     scene->visible_rows = 12U;
     kui_scene_set_palette(
         scene,
-        UINT32_C(0x090D14),
-        UINT32_C(0xF2F6FF),
-        UINT32_C(0x45E0BC));
+        UINT32_C(0x090A0C),
+        UINT32_C(0xECEEF1),
+        UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "KUROGANE // FLUX HOME");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " // DESKTOP");
-    (void)kui_flow_label(&root, 3U, "J/K OR ARROWS: SELECT   ENTER: OPEN");
+    (void)kui_flow_panel(&root, 1U, "RED FLUX HOME");
+    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DESKTOP");
+    (void)kui_flow_label(&root, 3U, "ARROWS / TAB TO SELECT   ENTER TO OPEN");
 
     kui_flow_begin(&apps, scene, 1U);
     for (size_t index = 0U; index < APP_COUNT; ++index) {
         char label[64];
         label[0] = '\0';
         (void)strlcpy(label, g_apps[index].label, sizeof(label));
-        append_text(label, sizeof(label), " // ");
+        append_text(label, sizeof(label), " / ");
         append_text(label, sizeof(label), g_apps[index].subtitle);
-        (void)kui_flow_list_item(
-            &apps, 10U + (uint32_t)index, label);
+        (void)kui_flow_list_item(&apps, 10U + (uint32_t)index, label);
     }
     (void)kui_flow_separator(&root, 30U);
     (void)kui_flow_label(&root, 31U, g_status);
     (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
 }
 
-static int key_is_up(const ku_ui_event* event) {
-    return event->character == 'k' || event->character == 'K' ||
-        event->key == UINT32_C(72);
-}
-
-static int key_is_down(const ku_ui_event* event) {
-    return event->character == 'j' || event->character == 'J' ||
-        event->key == UINT32_C(80);
-}
-
 int main(void) {
-    const ku_window_t window = gui_open("FLUX HOME", 220, 120, 640, 470);
+    const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
     if (window == KU_INVALID_WINDOW) return 1;
 
     for (size_t index = 0U; index < CHILD_CAPACITY; ++index) {
@@ -117,6 +106,7 @@ int main(void) {
 
     puts("[TEST] desktop_launcher_ring3: PASS");
     puts("[TEST] desktop_clean_session: PASS");
+    puts("[TEST] desktop_arrow_navigation: PASS");
 
     kui_scene scene;
     build_scene(&scene);
@@ -132,13 +122,13 @@ int main(void) {
         if (available < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (key_is_down(&event)) {
+        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
             g_selected = (g_selected + 1U) % APP_COUNT;
             (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
-        } else if (key_is_up(&event)) {
+        } else if (gui_key_up(&event) || gui_key_left(&event)) {
             g_selected = g_selected == 0U ? APP_COUNT - 1U : g_selected - 1U;
             (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
-        } else if (event.character == '\r' || event.character == '\n') {
+        } else if (gui_key_activate(&event)) {
             launch_selected();
         } else if (event.character == 't' || event.character == 'T') {
             g_selected = 0U;
@@ -146,6 +136,8 @@ int main(void) {
         } else if (event.character == 'f' || event.character == 'F') {
             g_selected = 1U;
             launch_selected();
+        } else if (gui_key_cancel(&event)) {
+            (void)strlcpy(g_status, "SESSION ROOT / ESC IGNORED", sizeof(g_status));
         } else {
             continue;
         }
