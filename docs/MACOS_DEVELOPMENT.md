@@ -1,9 +1,13 @@
-# KuroganeOS 2.2.5 — rozwój na macOS
+# KuroganeOS 2.6.1 — rozwój na macOS
 
-KuroganeOS 2.2.5 posiada natywny workflow macOS dla kernela, Ring-3 userspace,
-SDK, Kurogane Flux Desktop, obrazów QEMU oraz **instalowalnych ISO UEFI**.
-Nie wymaga WSL ani Windows PowerShell. Host może być Apple Silicon albo Intel;
-target KuroganeOS pozostaje `x86_64`.
+KuroganeOS ma natywny workflow macOS dla kernela, Ring-3 userspace, SDK,
+Kurogane Flux Desktop oraz development IMG uruchamianego przez QEMU. Nie wymaga
+WSL ani Windows PowerShell. Host może być Apple Silicon albo Intel; target
+KuroganeOS pozostaje `x86_64`.
+
+> **Stan 2.6.1:** development IMG + QEMU jest główną ścieżką testową na macOS.
+> Builder ISO istnieje, ale instalowalne ISO nadal ma znany problem runtime i
+> jest traktowane jako osobny tor naprawy. Nie blokuje to rozwoju desktopu.
 
 ## 1. Przygotowanie środowiska
 
@@ -31,9 +35,6 @@ Samo sprawdzenie:
 ./scripts/setup-macos.sh
 ```
 
-`xorriso` jest od 2.2.5 obowiązkowym elementem macOS toolchaina, ponieważ
-builder ISO działa natywnie na Macu.
-
 ## 2. Zwykły build development IMG
 
 Pełny debug rebuild:
@@ -48,7 +49,7 @@ Release IMG:
 ./scripts/build-macos.sh --configuration release --rebuild
 ```
 
-Wyniki:
+Wyniki 2.6.1:
 
 ```text
 build/kernel.elf
@@ -56,104 +57,97 @@ build/BOOTX64.EFI
 build/sdk/sysroot/
 build/userspace/rootfs/
 build/images/KuroganeOS-macos.img
-dist/KuroganeOS-2.2.5-macos-qemu.img
+dist/KuroganeOS-2.6.1-macos-qemu.img
 ```
 
-## 3. Build instalowalnego ISO na macOS
+## 3. QEMU — duży tryb desktopowy
 
-### Najprostsza komenda
-
-Buduje IMG development **i** instalowalne ISO:
+Najwygodniejsza komenda do pracy nad GUI:
 
 ```bash
-./scripts/build-macos.sh --configuration release --rebuild --iso
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.6.1-macos-qemu.img \
+  --display
 ```
 
-ISO:
+Od 2.6.1 `--display` oznacza:
 
-```text
-dist/KuroganeOS-2.2.5-x86_64.iso
-```
+- Cocoa frontend;
+- `zoom-to-fit`;
+- fullscreen jako domyślny wizualny development mode;
+- 768 MiB RAM;
+- jawne Standard VGA;
+- pozostawienie QEMU uruchomionego po przejściu smoke testu.
 
-Checksum:
-
-```text
-dist/SHA256SUMS.txt
-```
-
-Compatibility copy:
-
-```text
-kurogane.iso
-```
-
-### Tylko installer/ISO
-
-Jeżeli nie potrzebujesz development IMG:
+Jeżeli wolisz normalne okno, ale nadal skalowane:
 
 ```bash
-./scripts/build-installer-macos.sh --configuration release --rebuild
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.6.1-macos-qemu.img \
+  --windowed
 ```
 
-Builder kompiluje system przez natywny backend macOS, tworzy `install.pkg`,
-buduje osobny 64 MiB FAT32 EFI System Partition i następnie generuje właściwe
-UEFI/El Torito ISO przez `xorriso`. Nie wykonuje konwersji `.img -> .iso`.
-
-### Stara komenda zgodności
-
-Od 2.2.5 również to działa natywnie na macOS:
+Jawny fullscreen:
 
 ```bash
-./scripts/build-iso.sh release
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.6.1-macos-qemu.img \
+  --fullscreen
 ```
 
-Na Darwin skrypt automatycznie przechodzi do `build-installer-macos.sh` zamiast
-szukać PowerShella.
-
-### Reuse istniejącego builda
-
-Jeżeli `build/kernel.elf`, `build/BOOTX64.EFI` oraz
-`build/userspace/rootfs/` są aktualne:
-
-```bash
-./scripts/build-installer-macos.sh --configuration release --no-build
-```
-
-## 4. Naprawa błędu `version.h`
-
-2.2.0 mogło zatrzymać macOS SDK build na:
-
-```text
-userspace/gui/terminal/main.c: fatal error: version.h: No such file or directory
-```
-
-Przyczyną było to, że GUI SDK compile path nie widział katalogu `common/`.
-2.2.5 naprawia zarówno ścieżkę include buildera SDK, jak i include Terminala,
-więc `KUROGANE_VERSION_STRING` nie zależy już od przypadkowego working directory.
-
-## 5. QEMU
-
-Automatyczny smoke test:
+Automatyczny headless smoke test:
 
 ```bash
 ./scripts/run-qemu-macos.sh
 ```
 
-Desktop Developer Preview:
-
-```bash
-./scripts/run-qemu-macos.sh --display
-```
-
-Konkretny obraz:
-
-```bash
-./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-2.2.5-macos-qemu.img \
-  --display
-```
-
 Apple Silicon uruchamia gościa x86-64 przez QEMU TCG.
+
+## 4. Flux Terminal 2.6.1
+
+GUI Terminal ma obecnie m.in.:
+
+```text
+help
+version
+uname
+pid
+pwd
+cat /absolute/path
+read /absolute/path
+which <name>
+apps
+run <app>
+gui <surface>
+open <path|app>
+jobs
+wait <pid>
+history
+status
+echo
+about
+clear
+```
+
+`cat/read/which/open` korzystają z publicznego Ring-3 ABI. Nie ma przejścia do
+kernelowego shella.
+
+Komendy wymagające przyszłego publicznego VFS capability ABI (`ls`, `stat`,
+`cd`, `mkdir`, `touch`, `rm`, `cp`, `mv`) są rozpoznawane, ale nie udają
+powodzenia.
+
+## 5. Files 2.6.1
+
+Files udostępnia VFS-backed Quick Access:
+
+- `J/K` — wybór pozycji;
+- `ENTER` — podgląd albo uruchomienie aplikacji;
+- `R` — ponowny odczyt podglądu;
+- `/etc/system.cfg` jest czytany przez `open/read/close`;
+- obrazy ELF64 są rozpoznawane jako executable images.
+
+Pełne `readdir/stat` i prawdziwa nawigacja katalogów wymagają następnego
+rozszerzenia publicznego ABI.
 
 ## 6. Własna aplikacja
 
@@ -175,7 +169,7 @@ Odśwież development image:
 ./scripts/build-macos.sh --configuration debug --stage-only
 ```
 
-Następnie w Flux Console:
+Następnie w Flux Terminal:
 
 ```text
 run moja-aplikacja
@@ -191,26 +185,40 @@ make verify CONFIG=debug
 make clean
 ```
 
-## 8. Co buduje macOS
+## 8. ISO — aktualny stan
 
-Windows i macOS wytwarzają ten sam target KuroganeOS:
-
-- ELF64 kernel x86-64;
-- PE32+ AMD64 `BOOTX64.EFI`;
-- ELF64 ET_EXEC Ring-3 apps;
-- publiczny SDK ABI;
-- GPT/FAT32 development IMG;
-- instalowalny UEFI ISO.
-
-macOS jest hostem developerskim, a nie osobnym systemowym targetem.
-
-## 9. Weryfikacja
-
-Skrypty 2.2.5 przechodzą kontrolę składni Bash w repozytorium. Pełny runtime
-PASS wymaga wykonania na rzeczywistym Macu:
+Natywny builder nadal istnieje:
 
 ```bash
-./scripts/setup-macos.sh
-./scripts/build-macos.sh --configuration debug --rebuild --iso
-./scripts/run-qemu-macos.sh --display
+./scripts/build-macos.sh --configuration release --rebuild --iso
 ```
+
+oraz:
+
+```bash
+./scripts/build-installer-macos.sh --configuration release --rebuild
+```
+
+ale w 2.6.1 **nie traktujemy wygenerowanego ISO jako zweryfikowanego release
+medium**, dopóki jego obecny problem runtime nie zostanie naprawiony i przejdzie
+osobny installer smoke test.
+
+Do bieżącego developmentu używaj:
+
+```text
+dist/KuroganeOS-2.6.1-macos-qemu.img
+```
+
+## 9. Zalecany cykl pracy
+
+```bash
+git pull origin main
+./scripts/build-macos.sh --configuration debug --rebuild
+./scripts/run-qemu-macos.sh \
+  --image ./dist/KuroganeOS-2.6.1-macos-qemu.img \
+  --display
+```
+
+Jeśli testujesz tylko zmiany userspace/SDK po istniejącym kernel buildzie, można
+użyć `--stage-only`, ale po zmianie wersji lub kernela zawsze preferowany jest
+pełny `--rebuild`.
