@@ -76,6 +76,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
             tests/test_root_volume_image.cpp \
             tests/host_system_metrics_stub.cpp \
+            tests/host_process_path_stub.cpp \
             kernel/fs/root_volume.cpp \
             kernel/fs/fat32.cpp \
             kernel/fs/fat32_vfs.cpp \
