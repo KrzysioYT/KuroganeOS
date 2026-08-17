@@ -48,10 +48,26 @@ static inline ku_status_t ku_event_reset(ku_event_handle_t handle) {
     return (ku_status_t)ku_syscall3(KU_SYS_EVENT_RESET, handle, 0U, 0U);
 }
 
-/* Non-blocking foundation. KU_STATUS_WOULD_BLOCK means not signaled yet. */
+/* Non-blocking probe. KU_STATUS_WOULD_BLOCK means not signaled yet. */
 static inline ku_status_t ku_event_poll(ku_event_handle_t handle) {
     if (handle == 0U) return KU_STATUS_INVALID_ARGUMENT;
     return (ku_status_t)ku_syscall3(KU_SYS_EVENT_POLL, handle, 0U, 0U);
+}
+
+/*
+ * Sleeping wait foundation. The current scheduler has tick-based sleep but no
+ * direct wake-by-object primitive yet, so this intentionally sleeps one tick
+ * between probes instead of spinning. It can later be replaced internally by
+ * a true blocked-wait syscall without changing callers.
+ */
+static inline ku_status_t ku_event_wait(ku_event_handle_t handle) {
+    if (handle == 0U) return KU_STATUS_INVALID_ARGUMENT;
+    for (;;) {
+        ku_status_t status = ku_event_poll(handle);
+        if (status != KU_STATUS_WOULD_BLOCK) return status;
+        status = ku_sleep(1U);
+        if (status != KU_STATUS_OK) return status;
+    }
 }
 
 static inline ku_status_t ku_event_close(ku_event_handle_t handle) {
