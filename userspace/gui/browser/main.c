@@ -1,18 +1,55 @@
 #include "../common.h"
 #include "../../../common/version.h"
 
-#define URL_CAPACITY 192U
-#define PAGE_CAPACITY KU_HTTP_RESPONSE_CAPACITY_LIMIT
-#define VIEW_LINES 6U
-#define VIEW_LINE_CAPACITY 56U
+#define BROWSER_URL_CAPACITY 192U
+#define BROWSER_STATUS_CAPACITY 96U
+#define BROWSER_RENDER_LINES 7U
+#define BROWSER_RENDER_LINE_CAPACITY 60U
+#define BROWSER_REDIRECT_LIMIT 4U
+#define CHROMIUM_UPSTREAM_SHORT "4137589c"
 
-static char g_url[URL_CAPACITY] = "http://example.com/";
-static size_t g_url_length = 19U;
-static char g_page[PAGE_CAPACITY];
-static char g_lines[VIEW_LINES][VIEW_LINE_CAPACITY];
-static char g_status[64] = "READY / ENTER TO LOAD";
-static char g_network[64] = "NETWORK / CHECKING";
-static uint32_t g_http_status = 0U;
+typedef enum chromium_navigation_stage {
+    CHROMIUM_STAGE_IDLE = 0,
+    CHROMIUM_STAGE_NETWORK,
+    CHROMIUM_STAGE_REQUEST,
+    CHROMIUM_STAGE_REDIRECT,
+    CHROMIUM_STAGE_COMMIT,
+    CHROMIUM_STAGE_TLS_REQUIRED,
+    CHROMIUM_STAGE_FAILED
+} chromium_navigation_stage;
+
+typedef enum chromium_url_scheme {
+    CHROMIUM_SCHEME_INVALID = 0,
+    CHROMIUM_SCHEME_HTTP,
+    CHROMIUM_SCHEME_HTTPS
+} chromium_url_scheme;
+
+typedef struct chromium_browser_context {
+    char url[BROWSER_URL_CAPACITY];
+    size_t url_length;
+    char status[BROWSER_STATUS_CAPACITY];
+    char network[BROWSER_STATUS_CAPACITY];
+    char page[KU_HTTP_RESPONSE_CAPACITY_LIMIT];
+    char render_lines[BROWSER_RENDER_LINES][BROWSER_RENDER_LINE_CAPACITY];
+    ku_network_status network_state;
+    chromium_navigation_stage stage;
+    uint32_t http_status;
+    uint32_t redirect_count;
+    uint64_t bytes_received;
+    ku_status_t last_error;
+} chromium_browser_context;
+
+static chromium_browser_context g_browser;
+
+/*
+ * Kurogane Chromium port bootstrap.
+ *
+ * Chromium's content_shell separates BrowserContext, navigation and the
+ * platform window delegate. Kurogane Web follows the same ownership model so
+ * Blink/V8 can replace only the bootstrap renderer when the required platform
+ * APIs exist. No Chromium source is copied into this file and the current
+ * renderer is intentionally labelled as a bootstrap fallback.
+ */
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -26,6 +63,15 @@ static void append_u64(char* destination, size_t capacity, uint64_t value) {
     append_text(destination, capacity, number);
 }
 
+static void append_status_code(char* destination, size_t capacity, ku_status_t status) {
+    if (status < 0) {
+        append_text(destination, capacity, "-");
+        append_u64(destination, capacity, (uint64_t)(-(int64_t)status));
+    } else {
+        append_u64(destination, capacity, (uint64_t)status);
+    }
+}
+
 static void append_ipv4(char* destination, size_t capacity, const uint8_t address[4]) {
     size_t index;
     for (index = 0U; index < 4U; ++index) {
@@ -34,16 +80,32 @@ static void append_ipv4(char* destination, size_t capacity, const uint8_t addres
     }
 }
 
+static int ascii_equal_ci(char left, char right) {
+    if (left >= 'A' && left <= 'Z') left = (char)(left - 'A' + 'a');
+    if (right >= 'A' && right <= 'Z') right = (char)(right - 'A' + 'a');
+    return left == right;
+}
+
+static int starts_with_ci(const char* text, const char* prefix) {
+    size_t index = 0U;
+    while (prefix[index] != '\0') {
+        if (text[index] == '\0' || !ascii_equal_ci(text[index], prefix[index])) return 0;
+        ++index;
+    }
+    return 1;
+}
+
 static const char* status_name(ku_status_t status) {
     switch (status) {
+        case KU_STATUS_OK: return "OK";
         case KU_STATUS_INVALID_ARGUMENT: return "INVALID ARGUMENT";
-        case KU_STATUS_OUT_OF_RANGE: return "PACKET/BUFFER RANGE";
+        case KU_STATUS_OUT_OF_RANGE: return "TRANSPORT RANGE";
         case KU_STATUS_NOT_SUPPORTED: return "NOT SUPPORTED";
         case KU_STATUS_NOT_FOUND: return "NOT FOUND";
         case KU_STATUS_ACCESS_DENIED: return "ACCESS DENIED";
         case KU_STATUS_OUT_OF_MEMORY: return "OUT OF MEMORY";
         case KU_STATUS_IO_ERROR: return "NETWORK I/O";
-        case KU_STATUS_WOULD_BLOCK: return "NETWORK TIMEOUT/PENDING";
+        case KU_STATUS_WOULD_BLOCK: return "DNS/TCP TIMEOUT";
         case KU_STATUS_TIMED_OUT: return "TIMED OUT";
         case KU_STATUS_BAD_STATE: return "NIC/DHCP NOT READY";
         case KU_STATUS_VERSION_MISMATCH: return "ABI VERSION";
@@ -52,69 +114,106 @@ static const char* status_name(ku_status_t status) {
     }
 }
 
-static int update_network_status(void) {
-    ku_network_status status;
-    memset(&status, 0, sizeof(status));
-    status.structure_size = sizeof(status);
-    if (ku_network_get_status(&status) != KU_STATUS_OK) {
-        (void)strlcpy(g_network, "NETWORK / STATUS API FAILED", sizeof(g_network));
+static const char* stage_name(chromium_navigation_stage stage) {
+    switch (stage) {
+        case CHROMIUM_STAGE_IDLE: return "IDLE";
+        case CHROMIUM_STAGE_NETWORK: return "NETWORK";
+        case CHROMIUM_STAGE_REQUEST: return "DNS / TCP / HTTP";
+        case CHROMIUM_STAGE_REDIRECT: return "REDIRECT";
+        case CHROMIUM_STAGE_COMMIT: return "COMMITTED";
+        case CHROMIUM_STAGE_TLS_REQUIRED: return "HTTPS / TLS PLATFORM REQUIRED";
+        case CHROMIUM_STAGE_FAILED: return "FAILED";
+    }
+    return "UNKNOWN";
+}
+
+static void render_clear(chromium_browser_context* context) {
+    memset(context->render_lines, 0, sizeof(context->render_lines));
+}
+
+static void render_message(chromium_browser_context* context, const char* first, const char* second) {
+    render_clear(context);
+    if (first != NULL) (void)strlcpy(context->render_lines[0], first, BROWSER_RENDER_LINE_CAPACITY);
+    if (second != NULL) (void)strlcpy(context->render_lines[1], second, BROWSER_RENDER_LINE_CAPACITY);
+}
+
+static int platform_delegate_refresh_network(chromium_browser_context* context) {
+    ku_status_t result;
+    memset(&context->network_state, 0, sizeof(context->network_state));
+    context->network_state.structure_size = sizeof(context->network_state);
+    result = ku_network_get_status(&context->network_state);
+    if (result != KU_STATUS_OK) {
+        (void)strlcpy(context->network, "NET / STATUS API FAILED", sizeof(context->network));
+        context->last_error = result;
         return 0;
     }
 
-    (void)strlcpy(g_network, "NET ", sizeof(g_network));
-    if (status.physical == 0U) {
-        append_text(g_network, sizeof(g_network), "E1000 OFFLINE");
+    (void)strlcpy(context->network, "NET / ", sizeof(context->network));
+    if (context->network_state.physical == 0U) {
+        append_text(context->network, sizeof(context->network), "E1000 OFFLINE");
         return 0;
     }
-    if (status.dhcp == 0U) {
-        append_text(g_network, sizeof(g_network), "E1000 OK / DHCP MISSING");
+    if (context->network_state.dhcp == 0U) {
+        append_text(context->network, sizeof(context->network), "E1000 OK / DHCP MISSING");
         return 0;
     }
-    if (status.ready == 0U) {
-        append_text(g_network, sizeof(g_network), "STACK NOT READY");
+    if (context->network_state.ready == 0U) {
+        append_text(context->network, sizeof(context->network), "STACK NOT READY");
         return 0;
     }
 
-    append_text(g_network, sizeof(g_network), "ONLINE / ");
-    append_ipv4(g_network, sizeof(g_network), status.address);
+    append_text(context->network, sizeof(context->network), "ONLINE ");
+    append_ipv4(context->network, sizeof(context->network), context->network_state.address);
+    append_text(context->network, sizeof(context->network), " / DNS ");
+    append_ipv4(context->network, sizeof(context->network), context->network_state.dns);
     return 1;
 }
 
-static int parse_http_url(
+static chromium_url_scheme parse_url(
     const char* url,
     char* host,
     size_t host_capacity,
     char* path,
     size_t path_capacity) {
-    const char prefix[] = "http://";
+    const char http_prefix[] = "http://";
+    const char https_prefix[] = "https://";
+    chromium_url_scheme scheme = CHROMIUM_SCHEME_INVALID;
     size_t index = 0U;
     size_t host_length = 0U;
     size_t path_length = 0U;
 
-    while (prefix[index] != '\0') {
-        if (url[index] != prefix[index]) return 0;
-        ++index;
+    if (starts_with_ci(url, http_prefix)) {
+        scheme = CHROMIUM_SCHEME_HTTP;
+        index = sizeof(http_prefix) - 1U;
+    } else if (starts_with_ci(url, https_prefix)) {
+        scheme = CHROMIUM_SCHEME_HTTPS;
+        index = sizeof(https_prefix) - 1U;
+    } else {
+        return CHROMIUM_SCHEME_INVALID;
     }
+
     while (url[index] != '\0' && url[index] != '/') {
-        if (host_length + 1U >= host_capacity) return 0;
+        if (url[index] == ':' || url[index] == ' ' || host_length + 1U >= host_capacity) {
+            return CHROMIUM_SCHEME_INVALID;
+        }
         host[host_length++] = url[index++];
     }
-    if (host_length == 0U) return 0;
+    if (host_length == 0U) return CHROMIUM_SCHEME_INVALID;
     host[host_length] = '\0';
 
     if (url[index] == '\0') {
         (void)strlcpy(path, "/", path_capacity);
-        return 1;
+        return scheme;
     }
     while (url[index] != '\0') {
-        if (path_length + 1U >= path_capacity) return 0;
+        if (path_length + 1U >= path_capacity) return CHROMIUM_SCHEME_INVALID;
         path[path_length++] = url[index++];
     }
     path[path_length] = '\0';
-    return path[0] == '/';
+    return path[0] == '/' ? scheme : CHROMIUM_SCHEME_INVALID;
 }
 
-static const char* find_body(char* response) {
+static const char* response_body(const char* response) {
     size_t index = 0U;
     while (response[index] != '\0') {
         if (response[index] == '\r' && response[index + 1U] == '\n' &&
@@ -126,123 +225,295 @@ static const char* find_body(char* response) {
     return response;
 }
 
-static void render_text_body(const char* body) {
+static int response_header(
+    const char* response,
+    const char* name,
+    char* output,
+    size_t output_capacity) {
+    const size_t name_length = strlen(name);
+    size_t index = 0U;
+    if (output_capacity == 0U) return 0;
+    output[0] = '\0';
+
+    while (response[index] != '\0') {
+        size_t line_start = index;
+        size_t line_end = index;
+        size_t matched = 0U;
+        while (response[line_end] != '\0' && response[line_end] != '\r' &&
+               response[line_end] != '\n') ++line_end;
+        if (line_end == line_start) return 0;
+
+        while (matched < name_length && line_start + matched < line_end &&
+               ascii_equal_ci(response[line_start + matched], name[matched])) {
+            ++matched;
+        }
+        if (matched == name_length && line_start + matched < line_end &&
+            response[line_start + matched] == ':') {
+            size_t source = line_start + matched + 1U;
+            size_t destination = 0U;
+            while (source < line_end &&
+                   (response[source] == ' ' || response[source] == '\t')) ++source;
+            while (source < line_end && destination + 1U < output_capacity) {
+                output[destination++] = response[source++];
+            }
+            output[destination] = '\0';
+            return destination != 0U;
+        }
+
+        index = line_end;
+        if (response[index] == '\r') ++index;
+        if (response[index] == '\n') ++index;
+    }
+    return 0;
+}
+
+static void render_view_commit(chromium_browser_context* context, const char* body) {
     size_t line = 0U;
     size_t column = 0U;
+    size_t index = 0U;
     int inside_tag = 0;
     int pending_space = 0;
-    size_t index;
+    int pending_break = 0;
 
-    memset(g_lines, 0, sizeof(g_lines));
-    for (index = 0U; body[index] != '\0' && line < VIEW_LINES; ++index) {
+    render_clear(context);
+    while (body[index] != '\0' && line < BROWSER_RENDER_LINES) {
         const char ch = body[index];
         if (ch == '<') {
+            const char* tag = body + index + 1U;
             inside_tag = 1;
             pending_space = 1;
+            if (starts_with_ci(tag, "br") || starts_with_ci(tag, "/p") ||
+                starts_with_ci(tag, "/div") || starts_with_ci(tag, "/h1") ||
+                starts_with_ci(tag, "/h2") || starts_with_ci(tag, "/li")) {
+                pending_break = 1;
+            }
+            ++index;
             continue;
         }
         if (inside_tag) {
             if (ch == '>') inside_tag = 0;
+            ++index;
             continue;
         }
         if (ch == '\r' || ch == '\n' || ch == '\t' || ch == ' ') {
             pending_space = 1;
+            ++index;
             continue;
         }
-        if ((unsigned char)ch < 0x20U || (unsigned char)ch > 0x7EU) continue;
+        if ((unsigned char)ch < 0x20U || (unsigned char)ch > 0x7EU) {
+            ++index;
+            continue;
+        }
 
+        if (pending_break && column != 0U) {
+            ++line;
+            column = 0U;
+            pending_break = 0;
+            if (line >= BROWSER_RENDER_LINES) break;
+        }
         if (pending_space && column != 0U) {
-            if (column + 1U >= VIEW_LINE_CAPACITY) {
+            if (column + 1U >= BROWSER_RENDER_LINE_CAPACITY) {
                 ++line;
                 column = 0U;
-                if (line >= VIEW_LINES) break;
+                if (line >= BROWSER_RENDER_LINES) break;
             } else {
-                g_lines[line][column++] = ' ';
+                context->render_lines[line][column++] = ' ';
             }
         }
         pending_space = 0;
-        if (column + 1U >= VIEW_LINE_CAPACITY) {
+        if (column + 1U >= BROWSER_RENDER_LINE_CAPACITY) {
             ++line;
             column = 0U;
-            if (line >= VIEW_LINES) break;
+            if (line >= BROWSER_RENDER_LINES) break;
         }
-        g_lines[line][column++] = ch;
-        g_lines[line][column] = '\0';
+        context->render_lines[line][column++] = ch;
+        context->render_lines[line][column] = '\0';
+        ++index;
     }
-    if (g_lines[0][0] == '\0') {
-        (void)strlcpy(g_lines[0], "EMPTY OR NON-TEXT RESPONSE", VIEW_LINE_CAPACITY);
+
+    if (context->render_lines[0][0] == '\0') {
+        (void)strlcpy(
+            context->render_lines[0],
+            "NO TEXT CONTENT IN BOOTSTRAP RENDERER",
+            BROWSER_RENDER_LINE_CAPACITY);
     }
 }
 
-static void load_page(void) {
-    char host[KU_NET_HOST_CAPACITY];
-    char path[KU_NET_PATH_CAPACITY];
-    ku_http_request request;
-    ku_status_t result;
-
-    if (!parse_http_url(g_url, host, sizeof(host), path, sizeof(path))) {
-        (void)strlcpy(g_status, "ONLY http:// URLs ARE SUPPORTED", sizeof(g_status));
-        return;
+static int make_redirect_url(
+    chromium_url_scheme scheme,
+    const char* host,
+    const char* location,
+    char* output,
+    size_t output_capacity) {
+    if (starts_with_ci(location, "http://") || starts_with_ci(location, "https://")) {
+        return strlcpy(output, location, output_capacity) < output_capacity;
     }
-    if (!update_network_status()) {
-        (void)strlcpy(g_status, "HTTP BLOCKED / NETWORK NOT READY", sizeof(g_status));
-        memset(g_lines, 0, sizeof(g_lines));
-        (void)strlcpy(g_lines[0], "CHECK E1000 + NAT + DHCP", VIEW_LINE_CAPACITY);
-        return;
-    }
+    if (location[0] != '/') return 0;
+    output[0] = '\0';
+    append_text(output, output_capacity,
+        scheme == CHROMIUM_SCHEME_HTTPS ? "https://" : "http://");
+    append_text(output, output_capacity, host);
+    append_text(output, output_capacity, location);
+    return strlen(output) + 1U < output_capacity;
+}
 
-    memset(g_page, 0, sizeof(g_page));
-    memset(&request, 0, sizeof(request));
-    request.structure_size = sizeof(request);
-    (void)strlcpy(request.host, host, sizeof(request.host));
-    (void)strlcpy(request.path, path, sizeof(request.path));
-    request.output = g_page;
-    request.output_capacity = sizeof(g_page) - 1U;
+static void browser_context_initialize(chromium_browser_context* context) {
+    memset(context, 0, sizeof(*context));
+    (void)strlcpy(context->url, "http://example.com/", sizeof(context->url));
+    context->url_length = strlen(context->url);
+    context->stage = CHROMIUM_STAGE_IDLE;
+    context->last_error = KU_STATUS_OK;
+    (void)strlcpy(
+        context->status,
+        "READY / CHROMIUM CONTENT PORT BOOTSTRAP",
+        sizeof(context->status));
+    render_message(
+        context,
+        "DEFAULT CONNECTIVITY TEST: http://example.com/",
+        "GOOGLE REDIRECTS TO HTTPS; TLS PORT IS NOT READY YET");
+    (void)platform_delegate_refresh_network(context);
+}
 
-    (void)strlcpy(g_status, "LOADING / DNS + TCP + HTTP", sizeof(g_status));
-    result = ku_http_get(&request);
-    if (result != KU_STATUS_OK) {
-        (void)strlcpy(g_status, "HTTP FAILED / ", sizeof(g_status));
-        append_text(g_status, sizeof(g_status), status_name(result));
-        append_text(g_status, sizeof(g_status), " / ");
-        if (result < 0) {
-            append_text(g_status, sizeof(g_status), "-");
-            append_u64(g_status, sizeof(g_status), (uint64_t)(-(int64_t)result));
-        } else {
-            append_u64(g_status, sizeof(g_status), (uint64_t)result);
+static void navigation_fail(
+    chromium_browser_context* context,
+    ku_status_t status,
+    const char* detail) {
+    context->stage = CHROMIUM_STAGE_FAILED;
+    context->last_error = status;
+    (void)strlcpy(context->status, "NAVIGATION FAILED / ", sizeof(context->status));
+    append_text(context->status, sizeof(context->status), status_name(status));
+    append_text(context->status, sizeof(context->status), " / ");
+    append_status_code(context->status, sizeof(context->status), status);
+    render_message(context, detail, "CHECK NET LINE FOR E1000 / DHCP / DNS STATE");
+}
+
+static ku_status_t navigation_controller_load(chromium_browser_context* context) {
+    uint32_t redirect;
+    char navigation_url[BROWSER_URL_CAPACITY];
+    (void)strlcpy(navigation_url, context->url, sizeof(navigation_url));
+    context->redirect_count = 0U;
+    context->http_status = 0U;
+    context->bytes_received = 0U;
+
+    for (redirect = 0U; redirect <= BROWSER_REDIRECT_LIMIT; ++redirect) {
+        char host[KU_NET_HOST_CAPACITY] = {0};
+        char path[KU_NET_PATH_CAPACITY] = {0};
+        char location[BROWSER_URL_CAPACITY] = {0};
+        chromium_url_scheme scheme;
+        ku_http_request request;
+        ku_status_t result;
+
+        scheme = parse_url(navigation_url, host, sizeof(host), path, sizeof(path));
+        if (scheme == CHROMIUM_SCHEME_INVALID) {
+            navigation_fail(context, KU_STATUS_INVALID_ARGUMENT,
+                "ENTER A FULL http:// OR https:// URL");
+            return KU_STATUS_INVALID_ARGUMENT;
         }
-        memset(g_lines, 0, sizeof(g_lines));
-        if (result == KU_STATUS_OUT_OF_RANGE) {
-            (void)strlcpy(g_lines[0], "TCP FRAME EXCEEDED TRANSPORT BUFFER", VIEW_LINE_CAPACITY);
-            (void)strlcpy(g_lines[1], "3.3.3 HOTFIX ACCEPTS FULL MTU", VIEW_LINE_CAPACITY);
-        } else {
-            (void)strlcpy(g_lines[0], "NETWORK DIAGNOSTIC ABOVE", VIEW_LINE_CAPACITY);
+        if (scheme == CHROMIUM_SCHEME_HTTPS) {
+            context->stage = CHROMIUM_STAGE_TLS_REQUIRED;
+            context->last_error = KU_STATUS_NOT_SUPPORTED;
+            (void)strlcpy(context->status,
+                "HTTPS REDIRECT / CHROMIUM TLS PLATFORM NOT PORTED",
+                sizeof(context->status));
+            render_message(context,
+                "URL REQUIRES HTTPS / TLS",
+                "THIS IS NOW REPORTED AS A PORT DEPENDENCY, NOT HTTP FAILURE");
+            (void)strlcpy(context->url, navigation_url, sizeof(context->url));
+            context->url_length = strlen(context->url);
+            return KU_STATUS_NOT_SUPPORTED;
         }
-        return;
+
+        context->stage = CHROMIUM_STAGE_NETWORK;
+        if (!platform_delegate_refresh_network(context)) {
+            navigation_fail(context, KU_STATUS_BAD_STATE,
+                "NETWORK STACK IS NOT READY FOR NAVIGATION");
+            return KU_STATUS_BAD_STATE;
+        }
+
+        context->stage = CHROMIUM_STAGE_REQUEST;
+        memset(context->page, 0, sizeof(context->page));
+        memset(&request, 0, sizeof(request));
+        request.structure_size = sizeof(request);
+        (void)strlcpy(request.host, host, sizeof(request.host));
+        (void)strlcpy(request.path, path, sizeof(request.path));
+        request.output = context->page;
+        request.output_capacity = sizeof(context->page) - 1U;
+
+        (void)strlcpy(context->status,
+            "NAVIGATING / DNS -> TCP -> HTTP",
+            sizeof(context->status));
+        result = ku_http_get(&request);
+        if (result != KU_STATUS_OK) {
+            if (result == KU_STATUS_OUT_OF_RANGE) {
+                navigation_fail(context, result,
+                    "TRANSPORT REJECTED A FRAME OR RESPONSE RANGE");
+            } else if (result == KU_STATUS_WOULD_BLOCK) {
+                navigation_fail(context, result,
+                    "DNS OR TCP DID NOT COMPLETE BEFORE THE POLL BUDGET");
+            } else {
+                navigation_fail(context, result,
+                    "KERNEL NETWORK SERVICE RETURNED AN ERROR");
+            }
+            return result;
+        }
+
+        if (request.bytes_received >= sizeof(context->page)) {
+            request.bytes_received = sizeof(context->page) - 1U;
+        }
+        context->page[(size_t)request.bytes_received] = '\0';
+        context->http_status = request.http_status;
+        context->bytes_received = request.bytes_received;
+
+        if (context->http_status >= 300U && context->http_status < 400U &&
+            response_header(context->page, "Location", location, sizeof(location))) {
+            char redirected[BROWSER_URL_CAPACITY] = {0};
+            context->stage = CHROMIUM_STAGE_REDIRECT;
+            if (!make_redirect_url(scheme, host, location, redirected, sizeof(redirected))) {
+                navigation_fail(context, KU_STATUS_CORRUPT_DATA,
+                    "HTTP REDIRECT LOCATION COULD NOT BE RESOLVED");
+                return KU_STATUS_CORRUPT_DATA;
+            }
+            (void)strlcpy(navigation_url, redirected, sizeof(navigation_url));
+            context->redirect_count = redirect + 1U;
+            continue;
+        }
+
+        context->stage = CHROMIUM_STAGE_COMMIT;
+        context->last_error = KU_STATUS_OK;
+        (void)strlcpy(context->url, navigation_url, sizeof(context->url));
+        context->url_length = strlen(context->url);
+        render_view_commit(context, response_body(context->page));
+        (void)strlcpy(context->status, "COMMITTED / HTTP ", sizeof(context->status));
+        append_u64(context->status, sizeof(context->status), context->http_status);
+        append_text(context->status, sizeof(context->status), " / ");
+        append_u64(context->status, sizeof(context->status), context->bytes_received);
+        append_text(context->status, sizeof(context->status), " B");
+        if (context->redirect_count != 0U) {
+            append_text(context->status, sizeof(context->status), " / REDIRECTS ");
+            append_u64(context->status, sizeof(context->status), context->redirect_count);
+        }
+        return KU_STATUS_OK;
     }
 
-    if (request.bytes_received >= sizeof(g_page)) {
-        request.bytes_received = sizeof(g_page) - 1U;
-    }
-    g_page[(size_t)request.bytes_received] = '\0';
-    g_http_status = request.http_status;
-    render_text_body(find_body(g_page));
-    (void)strlcpy(g_status, "LOADED / HTTP ", sizeof(g_status));
-    append_u64(g_status, sizeof(g_status), g_http_status);
-    append_text(g_status, sizeof(g_status), " / ");
-    append_u64(g_status, sizeof(g_status), request.bytes_received);
-    append_text(g_status, sizeof(g_status), " B");
+    navigation_fail(context, KU_STATUS_CORRUPT_DATA,
+        "REDIRECT LIMIT EXCEEDED");
+    return KU_STATUS_CORRUPT_DATA;
 }
 
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     size_t index;
-    char address[64] = "URL  ";
+    char address[BROWSER_URL_CAPACITY + 8U] = "URL  ";
+    char engine[96] = "ENGINE  CHROMIUM CONTENT_SHELL PORT / UPSTREAM ";
+    char stage[96] = "NAV  ";
 
-    (void)update_network_status();
-    append_text(address, sizeof(address), g_url);
+    (void)platform_delegate_refresh_network(&g_browser);
+    append_text(address, sizeof(address), g_browser.url);
+    append_text(engine, sizeof(engine), CHROMIUM_UPSTREAM_SHORT);
+    append_text(stage, sizeof(stage), stage_name(g_browser.stage));
+
     kui_scene_initialize(scene);
-    scene->visible_rows = 13U;
+    scene->visible_rows = 16U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -250,29 +521,37 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / NATIVE HTTP");
+    (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
-    (void)kui_flow_label(&root, 3U, "ENTER: LOAD   ESC: CLEAR   HTTP/1.0 DEV BETA");
-    (void)kui_flow_label(&root, 4U, g_network);
-    (void)kui_flow_label(&root, 5U, g_status);
-    (void)kui_flow_separator(&root, 6U);
-    for (index = 0U; index < VIEW_LINES; ++index) {
-        (void)kui_flow_label(&root, 10U + (uint32_t)index,
-            g_lines[index][0] != '\0' ? g_lines[index] : " ");
+    (void)kui_flow_label(&root, 3U, "ENTER: NAVIGATE   ESC: CLEAR ADDRESS");
+    (void)kui_flow_label(&root, 4U, engine);
+    (void)kui_flow_label(&root, 5U, g_browser.network);
+    (void)kui_flow_label(&root, 6U, stage);
+    (void)kui_flow_label(&root, 7U, g_browser.status);
+    (void)kui_flow_separator(&root, 8U);
+    for (index = 0U; index < BROWSER_RENDER_LINES; ++index) {
+        (void)kui_flow_label(
+            &root,
+            10U + (uint32_t)index,
+            g_browser.render_lines[index][0] != '\0'
+                ? g_browser.render_lines[index] : " ");
     }
-    (void)kui_flow_label(&root, 20U,
-        "HTTPS/TLS/CHROMIUM: FUTURE PLATFORM LAYER");
+    (void)kui_flow_separator(&root, 30U);
+    (void)kui_flow_label(
+        &root, 31U,
+        "BOOTSTRAP RENDERER ACTIVE / BLINK + V8 PLATFORM PORT IN PROGRESS");
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("KUROGANE WEB", 155, 115, 720, 490);
+    const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
 
-    puts("[TEST] desktop_browser_ui: PASS");
-    puts("[TEST] browser_full_mtu_transport: PASS");
-    memset(g_lines, 0, sizeof(g_lines));
-    (void)strlcpy(g_lines[0], "DEFAULT TEST: http://example.com/", VIEW_LINE_CAPACITY);
+    browser_context_initialize(&g_browser);
+    puts("[TEST] chromium_port_browser_context: PASS");
+    puts("[TEST] chromium_port_navigation_controller: PASS");
+    puts("[TEST] chromium_port_platform_delegate: PASS");
+    puts("[TEST] chromium_port_bootstrap_renderer: PASS");
 
     for (;;) {
         ku_ui_event event;
@@ -286,17 +565,20 @@ int main(void) {
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (event.key == KU_UI_KEY_BACKSPACE) {
-            if (g_url_length != 0U) g_url[--g_url_length] = '\0';
+            if (g_browser.url_length != 0U) {
+                g_browser.url[--g_browser.url_length] = '\0';
+            }
         } else if (gui_key_cancel(&event)) {
-            g_url_length = 0U;
-            g_url[0] = '\0';
-            (void)strlcpy(g_status, "ADDRESS CLEARED", sizeof(g_status));
+            g_browser.url_length = 0U;
+            g_browser.url[0] = '\0';
+            g_browser.stage = CHROMIUM_STAGE_IDLE;
+            (void)strlcpy(g_browser.status, "ADDRESS CLEARED", sizeof(g_browser.status));
         } else if (gui_key_activate(&event)) {
-            load_page();
+            (void)navigation_controller_load(&g_browser);
         } else if (event.character >= 0x20U && event.character <= 0x7EU &&
-                   g_url_length + 1U < sizeof(g_url)) {
-            g_url[g_url_length++] = (char)event.character;
-            g_url[g_url_length] = '\0';
+                   g_browser.url_length + 1U < sizeof(g_browser.url)) {
+            g_browser.url[g_browser.url_length++] = (char)event.character;
+            g_browser.url[g_browser.url_length] = '\0';
         }
     }
 
