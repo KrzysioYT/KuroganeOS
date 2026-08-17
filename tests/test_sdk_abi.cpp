@@ -1,5 +1,6 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
+#include <kurogane/event.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
 #include <kurogane/shared_memory.h>
@@ -58,7 +59,15 @@ int main() {
     static_assert(KU_SYS_SHM_MAP == 46);
     static_assert(KU_SYS_SHM_UNMAP == 47);
     static_assert(KU_SYS_SHM_CLOSE == 48);
+    static_assert(KU_SYS_EVENT_CREATE == 49);
+    static_assert(KU_SYS_EVENT_GRANT == 50);
+    static_assert(KU_SYS_EVENT_SIGNAL == 51);
+    static_assert(KU_SYS_EVENT_RESET == 52);
+    static_assert(KU_SYS_EVENT_POLL == 53);
+    static_assert(KU_SYS_EVENT_CLOSE == 54);
 
+    static_assert(KU_EVENT_AUTO_RESET == 0);
+    static_assert(KU_EVENT_MANUAL_RESET == 1);
     static_assert(KU_SHM_PAGE_SIZE == 4096U);
     static_assert(KU_SHM_MAX_SIZE == 65536U);
 
