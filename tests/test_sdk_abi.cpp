@@ -5,6 +5,7 @@
 #include <kurogane/ipc.h>
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
+#include <kurogane/system.h>
 #include <kurogane/ui.h>
 
 #include <cassert>
@@ -70,6 +71,8 @@ int main() {
     static_assert(KU_EVENT_MANUAL_RESET == 1);
     static_assert(KU_SHM_PAGE_SIZE == 4096U);
     static_assert(KU_SHM_MAX_SIZE == 65536U);
+    static_assert(KU_SYSTEM_TICKS_PER_SECOND == 100U);
+    static_assert(KU_SYSTEM_MILLISECONDS_PER_SECOND == 1000U);
 
     static_assert(KU_AUDIO_PCM_SAMPLE_RATE == 48000U);
     static_assert(KU_AUDIO_PCM_CHANNELS == 2U);
@@ -110,6 +113,13 @@ int main() {
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
+
+    assert(ku_system_ticks_to_milliseconds(0U) == 0U);
+    assert(ku_system_ticks_to_milliseconds(1U) == 10U);
+    assert(ku_system_ticks_to_milliseconds(99U) == 990U);
+    assert(ku_system_ticks_to_milliseconds(100U) == 1000U);
+    assert(ku_system_ticks_to_milliseconds(12345U) == 123450U);
+    assert(ku_system_ticks_to_milliseconds(UINT64_MAX) == UINT64_MAX);
 
     assert(ku_abi_validate_descriptor(nullptr) == KU_STATUS_INVALID_ARGUMENT);
 
