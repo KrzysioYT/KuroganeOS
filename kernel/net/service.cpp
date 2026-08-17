@@ -3,6 +3,8 @@
 #include "physical.hpp"
 #include "dhcp.hpp"
 #include "protocols.hpp"
+#include "../arch/x86_64/io.hpp"
+#include "../drivers/pit.hpp"
 
 namespace net::service {
 
@@ -26,6 +28,15 @@ constexpr IPv4Address kLoopbackMask = {{255, 0, 0, 0}};
 constexpr IPv4Address kNoGateway = {{0, 0, 0, 0}};
 constexpr uint8_t kPingPayload[] = {'K', 'U', 'R', 'O'};
 
+constexpr uint64_t kArpTimeoutMs = UINT64_C(3000);
+constexpr uint64_t kPingTimeoutMs = UINT64_C(3000);
+constexpr uint64_t kDnsSendTimeoutMs = UINT64_C(3000);
+constexpr uint64_t kDnsReplyTimeoutMs = UINT64_C(5000);
+constexpr uint64_t kTcpNeighborTimeoutMs = UINT64_C(3000);
+constexpr uint64_t kTcpHandshakeTimeoutMs = UINT64_C(5000);
+constexpr uint64_t kTcpReplyTimeoutMs = UINT64_C(8000);
+constexpr uint64_t kHttpReceiveTimeoutMs = UINT64_C(12000);
+
 bool acceptable_poll_status(Status status) {
     return status == Status::Ok || status == Status::NotForUs ||
         status == Status::UnsupportedProtocol;
@@ -38,6 +49,46 @@ uint16_t next_ephemeral_port() {
         g_ephemeral_port = UINT16_C(49152);
     }
     return result;
+}
+
+uint64_t timeout_ticks(uint64_t milliseconds) {
+    if (!drivers::pit::initialized()) return 0U;
+    const uint64_t frequency = drivers::pit::frequency_hz();
+    if (frequency == 0U) return 0U;
+    if (milliseconds > (UINT64_MAX - UINT64_C(999)) / frequency) {
+        return UINT64_MAX;
+    }
+    const uint64_t product = milliseconds * frequency;
+    const uint64_t ticks = (product + UINT64_C(999)) / UINT64_C(1000);
+    return ticks == 0U ? 1U : ticks;
+}
+
+bool wait_window_open(
+    uint64_t started,
+    uint64_t timeout_ms,
+    size_t attempt,
+    size_t fallback_budget) {
+    const uint64_t limit = timeout_ticks(timeout_ms);
+    if (limit != 0U && limit != UINT64_MAX) {
+        return drivers::pit::ticks() - started < limit;
+    }
+    return attempt < fallback_budget;
+}
+
+void wait_for_transport_progress() {
+#if defined(KUROGANE_HOST_TEST)
+    arch::pause();
+#else
+    // E1000/PCnet are polled today. Sleeping until the next interrupt lets PIT
+    // wake us to poll again without burning an entire CPU in a tight loop.
+    const bool interrupts_enabled =
+        (arch::read_flags() & (UINT64_C(1) << 9U)) != 0U;
+    if (drivers::pit::initialized() && interrupts_enabled) {
+        arch::halt();
+    } else {
+        arch::pause();
+    }
+#endif
 }
 
 Status initialize_loopback_fallback() {
@@ -55,7 +106,6 @@ Status wait_for_ping(
     const IPv4Address& destination,
     uint16_t sequence,
     PingReply* reply) {
-    constexpr size_t poll_budget = 200000U;
     Status status = send_ping(
         &g_stack,
         destination,
@@ -65,7 +115,10 @@ Status wait_for_ping(
         sizeof(kPingPayload));
     if (status == Status::NeighborResolutionPending) {
         bool resolved = false;
-        for (size_t attempt = 0U; attempt < poll_budget; ++attempt) {
+        const uint64_t started = drivers::pit::ticks();
+        for (size_t attempt = 0U;
+             wait_window_open(started, kArpTimeoutMs, attempt, 200000U);
+             ++attempt) {
             size_t processed = 0U;
             status = net::poll(&g_stack, 8U, &processed);
             if (status != Status::Ok) return status;
@@ -74,7 +127,7 @@ Status wait_for_ping(
                 resolved = true;
                 break;
             }
-            __asm__ volatile("pause");
+            wait_for_transport_progress();
         }
         if (!resolved) return Status::NeighborResolutionPending;
         status = send_ping(
@@ -86,7 +139,11 @@ Status wait_for_ping(
             sizeof(kPingPayload));
     }
     if (status != Status::Ok) return status;
-    for (size_t attempt = 0U; attempt < poll_budget; ++attempt) {
+
+    const uint64_t started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(started, kPingTimeoutMs, attempt, 200000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (status != Status::Ok) return status;
@@ -100,7 +157,7 @@ Status wait_for_ping(
             if (reply != nullptr) *reply = result;
             return Status::Ok;
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     return Status::WouldBlock;
 }
@@ -243,9 +300,11 @@ Status resolve_a(const char* name, IPv4Address* out_address) {
     UdpDatagram stale{};
     while (take_udp_datagram(&g_stack, &stale) == Status::Ok) {}
     const uint16_t source_port = next_ephemeral_port();
-    constexpr size_t send_budget = 200000U;
     bool sent = false;
-    for (size_t attempt = 0U; attempt < send_budget; ++attempt) {
+    const uint64_t send_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(send_started, kDnsSendTimeoutMs, attempt, 200000U);
+         ++attempt) {
         status = send_udp(
             &g_stack, g_lease.dns_server,
             source_port, 53U, query, query_length);
@@ -257,12 +316,14 @@ Status resolve_a(const char* name, IPv4Address* out_address) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (!acceptable_poll_status(status)) return status;
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     if (!sent) return Status::WouldBlock;
 
-    constexpr size_t reply_budget = 400000U;
-    for (size_t attempt = 0U; attempt < reply_budget; ++attempt) {
+    const uint64_t reply_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(reply_started, kDnsReplyTimeoutMs, attempt, 400000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (!acceptable_poll_status(status)) return status;
@@ -281,7 +342,7 @@ Status resolve_a(const char* name, IPv4Address* out_address) {
             }
             if (status != Status::NotForUs) return status;
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     return Status::WouldBlock;
 }
@@ -298,7 +359,10 @@ Status tcp_connect_probe(
     while (take_tcp_segment(&g_stack, &stale) == Status::Ok) {}
     bool sent = false;
     Status status = Status::WouldBlock;
-    for (size_t attempt = 0U; attempt < 200000U; ++attempt) {
+    const uint64_t send_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(send_started, kTcpNeighborTimeoutMs, attempt, 200000U);
+         ++attempt) {
         status = send_tcp(
             &g_stack, address, source_port, port,
             initial_sequence, 0U, TcpSyn, UINT16_C(32768), nullptr, 0U);
@@ -310,11 +374,16 @@ Status tcp_connect_probe(
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (!acceptable_poll_status(status)) return status;
+        wait_for_transport_progress();
     }
     if (!sent) return Status::WouldBlock;
+
     TcpSegment reply{};
     bool established = false;
-    for (size_t attempt = 0U; attempt < 500000U; ++attempt) {
+    const uint64_t handshake_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(handshake_started, kTcpHandshakeTimeoutMs, attempt, 500000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (!acceptable_poll_status(status)) return status;
@@ -328,7 +397,7 @@ Status tcp_connect_probe(
                 break;
             }
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     if (!established) return Status::WouldBlock;
     status = send_tcp(
@@ -353,7 +422,10 @@ Status tcp_connect_probe(
     if (status != Status::Ok) return status;
     const uint32_t expected_ack = initial_sequence + 1U +
         static_cast<uint32_t>(cursor);
-    for (size_t attempt = 0U; attempt < 800000U; ++attempt) {
+    const uint64_t reply_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(reply_started, kTcpReplyTimeoutMs, attempt, 800000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
         if (!acceptable_poll_status(status)) return status;
@@ -374,7 +446,7 @@ Status tcp_connect_probe(
                 return Status::Ok;
             }
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     return Status::WouldBlock;
 }
@@ -415,7 +487,10 @@ Status http_get(
     while (take_tcp_segment(&g_stack, &stale) == Status::Ok) {}
 
     bool syn_sent = false;
-    for (size_t attempt = 0U; attempt < 200000U; ++attempt) {
+    const uint64_t send_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(send_started, kTcpNeighborTimeoutMs, attempt, 200000U);
+         ++attempt) {
         status = send_tcp(
             &g_stack, address, source_port, 80U,
             initial_sequence, 0U, TcpSyn, UINT16_C(32768), nullptr, 0U);
@@ -427,13 +502,16 @@ Status http_get(
         size_t processed = 0U;
         status = net::poll(&g_stack, 1U, &processed);
         if (!acceptable_poll_status(status)) return status;
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     if (!syn_sent) return Status::WouldBlock;
 
     TcpSegment handshake{};
     bool established = false;
-    for (size_t attempt = 0U; attempt < 500000U; ++attempt) {
+    const uint64_t handshake_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(handshake_started, kTcpHandshakeTimeoutMs, attempt, 500000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 1U, &processed);
         if (!acceptable_poll_status(status)) return status;
@@ -447,7 +525,7 @@ Status http_get(
                 break;
             }
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
     if (!established) return Status::WouldBlock;
 
@@ -482,7 +560,10 @@ Status http_get(
 
     size_t written = 0U;
     bool received_any = false;
-    for (size_t attempt = 0U; attempt < 1200000U; ++attempt) {
+    const uint64_t receive_started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         wait_window_open(receive_started, kHttpReceiveTimeoutMs, attempt, 1200000U);
+         ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 1U, &processed);
         if (!acceptable_poll_status(status)) return status;
@@ -491,7 +572,7 @@ Status http_get(
         if (take_tcp_segment(&g_stack, &segment) != Status::Ok ||
             !ipv4_equal(segment.source, address) || segment.source_port != 80U ||
             segment.destination_port != source_port) {
-            __asm__ volatile("pause");
+            wait_for_transport_progress();
             continue;
         }
         if ((segment.flags & TcpRst) != 0U) return Status::InterfaceError;
@@ -531,7 +612,7 @@ Status http_get(
             *out_length = written;
             return received_any ? Status::Ok : Status::WouldBlock;
         }
-        __asm__ volatile("pause");
+        wait_for_transport_progress();
     }
 
     *out_length = written;
