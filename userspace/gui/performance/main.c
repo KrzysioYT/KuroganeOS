@@ -28,7 +28,7 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     char ram[64] = "RAM            ";
     char disk[64] = "DISK ACTIVITY  ";
     char memory[64] = "MEMORY         ";
-    char uptime[64] = "UPTIME TICKS   ";
+    char uptime[64] = "UPTIME         ";
     char value[24];
 
     append_percent(cpu, sizeof(cpu), snapshot->cpu_percent);
@@ -41,8 +41,9 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     append_text(memory, sizeof(memory), " / ");
     append_mib(memory, sizeof(memory), snapshot->memory_total_bytes);
 
-    gui_u64(value, sizeof(value), snapshot->uptime_ticks);
+    gui_u64(value, sizeof(value), ku_system_uptime_seconds(snapshot));
     append_text(uptime, sizeof(uptime), value);
+    append_text(uptime, sizeof(uptime), " s");
 
     kui_scene_initialize(scene);
     scene->visible_rows = 12U;
@@ -94,14 +95,22 @@ int main(void) {
             return 3;
         }
 
-        for (uint32_t tick = 0U; tick < 100U; ++tick) {
-            const int available = kui_next_event(window, &event);
-            if (available < 0 ||
-                (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
-                (void)ku_ui_close(window);
-                return 0;
-            }
-            (void)kuro_sleep(1U);
+        /*
+         * The old loop woke this process once per 100 Hz scheduler tick.
+         * That generated roughly 100 scheduler wakeups/context switches per
+         * second just for the monitor itself, inflating its own CPU reading
+         * and adding avoidable compositor/scheduler pressure. Performance is
+         * a one-second sampler, so sleep once for the whole sample period.
+         */
+        const int available = kui_next_event(window, &event);
+        if (available < 0 ||
+            (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
+            (void)ku_ui_close(window);
+            return 0;
+        }
+        if (kuro_sleep_seconds(UINT64_C(1)) != KU_STATUS_OK) {
+            (void)ku_ui_close(window);
+            return 4;
         }
     }
 }
