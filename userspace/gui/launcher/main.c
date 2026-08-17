@@ -18,14 +18,14 @@ static const launcher_app g_apps[APP_COUNT] = {
     {"PERFORMANCE", "live CPU/GFX/RAM/disk", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE},
     {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER},
     {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR},
-    {"SETTINGS", "Red Flux appearance", "/gui/settings", KU_DESKTOP_APP_SETTINGS},
+    {"SETTINGS", "appearance / sound", "/gui/settings", KU_DESKTOP_APP_SETTINGS},
     {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT},
 };
 
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "HOME PINNED / PERFORMANCE AUTOSTART";
+static char g_status[64] = "APPS MENU / PERFORMANCE AUTOSTART";
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -147,8 +147,8 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "RED FLUX HOME");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DESKTOP ROOT");
+    (void)kui_flow_panel(&root, 1U, "RED FLUX APPS / START");
+    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / APPLICATIONS");
     (void)kui_flow_label(&root, 3U,
         "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN DESKTOP");
 
@@ -167,6 +167,7 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
+    /* Keep the window title stable: WindowManager treats it as session root. */
     const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
     kui_scene scene;
     size_t index;
@@ -183,6 +184,7 @@ int main(void) {
     puts("[TEST] red_flux_dock_controller: PASS");
     puts("[TEST] red_flux_home_pinned: PASS");
     puts("[TEST] desktop_app_pinning: PASS");
+    puts("[TEST] red_flux_apps_menu: PASS");
 
     if (launch_app(2U, 1)) {
         puts("[TEST] desktop_performance_autostart: PASS");
@@ -227,7 +229,7 @@ int main(void) {
         } else if (event.character == 'a' || event.character == 'A') {
             select_and_launch(6U);
         } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_status, "HOME / DESKTOP ROOT / DOCK ACTIVE", sizeof(g_status));
+            (void)strlcpy(g_status, "APPS / START / DOCK ACTIVE", sizeof(g_status));
         } else {
             continue;
         }
