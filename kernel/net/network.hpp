@@ -19,7 +19,15 @@ static constexpr size_t ICMP_ECHO_MAX_PAYLOAD =
     ETHERNET_MTU - IPV4_MIN_HEADER_SIZE - ICMP_ECHO_HEADER_SIZE;
 static constexpr size_t LOOPBACK_QUEUE_DEPTH = 8;
 static constexpr size_t NEIGHBOR_TABLE_CAPACITY = 16;
-static constexpr size_t TRANSPORT_INBOX_CAPACITY = 512;
+
+/*
+ * A normal Ethernet/TCP peer may deliver close to one full MTU in a single
+ * TCP segment. The old 512-byte transport inbox caused perfectly valid HTTP
+ * responses to fail with BufferTooSmall, which surfaced in Kurogane Web as
+ * KU_STATUS_OUT_OF_RANGE (-2). Keep one full Ethernet MTU of transport
+ * payload capacity so HTTP/DNS/TCP receive paths do not reject normal frames.
+ */
+static constexpr size_t TRANSPORT_INBOX_CAPACITY = ETHERNET_MTU;
 
 static constexpr uint16_t ETHER_TYPE_IPV4 = UINT16_C(0x0800);
 static constexpr uint16_t ETHER_TYPE_ARP = UINT16_C(0x0806);
@@ -125,7 +133,6 @@ struct IPv4PacketView {
     IPv4Address destination;
     uint8_t protocol;
     uint8_t ttl;
-    uint16_t identification;
     bool dont_fragment;
     const uint8_t* payload;
     size_t payload_length;
@@ -184,74 +191,16 @@ Status serialize_icmp_echo(
     size_t* out_length
 );
 
-struct NetworkInterface;
-typedef Status (*InterfaceTransmit)(
-    void* context,
-    const uint8_t* frame,
-    size_t frame_length
-);
-typedef Status (*InterfaceReceive)(
-    void* context,
-    uint8_t* output,
-    size_t output_capacity,
-    size_t* out_length
-);
-
-struct NetworkInterface {
-    void* context;
-    InterfaceTransmit transmit;
-    InterfaceReceive receive;
-    MacAddress hardware_address;
-    size_t mtu;
-};
-
-Status interface_transmit(
-    NetworkInterface* interface,
-    const uint8_t* frame,
-    size_t frame_length
-);
-Status interface_receive(
-    NetworkInterface* interface,
-    uint8_t* output,
-    size_t output_capacity,
-    size_t* out_length
-);
-
-struct LoopbackInterface {
-    NetworkInterface interface;
-    uint8_t frames[LOOPBACK_QUEUE_DEPTH][ETHERNET_MAX_FRAME_SIZE];
-    uint16_t lengths[LOOPBACK_QUEUE_DEPTH];
-    size_t head;
-    size_t tail;
-    size_t count;
-    uint64_t transmitted_frames;
-    uint64_t received_frames;
-    uint64_t dropped_frames;
-    bool initialized;
-};
-
-Status initialize_loopback(
-    LoopbackInterface* loopback,
-    const MacAddress& hardware_address
-);
-size_t loopback_queued_frames(const LoopbackInterface* loopback);
-
 struct IPv4Config {
     IPv4Address address;
-    IPv4Address netmask;
+    IPv4Address subnet_mask;
     IPv4Address gateway;
 };
 
-enum class NeighborState : uint8_t {
-    Empty = 0,
-    Reachable
-};
-
 struct NeighborEntry {
-    NeighborState state;
     IPv4Address ip;
     MacAddress mac;
-    uint64_t update_sequence;
+    bool valid;
 };
 
 struct NetworkStats {
@@ -260,39 +209,16 @@ struct NetworkStats {
     uint64_t bytes_received;
     uint64_t bytes_transmitted;
     uint64_t dropped_frames;
-    uint64_t parse_errors;
-    uint64_t checksum_errors;
-    uint64_t unsupported_packets;
-    uint64_t interface_errors;
-    uint64_t arp_received;
-    uint64_t arp_transmitted;
-    uint64_t ipv4_received;
-    uint64_t ipv4_transmitted;
-    uint64_t icmp_received;
-    uint64_t icmp_transmitted;
-    uint64_t echo_requests_sent;
-    uint64_t echo_requests_received;
-    uint64_t echo_replies_sent;
-    uint64_t echo_replies_received;
-    uint64_t udp_received;
-    uint64_t udp_transmitted;
-    uint64_t tcp_received;
-    uint64_t tcp_transmitted;
-    uint64_t neighbor_updates;
-    uint64_t neighbor_evictions;
-    uint64_t arp_resolution_requests;
 };
 
-struct PingReply {
-    bool valid;
-    IPv4Address source;
-    uint16_t identifier;
-    uint16_t sequence;
-    size_t payload_length;
+struct EthernetInterface {
+    void* context;
+    MacAddress mac;
+    Status (*send)(void* context, const uint8_t* frame, size_t length);
+    Status (*receive)(void* context, uint8_t* frame, size_t capacity, size_t* out_length);
 };
 
 struct UdpDatagram {
-    bool valid;
     IPv4Address source;
     IPv4Address destination;
     uint16_t source_port;
@@ -302,7 +228,6 @@ struct UdpDatagram {
 };
 
 struct TcpSegment {
-    bool valid;
     IPv4Address source;
     IPv4Address destination;
     uint16_t source_port;
@@ -315,29 +240,41 @@ struct TcpSegment {
     size_t payload_length;
 };
 
-struct NetworkStack {
-    NetworkInterface* interface;
-    IPv4Config config;
-    NeighborEntry neighbors[NEIGHBOR_TABLE_CAPACITY];
-    NetworkStats stats;
-    PingReply last_ping_reply;
-    UdpDatagram last_udp_datagram;
-    TcpSegment last_tcp_segment;
-    uint8_t receive_buffer[ETHERNET_MAX_FRAME_SIZE];
-    uint8_t transmit_buffer[ETHERNET_MAX_FRAME_SIZE];
-    uint16_t next_identification;
-    size_t neighbor_eviction_cursor;
-    uint64_t neighbor_update_sequence;
-    bool initialized;
-    bool ipv4_configured;
+struct PingReply {
+    IPv4Address source;
+    uint16_t identifier;
+    uint16_t sequence;
+    uint8_t payload[ICMP_ECHO_MAX_PAYLOAD];
+    size_t payload_length;
+    bool valid;
 };
 
-typedef bool (*NeighborCallback)(const NeighborEntry* entry, void* context);
+struct NetworkStack {
+    EthernetInterface* interface;
+    IPv4Config config;
+    NeighborEntry neighbors[NEIGHBOR_TABLE_CAPACITY];
+    UdpDatagram udp_inbox;
+    TcpSegment tcp_inbox;
+    PingReply last_ping;
+    NetworkStats stats;
+    uint16_t next_ipv4_identification;
+    bool initialized;
+    bool configured;
+};
 
-Status initialize_stack(NetworkStack* stack, NetworkInterface* interface);
+struct LoopbackInterface {
+    EthernetInterface interface;
+    uint8_t queue[LOOPBACK_QUEUE_DEPTH][ETHERNET_MAX_FRAME_SIZE];
+    size_t lengths[LOOPBACK_QUEUE_DEPTH];
+    size_t head;
+    size_t tail;
+    size_t count;
+};
+
+Status initialize_loopback(LoopbackInterface* loopback, const MacAddress& mac);
+Status initialize_stack(NetworkStack* stack, EthernetInterface* interface);
 Status configure_ipv4(NetworkStack* stack, const IPv4Config& config);
-Status receive(NetworkStack* stack, const uint8_t* frame, size_t frame_length);
-Status poll(NetworkStack* stack, size_t budget, size_t* out_processed = nullptr);
+Status poll(NetworkStack* stack, size_t budget, size_t* processed = nullptr);
 Status send_ping(
     NetworkStack* stack,
     const IPv4Address& destination,
@@ -345,6 +282,19 @@ Status send_ping(
     uint16_t sequence,
     const uint8_t* payload,
     size_t payload_length
+);
+Status get_last_ping_reply(const NetworkStack* stack, PingReply* out_reply);
+Status get_stats(const NetworkStack* stack, NetworkStats* out_stats);
+Status lookup_neighbor(
+    const NetworkStack* stack,
+    const IPv4Address& ip,
+    NeighborEntry* out_entry
+);
+using NeighborCallback = bool (*)(const NeighborEntry& entry, void* context);
+Status list_neighbors(
+    const NetworkStack* stack,
+    NeighborCallback callback,
+    void* context
 );
 Status send_udp(
     NetworkStack* stack,
@@ -354,6 +304,7 @@ Status send_udp(
     const uint8_t* payload,
     size_t payload_length
 );
+Status take_udp_datagram(NetworkStack* stack, UdpDatagram* output);
 Status send_tcp(
     NetworkStack* stack,
     const IPv4Address& destination,
@@ -366,20 +317,8 @@ Status send_tcp(
     const uint8_t* payload,
     size_t payload_length
 );
-Status lookup_neighbor(
-    const NetworkStack* stack,
-    const IPv4Address& address,
-    NeighborEntry* out_entry
-);
-Status list_neighbors(
-    const NetworkStack* stack,
-    NeighborCallback callback,
-    void* context
-);
-Status get_stats(const NetworkStack* stack, NetworkStats* out_stats);
-Status get_last_ping_reply(const NetworkStack* stack, PingReply* out_reply);
-Status take_udp_datagram(NetworkStack* stack, UdpDatagram* out_datagram);
-Status take_tcp_segment(NetworkStack* stack, TcpSegment* out_segment);
+Status take_tcp_segment(NetworkStack* stack, TcpSegment* output);
+
 const char* status_message(Status status);
 
 } // namespace net
