@@ -27,20 +27,18 @@ struct Capabilities {
     size_t maximum_frames_per_buffer;
 };
 
-// Initializes Intel 82801AA/ICH AC'97 (PCI 8086:2415), the controller exposed
-// by the KuroganeOS VirtualBox reference profile. Initialization is polling
-// based; no IRQ routing is required for the first PCM output backend.
 Status initialize();
 bool initialized();
 Status initialization_status();
 Capabilities capabilities();
 
-// Submits one bounded interleaved signed PCM16 stereo buffer at 48 kHz. The
-// driver copies the user/kernel source into DMA32-owned memory before starting
-// the bus-master engine. The source may be released after this call returns.
-Status play_pcm16_stereo(const int16_t* samples, size_t frame_count);
+// Master output control for the VirtualBox Intel ICH AC'97 codec. Percentage
+// is 0..100 and is translated to the AC'97 stereo attenuation register.
+Status set_master_volume(uint32_t percent, bool muted);
+uint32_t master_volume_percent();
+bool muted();
 
-// Polls completion/error state. It is safe to call from the kernel main loop.
+Status play_pcm16_stereo(const int16_t* samples, size_t frame_count);
 Status poll();
 bool busy();
 Status stop();
