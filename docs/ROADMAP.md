@@ -25,8 +25,8 @@ ukończenia funkcji.
 - [x] ✅ Linux IMG + wspólne ISO.
 - [x] ✅ El Torito EFI + GPT ESP verifier 20/20.
 - [x] ✅ OVMF/QEMU optical UEFI smoke do markera kernela.
-- [ ] 🟡 Pre-merge pull-request qualification trigger; weryfikacja nastąpi na
-  następnym feature PR.
+- [x] ✅ Pre-merge pull-request qualification gate: kernel test build, host
+  ABI/SDK, media build, FAT32/VFS validation, verifier 20/20 i OVMF smoke.
 - [ ] 🔒 Oracle VirtualBox x86-64: realny ISO boot -> kernel marker.
 - [ ] 🔒 VirtualBox: Try -> Login -> Home.
 - [ ] 🔒 VirtualBox: Install -> SATA VDI -> reboot bez ISO -> Login.
@@ -92,9 +92,10 @@ ukończenia funkcji.
 - [x] ✅ Intel ICH AC'97 `8086:2415` kernel PCM S16LE/stereo/48 kHz backend.
 - [x] ✅ Ring-3 audio status.
 - [x] ✅ Ring-3 master volume/mute.
-- [ ] ⬜ Bezpieczny Ring-3 PCM playback/stream API.
+- [x] ✅ Bezpieczny bounded Ring-3 PCM playback foundation: 48 kHz S16LE stereo,
+  max 1024 frames, kernel DMA copy, per-PID ownership, poll i stop.
 - [ ] ⬜ Per-process audio stream handles i mixer.
-- [ ] ⬜ Buffer scheduling / underrun handling.
+- [ ] ⬜ Buffer scheduling / underrun handling dla ciągłego streamingu.
 - [ ] ⬜ Format conversion/resampling.
 - [ ] ⬜ Capture/microphone.
 - [ ] ⬜ Intel HDA backend.
@@ -182,17 +183,16 @@ ukończenia funkcji.
 Kolejność jest zależnościowa, nie marketingowa:
 
 1. process-local path groundwork (`cwd/chdir/getcwd`);
-2. Ring-3 PCM playback foundation;
-3. IPC message channels;
-4. shared memory + wait/event primitives;
-5. userspace threads + monotonic time;
-6. async sockets + DNS service;
-7. TLS/trust store/HTTPS;
-8. settings/account credential services;
-9. shell pipes/redirection/env;
-10. graphics runtime i software 3D;
-11. Chromium platform layer;
-12. SMP/NVMe/HDA i szerszy hardware qualification.
+2. IPC message channels;
+3. shared memory + wait/event primitives;
+4. userspace threads + monotonic time;
+5. async sockets + DNS service;
+6. TLS/trust store/HTTPS;
+7. settings/account credential services;
+8. shell pipes/redirection/env;
+9. graphics runtime i software 3D;
+10. Chromium platform layer;
+11. SMP/NVMe/HDA i szerszy hardware qualification.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.

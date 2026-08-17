@@ -20,12 +20,14 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 - PS/2 keyboard/mouse, PCI, ACPI MADT/APIC discovery;
 - E1000 `8086:100E` z Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS i podstawowym TCP probe;
 - loopback fallback, gdy DHCP/fizyczny interfejs nie może się skonfigurować;
-- Intel ICH AC'97 `8086:2415` jako bazowy kernelowy PCM output backend;
+- Intel ICH AC'97 `8086:2415` jako kernelowy PCM output backend;
+- bounded Ring-3 AC'97 playback: 48 kHz S16LE stereo, max 1024 frames,
+  per-PID ownership, poll/stop i kernel-owned DMA copy;
 - WindowManager, Red Flux Desktop, Dock i aplikacje GUI Ring 3;
 - software backbuffer i damage-style GOP scanout;
 - SDK oraz build na Windows/WSL, macOS i Linux x86-64;
 - ISO z El Torito EFI + GPT ESP i obowiązkowym 20-pass verifierem;
-- helper realnego VirtualBox smoke na hostach x86-64.
+- pre-merge PR qualification oraz helper realnego VirtualBox smoke na hostach x86-64.
 
 ## Pamięć i wykonanie
 
@@ -82,14 +84,17 @@ service.
 
 ## Audio
 
-3.3.x ma kernelowy Intel ICH AC'97 PCM output backend:
+3.3.3 ma publiczny bounded Ring-3 playback nad Intel ICH AC'97:
 
 ```text
-S16LE / stereo / 48 kHz / DMA32
+S16LE / stereo / 48 kHz / max 1024 frames / DMA32
 ```
 
-Nie ma jeszcze stabilnego publicznego Ring-3 audio stream API, miksera
-per-process, capture/microphone ani konwersji formatów.
+To nadal nie jest finalny wielostrumieniowy serwis audio. Brakuje per-process
+stream handles i mixera wielu aplikacji, ciągłego buffer scheduling z pełnym
+underrun recovery, konwersji formatów/resamplingu, capture/microphone oraz Intel
+HDA. Referencyjny hardware runtime smoke nadal wymaga realnego VirtualBox hosta
+z działającym wyjściem audio.
 
 ## Grafika / DirectX
 
