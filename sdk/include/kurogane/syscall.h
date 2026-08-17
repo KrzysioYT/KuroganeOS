@@ -53,7 +53,12 @@ enum ku_syscall_number {
     KU_SYS_IPC_ACCEPT = 40,
     KU_SYS_IPC_SEND = 41,
     KU_SYS_IPC_RECEIVE = 42,
-    KU_SYS_IPC_CLOSE = 43
+    KU_SYS_IPC_CLOSE = 43,
+    KU_SYS_SHM_CREATE = 44,
+    KU_SYS_SHM_GRANT = 45,
+    KU_SYS_SHM_MAP = 46,
+    KU_SYS_SHM_UNMAP = 47,
+    KU_SYS_SHM_CLOSE = 48
 };
 
 enum ku_open_flags {
