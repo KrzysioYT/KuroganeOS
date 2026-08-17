@@ -70,7 +70,8 @@ ukończenia funkcji.
   `bind/connect/accept` i ownership per PID.
 - [x] ✅ Bounded 256-byte message send/receive, queue backpressure,
   stale-handle checks, peer-close semantics i cleanup po PID.
-- [ ] ⬜ Shared-memory objects z kontrolą mapowania/ownership.
+- [ ] 🟡 Shared-memory objects: PMM-backed pages, generation-checked handles,
+  owner/grant model i Ring-3 map/unmap są zaimplementowane; trwa kwalifikacja CI.
 - [ ] ⬜ Process event/wait integration dla IPC i async I/O.
 - [ ] ⬜ Capability/permission model dla usług systemowych.
 - [ ] ⬜ Sandbox primitives potrzebne przez model browser/renderer.
@@ -172,8 +173,8 @@ ukończenia funkcji.
 - [ ] ⬜ Async socket ABI.
 - [ ] ⬜ TLS/HTTPS.
 - [ ] ⬜ Userspace threads/task primitives/timers.
-- [ ] 🟡 Bounded message IPC foundation istnieje; Chromium nadal wymaga shared
-  memory, wait/event integration i docelowego browser/renderer sandbox model.
+- [ ] 🟡 Bounded message IPC istnieje; shared-memory foundation jest w trakcie
+  kwalifikacji, a Chromium nadal wymaga wait/event i docelowego sandbox model.
 - [ ] ⬜ libc++/Chromium `base` platform layer.
 - [ ] ⬜ GN `target_os = "kurogane"` toolchain definition.
 - [ ] ⬜ Build/run Chromium `base` + `url` smoke target.
@@ -186,15 +187,16 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. shared memory + wait/event primitives;
-2. userspace threads + monotonic time;
-3. async sockets + DNS service;
-4. TLS/trust store/HTTPS;
-5. settings/account credential services;
-6. shell pipes/redirection/env;
-7. graphics runtime i software 3D;
-8. Chromium platform layer;
-9. SMP/NVMe/HDA i szerszy hardware qualification.
+1. 🟡 shared memory — implementacja gotowa, trwa kwalifikacja;
+2. wait/event primitives;
+3. userspace threads + monotonic time;
+4. async sockets + DNS service;
+5. TLS/trust store/HTTPS;
+6. settings/account credential services;
+7. shell pipes/redirection/env;
+8. graphics runtime i software 3D;
+9. Chromium platform layer;
+10. SMP/NVMe/HDA i szerszy hardware qualification.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.
