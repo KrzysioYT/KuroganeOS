@@ -1,6 +1,6 @@
 #include "service.hpp"
 
-#include "e1000.hpp"
+#include "physical.hpp"
 #include "dhcp.hpp"
 #include "protocols.hpp"
 
@@ -146,14 +146,15 @@ Status initialize() {
 #ifdef KUROGANE_HOST_TEST
     return initialize_loopback_fallback();
 #else
-    const e1000::Status device_status = e1000::initialize();
-    if ((device_status == e1000::Status::Ok ||
-         device_status == e1000::Status::AlreadyInitialized) &&
-        e1000::interface() != nullptr) {
-        g_physical_detected = true;
-        const Status dhcp_status = dhcp::acquire(e1000::interface(), &g_lease);
+    const physical::Status device_status = physical::initialize();
+    NetworkInterface* const network_interface = physical::interface();
+    g_physical_detected = physical::detected();
+    if ((device_status == physical::Status::Ok ||
+         device_status == physical::Status::AlreadyInitialized) &&
+        network_interface != nullptr) {
+        const Status dhcp_status = dhcp::acquire(network_interface, &g_lease);
         if (dhcp_status == Status::Ok) {
-            Status status = initialize_stack(&g_stack, e1000::interface());
+            Status status = initialize_stack(&g_stack, network_interface);
             if (status != Status::Ok) {
                 g_physical_status = status;
                 return initialize_loopback_fallback();
@@ -169,16 +170,14 @@ Status initialize() {
             g_physical_status = status;
             return initialize_loopback_fallback();
         }
-        // A disconnected VirtualBox cable, NAT startup race or unavailable
-        // DHCP server must not make the entire OS unbootable.
+        // Missing cable, hypervisor NAT startup races or an unavailable DHCP
+        // server must degrade networking instead of making KuroganeOS unbootable.
         g_physical_status = dhcp_status;
         return initialize_loopback_fallback();
     }
-    if (device_status != e1000::Status::NotFound) {
-        g_physical_status = Status::InterfaceError;
-    } else {
-        g_physical_status = Status::NotConfigured;
-    }
+    g_physical_status = g_physical_detected
+        ? Status::InterfaceError
+        : Status::NotConfigured;
     return initialize_loopback_fallback();
 #endif
 }
@@ -558,6 +557,6 @@ bool physical_interface() { return g_ready && g_physical; }
 bool physical_device_detected() { return g_physical_detected; }
 Status physical_status() { return g_physical_status; }
 bool dhcp_configured() { return g_ready && g_dhcp; }
-const char* interface_name() { return g_physical ? "e1000" : "loopback"; }
+const char* interface_name() { return g_physical ? physical::name() : "loopback"; }
 
 } // namespace net::service
