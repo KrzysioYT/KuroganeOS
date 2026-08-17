@@ -55,6 +55,7 @@ jobs:
           echo "KUROGANE_VERSION=$version" >> "$GITHUB_ENV"
           echo "KUROGANE_ISO=dist/KuroganeOS-$version-x86_64.iso" >> "$GITHUB_ENV"
           echo "KUROGANE_IMG=dist/KuroganeOS-$version-linux-qemu.img" >> "$GITHUB_ENV"
+          echo "KUROGANE_LIVE_IMG=build/images/KuroganeOS-linux.img" >> "$GITHUB_ENV"
 
       - name: Compile kernel test configuration
         run: |
@@ -69,6 +70,7 @@ jobs:
         run: |
           chmod +x scripts/*.sh
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s "$KUROGANE_LIVE_IMG"
 
       - name: Validate Foundation image through production FAT32/VFS
         run: |
@@ -104,7 +106,8 @@ jobs:
       - name: Qualify QEMU E1000 NAT networking
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
-            "$KUROGANE_ISO" \
+            "$KUROGANE_LIVE_IMG" \
+            --disk \
             --nic e1000 \
             --require-network \
             --timeout 120
@@ -112,7 +115,8 @@ jobs:
       - name: Qualify QEMU PCnet NAT networking
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
-            "$KUROGANE_ISO" \
+            "$KUROGANE_LIVE_IMG" \
+            --disk \
             --nic pcnet \
             --require-network \
             --timeout 120
