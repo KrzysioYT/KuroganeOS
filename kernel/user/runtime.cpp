@@ -165,6 +165,7 @@ void input_user_window(
 bool g_initialized = false;
 Context* g_contexts[kMaximumContexts]{};
 uint64_t g_process_identity = 0U;
+uint64_t g_audio_owner_pid = 0U;
 
 uint64_t save_and_disable_interrupts() {
     uint64_t flags = 0U;
@@ -387,6 +388,25 @@ ku_status_t network_status(net::Status status) {
         case net::Status::UnsupportedFragment: return KU_STATUS_NOT_SUPPORTED;
         default: return KU_STATUS_IO_ERROR;
     }
+}
+
+ku_status_t audio_status(drivers::audio::ac97::Status status) {
+    using AudioStatus = drivers::audio::ac97::Status;
+    switch (status) {
+        case AudioStatus::Ok: return KU_STATUS_OK;
+        case AudioStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case AudioStatus::NotInitialized:
+        case AudioStatus::NoDevice: return KU_STATUS_BAD_STATE;
+        case AudioStatus::UnsupportedDevice: return KU_STATUS_NOT_SUPPORTED;
+        case AudioStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case AudioStatus::BufferTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case AudioStatus::DeviceBusy: return KU_STATUS_WOULD_BLOCK;
+        case AudioStatus::InvalidBar:
+        case AudioStatus::DmaAllocationFailed:
+        case AudioStatus::CodecResetFailed:
+        case AudioStatus::DeviceFault: return KU_STATUS_IO_ERROR;
+    }
+    return KU_STATUS_IO_ERROR;
 }
 
 bool fixed_string_terminated(const char* text, size_t capacity) {
@@ -1261,6 +1281,110 @@ void syscall_handler(
                         ? KU_STATUS_INVALID_ARGUMENT : KU_STATUS_IO_ERROR);
             return;
         }
+        case KU_SYS_AUDIO_PLAY_PCM16: {
+            if (frame.rdx != 0U || frame.rsi == 0U || frame.rsi > SIZE_MAX) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (!drivers::audio::ac97::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            const drivers::audio::ac97::Capabilities caps =
+                drivers::audio::ac97::capabilities();
+            if (frame.rsi > caps.maximum_frames_per_buffer ||
+                frame.rsi > SIZE_MAX / (sizeof(int16_t) * 2U)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
+                return;
+            }
+            const size_t frame_count = static_cast<size_t>(frame.rsi);
+            const size_t bytes = frame_count * sizeof(int16_t) * 2U;
+            if (!validate_user_buffer(*context, frame.rdi, bytes)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (g_audio_owner_pid != 0U &&
+                g_audio_owner_pid != context->pid) {
+                const drivers::audio::ac97::Status poll_status =
+                    drivers::audio::ac97::poll();
+                if (poll_status != drivers::audio::ac97::Status::Ok) {
+                    g_audio_owner_pid = 0U;
+                    frame.rax = static_cast<uint64_t>(audio_status(poll_status));
+                    return;
+                }
+                if (drivers::audio::ac97::busy()) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
+                    return;
+                }
+                g_audio_owner_pid = 0U;
+            }
+            const auto* samples = reinterpret_cast<const int16_t*>(
+                static_cast<uintptr_t>(frame.rdi));
+            const drivers::audio::ac97::Status status =
+                drivers::audio::ac97::play_pcm16_stereo(samples, frame_count);
+            if (status == drivers::audio::ac97::Status::Ok) {
+                g_audio_owner_pid = context->pid;
+            }
+            frame.rax = static_cast<uint64_t>(audio_status(status));
+            return;
+        }
+        case KU_SYS_AUDIO_POLL: {
+            if (frame.rdi != 0U || frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (!drivers::audio::ac97::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            if (g_audio_owner_pid != 0U &&
+                g_audio_owner_pid != context->pid) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            const drivers::audio::ac97::Status status =
+                drivers::audio::ac97::poll();
+            if (status != drivers::audio::ac97::Status::Ok) {
+                g_audio_owner_pid = 0U;
+                frame.rax = static_cast<uint64_t>(audio_status(status));
+                return;
+            }
+            if (drivers::audio::ac97::busy()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
+                return;
+            }
+            g_audio_owner_pid = 0U;
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
+            return;
+        }
+        case KU_SYS_AUDIO_STOP: {
+            if (frame.rdi != 0U || frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (!drivers::audio::ac97::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            if (g_audio_owner_pid == 0U) {
+                frame.rax = static_cast<uint64_t>(
+                    drivers::audio::ac97::busy()
+                        ? KU_STATUS_ACCESS_DENIED : KU_STATUS_OK);
+                return;
+            }
+            if (g_audio_owner_pid != context->pid) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            const drivers::audio::ac97::Status status =
+                drivers::audio::ac97::stop();
+            if (status == drivers::audio::ac97::Status::Ok ||
+                status == drivers::audio::ac97::Status::DeviceFault) {
+                g_audio_owner_pid = 0U;
+            }
+            frame.rax = static_cast<uint64_t>(audio_status(status));
+            return;
+        }
         default:
             frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_SUPPORTED);
             return;
@@ -1269,6 +1393,14 @@ void syscall_handler(
 
 Status cleanup(Context& context) {
     Status result = Status::Ok;
+    if (g_audio_owner_pid == context.pid) {
+        if (drivers::audio::ac97::initialized() &&
+            drivers::audio::ac97::busy() &&
+            drivers::audio::ac97::stop() != drivers::audio::ac97::Status::Ok) {
+            result = Status::CleanupFailed;
+        }
+        g_audio_owner_pid = 0U;
+    }
     if (context.ui.active) {
         const windowing::Status ui_status = windowing::close(context.ui.window);
         if (ui_status != windowing::Status::Ok &&
