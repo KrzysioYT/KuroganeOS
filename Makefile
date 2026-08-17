@@ -58,7 +58,9 @@ OBJECTS := $(ENTRY_OBJECT) $(filter-out $(ENTRY_OBJECT),$(ASM_OBJECTS)) \
 	$(CPP_OBJECTS) $(MBEDTLS_OBJECTS)
 DEPS := $(CPP_OBJECTS:.o=.d) $(ASM_OBJECTS:.o=.d) $(MBEDTLS_OBJECTS:.o=.d)
 
-CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include
+CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include \
+	-Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
+	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
 	-Werror=return-type
 ifeq ($(CONFIG),release)
