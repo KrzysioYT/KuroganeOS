@@ -24,6 +24,9 @@ Typical include:
 Public APIs use `ku_status_t` and `ku_result_t`. Always check a result before
 using it as a handle, PID or byte count.
 
+`KU_STATUS_END_OF_STREAM` is used by finite iterators such as directory
+enumeration when no more entries are available.
+
 ## Process API
 
 ```c
@@ -51,22 +54,75 @@ if (child > 0) {
 }
 ```
 
-## Filesystem API
+## Filesystem API — writable Ring-3 foundation
 
 ```c
 #include <kurogane/filesystem.h>
 ```
 
-Current public stable core:
+The public filesystem contract now exposes the mutable operations already
+implemented by the VFS/FAT32 backend:
 
 ```text
-open read-only file
-read
-close
+open: read / write / append / directory
+read / write / close
+stat / readdir
+create / unlink / rename
+mkdir / rmdir
+sync
 ```
 
-The kernel VFS supports more internally, but an internal capability is not a
-public syscall until pointer, permission and ownership semantics are defined.
+The compatibility helper `ku_file_open(path, size)` remains read-only. Use
+`ku_file_open_ex` when write, append or directory flags are required.
+
+Example write:
+
+```c
+const char path[] = "/home/example.txt";
+const char body[] = "hello from Ring 3\n";
+
+ku_status_t create_status = ku_file_create(path, sizeof(path) - 1U);
+if (create_status == KU_STATUS_OK ||
+    create_status == KU_STATUS_ALREADY_EXISTS) {
+    ku_result_t opened = ku_file_open_ex(
+        path,
+        sizeof(path) - 1U,
+        KU_FILE_OPEN_WRITE);
+    if (opened >= 0) {
+        ku_result_t written = ku_file_write(
+            (ku_file_t)opened, body, sizeof(body) - 1U);
+        (void)written;
+        (void)ku_file_close((ku_file_t)opened);
+        (void)ku_file_sync();
+    }
+}
+```
+
+Directory enumeration uses a directory handle and returns
+`KU_STATUS_END_OF_STREAM` after the last entry:
+
+```c
+const char home[] = "/home";
+ku_result_t opened = ku_file_open_ex(
+    home,
+    sizeof(home) - 1U,
+    KU_FILE_OPEN_READ | KU_FILE_OPEN_DIRECTORY);
+if (opened >= 0) {
+    ku_directory_entry entry = {0};
+    while (ku_file_readdir((ku_file_t)opened, &entry) == KU_STATUS_OK) {
+        /* entry.name, entry.type, entry.size */
+    }
+    (void)ku_file_close((ku_file_t)opened);
+}
+```
+
+All path pointers, structure sizes and nested rename paths are validated by the
+Ring-3 syscall boundary. Mutation is naturally rejected with
+`KU_STATUS_ACCESS_DENIED` when the active root backend is read-only, including
+Try/live-package media.
+
+Current limitations: no public seek API, file-backed mmap, links, ACLs or full
+Unix permission model yet.
 
 ## UI / libui
 
@@ -198,8 +254,9 @@ Applications must never include `kernel/net/*` directly.
 ## Audio
 
 The kernel has an Intel ICH AC'97 (`8086:2415`) PCM backend for the reference
-VirtualBox profile. A stable Ring-3 streaming API is still pending; applications
-must not program AC'97 DMA or I/O ports directly.
+VirtualBox profile. Ring 3 can query audio state and set master volume/mute. A
+stable Ring-3 PCM streaming API is still pending; applications must not program
+AC'97 DMA or I/O ports directly.
 
 ## Graphics / Direct3D
 
@@ -212,16 +269,31 @@ Direct3D 9/11/12 are **not yet a supported application ABI**. See
 
 ## Syscall table additions in 3.3.3
 
-Existing syscall numbers 1-17 remain unchanged. New append-only entries are:
+Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 
 ```text
 18  KU_SYS_SYSTEM_SNAPSHOT
 19  KU_SYS_DESKTOP_PIN
 20  KU_SYS_NET_STATUS
 21  KU_SYS_HTTP_GET
+22  KU_SYS_AUDIO_STATUS
+23  KU_SYS_AUDIO_SET
+24  KU_SYS_FS_STAT
+25  KU_SYS_FS_READDIR
+26  KU_SYS_FS_CREATE
+27  KU_SYS_FS_UNLINK
+28  KU_SYS_FS_RENAME
+29  KU_SYS_FS_MKDIR
+30  KU_SYS_FS_RMDIR
+31  KU_SYS_FS_SYNC
 ```
 
-Use SDK wrappers instead of hardcoding these numbers.
+`KU_SYS_WRITE` remains syscall 2 and now accepts generation-checked file handles
+in addition to stdout/stderr. `KU_SYS_OPEN` remains syscall 5 and accepts the
+new write/append/directory flags. This preserves source and syscall-number
+compatibility for existing applications.
+
+Use SDK wrappers instead of hardcoding syscall numbers.
 
 ## Adding a public API
 

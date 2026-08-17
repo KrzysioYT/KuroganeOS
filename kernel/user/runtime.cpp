@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/filesystem.h>
 #include <kurogane/network.h>
 #include <kurogane/status.h>
 #include <kurogane/syscall.h>
@@ -339,18 +340,33 @@ ku_status_t vfs_status(fs::vfs::Status status) {
     switch (status) {
         case fs::vfs::Status::Ok: return KU_STATUS_OK;
         case fs::vfs::Status::NotFound: return KU_STATUS_NOT_FOUND;
+        case fs::vfs::Status::AlreadyExists: return KU_STATUS_ALREADY_EXISTS;
         case fs::vfs::Status::PermissionDenied:
-        case fs::vfs::Status::ReadOnly: return KU_STATUS_ACCESS_DENIED;
+        case fs::vfs::Status::ReadOnly:
+        case fs::vfs::Status::RootProtected: return KU_STATUS_ACCESS_DENIED;
         case fs::vfs::Status::OutOfMemory:
-        case fs::vfs::Status::OpenFileTableFull: return KU_STATUS_OUT_OF_MEMORY;
+        case fs::vfs::Status::OpenFileTableFull:
+        case fs::vfs::Status::MountTableFull: return KU_STATUS_OUT_OF_MEMORY;
         case fs::vfs::Status::InvalidArgument:
         case fs::vfs::Status::InvalidFlags:
         case fs::vfs::Status::InvalidPath:
         case fs::vfs::Status::InvalidHandle:
-        case fs::vfs::Status::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case fs::vfs::Status::StaleHandle:
+        case fs::vfs::Status::NameTooLong:
+        case fs::vfs::Status::PathTooLong:
+        case fs::vfs::Status::PathTooDeep: return KU_STATUS_INVALID_ARGUMENT;
         case fs::vfs::Status::OutOfRange:
-        case fs::vfs::Status::ArithmeticOverflow: return KU_STATUS_OUT_OF_RANGE;
-        case fs::vfs::Status::Unsupported: return KU_STATUS_NOT_SUPPORTED;
+        case fs::vfs::Status::ArithmeticOverflow:
+        case fs::vfs::Status::BufferTooSmall: return KU_STATUS_OUT_OF_RANGE;
+        case fs::vfs::Status::Unsupported:
+        case fs::vfs::Status::CrossDevice: return KU_STATUS_NOT_SUPPORTED;
+        case fs::vfs::Status::EndOfDirectory: return KU_STATUS_END_OF_STREAM;
+        case fs::vfs::Status::NotInitialized:
+        case fs::vfs::Status::NoRootFilesystem:
+        case fs::vfs::Status::NotDirectory:
+        case fs::vfs::Status::IsDirectory:
+        case fs::vfs::Status::DirectoryNotEmpty:
+        case fs::vfs::Status::Busy: return KU_STATUS_BAD_STATE;
         default: return KU_STATUS_IO_ERROR;
     }
 }
@@ -398,6 +414,70 @@ bool copy_user_path(
     }
     output[static_cast<size_t>(length)] = '\0';
     return output[0] == '/';
+}
+
+bool decode_open_flags(uint64_t raw, fs::vfs::OpenFlags* output) {
+    if (output == nullptr) return false;
+    constexpr uint64_t known = KU_OPEN_READ | KU_OPEN_WRITE |
+        KU_OPEN_APPEND | KU_OPEN_DIRECTORY;
+    if ((raw & ~known) != 0U) return false;
+    const bool readable = (raw & KU_OPEN_READ) != 0U;
+    const bool writable = (raw & KU_OPEN_WRITE) != 0U;
+    if ((!readable && !writable) ||
+        ((raw & KU_OPEN_APPEND) != 0U && !writable)) {
+        return false;
+    }
+    fs::vfs::OpenFlags flags = fs::vfs::OpenFlags::None;
+    if (readable) flags = flags | fs::vfs::OpenFlags::Read;
+    if (writable) flags = flags | fs::vfs::OpenFlags::Write;
+    if ((raw & KU_OPEN_APPEND) != 0U) {
+        flags = flags | fs::vfs::OpenFlags::Append;
+    }
+    if ((raw & KU_OPEN_DIRECTORY) != 0U) {
+        flags = flags | fs::vfs::OpenFlags::Directory;
+    }
+    *output = flags;
+    return true;
+}
+
+uint32_t public_file_type(fs::vfs::NodeType type) {
+    switch (type) {
+        case fs::vfs::NodeType::Regular: return KU_FILE_TYPE_REGULAR;
+        case fs::vfs::NodeType::Directory: return KU_FILE_TYPE_DIRECTORY;
+        case fs::vfs::NodeType::Device: return KU_FILE_TYPE_DEVICE;
+        case fs::vfs::NodeType::Pipe: return KU_FILE_TYPE_PIPE;
+        case fs::vfs::NodeType::MountPoint: return KU_FILE_TYPE_MOUNT_POINT;
+    }
+    return KU_FILE_TYPE_UNKNOWN;
+}
+
+uint32_t public_file_flags(fs::vfs::NodeFlags flags) {
+    uint32_t result = KU_FILE_FLAG_NONE;
+    if (fs::vfs::has_flag(flags, fs::vfs::NodeFlags::Seekable)) {
+        result |= KU_FILE_FLAG_SEEKABLE;
+    }
+    return result;
+}
+
+void export_file_stat(const fs::vfs::FileStat& source, ku_file_stat* output) {
+    *output = {};
+    output->structure_size = sizeof(*output);
+    output->type = public_file_type(source.type);
+    output->size = source.size;
+    output->flags = public_file_flags(source.flags);
+}
+
+void handle_path_operation(
+    Context& context,
+    arch::x86_64::interrupts::InterruptFrame& frame,
+    fs::vfs::Status (*operation)(const char*)) {
+    char path[fs::vfs::MAX_PATH_LENGTH + 1U]{};
+    if (operation == nullptr ||
+        !copy_user_path(context, frame.rdi, frame.rsi, path)) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+        return;
+    }
+    frame.rax = static_cast<uint64_t>(vfs_status(operation(path)));
 }
 
 uint64_t allocate_user(Context& context, uint64_t requested) {
@@ -502,10 +582,6 @@ void syscall_handler(
             const uint64_t descriptor = frame.rdi;
             const uint64_t user_buffer = frame.rsi;
             const uint64_t requested = frame.rdx;
-            if (descriptor != 1U && descriptor != 2U) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
-                return;
-            }
             if (requested > kMaximumWrite || requested > SIZE_MAX) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
                 return;
@@ -516,13 +592,29 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            const auto* bytes = reinterpret_cast<const char*>(
-                static_cast<uintptr_t>(user_buffer));
-            const uint64_t interrupt_flags = save_and_disable_interrupts();
-            for (size_t index = 0U; index < count; ++index) terminal::put(bytes[index]);
-            restore_interrupts(interrupt_flags);
-            context->result.bytes_written += count;
-            frame.rax = count;
+            if (descriptor == 1U || descriptor == 2U) {
+                const auto* bytes = reinterpret_cast<const char*>(
+                    static_cast<uintptr_t>(user_buffer));
+                const uint64_t interrupt_flags = save_and_disable_interrupts();
+                for (size_t index = 0U; index < count; ++index) terminal::put(bytes[index]);
+                restore_interrupts(interrupt_flags);
+                context->result.bytes_written += count;
+                frame.rax = count;
+                return;
+            }
+            HandleSlot* handle = decode_handle(*context, descriptor);
+            if (handle == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            size_t bytes_written = 0U;
+            const fs::vfs::Status status = fs::root_volume::write(
+                handle->file,
+                reinterpret_cast<const void*>(static_cast<uintptr_t>(user_buffer)),
+                count,
+                &bytes_written);
+            frame.rax = status == fs::vfs::Status::Ok
+                ? bytes_written : static_cast<uint64_t>(vfs_status(status));
             return;
         }
         case KU_SYS_READ: {
@@ -568,8 +660,9 @@ void syscall_handler(
             return;
         }
         case KU_SYS_OPEN: {
-            if (frame.rdx != KU_OPEN_READ) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+            fs::vfs::OpenFlags flags = fs::vfs::OpenFlags::None;
+            if (!decode_open_flags(frame.rdx, &flags)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
             char path[fs::vfs::MAX_PATH_LENGTH + 1U]{};
@@ -590,8 +683,7 @@ void syscall_handler(
             }
             HandleSlot& slot = context->handles[slot_index];
             fs::vfs::OpenFileHandle file{};
-            const fs::vfs::Status status = fs::root_volume::open(
-                path, fs::vfs::OpenFlags::Read, &file);
+            const fs::vfs::Status status = fs::root_volume::open(path, flags, &file);
             if (status != fs::vfs::Status::Ok) {
                 frame.rax = static_cast<uint64_t>(vfs_status(status));
                 return;
@@ -617,6 +709,116 @@ void syscall_handler(
             frame.rax = static_cast<uint64_t>(vfs_status(status));
             return;
         }
+        case KU_SYS_FS_STAT: {
+            if (!validate_user_buffer(
+                    *context, frame.rdx, sizeof(ku_file_stat), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_file_stat*>(
+                static_cast<uintptr_t>(frame.rdx));
+            if (output->structure_size != sizeof(*output)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            char path[fs::vfs::MAX_PATH_LENGTH + 1U]{};
+            if (!copy_user_path(*context, frame.rdi, frame.rsi, path)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            fs::vfs::FileStat info{};
+            const fs::vfs::Status status = fs::root_volume::stat(path, &info);
+            if (status == fs::vfs::Status::Ok) export_file_stat(info, output);
+            frame.rax = static_cast<uint64_t>(vfs_status(status));
+            return;
+        }
+        case KU_SYS_FS_READDIR: {
+            if (frame.rdx != sizeof(ku_directory_entry) ||
+                !validate_user_buffer(
+                    *context, frame.rsi, sizeof(ku_directory_entry), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_directory_entry*>(
+                static_cast<uintptr_t>(frame.rsi));
+            if (output->structure_size != sizeof(*output)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            HandleSlot* handle = decode_handle(*context, frame.rdi);
+            if (handle == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            fs::vfs::DirectoryEntry entry{};
+            const fs::vfs::Status status = fs::root_volume::readdir(
+                handle->file, &entry);
+            if (status == fs::vfs::Status::Ok) {
+                *output = {};
+                output->structure_size = sizeof(*output);
+                output->type = public_file_type(entry.info.type);
+                output->size = entry.info.size;
+                output->flags = public_file_flags(entry.info.flags);
+                output->name_length = static_cast<uint32_t>(entry.name_length);
+                for (size_t index = 0U;
+                     index <= entry.name_length && index < KU_FILE_NAME_CAPACITY;
+                     ++index) {
+                    output->name[index] = entry.name[index];
+                }
+            }
+            frame.rax = static_cast<uint64_t>(vfs_status(status));
+            return;
+        }
+        case KU_SYS_FS_CREATE:
+            handle_path_operation(*context, frame, fs::root_volume::create);
+            return;
+        case KU_SYS_FS_UNLINK:
+            handle_path_operation(*context, frame, fs::root_volume::unlink);
+            return;
+        case KU_SYS_FS_MKDIR:
+            handle_path_operation(*context, frame, fs::root_volume::mkdir);
+            return;
+        case KU_SYS_FS_RMDIR:
+            handle_path_operation(*context, frame, fs::root_volume::rmdir);
+            return;
+        case KU_SYS_FS_RENAME: {
+            if (frame.rsi != sizeof(ku_file_rename_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_file_rename_request))) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const auto* request = reinterpret_cast<const ku_file_rename_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            char source[fs::vfs::MAX_PATH_LENGTH + 1U]{};
+            char destination[fs::vfs::MAX_PATH_LENGTH + 1U]{};
+            if (!copy_user_path(
+                    *context,
+                    static_cast<uint64_t>(reinterpret_cast<uintptr_t>(
+                        request->source.data)),
+                    request->source.size,
+                    source) ||
+                !copy_user_path(
+                    *context,
+                    static_cast<uint64_t>(reinterpret_cast<uintptr_t>(
+                        request->destination.data)),
+                    request->destination.size,
+                    destination)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            frame.rax = static_cast<uint64_t>(vfs_status(
+                fs::root_volume::rename(source, destination)));
+            return;
+        }
+        case KU_SYS_FS_SYNC:
+            frame.rax = static_cast<uint64_t>(vfs_status(fs::root_volume::sync()));
+            return;
         case KU_SYS_ALLOC:
             frame.rax = allocate_user(*context, frame.rdi);
             return;

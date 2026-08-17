@@ -10,7 +10,7 @@ constexpr ku_abi_descriptor g_descriptor{
     KU_ABI_VERSION_CURRENT,
     KU_ARCHITECTURE_X86_64,
     4096,
-    0, // WRITE/EXIT have no matching capability bit; process/files stay off.
+    KU_ABI_FEATURE_FILES,
     {0, 0, 0}
 };
 

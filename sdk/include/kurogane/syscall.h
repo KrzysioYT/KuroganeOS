@@ -33,11 +33,22 @@ enum ku_syscall_number {
     KU_SYS_NET_STATUS = 20,
     KU_SYS_HTTP_GET = 21,
     KU_SYS_AUDIO_STATUS = 22,
-    KU_SYS_AUDIO_SET = 23
+    KU_SYS_AUDIO_SET = 23,
+    KU_SYS_FS_STAT = 24,
+    KU_SYS_FS_READDIR = 25,
+    KU_SYS_FS_CREATE = 26,
+    KU_SYS_FS_UNLINK = 27,
+    KU_SYS_FS_RENAME = 28,
+    KU_SYS_FS_MKDIR = 29,
+    KU_SYS_FS_RMDIR = 30,
+    KU_SYS_FS_SYNC = 31
 };
 
 enum ku_open_flags {
-    KU_OPEN_READ = UINT64_C(1) << 0
+    KU_OPEN_READ = UINT64_C(1) << 0,
+    KU_OPEN_WRITE = UINT64_C(1) << 1,
+    KU_OPEN_APPEND = UINT64_C(1) << 2,
+    KU_OPEN_DIRECTORY = UINT64_C(1) << 3
 };
 
 static inline ku_result_t ku_syscall3(

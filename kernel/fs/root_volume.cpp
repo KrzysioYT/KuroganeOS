@@ -386,6 +386,15 @@ vfs::Status write(
     return vfs::write(&g_vfs, handle, buffer, size, bytes_written);
 }
 
+vfs::Status readdir(
+    vfs::OpenFileHandle handle,
+    vfs::DirectoryEntry* entry) {
+    if (!g_mounted) return vfs::Status::NotInitialized;
+    if (entry == nullptr) return vfs::Status::InvalidArgument;
+    VfsGuard guard{};
+    return vfs::readdir(&g_vfs, handle, entry);
+}
+
 vfs::Status close(vfs::OpenFileHandle handle) {
     if (!g_mounted) return vfs::Status::NotInitialized;
     VfsGuard guard{};

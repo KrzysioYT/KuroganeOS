@@ -18,7 +18,8 @@ enum ku_status_code {
     KU_STATUS_INTERRUPTED = -11,
     KU_STATUS_BAD_STATE = -12,
     KU_STATUS_VERSION_MISMATCH = -13,
-    KU_STATUS_CORRUPT_DATA = -14
+    KU_STATUS_CORRUPT_DATA = -14,
+    KU_STATUS_END_OF_STREAM = -15
 };
 
 static inline int ku_status_is_success(ku_status_t status) {

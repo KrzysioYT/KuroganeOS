@@ -13,6 +13,8 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 - Ring 3, procesy ELF64, PID/TID, spawn/wait/exit i preempcja;
 - `/system/init` jako PID 1;
 - AHCI, GPT, writable FAT32/VFS i persistent root;
+- publiczny Ring-3 filesystem ABI: read/write/append, stat/readdir,
+  create/unlink/rename, mkdir/rmdir i sync;
 - Try/Install media i read-only live package root;
 - instalator GPT/FAT32 z językiem, lokalnym profilem i opcjonalnym hasłem DEV;
 - PS/2 keyboard/mouse, PCI, ACPI MADT/APIC discovery;
@@ -35,10 +37,10 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 
 ## Userspace i shell
 
-- publiczny `open` w syscall ABI jest nadal read-only;
-- brak kompletnego publicznego userspace `stat/readdir/write/create/unlink/rename`;
+- filesystem ABI nie ma jeszcze publicznego seek ani file-backed mmap;
+- Try/live-package root pozostaje celowo read-only i odrzuca mutacje;
+- brak links, pełnego modelu users/groups/ACL i Unix-like permissions;
 - brak pipes, redirection, glob, zmiennych środowiskowych i języka skryptowego;
-- brak pełnego modelu users/groups/ACL;
 - background jobs są uproszczone względem pełnego Unix-like job control.
 
 ## Desktop

@@ -70,6 +70,9 @@ vfs::Status write(
     const void* buffer,
     size_t size,
     size_t* bytes_written = nullptr);
+vfs::Status readdir(
+    vfs::OpenFileHandle handle,
+    vfs::DirectoryEntry* entry);
 vfs::Status close(vfs::OpenFileHandle handle);
 vfs::Status create(const char* path);
 vfs::Status unlink(const char* path);
