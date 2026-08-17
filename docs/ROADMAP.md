@@ -7,6 +7,35 @@ odznaczany dopiero wtedy, gdy kod, publiczne API (jeśli dotyczy), dokumentacja 
 właściwe testy są spójne. Sam stub albo samo skompilowanie pliku nie oznacza
 ukończenia funkcji.
 
+## Zasady prowadzenia projektu
+
+- Rozwój odbywa się **bezpośrednio na `main`**. Nie tworzymy roboczych gałęzi ani
+  dodatkowych PR-ów, chyba że właściciel projektu jawnie zmieni tę zasadę.
+- Ten plik jest jedyną kanoniczną roadmapą. Status funkcji ma być aktualizowany
+  w tym samym cyklu zmian, w którym zmienia się jej rzeczywisty stan.
+- Nie oznaczamy jako gotowych atrap API. Browser, Direct3D, sieć i sterowniki
+  dostają ✅ dopiero po działającym kodzie oraz odpowiedniej kwalifikacji.
+- Priorytet produktu: **działający Web -> przenośna sieć -> stabilny graphics /
+  Direct3D compatibility -> pełniejszy Chromium runtime -> hardware enablement**.
+
+## Inwarianty stabilności i wydajności
+
+Każdy nowy subsystem ma przestrzegać poniższych zasad:
+
+- bounded buffers, kolejki i command lists; brak nieograniczonego wzrostu RAM;
+- bounded work per tick/syscall/frame oraz jawne timeouty operacji I/O;
+- brak aktywnych spin-loopów przy bezczynności; użycie sleep/event/HLT, gdy CPU
+  nie ma użytecznej pracy;
+- ownership + cleanup zasobów per PID i generation-checked handles tam, gdzie
+  zasób przeżywa pojedyncze wywołanie;
+- brak wykonywalnych mapowań danych bez potrzeby, walidacja Ring-3 pointerów i
+  rozmiarów oraz fail-closed dla nieobsługiwanych stanów;
+- degradacja pojedynczego sterownika/usługi nie może bez potrzeby zatrzymywać
+  bootowania całego systemu;
+- test hostowy/ABI dla logiki możliwej do testowania bez VM oraz runtime smoke
+  dla ścieżek wymagających prawdziwego urządzenia/hypervisora;
+- `main` ma wracać do zielonego pełnego gate po każdej serii zmian.
+
 ## Legenda
 
 - ✅ ukończone i objęte bieżącą kwalifikacją repozytorium;
@@ -25,8 +54,10 @@ ukończenia funkcji.
 - [x] ✅ Linux IMG + wspólne ISO.
 - [x] ✅ El Torito EFI + GPT ESP verifier 20/20.
 - [x] ✅ OVMF/QEMU optical UEFI smoke do markera kernela.
-- [x] ✅ Pre-merge pull-request qualification gate: kernel test build, host
-  ABI/SDK, media build, FAT32/VFS validation, verifier 20/20 i OVMF smoke.
+- [x] ✅ Gate na `main`: kernel test build, host ABI/SDK, media build,
+  FAT32/VFS validation, verifier 20/20 i OVMF smoke.
+- [x] ✅ QEMU user-NAT network qualification dla E1000 i AMD PCnet: boot,
+  DHCP, gateway i DNS są wymagane przez CI.
 - [ ] 🔒 Oracle VirtualBox x86-64: realny ISO boot -> kernel marker.
 - [ ] 🔒 VirtualBox: Try -> Login -> Home.
 - [ ] 🔒 VirtualBox: Install -> SATA VDI -> reboot bez ISO -> Login.
@@ -84,20 +115,28 @@ ukończenia funkcji.
 ## R4 — networking
 
 - [x] ✅ E1000 82540EM + Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS.
-- [x] ✅ QEMU Windows/WSL i QEMU macOS używają wspólnego profilu user-NAT + E1000,
-  zgodnego z tym samym sterownikiem co profil VirtualBox E1000.
+- [x] ✅ AMD PCnet jako drugi runtime-selectable NIC backend; physical network
+  layer wybiera E1000 albo PCnet zależnie od wykrytego urządzenia.
+- [x] ✅ QEMU Windows/WSL i QEMU macOS używają user-NAT; E1000 jest wspólnym
+  profilem przenośnym, a Linux CI kwalifikuje także PCnet.
+- [x] ✅ QEMU E1000 i PCnet user-NAT runtime smoke w CI z wymaganym DHCP,
+  gateway i DNS.
 - [x] ✅ Minimalny TCP backend i bounded HTTP/80 transport.
 - [x] ✅ Ring-3 network status snapshot.
 - [x] ✅ Ring-3 bounded HTTP GET dla bootstrap Kurogane Web.
-- [ ] ⬜ Drugi fizyczny/wirtualny NIC backend i runtime device selection zamiast
-  uzależniania hardware support od E1000.
+- [ ] ⬜ VirtIO-net backend dla nowoczesnego QEMU/KVM.
+- [ ] ⬜ Dalsze fizyczne NIC backends (co najmniej popularny Intel/Realtek) dla
+  realnego sprzętu; „wszystkie maszyny” oznacza rozszerzaną macierz driverów,
+  nie pojedynczy uniwersalny sterownik.
 - [ ] ⬜ Publiczne async socket handles.
 - [ ] ⬜ Connect/send/recv/close bez długiego blocking syscall.
 - [ ] ⬜ DNS resolver jako async/public service.
 - [ ] ⬜ Poll/event integration z IPC/thread wait primitives.
-- [ ] ⬜ TLS 1.2/1.3 provider.
-- [ ] ⬜ Certificate validation + trust store.
-- [ ] ⬜ HTTPS transport.
+- [ ] 🟡 Mbed TLS 3.6.7 jest przypięty jako submodule, istnieje freestanding
+  TLS 1.2/X.509 client config i compile-probe; brakuje jeszcze platform glue,
+  TCP BIO, entropy, trust store i runtime handshake.
+- [ ] ⬜ Aktualizowalny systemowy CA trust store + hostname/time validation.
+- [ ] ⬜ HTTPS transport dostępny przez publiczne Ring-3 API.
 - [ ] ⬜ Stabilniejszy TCP: retransmission, ordering, timeout i większe transfery.
 
 ## R5 — audio
@@ -156,6 +195,8 @@ ukończenia funkcji.
 - [ ] ⬜ D3D9 pełniejsza semantyka device/resources/state + compatibility frontend.
 - [ ] ⬜ D3D11 device/context/resources/shaders + compatibility frontend.
 - [ ] ⬜ D3D12 queues/lists/barriers/descriptors + compatibility frontend.
+- [ ] ⬜ Dopiero po powyższych warstwach ocena osobnego Windows-compatible COM ABI;
+  samo podobieństwo nazw API nie może być raportowane jako pełny DirectX.
 
 ## R9 — installer, security i accounts
 
@@ -173,11 +214,13 @@ ukończenia funkcji.
 - [x] ✅ AHCI/SATA.
 - [x] ✅ PS/2 keyboard/mouse.
 - [x] ✅ E1000 82540EM.
+- [x] ✅ AMD PCnet.
 - [x] ✅ AC'97.
 - [x] ✅ PCI + ACPI MADT/APIC discovery.
 - [ ] ⬜ Stabilizacja xHCI/USB HID na większej liczbie konfiguracji.
 - [ ] ⬜ NVMe jako równorzędny storage backend.
 - [ ] ⬜ Intel HDA.
+- [ ] ⬜ VirtIO-net.
 - [ ] ⬜ SMP/APIC interrupt routing jako aktywna ścieżka zamiast PIC-only profile.
 - [ ] 🔒 Szersza kwalifikacja na realnym sprzęcie UEFI.
 
@@ -185,11 +228,14 @@ ukończenia funkcji.
 
 - [x] ✅ BrowserContext / NavigationController / PlatformDelegate bootstrap.
 - [x] ✅ Plain HTTP navigation + bounded redirects + bootstrap text renderer.
-- [x] ✅ Search-capable omnibox: pełny URL, sama domena i zwykły tekst zapytania;
-  zapytania są percent-encoded i rozwiązywane do HTTPS search target.
+- [x] ✅ Edytowalny omnibox: pełny URL, sama domena i zwykły tekst zapytania;
+  Backspace edytuje, Escape czyści, Enter uruchamia nawigację.
+- [x] ✅ Search-capable parser: tekst zapytania jest percent-encoded i zamieniany
+  na HTTPS search target zamiast traktowania go jak nazwę domeny.
 - [x] ✅ Writable filesystem foundation dla przyszłego profile/cache.
-- [ ] ⬜ TLS/HTTPS transport wymagany do faktycznego wykonania wyszukiwania oraz
-  większości współczesnych stron.
+- [ ] ⬜ Faktyczne wykonanie wyszukiwania przez HTTPS — obecnie prawidłowo
+  zatrzymuje się na braku TLS zamiast wykonywać niebezpieczny downgrade.
+- [ ] ⬜ HTTPS dla zwykłych współczesnych stron oraz bezpieczne redirecty HTTP->HTTPS.
 - [ ] ⬜ Async socket ABI.
 - [ ] 🟡 Monotonic time foundation jest publiczny; nadal brakuje userspace threads,
   bezpośrednich wait primitives i timer objects potrzebnych przez Chromium task model.
@@ -208,15 +254,16 @@ ukończenia funkcji.
 Kolejność jest zależnościowa i podporządkowana działającej przeglądarce,
 przenośnej sieci oraz stabilności:
 
-1. TLS/trust store/HTTPS oraz wzmocnienie TCP;
-2. drugi NIC backend + runtime device selection i kwalifikacja QEMU/VirtualBox;
-3. direct blocked-thread wake + IPC/event readiness;
-4. async sockets + DNS service + userspace threads/timery;
-5. native graphics command-buffer/present path do WindowManagera;
-6. depth/textures/shader IR i rozszerzanie D3D9 -> D3D11 -> D3D12;
-7. Chromium platform layer / `content_shell` / Blink / V8;
-8. settings/account credential services i recovery;
-9. SMP/NVMe/HDA i szerszy hardware qualification.
+1. Mbed TLS platform glue + bezpieczne entropy + TCP BIO;
+2. aktualizowalny CA trust store + certificate/hostname/time validation;
+3. publiczny HTTPS GET i podpięcie go do omnibox/search w Kurogane Web;
+4. wzmocnienie TCP oraz async sockets/DNS + event readiness;
+5. VirtIO-net, potem popularne fizyczne NIC i dalsza macierz VM/hardware;
+6. native graphics command-buffer/present path do WindowManagera;
+7. depth/textures/shader IR i rozszerzanie D3D9 -> D3D11 -> D3D12;
+8. direct blocked-thread wake + userspace threads/timery;
+9. Chromium platform layer / `content_shell` / Blink / V8;
+10. settings/account credential services, SMP/NVMe/HDA i recovery.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.
