@@ -28,6 +28,12 @@ enum ku_file_flags {
     KU_FILE_FLAG_SEEKABLE = UINT32_C(1) << 0
 };
 
+enum ku_file_seek_origin {
+    KU_FILE_SEEK_BEGIN = 0,
+    KU_FILE_SEEK_CURRENT = 1,
+    KU_FILE_SEEK_END = 2
+};
+
 typedef struct ku_file_stat {
     uint32_t structure_size;
     uint32_t type;
@@ -52,14 +58,25 @@ typedef struct ku_file_rename_request {
     ku_string_view destination;
 } ku_file_rename_request;
 
+typedef struct ku_file_seek_request {
+    uint32_t structure_size;
+    uint32_t origin;
+    ku_file_t file;
+    int64_t offset;
+    uint64_t new_offset;
+    uint64_t reserved;
+} ku_file_seek_request;
+
 #if defined(__cplusplus)
 static_assert(sizeof(ku_file_stat) == 24, "file stat ABI mismatch");
 static_assert(sizeof(ku_directory_entry) == 88, "directory entry ABI mismatch");
 static_assert(sizeof(ku_file_rename_request) == 40, "rename request ABI mismatch");
+static_assert(sizeof(ku_file_seek_request) == 40, "seek request ABI mismatch");
 #else
 _Static_assert(sizeof(ku_file_stat) == 24, "file stat ABI mismatch");
 _Static_assert(sizeof(ku_directory_entry) == 88, "directory entry ABI mismatch");
 _Static_assert(sizeof(ku_file_rename_request) == 40, "rename request ABI mismatch");
+_Static_assert(sizeof(ku_file_seek_request) == 40, "seek request ABI mismatch");
 #endif
 
 static inline ku_result_t ku_file_open_ex(
@@ -114,6 +131,30 @@ static inline ku_status_t ku_file_readdir(
         directory,
         (uint64_t)(uintptr_t)entry,
         sizeof(*entry));
+}
+
+static inline ku_status_t ku_file_seek(
+    ku_file_t file,
+    int64_t offset,
+    uint32_t origin,
+    uint64_t* new_offset) {
+    if (origin > KU_FILE_SEEK_END) return KU_STATUS_INVALID_ARGUMENT;
+    ku_file_seek_request request;
+    request.structure_size = sizeof(request);
+    request.origin = origin;
+    request.file = file;
+    request.offset = offset;
+    request.new_offset = 0U;
+    request.reserved = 0U;
+    const ku_status_t status = (ku_status_t)ku_syscall3(
+        KU_SYS_FS_SEEK,
+        (uint64_t)(uintptr_t)&request,
+        sizeof(request),
+        0U);
+    if (status == KU_STATUS_OK && new_offset != NULL) {
+        *new_offset = request.new_offset;
+    }
+    return status;
 }
 
 static inline ku_status_t ku_file_create(const char* path, size_t size) {

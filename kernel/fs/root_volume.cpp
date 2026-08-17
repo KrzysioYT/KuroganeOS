@@ -386,6 +386,16 @@ vfs::Status write(
     return vfs::write(&g_vfs, handle, buffer, size, bytes_written);
 }
 
+vfs::Status seek(
+    vfs::OpenFileHandle handle,
+    int64_t offset,
+    vfs::SeekOrigin origin,
+    uint64_t* new_offset) {
+    if (!g_mounted) return vfs::Status::NotInitialized;
+    VfsGuard guard{};
+    return vfs::seek(&g_vfs, handle, offset, origin, new_offset);
+}
+
 vfs::Status readdir(
     vfs::OpenFileHandle handle,
     vfs::DirectoryEntry* entry) {

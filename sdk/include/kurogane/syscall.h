@@ -41,7 +41,8 @@ enum ku_syscall_number {
     KU_SYS_FS_RENAME = 28,
     KU_SYS_FS_MKDIR = 29,
     KU_SYS_FS_RMDIR = 30,
-    KU_SYS_FS_SYNC = 31
+    KU_SYS_FS_SYNC = 31,
+    KU_SYS_FS_SEEK = 32
 };
 
 enum ku_open_flags {

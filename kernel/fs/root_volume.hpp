@@ -70,6 +70,11 @@ vfs::Status write(
     const void* buffer,
     size_t size,
     size_t* bytes_written = nullptr);
+vfs::Status seek(
+    vfs::OpenFileHandle handle,
+    int64_t offset,
+    vfs::SeekOrigin origin,
+    uint64_t* new_offset = nullptr);
 vfs::Status readdir(
     vfs::OpenFileHandle handle,
     vfs::DirectoryEntry* entry);

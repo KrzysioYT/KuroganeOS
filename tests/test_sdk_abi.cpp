@@ -38,6 +38,7 @@ int main() {
     static_assert(KU_SYS_FS_MKDIR == 29);
     static_assert(KU_SYS_FS_RMDIR == 30);
     static_assert(KU_SYS_FS_SYNC == 31);
+    static_assert(KU_SYS_FS_SEEK == 32);
 
     static_assert(KU_OPEN_READ == (UINT64_C(1) << 0));
     static_assert(KU_OPEN_WRITE == (UINT64_C(1) << 1));
@@ -45,14 +46,22 @@ int main() {
     static_assert(KU_OPEN_DIRECTORY == (UINT64_C(1) << 3));
     static_assert(KU_STATUS_END_OF_STREAM == -15);
 
+    static_assert(KU_FILE_SEEK_BEGIN == 0);
+    static_assert(KU_FILE_SEEK_CURRENT == 1);
+    static_assert(KU_FILE_SEEK_END == 2);
     static_assert(KU_FILE_NAME_CAPACITY == 64U);
     static_assert(sizeof(ku_file_stat) == 24);
     static_assert(sizeof(ku_directory_entry) == 88);
     static_assert(sizeof(ku_file_rename_request) == 40);
+    static_assert(sizeof(ku_file_seek_request) == 40);
     static_assert(offsetof(ku_file_stat, size) == 8);
     static_assert(offsetof(ku_directory_entry, name) == 24);
     static_assert(offsetof(ku_file_rename_request, source) == 8);
     static_assert(offsetof(ku_file_rename_request, destination) == 24);
+    static_assert(offsetof(ku_file_seek_request, file) == 8);
+    static_assert(offsetof(ku_file_seek_request, offset) == 16);
+    static_assert(offsetof(ku_file_seek_request, new_offset) == 24);
+    static_assert(offsetof(ku_file_seek_request, reserved) == 32);
 
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);

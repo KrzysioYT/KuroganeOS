@@ -359,6 +359,7 @@ ku_status_t vfs_status(fs::vfs::Status status) {
         case fs::vfs::Status::ArithmeticOverflow:
         case fs::vfs::Status::BufferTooSmall: return KU_STATUS_OUT_OF_RANGE;
         case fs::vfs::Status::Unsupported:
+        case fs::vfs::Status::NotSeekable:
         case fs::vfs::Status::CrossDevice: return KU_STATUS_NOT_SUPPORTED;
         case fs::vfs::Status::EndOfDirectory: return KU_STATUS_END_OF_STREAM;
         case fs::vfs::Status::NotInitialized:
@@ -819,6 +820,50 @@ void syscall_handler(
         case KU_SYS_FS_SYNC:
             frame.rax = static_cast<uint64_t>(vfs_status(fs::root_volume::sync()));
             return;
+        case KU_SYS_FS_SEEK: {
+            if (frame.rsi != sizeof(ku_file_seek_request) || frame.rdx != 0U ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_file_seek_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_file_seek_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            if (request->origin > KU_FILE_SEEK_END || request->reserved != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            HandleSlot* handle = decode_handle(*context, request->file);
+            if (handle == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            fs::vfs::SeekOrigin origin = fs::vfs::SeekOrigin::Begin;
+            switch (request->origin) {
+                case KU_FILE_SEEK_BEGIN:
+                    origin = fs::vfs::SeekOrigin::Begin;
+                    break;
+                case KU_FILE_SEEK_CURRENT:
+                    origin = fs::vfs::SeekOrigin::Current;
+                    break;
+                case KU_FILE_SEEK_END:
+                    origin = fs::vfs::SeekOrigin::End;
+                    break;
+                default:
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+            }
+            uint64_t new_offset = 0U;
+            const fs::vfs::Status status = fs::root_volume::seek(
+                handle->file, request->offset, origin, &new_offset);
+            if (status == fs::vfs::Status::Ok) request->new_offset = new_offset;
+            frame.rax = static_cast<uint64_t>(vfs_status(status));
+            return;
+        }
         case KU_SYS_ALLOC:
             frame.rax = allocate_user(*context, frame.rdi);
             return;
