@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 
+#include <kurogane/audio.h>
 #include <kurogane/desktop.h>
 #include <kurogane/network.h>
 #include <kurogane/status.h>
@@ -12,6 +13,7 @@
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
 #include "../core/system_metrics.hpp"
+#include "../drivers/audio/ac97.hpp"
 #include "../fs/root_volume.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
@@ -952,6 +954,64 @@ void syscall_handler(
             request->bytes_received = received;
             request->http_status = http_status;
             frame.rax = static_cast<uint64_t>(network_status(status));
+            return;
+        }
+        case KU_SYS_AUDIO_STATUS: {
+            if (frame.rsi != sizeof(ku_audio_state) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_audio_state), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_audio_state*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (output->structure_size != sizeof(*output)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            const bool available = drivers::audio::ac97::initialized();
+            const drivers::audio::ac97::Capabilities caps =
+                drivers::audio::ac97::capabilities();
+            *output = {};
+            output->structure_size = sizeof(*output);
+            output->version = KU_AUDIO_STATE_VERSION;
+            output->available = available ? 1U : 0U;
+            output->muted = available && drivers::audio::ac97::muted() ? 1U : 0U;
+            output->volume_percent = available
+                ? drivers::audio::ac97::master_volume_percent() : 0U;
+            output->sample_rate = available ? caps.sample_rate : 0U;
+            output->channels = available ? caps.channels : 0U;
+            output->bits_per_sample = available ? caps.bits_per_sample : 0U;
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_AUDIO_SET: {
+            if (frame.rsi != sizeof(ku_audio_set_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_audio_set_request))) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const auto* request = reinterpret_cast<const ku_audio_set_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U || request->volume_percent > 100U ||
+                request->muted > 1U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (!drivers::audio::ac97::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            const drivers::audio::ac97::Status status =
+                drivers::audio::ac97::set_master_volume(
+                    request->volume_percent, request->muted != 0U);
+            frame.rax = status == drivers::audio::ac97::Status::Ok
+                ? static_cast<uint64_t>(KU_STATUS_OK)
+                : static_cast<uint64_t>(
+                    status == drivers::audio::ac97::Status::InvalidArgument
+                        ? KU_STATUS_INVALID_ARGUMENT : KU_STATUS_IO_ERROR);
             return;
         }
         default:
