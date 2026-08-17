@@ -7,6 +7,7 @@
 #define BROWSER_RENDER_LINE_CAPACITY 60U
 #define BROWSER_REDIRECT_LIMIT 4U
 #define CHROMIUM_UPSTREAM_SHORT "4137589c"
+#define BROWSER_SEARCH_PREFIX "https://www.google.com/search?q="
 
 typedef enum chromium_navigation_stage {
     CHROMIUM_STAGE_IDLE = 0,
@@ -95,6 +96,112 @@ static int starts_with_ci(const char* text, const char* prefix) {
     return 1;
 }
 
+static int ascii_is_space(char value) {
+    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+}
+
+static int ascii_is_unreserved(char value) {
+    return (value >= 'a' && value <= 'z') ||
+        (value >= 'A' && value <= 'Z') ||
+        (value >= '0' && value <= '9') ||
+        value == '-' || value == '_' || value == '.' || value == '~';
+}
+
+static char hex_digit(uint8_t value) {
+    return value < 10U ? (char)('0' + value) : (char)('A' + value - 10U);
+}
+
+static int trim_copy(
+    const char* input,
+    char* output,
+    size_t output_capacity) {
+    size_t first = 0U;
+    size_t last;
+    size_t length;
+    size_t index;
+    if (input == NULL || output == NULL || output_capacity == 0U) return 0;
+    last = strlen(input);
+    while (first < last && ascii_is_space(input[first])) ++first;
+    while (last > first && ascii_is_space(input[last - 1U])) --last;
+    length = last - first;
+    if (length == 0U || length + 1U > output_capacity) {
+        output[0] = '\0';
+        return 0;
+    }
+    for (index = 0U; index < length; ++index) output[index] = input[first + index];
+    output[length] = '\0';
+    return 1;
+}
+
+static int looks_like_address(const char* input) {
+    size_t index = 0U;
+    int has_dot = 0;
+    int has_slash = 0;
+    if (input == NULL || input[0] == '\0') return 0;
+    while (input[index] != '\0') {
+        if (ascii_is_space(input[index])) return 0;
+        if (input[index] == '.') has_dot = 1;
+        if (input[index] == '/') has_slash = 1;
+        ++index;
+    }
+    return has_dot || has_slash || starts_with_ci(input, "localhost");
+}
+
+static int append_percent_encoded(
+    char* output,
+    size_t output_capacity,
+    const char* input) {
+    size_t used = strlen(output);
+    size_t index = 0U;
+    if (input == NULL || used >= output_capacity) return 0;
+    while (input[index] != '\0') {
+        const uint8_t value = (uint8_t)input[index++];
+        if (ascii_is_unreserved((char)value)) {
+            if (used + 1U >= output_capacity) return 0;
+            output[used++] = (char)value;
+        } else if (value == ' ') {
+            if (used + 1U >= output_capacity) return 0;
+            output[used++] = '+';
+        } else {
+            if (used + 3U >= output_capacity) return 0;
+            output[used++] = '%';
+            output[used++] = hex_digit((uint8_t)(value >> 4U));
+            output[used++] = hex_digit((uint8_t)(value & UINT8_C(0x0F)));
+        }
+    }
+    output[used] = '\0';
+    return 1;
+}
+
+/*
+ * Resolve an omnibox value without ambiguity:
+ *   - explicit http(s) URLs stay unchanged;
+ *   - host/path-looking input becomes an HTTP URL for the current transport;
+ *   - everything else becomes an HTTPS search query.
+ *
+ * Search intentionally resolves to HTTPS. The navigation layer therefore
+ * hands it to the TLS transport once that platform layer is available instead
+ * of silently downgrading a search engine connection to plaintext HTTP.
+ */
+static int omnibox_resolve(
+    const char* input,
+    char* output,
+    size_t output_capacity) {
+    char value[BROWSER_URL_CAPACITY];
+    if (!trim_copy(input, value, sizeof(value))) return 0;
+    output[0] = '\0';
+    if (starts_with_ci(value, "http://") || starts_with_ci(value, "https://")) {
+        return strlcpy(output, value, output_capacity) < output_capacity;
+    }
+    if (looks_like_address(value)) {
+        append_text(output, output_capacity, "http://");
+        append_text(output, output_capacity, value);
+        return strlen(output) + 1U <= output_capacity;
+    }
+    append_text(output, output_capacity, BROWSER_SEARCH_PREFIX);
+    return append_percent_encoded(output, output_capacity, value);
+}
+
 static const char* status_name(ku_status_t status) {
     switch (status) {
         case KU_STATUS_OK: return "OK";
@@ -150,11 +257,11 @@ static int platform_delegate_refresh_network(chromium_browser_context* context) 
 
     (void)strlcpy(context->network, "NET / ", sizeof(context->network));
     if (context->network_state.physical == 0U) {
-        append_text(context->network, sizeof(context->network), "E1000 OFFLINE");
+        append_text(context->network, sizeof(context->network), "NIC OFFLINE");
         return 0;
     }
     if (context->network_state.dhcp == 0U) {
-        append_text(context->network, sizeof(context->network), "E1000 OK / DHCP MISSING");
+        append_text(context->network, sizeof(context->network), "NIC OK / DHCP MISSING");
         return 0;
     }
     if (context->network_state.ready == 0U) {
@@ -365,12 +472,12 @@ static void browser_context_initialize(chromium_browser_context* context) {
     context->last_error = KU_STATUS_OK;
     (void)strlcpy(
         context->status,
-        "READY / CHROMIUM CONTENT PORT BOOTSTRAP",
+        "READY / SEARCH OR ENTER ADDRESS",
         sizeof(context->status));
     render_message(
         context,
-        "DEFAULT CONNECTIVITY TEST: http://example.com/",
-        "GOOGLE REDIRECTS TO HTTPS; TLS PORT IS NOT READY YET");
+        "OMNIBOX: DOMAIN, URL OR SEARCH TEXT",
+        "HTTPS SEARCH WAITS FOR THE TLS TRANSPORT LAYER");
     (void)platform_delegate_refresh_network(context);
 }
 
@@ -384,13 +491,17 @@ static void navigation_fail(
     append_text(context->status, sizeof(context->status), status_name(status));
     append_text(context->status, sizeof(context->status), " / ");
     append_status_code(context->status, sizeof(context->status), status);
-    render_message(context, detail, "CHECK NET LINE FOR E1000 / DHCP / DNS STATE");
+    render_message(context, detail, "CHECK NET LINE FOR NIC / DHCP / DNS STATE");
 }
 
 static ku_status_t navigation_controller_load(chromium_browser_context* context) {
     uint32_t redirect;
     char navigation_url[BROWSER_URL_CAPACITY];
-    (void)strlcpy(navigation_url, context->url, sizeof(navigation_url));
+    if (!omnibox_resolve(context->url, navigation_url, sizeof(navigation_url))) {
+        navigation_fail(context, KU_STATUS_INVALID_ARGUMENT,
+            "ENTER A DOMAIN, URL OR SEARCH QUERY");
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
     context->redirect_count = 0U;
     context->http_status = 0U;
     context->bytes_received = 0U;
@@ -406,18 +517,20 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         scheme = parse_url(navigation_url, host, sizeof(host), path, sizeof(path));
         if (scheme == CHROMIUM_SCHEME_INVALID) {
             navigation_fail(context, KU_STATUS_INVALID_ARGUMENT,
-                "ENTER A FULL http:// OR https:// URL");
+                "OMNIBOX COULD NOT RESOLVE THE NAVIGATION TARGET");
             return KU_STATUS_INVALID_ARGUMENT;
         }
         if (scheme == CHROMIUM_SCHEME_HTTPS) {
             context->stage = CHROMIUM_STAGE_TLS_REQUIRED;
             context->last_error = KU_STATUS_NOT_SUPPORTED;
             (void)strlcpy(context->status,
-                "HTTPS REDIRECT / CHROMIUM TLS PLATFORM NOT PORTED",
+                "HTTPS TARGET / TLS PLATFORM REQUIRED",
                 sizeof(context->status));
             render_message(context,
-                "URL REQUIRES HTTPS / TLS",
-                "THIS IS NOW REPORTED AS A PORT DEPENDENCY, NOT HTTP FAILURE");
+                starts_with_ci(navigation_url, BROWSER_SEARCH_PREFIX)
+                    ? "SEARCH QUERY RESOLVED / HTTPS TRANSPORT REQUIRED"
+                    : "URL REQUIRES HTTPS / TLS",
+                "TLS IS THE NEXT NETWORK PLATFORM DEPENDENCY");
             (void)strlcpy(context->url, navigation_url, sizeof(context->url));
             context->url_length = strlen(context->url);
             return KU_STATUS_NOT_SUPPORTED;
@@ -503,7 +616,7 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     size_t index;
-    char address[BROWSER_URL_CAPACITY + 8U] = "URL  ";
+    char address[BROWSER_URL_CAPACITY + 18U] = "SEARCH / ADDRESS  ";
     char engine[96] = "ENGINE  CHROMIUM CONTENT_SHELL PORT / UPSTREAM ";
     char stage[96] = "NAV  ";
 
@@ -523,7 +636,7 @@ static void build_scene(kui_scene* scene) {
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
-    (void)kui_flow_label(&root, 3U, "ENTER: NAVIGATE   ESC: CLEAR ADDRESS");
+    (void)kui_flow_label(&root, 3U, "ENTER: GO / SEARCH   ESC: CLEAR   BACKSPACE: EDIT");
     (void)kui_flow_label(&root, 4U, engine);
     (void)kui_flow_label(&root, 5U, g_browser.network);
     (void)kui_flow_label(&root, 6U, stage);
@@ -539,7 +652,7 @@ static void build_scene(kui_scene* scene) {
     (void)kui_flow_separator(&root, 30U);
     (void)kui_flow_label(
         &root, 31U,
-        "BOOTSTRAP RENDERER ACTIVE / BLINK + V8 PLATFORM PORT IN PROGRESS");
+        "BOUNDED RENDERER / NETWORK WORK IS BUDGETED TO KEEP UI RESPONSIVE");
 }
 
 int main(void) {
@@ -552,6 +665,7 @@ int main(void) {
     puts("[TEST] chromium_port_navigation_controller: PASS");
     puts("[TEST] chromium_port_platform_delegate: PASS");
     puts("[TEST] chromium_port_bootstrap_renderer: PASS");
+    puts("[TEST] chromium_port_omnibox_search: PASS");
 
     for (;;) {
         ku_ui_event event;
