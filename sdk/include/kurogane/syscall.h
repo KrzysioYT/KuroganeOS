@@ -31,7 +31,9 @@ enum ku_syscall_number {
     KU_SYS_SYSTEM_SNAPSHOT = 18,
     KU_SYS_DESKTOP_PIN = 19,
     KU_SYS_NET_STATUS = 20,
-    KU_SYS_HTTP_GET = 21
+    KU_SYS_HTTP_GET = 21,
+    KU_SYS_AUDIO_STATUS = 22,
+    KU_SYS_AUDIO_SET = 23
 };
 
 enum ku_open_flags {
