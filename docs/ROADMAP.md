@@ -40,7 +40,8 @@ ukończenia funkcji.
 - [x] ✅ PID/TID, spawn/wait/exit, sleep/yield i PIT round-robin preemption.
 - [ ] ⬜ Publiczne tworzenie wielu wątków w jednym procesie Ring 3.
 - [ ] ⬜ Synchronizacja userspace: mutex/condvar/waitable event/futex-like wait.
-- [ ] ⬜ Wysokiej rozdzielczości zegar monotoniczny i timery userspace.
+- [ ] 🟡 Publiczny monotoniczny zegar 100 Hz (`ticks` + bezpieczna konwersja do
+  ms) jest gotowy; high-resolution timer source i waitable timer objects pozostają TODO.
 - [ ] ⬜ Demand paging.
 - [ ] ⬜ Copy-on-write.
 - [ ] ⬜ File-backed mmap.
@@ -63,7 +64,7 @@ ukończenia funkcji.
   polityka i warunki przyszłego rozszerzenia są zapisane w
   `docs/DEVELOPERS/FILESYSTEM_POLICY.md`.
 - [ ] ⬜ Model owner/group/permissions/ACL.
-- [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia desktopu i aplikacji.
+- [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia aplikacji i profilu.
 - [ ] ⬜ Recovery + transakcyjne aktualizacje systemu.
 
 ## R3 — IPC i sandbox
@@ -124,7 +125,9 @@ ukończenia funkcji.
 - [x] ✅ WindowManager, Red Flux Desktop, Dock i aplikacje GUI Ring 3.
 - [x] ✅ Software backbuffer, clipping i damage-style GOP scanout.
 - [x] ✅ Bounded Ring-3 UI event queue i cleanup zasobów procesu.
-- [ ] ⬜ Persistent desktop pin/settings state przez settings service.
+- [x] ✅ Piny desktopu są zapisywane przez Ring 3 do `/home/desktop.cfg`,
+  odtwarzane przy starcie Home i synchronizowane przez publiczne writable FS ABI.
+- [ ] ⬜ Szerszy settings/profile service dla ustawień desktopu i aplikacji.
 - [ ] ⬜ Clipboard.
 - [ ] ⬜ Unicode/text shaping/font discovery.
 - [ ] ⬜ HiDPI/scaling.
@@ -176,7 +179,8 @@ ukończenia funkcji.
 - [x] ✅ Writable filesystem foundation dla przyszłego profile/cache.
 - [ ] ⬜ Async socket ABI.
 - [ ] ⬜ TLS/HTTPS.
-- [ ] ⬜ Userspace threads/task primitives/timers.
+- [ ] 🟡 Monotonic time foundation jest publiczny; nadal brakuje userspace threads,
+  bezpośrednich wait primitives i timer objects potrzebnych przez Chromium task model.
 - [ ] 🟡 Bounded message IPC, shared memory i waitable-event foundation istnieją;
   nadal brakuje bezpośredniego wake/event readiness i docelowego sandbox model.
 - [ ] ⬜ libc++/Chromium `base` platform layer.
@@ -192,7 +196,7 @@ ukończenia funkcji.
 Kolejność jest zależnościowa, nie marketingowa:
 
 1. direct blocked-thread wake + IPC/event readiness;
-2. userspace threads + monotonic time;
+2. userspace threads + high-resolution timer objects;
 3. async sockets + DNS service;
 4. TLS/trust store/HTTPS;
 5. settings/account credential services;
