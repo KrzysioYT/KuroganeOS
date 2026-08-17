@@ -23,6 +23,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -Isdk/include \
+  tests/test_graphics_runtime.cpp \
+  -o "$OUT_DIR/test_graphics_runtime"
+
+"$OUT_DIR/test_graphics_runtime"
+
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
   kernel/fs/vfs.cpp \
   -o "$OUT_DIR/test_vfs_process_paths"
