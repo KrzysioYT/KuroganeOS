@@ -2,15 +2,19 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh ISO [--timeout SECONDS]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh ISO [--timeout SECONDS] [--nic none|e1000|pcnet] [--require-network]" >&2
     exit 2
 }
 
 iso=""
 timeout_seconds=60
+nic_model="none"
+require_network=false
 while (($#)); do
     case "$1" in
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
+        --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
+        --require-network) require_network=true; shift ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$iso" ]] || usage; iso="$1"; shift ;;
@@ -19,6 +23,14 @@ done
 [[ -n "$iso" ]] || usage
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 180)) || {
     echo "invalid timeout" >&2; exit 2; }
+case "$nic_model" in
+    none|e1000|pcnet) ;;
+    *) echo "invalid NIC model: $nic_model" >&2; usage ;;
+esac
+if $require_network && [[ "$nic_model" == "none" ]]; then
+    echo "--require-network needs --nic e1000 or --nic pcnet" >&2
+    exit 2
+fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
     echo "qemu-system-x86_64 is required" >&2; exit 1; }
 iso="$(cd "$(dirname "$iso")" && pwd)/$(basename "$iso")"
@@ -37,7 +49,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Modern OVMF packages normally ship split CODE + VARS pflash images.  Feeding
+# Modern OVMF packages normally ship split CODE + VARS pflash images. Feeding
 # OVMF_CODE_4M.fd through QEMU's legacy -bios path is not portable and fails on
 # Ubuntu 24.04. Discover a matched pair and give VARS a private writable copy.
 firmware_code="${OVMF_CODE:-}"
@@ -100,6 +112,14 @@ fi
 firmware_vars="$tmp/OVMF_VARS.fd"
 cp "$firmware_vars_template" "$firmware_vars"
 
+network_args=(-net none)
+if [[ "$nic_model" != "none" ]]; then
+    network_args=(
+        -netdev user,id=kurogane_net
+        -device "$nic_model,netdev=kurogane_net,mac=52:54:00:4b:55:01"
+    )
+fi
+
 qemu-system-x86_64 \
     -machine q35,accel=tcg \
     -cpu max \
@@ -110,7 +130,7 @@ qemu-system-x86_64 \
     -cdrom "$iso" \
     -serial "file:$serial" \
     -display none \
-    -net none \
+    "${network_args[@]}" \
     -no-reboot \
     -no-shutdown \
     >"$qemu_log" 2>&1 &
@@ -118,15 +138,30 @@ pid=$!
 
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
-    if [[ -f "$serial" ]] && grep -Eq \
-        'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
-        echo "[uefi-iso-qemu] optical UEFI boot: PASS"
-        echo "[uefi-iso-qemu] firmware CODE: $firmware_code"
-        echo "[uefi-iso-qemu] firmware VARS: $firmware_vars_template"
-        exit 0
+    if [[ -f "$serial" ]]; then
+        if $require_network; then
+            if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
+               grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
+               grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then
+                echo "[uefi-iso-qemu] $nic_model DHCP/gateway network: PASS"
+                echo "[uefi-iso-qemu] firmware CODE: $firmware_code"
+                echo "[uefi-iso-qemu] firmware VARS: $firmware_vars_template"
+                exit 0
+            fi
+            if grep -Eq '\[TEST\] (dhcp_lease|network_gateway_icmp|ALL_REQUIRED_TESTS_PASSED): FAIL' "$serial"; then
+                echo "KuroganeOS reported a network/runtime qualification failure for $nic_model" >&2
+                tail -n 160 "$serial" >&2 || true
+                exit 1
+            fi
+        elif grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
+            echo "[uefi-iso-qemu] optical UEFI boot: PASS"
+            echo "[uefi-iso-qemu] firmware CODE: $firmware_code"
+            echo "[uefi-iso-qemu] firmware VARS: $firmware_vars_template"
+            exit 0
+        fi
     fi
     if ! kill -0 "$pid" >/dev/null 2>&1; then
-        echo "QEMU exited before KuroganeOS kernel marker" >&2
+        echo "QEMU exited before the required KuroganeOS marker" >&2
         [[ -f "$qemu_log" ]] && cat "$qemu_log" >&2 || true
         [[ -f "$serial" ]] && cat "$serial" >&2 || true
         exit 1
@@ -134,7 +169,11 @@ while ((SECONDS < deadline)); do
     sleep 1
 done
 
-echo "OVMF/QEMU did not boot the KuroganeOS ISO within $timeout_seconds seconds" >&2
+if $require_network; then
+    echo "OVMF/QEMU did not qualify $nic_model networking within $timeout_seconds seconds" >&2
+else
+    echo "OVMF/QEMU did not boot the KuroganeOS ISO within $timeout_seconds seconds" >&2
+fi
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
-[[ -f "$serial" ]] && tail -n 100 "$serial" >&2 || true
+[[ -f "$serial" ]] && tail -n 160 "$serial" >&2 || true
 exit 1
