@@ -62,6 +62,11 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_event"
 
+# Keep the pinned TLS client source set freestanding and host-libc independent.
+# This is compile-only by design; runtime HTTPS qualification happens after the
+# Kurogane TCP BIO, entropy and trust-store pieces are wired together.
+bash ./scripts/probe-mbedtls-freestanding.sh
+
 # The project-generator integration test consumes the real SDK sysroot rather
 # than an ad-hoc header copy. Building it here also validates that public ABI
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
