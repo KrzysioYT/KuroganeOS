@@ -5,6 +5,7 @@
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
 #include <kurogane/network.h>
+#include <kurogane/shared_memory.h>
 #include <kurogane/status.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
@@ -18,6 +19,7 @@
 #include "../drivers/audio/ac97.hpp"
 #include "../fs/root_volume.hpp"
 #include "../ipc/channel.hpp"
+#include "../ipc/shared_memory.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/physical_memory.hpp"
@@ -40,6 +42,25 @@
 namespace user::runtime {
 namespace {
 
+constexpr uint64_t kSharedRegionBase =
+    elf::USER_REGION_BASE + UINT64_C(0x03800000);
+constexpr size_t kMaximumSharedMappingsPerContext = 8U;
+constexpr size_t kMaximumRuntimeSharedMappings =
+    kMaximumContexts * kMaximumSharedMappingsPerContext;
+constexpr uint64_t kSharedMappingStride =
+    static_cast<uint64_t>(ipc::shared_memory::MAX_PAGES_PER_OBJECT) *
+    memory::virtual_memory::PAGE_SIZE;
+
+struct RuntimeSharedMapping {
+    Context* context;
+    ipc::shared_memory::Handle handle;
+    uint64_t base;
+    size_t page_count;
+    bool active;
+};
+
+RuntimeSharedMapping g_shared_mappings[kMaximumRuntimeSharedMappings]{};
+
 ku_status_t ipc_status(ipc::Status status) {
     switch (status) {
         case ipc::Status::Ok: return KU_STATUS_OK;
@@ -55,6 +76,25 @@ ku_status_t ipc_status(ipc::Status status) {
         case ipc::Status::WouldBlock: return KU_STATUS_WOULD_BLOCK;
         case ipc::Status::NotInitialized:
         case ipc::Status::PeerClosed: return KU_STATUS_BAD_STATE;
+    }
+    return KU_STATUS_IO_ERROR;
+}
+
+ku_status_t shared_memory_status(ipc::shared_memory::Status status) {
+    using SharedStatus = ipc::shared_memory::Status;
+    switch (status) {
+        case SharedStatus::Ok:
+        case SharedStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case SharedStatus::InvalidArgument:
+        case SharedStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SharedStatus::OutOfRange: return KU_STATUS_OUT_OF_RANGE;
+        case SharedStatus::OutOfMemory:
+        case SharedStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
+        case SharedStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
+        case SharedStatus::AlreadyGranted: return KU_STATUS_ALREADY_EXISTS;
+        case SharedStatus::NotFound: return KU_STATUS_NOT_FOUND;
+        case SharedStatus::Busy: return KU_STATUS_WOULD_BLOCK;
+        case SharedStatus::NotInitialized: return KU_STATUS_BAD_STATE;
     }
     return KU_STATUS_IO_ERROR;
 }
@@ -79,13 +119,151 @@ bool copy_user_ipc_name(
     return true;
 }
 
-bool ipc_syscall_number(uint64_t number) {
-    return number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE;
+bool extended_syscall_number(uint64_t number) {
+    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
+        (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE);
+}
+
+RuntimeSharedMapping* find_shared_mapping(
+    Context& context,
+    ipc::shared_memory::Handle handle) {
+    for (RuntimeSharedMapping& mapping : g_shared_mappings) {
+        if (mapping.active && mapping.context == &context &&
+            mapping.handle == handle) return &mapping;
+    }
+    return nullptr;
+}
+
+RuntimeSharedMapping* reserve_shared_mapping_record(Context& context) {
+    size_t active_for_context = 0U;
+    for (RuntimeSharedMapping& mapping : g_shared_mappings) {
+        if (mapping.active && mapping.context == &context) ++active_for_context;
+    }
+    if (active_for_context >= kMaximumSharedMappingsPerContext) return nullptr;
+    for (RuntimeSharedMapping& mapping : g_shared_mappings) {
+        if (!mapping.active) return &mapping;
+    }
+    return nullptr;
+}
+
+bool shared_slot_available(Context& context, uint64_t base, size_t page_count) {
+    for (size_t page = 0U; page < page_count; ++page) {
+        memory::virtual_memory::Mapping existing{};
+        const memory::virtual_memory::Status status =
+            memory::virtual_memory::query_page(
+                &context.address_space.address_space,
+                base + static_cast<uint64_t>(page) * memory::virtual_memory::PAGE_SIZE,
+                &existing);
+        if (status != memory::virtual_memory::Status::NotMapped) return false;
+    }
+    return true;
+}
+
+uint64_t find_shared_mapping_base(Context& context, size_t page_count) {
+    for (size_t slot = 0U; slot < kMaximumSharedMappingsPerContext; ++slot) {
+        const uint64_t base = kSharedRegionBase +
+            static_cast<uint64_t>(slot) * kSharedMappingStride;
+        if (shared_slot_available(context, base, page_count)) return base;
+    }
+    return 0U;
+}
+
+ku_result_t map_shared_object(
+    Context& context,
+    ipc::shared_memory::Handle handle) {
+    if (find_shared_mapping(context, handle) != nullptr) {
+        return KU_STATUS_ALREADY_EXISTS;
+    }
+    RuntimeSharedMapping* record = reserve_shared_mapping_record(context);
+    if (record == nullptr) return KU_STATUS_OUT_OF_MEMORY;
+
+    ipc::shared_memory::View view{};
+    const uint64_t interrupt_flags = save_and_disable_interrupts();
+    const ipc::shared_memory::Status acquire_status =
+        ipc::shared_memory::acquire(context.pid, handle, &view);
+    restore_interrupts(interrupt_flags);
+    if (acquire_status != ipc::shared_memory::Status::Ok) {
+        return shared_memory_status(acquire_status);
+    }
+
+    const uint64_t base = find_shared_mapping_base(context, view.page_count);
+    if (base == 0U) {
+        const uint64_t flags = save_and_disable_interrupts();
+        static_cast<void>(ipc::shared_memory::release(context.pid, handle));
+        restore_interrupts(flags);
+        return KU_STATUS_OUT_OF_MEMORY;
+    }
+
+    size_t mapped = 0U;
+    for (; mapped < view.page_count; ++mapped) {
+        const memory::virtual_memory::Status map_status =
+            memory::virtual_memory::map_page(
+                &context.address_space.address_space,
+                base + static_cast<uint64_t>(mapped) * memory::virtual_memory::PAGE_SIZE,
+                static_cast<uint64_t>(reinterpret_cast<uintptr_t>(view.frames[mapped])),
+                memory::virtual_memory::MapFlags::User |
+                    memory::virtual_memory::MapFlags::Writable |
+                    memory::virtual_memory::MapFlags::NoExecute);
+        if (map_status != memory::virtual_memory::Status::Ok) break;
+    }
+    if (mapped != view.page_count) {
+        while (mapped != 0U) {
+            --mapped;
+            static_cast<void>(memory::virtual_memory::unmap_page(
+                &context.address_space.address_space,
+                base + static_cast<uint64_t>(mapped) * memory::virtual_memory::PAGE_SIZE));
+        }
+        const uint64_t flags = save_and_disable_interrupts();
+        static_cast<void>(ipc::shared_memory::release(context.pid, handle));
+        restore_interrupts(flags);
+        return KU_STATUS_OUT_OF_MEMORY;
+    }
+
+    *record = {&context, handle, base, view.page_count, true};
+    return static_cast<ku_result_t>(base);
+}
+
+ku_status_t unmap_shared_object(
+    Context& context,
+    ipc::shared_memory::Handle handle) {
+    RuntimeSharedMapping* mapping = find_shared_mapping(context, handle);
+    if (mapping == nullptr) return KU_STATUS_NOT_FOUND;
+    for (size_t page = 0U; page < mapping->page_count; ++page) {
+        if (memory::virtual_memory::unmap_page(
+                &context.address_space.address_space,
+                mapping->base + static_cast<uint64_t>(page) *
+                    memory::virtual_memory::PAGE_SIZE) !=
+            memory::virtual_memory::Status::Ok) {
+            return KU_STATUS_IO_ERROR;
+        }
+    }
+    const uint64_t interrupt_flags = save_and_disable_interrupts();
+    const ipc::shared_memory::Status status =
+        ipc::shared_memory::release(context.pid, handle);
+    restore_interrupts(interrupt_flags);
+    *mapping = {};
+    return shared_memory_status(status);
+}
+
+void cleanup_shared_mappings(Context& context) {
+    for (RuntimeSharedMapping& mapping : g_shared_mappings) {
+        if (!mapping.active || mapping.context != &context) continue;
+        for (size_t page = 0U; page < mapping.page_count; ++page) {
+            static_cast<void>(memory::virtual_memory::unmap_page(
+                &context.address_space.address_space,
+                mapping.base + static_cast<uint64_t>(page) *
+                    memory::virtual_memory::PAGE_SIZE));
+        }
+        const uint64_t interrupt_flags = save_and_disable_interrupts();
+        static_cast<void>(ipc::shared_memory::release(context.pid, mapping.handle));
+        restore_interrupts(interrupt_flags);
+        mapping = {};
+    }
 }
 
 void extended_syscall_handler(
     arch::x86_64::interrupts::InterruptFrame& frame) {
-    if (!ipc_syscall_number(frame.rax) && frame.rax != KU_SYS_EXIT) {
+    if (!extended_syscall_number(frame.rax) && frame.rax != KU_SYS_EXIT) {
         syscall_handler(frame);
         return;
     }
@@ -97,8 +275,10 @@ void extended_syscall_handler(
     }
 
     if (frame.rax == KU_SYS_EXIT) {
+        cleanup_shared_mappings(*context);
         const uint64_t interrupt_flags = save_and_disable_interrupts();
         ipc::release_process(context->pid);
+        ipc::shared_memory::release_process(context->pid);
         restore_interrupts(interrupt_flags);
         syscall_handler(frame);
         return;
@@ -214,6 +394,67 @@ void extended_syscall_handler(
             frame.rax = static_cast<uint64_t>(ipc_status(status));
             return;
         }
+        case KU_SYS_SHM_CREATE: {
+            if (frame.rsi != 0U || frame.rdx != 0U || frame.rdi == 0U ||
+                frame.rdi > ipc::shared_memory::MAX_PAGES_PER_OBJECT *
+                    ipc::shared_memory::PAGE_SIZE || frame.rdi > SIZE_MAX) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
+                return;
+            }
+            ipc::shared_memory::Handle handle = ipc::shared_memory::INVALID_HANDLE;
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::shared_memory::Status status = ipc::shared_memory::create(
+                context->pid, static_cast<size_t>(frame.rdi), &handle);
+            restore_interrupts(interrupt_flags);
+            frame.rax = status == ipc::shared_memory::Status::Ok
+                ? handle : static_cast<uint64_t>(shared_memory_status(status));
+            return;
+        }
+        case KU_SYS_SHM_GRANT: {
+            if (frame.rdx != 0U || frame.rsi == 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::shared_memory::Status status = ipc::shared_memory::grant(
+                context->pid,
+                static_cast<ipc::shared_memory::Handle>(frame.rdi),
+                static_cast<ipc::shared_memory::ProcessId>(frame.rsi));
+            restore_interrupts(interrupt_flags);
+            frame.rax = static_cast<uint64_t>(shared_memory_status(status));
+            return;
+        }
+        case KU_SYS_SHM_MAP: {
+            if (frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            frame.rax = static_cast<uint64_t>(map_shared_object(
+                *context, static_cast<ipc::shared_memory::Handle>(frame.rdi)));
+            return;
+        }
+        case KU_SYS_SHM_UNMAP: {
+            if (frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            frame.rax = static_cast<uint64_t>(unmap_shared_object(
+                *context, static_cast<ipc::shared_memory::Handle>(frame.rdi)));
+            return;
+        }
+        case KU_SYS_SHM_CLOSE: {
+            if (frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::shared_memory::Status status = ipc::shared_memory::close(
+                context->pid,
+                static_cast<ipc::shared_memory::Handle>(frame.rdi));
+            restore_interrupts(interrupt_flags);
+            frame.rax = static_cast<uint64_t>(shared_memory_status(status));
+            return;
+        }
         default:
             syscall_handler(frame);
             return;
@@ -228,6 +469,13 @@ Status initialize() {
         ipc_initialize_status != ipc::Status::AlreadyInitialized) {
         return Status::InterruptRegistrationFailed;
     }
+    const ipc::shared_memory::Status shared_initialize_status =
+        ipc::shared_memory::initialize();
+    if (shared_initialize_status != ipc::shared_memory::Status::Ok &&
+        shared_initialize_status != ipc::shared_memory::Status::AlreadyInitialized) {
+        return Status::InterruptRegistrationFailed;
+    }
+    for (RuntimeSharedMapping& mapping : g_shared_mappings) mapping = {};
 
     const Status status = legacy_initialize();
     if (status != Status::Ok) return status;
