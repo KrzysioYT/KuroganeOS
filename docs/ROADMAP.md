@@ -66,8 +66,10 @@ ukończenia funkcji.
 
 ## R3 — IPC i sandbox
 
-- [ ] ⬜ Generation-checked IPC endpoint/channel handles.
-- [ ] ⬜ Bounded message send/receive z walidacją Ring-3 pointerów.
+- [ ] 🟡 Generation-checked IPC endpoint/channel handles z nazwanym
+  `bind/connect/accept` zaimplementowane; oczekują pełnej kwalifikacji `main`.
+- [ ] 🟡 Bounded 256-byte message send/receive, ownership, stale-handle checks i
+  cleanup po PID zaimplementowane; oczekują pełnej kwalifikacji `main`.
 - [ ] ⬜ Shared-memory objects z kontrolą mapowania/ownership.
 - [ ] ⬜ Process event/wait integration dla IPC i async I/O.
 - [ ] ⬜ Capability/permission model dla usług systemowych.
@@ -183,7 +185,7 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. IPC message channels;
+1. IPC message channels — implementacja w toku kwalifikacji;
 2. shared memory + wait/event primitives;
 3. userspace threads + monotonic time;
 4. async sockets + DNS service;

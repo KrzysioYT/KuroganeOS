@@ -47,7 +47,13 @@ enum ku_syscall_number {
     KU_SYS_AUDIO_POLL = 34,
     KU_SYS_AUDIO_STOP = 35,
     KU_SYS_FS_CHDIR = 36,
-    KU_SYS_FS_GETCWD = 37
+    KU_SYS_FS_GETCWD = 37,
+    KU_SYS_IPC_BIND = 38,
+    KU_SYS_IPC_CONNECT = 39,
+    KU_SYS_IPC_ACCEPT = 40,
+    KU_SYS_IPC_SEND = 41,
+    KU_SYS_IPC_RECEIVE = 42,
+    KU_SYS_IPC_CLOSE = 43
 };
 
 enum ku_open_flags {

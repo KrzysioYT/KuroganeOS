@@ -1,6 +1,7 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
 #include <kurogane/filesystem.h>
+#include <kurogane/ipc.h>
 #include <kurogane/syscall.h>
 #include <kurogane/ui.h>
 
@@ -45,6 +46,12 @@ int main() {
     static_assert(KU_SYS_AUDIO_STOP == 35);
     static_assert(KU_SYS_FS_CHDIR == 36);
     static_assert(KU_SYS_FS_GETCWD == 37);
+    static_assert(KU_SYS_IPC_BIND == 38);
+    static_assert(KU_SYS_IPC_CONNECT == 39);
+    static_assert(KU_SYS_IPC_ACCEPT == 40);
+    static_assert(KU_SYS_IPC_SEND == 41);
+    static_assert(KU_SYS_IPC_RECEIVE == 42);
+    static_assert(KU_SYS_IPC_CLOSE == 43);
 
     static_assert(KU_AUDIO_PCM_SAMPLE_RATE == 48000U);
     static_assert(KU_AUDIO_PCM_CHANNELS == 2U);
@@ -74,6 +81,12 @@ int main() {
     static_assert(offsetof(ku_file_seek_request, new_offset) == 24);
     static_assert(offsetof(ku_file_seek_request, reserved) == 32);
 
+    static_assert(KU_IPC_SERVICE_NAME_CAPACITY == 32U);
+    static_assert(KU_IPC_MESSAGE_CAPACITY == 256U);
+    static_assert(sizeof(ku_ipc_message) == 272);
+    static_assert(offsetof(ku_ipc_message, sender_pid) == 8);
+    static_assert(offsetof(ku_ipc_message, data) == 16);
+
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
     static_assert(sizeof(ku_ui_event) == 32);
@@ -87,7 +100,8 @@ int main() {
     descriptor.abi_version = KU_ABI_VERSION_CURRENT;
     descriptor.architecture = KU_ARCHITECTURE_X86_64;
     descriptor.page_size = 4096;
-    descriptor.available_features = KU_ABI_FEATURE_TIME | KU_ABI_FEATURE_FILES;
+    descriptor.available_features =
+        KU_ABI_FEATURE_TIME | KU_ABI_FEATURE_FILES | KU_ABI_FEATURE_IPC;
     assert(ku_abi_validate_descriptor(&descriptor) == KU_STATUS_OK);
 
     descriptor.abi_version = UINT32_C(2) << 16;
