@@ -2,6 +2,7 @@
 #include <kurogane/audio.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
+#include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
 #include <kurogane/ui.h>
 
@@ -52,6 +53,14 @@ int main() {
     static_assert(KU_SYS_IPC_SEND == 41);
     static_assert(KU_SYS_IPC_RECEIVE == 42);
     static_assert(KU_SYS_IPC_CLOSE == 43);
+    static_assert(KU_SYS_SHM_CREATE == 44);
+    static_assert(KU_SYS_SHM_GRANT == 45);
+    static_assert(KU_SYS_SHM_MAP == 46);
+    static_assert(KU_SYS_SHM_UNMAP == 47);
+    static_assert(KU_SYS_SHM_CLOSE == 48);
+
+    static_assert(KU_SHM_PAGE_SIZE == 4096U);
+    static_assert(KU_SHM_MAX_SIZE == 65536U);
 
     static_assert(KU_AUDIO_PCM_SAMPLE_RATE == 48000U);
     static_assert(KU_AUDIO_PCM_CHANNELS == 2U);
