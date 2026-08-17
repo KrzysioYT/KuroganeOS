@@ -25,15 +25,9 @@ enum class Status : uint8_t {
     LivePackageInvalid,
 };
 
-// Mounts the GPT partition named "Kurogane Root" through PartitionDevice,
-// FAT32 and VFS, then proves the complete read path with /etc/system.cfg.
 Status initialize(
     const storage::block::Device* disk,
     const storage::gpt::Table* table);
-
-// 3.3 dev live-media path. The installer package becomes a read-only root
-// filesystem so ISO/IMG media can enter the regular Ring-3 desktop without
-// first writing anything to a target disk.
 Status initialize_live_package(const void* package_bytes, size_t package_size);
 
 bool initialization_attempted();
@@ -46,20 +40,41 @@ const char* volume_label();
 const char* configuration();
 size_t configuration_size();
 
-// Reads from the mounted root through the active VFS adapter. The helper never
-// truncates silently: BufferTooSmall is returned when the complete file does
-// not fit in capacity. file_size is populated after a successful stat.
+// Create an independent VFS path namespace view. Contexts start at root and
+// can later move cwd without mutating the kernel/global path context.
+vfs::Status initialize_path_context(vfs::PathContext* context);
+vfs::Status chdir(vfs::PathContext* context, const char* path);
+vfs::Status getcwd(
+    const vfs::PathContext* context,
+    char* buffer,
+    size_t capacity,
+    size_t* required_size = nullptr);
+
+// Explicit-context operations are used by Ring-3 processes. The overloads
+// without a PathContext keep existing kernel callers rooted at the global cwd.
+vfs::Status stat(
+    const vfs::PathContext* context,
+    const char* path,
+    vfs::FileStat* info);
 vfs::Status stat(const char* path, vfs::FileStat* info);
+
 vfs::Status read_file(
     const char* path,
     void* buffer,
     size_t capacity,
     size_t* bytes_read,
     uint64_t* file_size = nullptr);
+
+vfs::Status open(
+    const vfs::PathContext* context,
+    const char* path,
+    vfs::OpenFlags flags,
+    vfs::OpenFileHandle* handle);
 vfs::Status open(
     const char* path,
     vfs::OpenFlags flags,
     vfs::OpenFileHandle* handle);
+
 vfs::Status read(
     vfs::OpenFileHandle handle,
     void* buffer,
@@ -79,12 +94,22 @@ vfs::Status readdir(
     vfs::OpenFileHandle handle,
     vfs::DirectoryEntry* entry);
 vfs::Status close(vfs::OpenFileHandle handle);
+
+vfs::Status create(const vfs::PathContext* context, const char* path);
 vfs::Status create(const char* path);
+vfs::Status unlink(const vfs::PathContext* context, const char* path);
 vfs::Status unlink(const char* path);
+vfs::Status rename(
+    const vfs::PathContext* context,
+    const char* source_path,
+    const char* destination_path);
 vfs::Status rename(const char* source_path, const char* destination_path);
+vfs::Status mkdir(const vfs::PathContext* context, const char* path);
 vfs::Status mkdir(const char* path);
+vfs::Status rmdir(const vfs::PathContext* context, const char* path);
 vfs::Status rmdir(const char* path);
 vfs::Status sync();
+
 Status initialization_status();
 const char* status_message(Status status);
 const char* detail_message();
