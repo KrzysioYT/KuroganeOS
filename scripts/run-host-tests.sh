@@ -46,6 +46,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_shared_memory"
 
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_event.cpp \
+  kernel/ipc/event.cpp \
+  -o "$OUT_DIR/test_event"
+
+"$OUT_DIR/test_event"
+
 # The project-generator integration test consumes the real SDK sysroot rather
 # than an ad-hoc header copy. Building it here also validates that public ABI
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
