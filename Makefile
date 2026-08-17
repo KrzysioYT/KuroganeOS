@@ -42,8 +42,21 @@ ENTRY_SOURCE := kernel/arch/x86_64/entry.asm
 ENTRY_OBJECT := $(OBJ_DIR)/arch/x86_64/entry.o
 ASM_SOURCES  := $(sort $(call rwildcard,kernel/,*.asm))
 ASM_OBJECTS  := $(patsubst kernel/%.asm,$(OBJ_DIR)/%.o,$(ASM_SOURCES))
-OBJECTS      := $(ENTRY_OBJECT) $(filter-out $(ENTRY_OBJECT),$(ASM_OBJECTS)) $(CPP_OBJECTS)
-DEPS         := $(OBJECTS:.o=.d)
+
+MBEDTLS_DIR := third_party/mbedtls
+MBEDTLS_LIBRARY_DIR := $(MBEDTLS_DIR)/library
+MBEDTLS_MODULES := \
+	aes asn1parse asn1write base64 bignum bignum_core bignum_mod \
+	bignum_mod_raw block_cipher cipher cipher_wrap constant_time ctr_drbg \
+	ecdh ecdsa ecp ecp_curves entropy entropy_poll gcm md oid pem pk pk_ecc \
+	pk_wrap pkparse platform platform_util rsa rsa_alt_helpers sha256 sha512 \
+	x509 x509_crt ssl_ciphersuites ssl_client ssl_msg ssl_tls ssl_tls12_client
+MBEDTLS_SOURCES := $(addprefix $(MBEDTLS_LIBRARY_DIR)/,$(addsuffix .c,$(MBEDTLS_MODULES)))
+MBEDTLS_OBJECTS := $(addprefix $(OBJ_DIR)/third_party/mbedtls/,$(addsuffix .o,$(MBEDTLS_MODULES)))
+
+OBJECTS := $(ENTRY_OBJECT) $(filter-out $(ENTRY_OBJECT),$(ASM_OBJECTS)) \
+	$(CPP_OBJECTS) $(MBEDTLS_OBJECTS)
+DEPS := $(CPP_OBJECTS:.o=.d) $(ASM_OBJECTS:.o=.d) $(MBEDTLS_OBJECTS:.o=.d)
 
 CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
@@ -64,7 +77,14 @@ FREESTANDING_FLAGS := \
 KERNEL_CXXFLAGS := -std=c++17 $(OPTFLAGS) $(WARNFLAGS) $(FREESTANDING_FLAGS) -fvisibility=hidden
 KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 	-Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
-KERNEL_LDFLAGS  := --fatal-warnings --build-id=none -pie --no-dynamic-linker \
+MBEDTLS_CPPFLAGS := -Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
+	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
+MBEDTLS_CFLAGS := -std=c11 $(OPTFLAGS) -Wall -Wextra -Wpedantic \
+	-Werror=implicit-function-declaration -ffreestanding -fno-builtin \
+	-fno-stack-protector -fPIE -fno-plt -fno-omit-frame-pointer \
+	-fno-unwind-tables -fno-asynchronous-unwind-tables -Wa,--noexecstack \
+	-m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float -fvisibility=hidden
+KERNEL_LDFLAGS := --fatal-warnings --build-id=none -pie --no-dynamic-linker \
 	-z noexecstack -z text -z max-page-size=0x1000 -T linker.ld
 
 ifneq ($(filter $(HOST_OS),Darwin Linux),)
@@ -130,6 +150,14 @@ $(OBJ_DIR)/%.o: kernel/%.asm
 		-MMD -MP -MF $(@:.o=.d) -MT $@ \
 		-c -x assembler-with-cpp $< -o $@
 
+$(OBJ_DIR)/third_party/mbedtls/%.o: $(MBEDTLS_LIBRARY_DIR)/%.c
+	$(call ensure-dir,$(abspath $(dir $@)))
+	@test -f "$(MBEDTLS_DIR)/include/mbedtls/build_info.h" || \
+		{ echo "Mbed TLS submodule missing; run git submodule update --init --recursive" >&2; exit 1; }
+	$(CC) $(MBEDTLS_CPPFLAGS) $(MBEDTLS_CFLAGS) \
+		-MMD -MP -MF $(@:.o=.d) -MT $@ -frandom-seed=$< \
+		-c $< -o $@
+
 verify: $(KERNEL)
 	$(READELF) -hW $(KERNEL)
 	$(READELF) -lW $(KERNEL)
@@ -144,5 +172,6 @@ endif
 
 print-sources:
 	@$(foreach source,$(CPP_SOURCES),echo $(source);)
+	@$(foreach source,$(MBEDTLS_SOURCES),echo $(source);)
 
 -include $(DEPS)
