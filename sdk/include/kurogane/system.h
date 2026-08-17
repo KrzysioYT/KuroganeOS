@@ -49,7 +49,11 @@ static inline uint64_t ku_system_uptime_seconds(
 
 /* Read the monotonic scheduler clock through the stable system snapshot ABI. */
 static inline ku_status_t ku_system_monotonic_ticks(uint64_t* ticks) {
+#ifdef __cplusplus
+    ku_system_snapshot snapshot{};
+#else
     ku_system_snapshot snapshot = {0};
+#endif
     ku_status_t status;
     if (ticks == NULL) return KU_STATUS_INVALID_ARGUMENT;
     snapshot.structure_size = sizeof(snapshot);
