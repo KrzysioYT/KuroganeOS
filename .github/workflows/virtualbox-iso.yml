@@ -101,6 +101,22 @@ jobs:
             "$KUROGANE_ISO" \
             --timeout 60
 
+      - name: Qualify QEMU E1000 NAT networking
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            "$KUROGANE_ISO" \
+            --nic e1000 \
+            --require-network \
+            --timeout 120
+
+      - name: Qualify QEMU PCnet NAT networking
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            "$KUROGANE_ISO" \
+            --nic pcnet \
+            --require-network \
+            --timeout 120
+
       - name: Publish qualification artifacts
         uses: actions/upload-artifact@v4
         with:
