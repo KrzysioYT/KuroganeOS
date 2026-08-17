@@ -54,14 +54,16 @@ if (child > 0) {
 }
 ```
 
+Executable spawn paths remain absolute in 3.3.3. Filesystem data paths can be
+absolute or relative to the calling process cwd, as described below.
+
 ## Filesystem API — writable Ring-3 foundation
 
 ```c
 #include <kurogane/filesystem.h>
 ```
 
-The public filesystem contract exposes the mutable operations already
-implemented by the VFS/FAT32 backend:
+The public filesystem contract exposes:
 
 ```text
 open: read / write / append / directory
@@ -69,11 +71,47 @@ read / write / seek / close
 stat / readdir
 create / unlink / rename
 mkdir / rmdir
+chdir / getcwd
 sync
 ```
 
 The compatibility helper `ku_file_open(path, size)` remains read-only. Use
 `ku_file_open_ex` when write, append or directory flags are required.
+
+### Process-local current directory
+
+Every Ring-3 runtime context starts with cwd `/` and owns an independent VFS
+`PathContext`. `chdir` changes only the calling process; it never mutates the
+kernel/global root context or another process' cwd.
+
+```c
+const char home[] = "/home";
+ku_status_t status = ku_file_chdir(home, sizeof(home) - 1U);
+if (status == KU_STATUS_OK) {
+    char cwd[256];
+    ku_result_t length = ku_file_getcwd(cwd, sizeof(cwd));
+    if (length >= 0) {
+        /* cwd == "/home"; length excludes the trailing NUL */
+    }
+}
+```
+
+After changing cwd, filesystem data operations accept relative paths:
+
+```c
+const char name[] = "notes.txt";
+ku_result_t opened = ku_file_open_ex(
+    name,
+    sizeof(name) - 1U,
+    KU_FILE_OPEN_READ | KU_FILE_OPEN_WRITE);
+```
+
+Path canonicalization remains inside the VFS. Relative `.` and `..` components
+are normalized against the process path context and cannot bypass an active
+VFS root/chroot boundary. Path length/depth limits still apply after
+canonicalization.
+
+### Mutable file operations
 
 Example write:
 
@@ -137,8 +175,8 @@ Ring-3 syscall boundary. Mutation is naturally rejected with
 `KU_STATUS_ACCESS_DENIED` when the active root backend is read-only, including
 Try/live-package media.
 
-Current limitations: no file-backed mmap, links, ACLs, process-local cwd API or
-full Unix permission model yet.
+Current filesystem limitations: no file-backed mmap, links, ACLs or full Unix
+permission/ownership model yet.
 
 ## UI / libui
 
@@ -339,6 +377,8 @@ Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 33  KU_SYS_AUDIO_PLAY_PCM16
 34  KU_SYS_AUDIO_POLL
 35  KU_SYS_AUDIO_STOP
+36  KU_SYS_FS_CHDIR
+37  KU_SYS_FS_GETCWD
 ```
 
 `KU_SYS_WRITE` remains syscall 2 and accepts generation-checked file handles in
