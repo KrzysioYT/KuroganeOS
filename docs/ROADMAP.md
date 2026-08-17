@@ -56,8 +56,8 @@ ukończenia funkcji.
 - [x] ✅ Read-only live-package root odrzucający mutacje.
 - [x] ✅ Publiczne `seek`/pozycjonowanie pliku z `BEGIN/CURRENT/END` i
   overflow-checked VFS offsets.
-- [ ] 🟡 Process-local cwd/chdir/getcwd, relative paths i dziedziczenie cwd przy
-  `spawn` zaimplementowane; oczekują pełnej kwalifikacji `main`.
+- [x] ✅ Process-local cwd/chdir/getcwd, relative path resolution oraz
+  dziedziczenie cwd przez dziecko przy `spawn`.
 - [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
 - [ ] ⬜ Symlinks/hard links albo jawna decyzja o ich braku w stabilnym ABI.
 - [ ] ⬜ Model owner/group/permissions/ACL.
@@ -183,17 +183,16 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. process-local path groundwork (`cwd/chdir/getcwd`) — implementacja w toku kwalifikacji;
-2. IPC message channels;
-3. shared memory + wait/event primitives;
-4. userspace threads + monotonic time;
-5. async sockets + DNS service;
-6. TLS/trust store/HTTPS;
-7. settings/account credential services;
-8. shell pipes/redirection/env;
-9. graphics runtime i software 3D;
-10. Chromium platform layer;
-11. SMP/NVMe/HDA i szerszy hardware qualification.
+1. IPC message channels;
+2. shared memory + wait/event primitives;
+3. userspace threads + monotonic time;
+4. async sockets + DNS service;
+5. TLS/trust store/HTTPS;
+6. settings/account credential services;
+7. shell pipes/redirection/env;
+8. graphics runtime i software 3D;
+9. Chromium platform layer;
+10. SMP/NVMe/HDA i szerszy hardware qualification.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.

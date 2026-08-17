@@ -41,6 +41,10 @@ Available:
 - exit;
 - sleep/yield.
 
+Each process owns an independent working directory. A child inherits the cwd of
+its parent at spawn time, and a relative executable path passed to `spawn` is
+resolved from that inherited directory.
+
 Example:
 
 ```c
@@ -69,11 +73,34 @@ read / write / seek / close
 stat / readdir
 create / unlink / rename
 mkdir / rmdir
+chdir / getcwd
 sync
 ```
 
+Path operations accept absolute and relative paths. Relative paths are resolved
+against the calling process cwd; changing cwd in one process does not mutate any
+other process or the kernel default path context.
+
 The compatibility helper `ku_file_open(path, size)` remains read-only. Use
 `ku_file_open_ex` when write, append or directory flags are required.
+
+Example cwd + relative access:
+
+```c
+const char home[] = "/home";
+if (ku_chdir(home, sizeof(home) - 1U) == KU_STATUS_OK) {
+    char cwd[64];
+    size_t required = 0U;
+    (void)ku_getcwd(cwd, sizeof(cwd), &required);
+
+    const char name[] = "example.txt";
+    (void)ku_file_create(name, sizeof(name) - 1U);
+}
+```
+
+`ku_getcwd(NULL, 0, &required)` is a supported size query. `required` includes
+the trailing NUL byte; the call returns `KU_STATUS_OUT_OF_RANGE` until the
+provided buffer is large enough.
 
 Example write:
 
@@ -137,8 +164,8 @@ Ring-3 syscall boundary. Mutation is naturally rejected with
 `KU_STATUS_ACCESS_DENIED` when the active root backend is read-only, including
 Try/live-package media.
 
-Current limitations: no file-backed mmap, links, ACLs, process-local cwd API or
-full Unix permission model yet.
+Current limitations: no file-backed mmap, links, ACLs or full Unix permission
+model yet.
 
 ## UI / libui
 
@@ -339,6 +366,8 @@ Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 33  KU_SYS_AUDIO_PLAY_PCM16
 34  KU_SYS_AUDIO_POLL
 35  KU_SYS_AUDIO_STOP
+36  KU_SYS_FS_CHDIR
+37  KU_SYS_FS_GETCWD
 ```
 
 `KU_SYS_WRITE` remains syscall 2 and accepts generation-checked file handles in

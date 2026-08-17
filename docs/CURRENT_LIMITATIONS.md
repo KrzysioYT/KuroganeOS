@@ -14,7 +14,9 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 - `/system/init` jako PID 1;
 - AHCI, GPT, writable FAT32/VFS i persistent root;
 - publiczny Ring-3 filesystem ABI: read/write/append/seek, stat/readdir,
-  create/unlink/rename, mkdir/rmdir i sync;
+  create/unlink/rename, mkdir/rmdir, process-local cwd/chdir/getcwd i sync;
+- ścieżki względne rozwiązywane względem cwd procesu oraz dziedziczenie cwd
+  przez dziecko przy `spawn`;
 - Try/Install media i read-only live package root;
 - instalator GPT/FAT32 z językiem, lokalnym profilem i opcjonalnym hasłem DEV;
 - PS/2 keyboard/mouse, PCI, ACPI MADT/APIC discovery;
@@ -39,8 +41,7 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 
 ## Userspace i shell
 
-- filesystem ABI nie ma jeszcze file-backed mmap ani process-local
-  cwd/chdir/getcwd;
+- filesystem ABI nie ma jeszcze file-backed mmap;
 - Try/live-package root pozostaje celowo read-only i odrzuca mutacje;
 - brak links, pełnego modelu users/groups/ACL i Unix-like permissions;
 - brak pipes, redirection, glob, zmiennych środowiskowych i języka skryptowego;
