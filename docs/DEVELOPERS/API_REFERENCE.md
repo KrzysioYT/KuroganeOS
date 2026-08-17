@@ -187,37 +187,7 @@ receive(channel, ku_ipc_message)
 close(endpoint or channel)
 ```
 
-Example server:
-
-```c
-const char service[] = "settings";
-ku_result_t endpoint = ku_ipc_bind(service, sizeof(service) - 1U);
-if (endpoint >= 0) {
-    ku_result_t channel = ku_ipc_accept((ku_ipc_handle_t)endpoint);
-    if (channel >= 0) {
-        ku_ipc_message message = {0};
-        if (ku_ipc_receive((ku_ipc_handle_t)channel, &message) == KU_STATUS_OK) {
-            /* message.sender_pid, message.data_size, message.data */
-        }
-    }
-}
-```
-
-Example client:
-
-```c
-const char service[] = "settings";
-const char request[] = "get theme";
-ku_result_t channel = ku_ipc_connect(service, sizeof(service) - 1U);
-if (channel >= 0) {
-    (void)ku_ipc_send(
-        (ku_ipc_handle_t)channel,
-        request,
-        sizeof(request) - 1U);
-}
-```
-
-Properties of the 3.3.3 foundation:
+Properties:
 
 - service names are 1-31 characters and limited to ASCII letters, digits,
   `.`, `_` and `-`;
@@ -230,9 +200,83 @@ Properties of the 3.3.3 foundation:
   closed channel state;
 - accepted channels survive closure of the listening endpoint.
 
-This layer intentionally does **not** expose shared memory or blocking wait/event
-objects yet. Those are the next IPC primitives and will be used by async I/O and
-the future browser/renderer split.
+## Shared memory
+
+```c
+#include <kurogane/shared_memory.h>
+```
+
+Shared-memory objects provide bounded, true shared physical pages between
+explicitly authorized processes. They are not implemented as message copies.
+
+```text
+create(size <= 64 KiB) -> owner handle
+grant(handle, target_pid)
+map(handle) -> process-local writable, NX address
+unmap(handle)
+close(handle)
+```
+
+New pages are zero-filled. The owner must grant access to an exact PID before
+that process can map the object. Every mapping points to the same PMM-backed
+frames while retaining its own process-local virtual address. Mapping is always
+userspace writable and non-executable; the API never exposes arbitrary physical
+addresses.
+
+An object is reclaimed only after its open references and active mappings are
+gone. Process exit unmaps its Ring-3 views before dropping object ownership, so
+another authorized process cannot observe a freed frame through a surviving
+mapping.
+
+Example:
+
+```c
+ku_result_t created = ku_shm_create(4096U);
+if (created >= 0) {
+    ku_shm_handle_t shm = (ku_shm_handle_t)created;
+    (void)ku_shm_grant(shm, child_pid);
+    ku_result_t mapped = ku_shm_map(shm);
+    if (mapped >= 0) {
+        uint8_t* bytes = (uint8_t*)(uintptr_t)mapped;
+        bytes[0] = 42U;
+        (void)ku_shm_unmap(shm);
+    }
+    (void)ku_shm_close(shm);
+}
+```
+
+## Waitable event foundation
+
+```c
+#include <kurogane/event.h>
+```
+
+Events are bounded, generation-checked synchronization objects with explicit
+PID grants. Both auto-reset and manual-reset semantics are supported.
+
+```text
+create(auto/manual, initially_signaled)
+grant(handle, target_pid)
+signal(handle)
+reset(handle)
+poll(handle)
+wait(handle)
+close(handle)
+```
+
+`ku_event_poll()` is non-blocking and returns `KU_STATUS_WOULD_BLOCK` while the
+event is not signaled. `ku_event_wait()` is the current sleeping wait helper: it
+polls and sleeps one scheduler tick between probes, so it does not busy-spin.
+This source-level API is intentionally ready for a later direct blocked-thread
+wake implementation without changing application call sites.
+
+An auto-reset event consumes one observed signal. A manual-reset event remains
+signaled until an authorized process resets it. Event ownership is cleaned up
+when a process exits.
+
+Direct wake-by-object from the kernel scheduler and automatic IPC/socket
+readiness signaling are still pending; therefore the broader async wait layer is
+not yet marked complete in the active roadmap.
 
 ## UI / libui
 
@@ -267,13 +311,8 @@ if (ku_system_get_snapshot(&snapshot) == KU_STATUS_OK) {
 }
 ```
 
-Returned fields include:
-
-- CPU activity estimate from scheduler/timer counters;
-- RAM percentage and total/free physical memory;
-- disk activity from completed block transfers;
-- GPU/GFX activity from the current GOP/software-compositor submission path;
-- uptime ticks.
+Returned fields include CPU activity, RAM totals/percentage, disk activity,
+GOP/software-compositor activity and monotonic scheduler uptime ticks.
 
 `gpu_percent` is **not physical GPU-core utilization** in 3.3.3. Hardware 3D
 command submission is not enabled yet.
@@ -285,22 +324,9 @@ command submission is not enabled yet.
 ```
 
 Known application IDs are Home, Terminal, Files, Performance, Kurogane Web,
-System Monitor, Settings and About.
-
-Example toggle:
-
-```c
-ku_desktop_pin_request request = {0};
-request.structure_size = sizeof(request);
-request.app_id = KU_DESKTOP_APP_BROWSER;
-request.action = KU_DESKTOP_PIN_TOGGLE;
-if (ku_desktop_pin(&request) == KU_STATUS_OK) {
-    /* request.pinned contains the new state */
-}
-```
-
-Home is always pinned. Pin state is session-local in 3.3.3; persistent desktop
-configuration will move to the writable settings service.
+System Monitor, Settings and About. Home is always pinned. Pin state is
+session-local in 3.3.3; persistent desktop configuration will move to the
+writable settings service.
 
 ## Networking — 3.3.3 transitional public ABI
 
@@ -311,51 +337,21 @@ configuration will move to the writable settings service.
 The kernel path is:
 
 ```text
-E1000 82540EM
- -> Ethernet
- -> ARP
- -> IPv4
- -> DHCP
- -> DNS A
- -> TCP
+E1000 82540EM -> Ethernet -> ARP -> IPv4 -> DHCP -> DNS A -> TCP
 ```
 
-### Network status
+The public snapshot exposes readiness, physical-interface/DHCP state, IPv4
+address, gateway, DNS and RX/TX byte counters.
 
-```c
-ku_network_status status = {0};
-status.structure_size = sizeof(status);
-ku_status_t result = ku_network_get_status(&status);
-```
+3.3.3 also exposes one bounded HTTP/1.0 GET over TCP port 80. Limits remain:
 
-The snapshot exposes readiness, physical-interface/DHCP state, IPv4 address,
-gateway, DNS and RX/TX byte counters.
-
-### Bounded HTTP GET
-
-3.3.3 exposes the first application-facing Internet transport:
-
-```c
-char response[4096];
-ku_http_request request = {0};
-request.structure_size = sizeof(request);
-strlcpy(request.host, "example.com", sizeof(request.host));
-strlcpy(request.path, "/", sizeof(request.path));
-request.output = response;
-request.output_capacity = sizeof(response);
-ku_status_t result = ku_http_get(&request);
-```
-
-Limits in DEV BETA:
-
-- HTTP on TCP port 80 only;
 - no TLS/HTTPS yet;
 - response buffer maximum 4096 bytes;
 - synchronous bounded request;
 - not a general socket API;
 - simple in-order TCP receive path.
 
-This is enough for the first native `Kurogane Web` browser but **not enough to
+This is enough for the first native `Kurogane Web` bootstrap but **not enough to
 port Chromium**. Chromium requires asynchronous sockets, TLS, threads, timers,
 filesystem/process integration and a much broader libc/POSIX platform layer.
 
@@ -370,36 +366,13 @@ Applications must never include `kernel/net/*` directly.
 The reference backend is Intel ICH AC'97 (`8086:2415`). Ring 3 can query state,
 set master volume/mute and submit one bounded PCM block through the public SDK.
 
-The playback contract is fixed in 3.3.3:
-
-```text
-signed 16-bit little-endian
-stereo / interleaved L,R
-48 kHz
-maximum 1024 frames per submitted block
-```
-
-Example:
-
-```c
-int16_t samples[2U * 256U];
-/* fill 256 stereo frames */
-ku_status_t status = ku_audio_play_pcm16_stereo(samples, 256U);
-if (status == KU_STATUS_OK) {
-    while (ku_audio_poll() == KU_STATUS_WOULD_BLOCK) {
-        (void)ku_yield();
-    }
-}
-```
-
-Accepted samples are copied into kernel-owned DMA memory before the submit
-syscall returns. Playback is currently exclusive and owned by the submitting
-PID; another process cannot poll or stop that playback. Process cleanup stops
-DMA automatically if the process exits while it still owns playback.
+The playback contract is signed 16-bit little-endian, stereo interleaved,
+48 kHz and maximum 1024 frames per submitted block. Accepted samples are copied
+into kernel-owned DMA memory before the syscall returns. Playback is currently
+exclusive and owned by the submitting PID.
 
 This is not yet the final multi-stream audio service. Stream handles, mixing,
 format conversion/resampling, capture and Intel HDA remain future work.
-Applications must never program AC'97 DMA or I/O ports directly.
 
 ## Graphics / Direct3D
 
@@ -441,6 +414,17 @@ Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 41  KU_SYS_IPC_SEND
 42  KU_SYS_IPC_RECEIVE
 43  KU_SYS_IPC_CLOSE
+44  KU_SYS_SHM_CREATE
+45  KU_SYS_SHM_GRANT
+46  KU_SYS_SHM_MAP
+47  KU_SYS_SHM_UNMAP
+48  KU_SYS_SHM_CLOSE
+49  KU_SYS_EVENT_CREATE
+50  KU_SYS_EVENT_GRANT
+51  KU_SYS_EVENT_SIGNAL
+52  KU_SYS_EVENT_RESET
+53  KU_SYS_EVENT_POLL
+54  KU_SYS_EVENT_CLOSE
 ```
 
 `KU_SYS_WRITE` remains syscall 2 and accepts generation-checked file handles in
