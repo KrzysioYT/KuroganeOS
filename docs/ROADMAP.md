@@ -56,8 +56,9 @@ ukończenia funkcji.
 - [x] ✅ Read-only live-package root odrzucający mutacje.
 - [x] ✅ Publiczne `seek`/pozycjonowanie pliku z `BEGIN/CURRENT/END` i
   overflow-checked VFS offsets.
+- [ ] 🟡 Process-local cwd/chdir/getcwd, relative paths i dziedziczenie cwd przy
+  `spawn` zaimplementowane; oczekują pełnej kwalifikacji `main`.
 - [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
-- [ ] ⬜ Process-local cwd/chdir/getcwd zamiast globalnego kontekstu ścieżki.
 - [ ] ⬜ Symlinks/hard links albo jawna decyzja o ich braku w stabilnym ABI.
 - [ ] ⬜ Model owner/group/permissions/ACL.
 - [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia desktopu i aplikacji.
@@ -182,7 +183,7 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. process-local path groundwork (`cwd/chdir/getcwd`);
+1. process-local path groundwork (`cwd/chdir/getcwd`) — implementacja w toku kwalifikacji;
 2. IPC message channels;
 3. shared memory + wait/event primitives;
 4. userspace threads + monotonic time;

@@ -86,6 +86,7 @@ Status run_preemptive_for(
 Status wait(ProcessId pid, int32_t* exit_code);
 Status terminate(ProcessId pid, int32_t exit_code);
 Status stat(ProcessId pid, Stat* output);
+Status set_working_directory(ProcessId pid, const char* path);
 Status list(ListCallback callback, void* context);
 ProcessId current();
 const char* status_message(Status status);

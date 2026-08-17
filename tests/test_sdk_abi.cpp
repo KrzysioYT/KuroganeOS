@@ -43,6 +43,8 @@ int main() {
     static_assert(KU_SYS_AUDIO_PLAY_PCM16 == 33);
     static_assert(KU_SYS_AUDIO_POLL == 34);
     static_assert(KU_SYS_AUDIO_STOP == 35);
+    static_assert(KU_SYS_FS_CHDIR == 36);
+    static_assert(KU_SYS_FS_GETCWD == 37);
 
     static_assert(KU_AUDIO_PCM_SAMPLE_RATE == 48000U);
     static_assert(KU_AUDIO_PCM_CHANNELS == 2U);
@@ -78,8 +80,7 @@ int main() {
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
 
-    assert(ku_abi_validate_descriptor(nullptr) ==
-           KU_STATUS_INVALID_ARGUMENT);
+    assert(ku_abi_validate_descriptor(nullptr) == KU_STATUS_INVALID_ARGUMENT);
 
     ku_abi_descriptor descriptor{};
     descriptor.structure_size = sizeof(descriptor);
@@ -90,16 +91,13 @@ int main() {
     assert(ku_abi_validate_descriptor(&descriptor) == KU_STATUS_OK);
 
     descriptor.abi_version = UINT32_C(2) << 16;
-    assert(ku_abi_validate_descriptor(&descriptor) ==
-           KU_STATUS_VERSION_MISMATCH);
+    assert(ku_abi_validate_descriptor(&descriptor) == KU_STATUS_VERSION_MISMATCH);
     descriptor.abi_version = KU_ABI_VERSION_CURRENT;
 
     descriptor.page_size = 3000;
-    assert(ku_abi_validate_descriptor(&descriptor) ==
-           KU_STATUS_NOT_SUPPORTED);
+    assert(ku_abi_validate_descriptor(&descriptor) == KU_STATUS_NOT_SUPPORTED);
     descriptor.page_size = 4096;
 
     descriptor.structure_size = sizeof(descriptor) - 1;
-    assert(ku_abi_validate_descriptor(&descriptor) ==
-           KU_STATUS_CORRUPT_DATA);
+    assert(ku_abi_validate_descriptor(&descriptor) == KU_STATUS_CORRUPT_DATA);
 }

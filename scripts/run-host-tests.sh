@@ -21,6 +21,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_sdk_abi"
 
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_vfs_process_paths.cpp \
+  kernel/fs/vfs.cpp \
+  -o "$OUT_DIR/test_vfs_process_paths"
+
+"$OUT_DIR/test_vfs_process_paths"
+
 # The project-generator integration test consumes the real SDK sysroot rather
 # than an ad-hoc header copy. Building it here also validates that public ABI
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.

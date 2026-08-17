@@ -212,4 +212,39 @@ static inline ku_status_t ku_file_sync(void) {
     return (ku_status_t)ku_syscall3(KU_SYS_FS_SYNC, 0U, 0U, 0U);
 }
 
+static inline ku_status_t ku_file_chdir(const char* path, size_t size) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_FS_CHDIR,
+        (uint64_t)(uintptr_t)path,
+        (uint64_t)size,
+        0U);
+}
+
+/*
+ * Gets the calling process working directory. Passing buffer=NULL/capacity=0
+ * is allowed when required_size is non-NULL and can be used as a size query.
+ * required_size includes the trailing NUL byte.
+ */
+static inline ku_status_t ku_file_getcwd(
+    char* buffer,
+    size_t capacity,
+    size_t* required_size) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_FS_GETCWD,
+        (uint64_t)(uintptr_t)buffer,
+        (uint64_t)capacity,
+        (uint64_t)(uintptr_t)required_size);
+}
+
+static inline ku_status_t ku_chdir(const char* path, size_t size) {
+    return ku_file_chdir(path, size);
+}
+
+static inline ku_status_t ku_getcwd(
+    char* buffer,
+    size_t capacity,
+    size_t* required_size) {
+    return ku_file_getcwd(buffer, capacity, required_size);
+}
+
 #endif

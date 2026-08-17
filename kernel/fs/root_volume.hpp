@@ -25,15 +25,9 @@ enum class Status : uint8_t {
     LivePackageInvalid,
 };
 
-// Mounts the GPT partition named "Kurogane Root" through PartitionDevice,
-// FAT32 and VFS, then proves the complete read path with /etc/system.cfg.
 Status initialize(
     const storage::block::Device* disk,
     const storage::gpt::Table* table);
-
-// 3.3 dev live-media path. The installer package becomes a read-only root
-// filesystem so ISO/IMG media can enter the regular Ring-3 desktop without
-// first writing anything to a target disk.
 Status initialize_live_package(const void* package_bytes, size_t package_size);
 
 bool initialization_attempted();
@@ -46,9 +40,14 @@ const char* volume_label();
 const char* configuration();
 size_t configuration_size();
 
-// Reads from the mounted root through the active VFS adapter. The helper never
-// truncates silently: BufferTooSmall is returned when the complete file does
-// not fit in capacity. file_size is populated after a successful stat.
+// Path operations use the calling process working directory when a Ring-3
+// process is active. Kernel callers without a process keep the root context.
+vfs::Status chdir(const char* path);
+vfs::Status getcwd(
+    char* buffer,
+    size_t capacity,
+    size_t* required_size = nullptr);
+
 vfs::Status stat(const char* path, vfs::FileStat* info);
 vfs::Status read_file(
     const char* path,

@@ -434,7 +434,7 @@ bool copy_user_path(
         output[index] = source[index];
     }
     output[static_cast<size_t>(length)] = '\0';
-    return output[0] == '/';
+    return output[0] != '\0';
 }
 
 bool decode_open_flags(uint64_t raw, fs::vfs::OpenFlags* output) {
@@ -881,6 +881,45 @@ void syscall_handler(
             const fs::vfs::Status status = fs::root_volume::seek(
                 handle->file, request->offset, origin, &new_offset);
             if (status == fs::vfs::Status::Ok) request->new_offset = new_offset;
+            frame.rax = static_cast<uint64_t>(vfs_status(status));
+            return;
+        }
+        case KU_SYS_FS_CHDIR: {
+            if (frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            char path[fs::vfs::MAX_PATH_LENGTH + 1U]{};
+            if (!copy_user_path(*context, frame.rdi, frame.rsi, path)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            frame.rax = static_cast<uint64_t>(
+                vfs_status(fs::root_volume::chdir(path)));
+            return;
+        }
+        case KU_SYS_FS_GETCWD: {
+            if (frame.rsi > SIZE_MAX) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
+                return;
+            }
+            const size_t capacity = static_cast<size_t>(frame.rsi);
+            if ((capacity != 0U &&
+                 !validate_user_buffer(*context, frame.rdi, capacity, true)) ||
+                (frame.rdx != 0U &&
+                 !validate_user_buffer(*context, frame.rdx, sizeof(size_t), true))) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = capacity == 0U
+                ? nullptr
+                : reinterpret_cast<char*>(static_cast<uintptr_t>(frame.rdi));
+            size_t required = 0U;
+            const fs::vfs::Status status = fs::root_volume::getcwd(
+                output, capacity, &required);
+            if (frame.rdx != 0U) {
+                *reinterpret_cast<size_t*>(static_cast<uintptr_t>(frame.rdx)) = required;
+            }
             frame.rax = static_cast<uint64_t>(vfs_status(status));
             return;
         }

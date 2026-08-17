@@ -64,6 +64,50 @@ bool copy_path(char* destination, const char* source, size_t capacity) {
     return false;
 }
 
+size_t bounded_length(const char* text, size_t capacity) {
+    if (text == nullptr) return capacity;
+    for (size_t index = 0U; index < capacity; ++index) {
+        if (text[index] == '\0') return index;
+    }
+    return capacity;
+}
+
+bool build_executable_path(
+    char* destination,
+    size_t capacity,
+    const char* working_directory,
+    const char* executable) {
+    if (destination == nullptr || capacity == 0U || executable == nullptr ||
+        executable[0] == '\0') {
+        return false;
+    }
+    if (executable[0] == '/') {
+        return copy_path(destination, executable, capacity);
+    }
+    if (working_directory == nullptr || working_directory[0] != '/') {
+        working_directory = "/";
+    }
+    const size_t cwd_length = bounded_length(working_directory, capacity);
+    const size_t executable_length = bounded_length(executable, capacity);
+    if (cwd_length == capacity || executable_length == capacity) return false;
+    const size_t separator = cwd_length == 1U ? 0U : 1U;
+    if (cwd_length > capacity - 1U ||
+        separator > capacity - 1U - cwd_length ||
+        executable_length > capacity - 1U - cwd_length - separator) {
+        return false;
+    }
+    size_t output = 0U;
+    for (; output < cwd_length; ++output) {
+        destination[output] = working_directory[output];
+    }
+    if (separator != 0U) destination[output++] = '/';
+    for (size_t index = 0U; index < executable_length; ++index) {
+        destination[output++] = executable[index];
+    }
+    destination[output] = '\0';
+    return true;
+}
+
 void derive_name(Slot& slot) {
     size_t length = 0U;
     size_t component = 0U;
@@ -216,7 +260,7 @@ Status spawn(const char* executable, ProcessId* pid) {
     if (!g_initialized) {
         return Status::NotInitialized;
     }
-    if (executable == nullptr || executable[0] != '/') {
+    if (executable == nullptr || executable[0] == '\0') {
         return Status::InvalidArgument;
     }
     // 3.2 desktop ownership rule: GUI programs belong to a userspace session
@@ -242,16 +286,27 @@ Status spawn(const char* executable, ProcessId* pid) {
     const uint64_t generation = slot.generation;
     clear_bytes(&slot, sizeof(slot));
     slot.generation = generation;
-    if (!copy_path(
-            slot.executable,
-            executable,
-            sizeof(slot.executable))) {
-        return Status::PathTooLong;
-    }
-    slot.pid = allocate_pid(slot, index);
     slot.parent_pid = current();
     slot.working_directory[0] = '/';
     slot.working_directory[1] = '\0';
+    size_t parent_index = 0U;
+    if (slot.parent_pid != INVALID_PROCESS_ID &&
+        find(slot.parent_pid, &parent_index)) {
+        if (!copy_path(
+                slot.working_directory,
+                g_slots[parent_index].working_directory,
+                sizeof(slot.working_directory))) {
+            return Status::PathTooLong;
+        }
+    }
+    if (!build_executable_path(
+            slot.executable,
+            sizeof(slot.executable),
+            slot.working_directory,
+            executable)) {
+        return Status::PathTooLong;
+    }
+    slot.pid = allocate_pid(slot, index);
     slot.state = State::Ready;
     derive_name(slot);
     if (threading::create_for_process(
@@ -391,6 +446,22 @@ Status stat(ProcessId pid, Stat* output) {
         return Status::NotFound;
     }
     snapshot(g_slots[index], *output);
+    return Status::Ok;
+}
+
+Status set_working_directory(ProcessId pid, const char* path) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (path == nullptr || path[0] != '/') return Status::InvalidArgument;
+    size_t index = 0U;
+    if (!find(pid, &index)) return Status::NotFound;
+    char candidate[MAX_EXECUTABLE_PATH + 1U]{};
+    if (!copy_path(candidate, path, sizeof(candidate))) {
+        return Status::PathTooLong;
+    }
+    for (size_t character = 0U; character <= MAX_EXECUTABLE_PATH; ++character) {
+        g_slots[index].working_directory[character] = candidate[character];
+        if (candidate[character] == '\0') break;
+    }
     return Status::Ok;
 }
 
