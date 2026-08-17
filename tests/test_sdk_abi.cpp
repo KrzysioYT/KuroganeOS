@@ -1,4 +1,5 @@
 #include <kurogane/abi.h>
+#include <kurogane/audio.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/syscall.h>
 #include <kurogane/ui.h>
@@ -39,6 +40,14 @@ int main() {
     static_assert(KU_SYS_FS_RMDIR == 30);
     static_assert(KU_SYS_FS_SYNC == 31);
     static_assert(KU_SYS_FS_SEEK == 32);
+    static_assert(KU_SYS_AUDIO_PLAY_PCM16 == 33);
+    static_assert(KU_SYS_AUDIO_POLL == 34);
+    static_assert(KU_SYS_AUDIO_STOP == 35);
+
+    static_assert(KU_AUDIO_PCM_SAMPLE_RATE == 48000U);
+    static_assert(KU_AUDIO_PCM_CHANNELS == 2U);
+    static_assert(KU_AUDIO_PCM_BITS_PER_SAMPLE == 16U);
+    static_assert(KU_AUDIO_PCM_MAX_FRAMES == 1024U);
 
     static_assert(KU_OPEN_READ == (UINT64_C(1) << 0));
     static_assert(KU_OPEN_WRITE == (UINT64_C(1) << 1));

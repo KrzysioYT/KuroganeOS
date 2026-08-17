@@ -1,39 +1,62 @@
 # KuroganeOS Audio
 
-## Status 3.3.1-dev
+## Status 3.3.3-dev
 
 Referencyjnym kontrolerem audio dla VirtualBox jest **Intel ICH AC'97**.
-KuroganeOS 3.3.1-dev wprowadza własny, minimalny kernelowy sterownik PCM output
-dla emulowanego kontrolera Intel `8086:2415`.
+KuroganeOS ma własny minimalny kernelowy sterownik PCM output dla emulowanego
+kontrolera Intel `8086:2415` oraz bounded publiczny Ring-3 playback contract.
 
-Aktualny działający fundament to:
-
-```text
-kernel
- -> PCI 8086:2415
- -> AC'97 mixer + bus master
- -> DMA32 BDL / PCM buffer
- -> PCM S16LE stereo 48 kHz
- -> VirtualBox host audio backend
-```
-
-Docelowy tor aplikacji będzie wyglądał tak:
+Aktualny tor wygląda tak:
 
 ```text
 application
- -> public audio SDK/API
- -> validated syscall/audio service
- -> AC'97 PCM output
+ -> sdk/include/kurogane/audio.h
+ -> validated Ring-3 syscall
+ -> per-PID exclusive playback ownership
+ -> kernel copy into DMA32 PCM page
+ -> AC'97 BDL / bus-master PCM output
  -> VirtualBox host audio backend
 ```
 
-> **Ważne:** 3.3.1-dev dostarcza **kernelowy backend AC'97**, ale nie deklaruje
-> jeszcze stabilnego publicznego Ring-3 playback API. Zwykła aplikacja nie może
-> w tej wersji bezpośrednio wysłać PCM przez oficjalny SDK. To jest następna
-> warstwa nad gotowym sterownikiem sprzętowym.
+## Publiczny Ring-3 playback
 
-3.3.1 skupia się na bazowym output PCM. Capture/microphone, mikser per-process,
-format conversion i zaawansowany scheduler audio pozostają dalszą pracą.
+SDK udostępnia:
+
+```c
+ku_audio_get_state(...)
+ku_audio_set(...)
+ku_audio_play_pcm16_stereo(...)
+ku_audio_poll()
+ku_audio_stop()
+```
+
+`ku_audio_play_pcm16_stereo()` przyjmuje maksymalnie 1024 klatki jednego
+bufora. Akceptowany bufor jest kopiowany do pamięci należącej do kernela zanim
+syscall wróci, więc sterownik nie przechowuje wskaźnika do pamięci aplikacji.
+
+Format publicznego transportu 3.3.3 jest celowo stały:
+
+```text
+PCM signed 16-bit little-endian
+stereo
+48 kHz
+interleaved L,R,L,R...
+maximum 1024 frames per submitted buffer
+```
+
+Po przyjęciu bufora wywołanie zwraca `KU_STATUS_OK`. `ku_audio_poll()` zwraca
+`KU_STATUS_WOULD_BLOCK`, dopóki bufor jest aktywny, i `KU_STATUS_OK` po jego
+zakończeniu. `ku_audio_stop()` zatrzymuje playback należący do bieżącego
+procesu.
+
+Aktualny model jest **single-owner, per PID**. Jeden proces może posiadać
+aktywny playback na referencyjnym urządzeniu. Inny proces nie może zatrzymać ani
+pollować cudzego odtwarzania. Cleanup procesu automatycznie zatrzymuje DMA,
+jeżeli proces nadal jest właścicielem playbacku.
+
+To jest bezpieczny fundament aplikacyjnego audio, ale jeszcze nie pełny mixer
+ani wielostrumieniowy serwis. Per-process stream handles, miksowanie wielu
+aplikacji, resampling, capture/microphone i Intel HDA pozostają dalszą pracą.
 
 ## VirtualBox
 
@@ -46,21 +69,6 @@ Audio Output: ON
 ```
 
 Host Audio Driver zostaw jako `Default`, chyba że debugujesz problem hosta.
-
-## Format referencyjny
-
-Sterownik bazowy przyjmuje:
-
-```text
-PCM signed 16-bit little-endian
-stereo
-48 kHz
-interleaved L,R,L,R...
-```
-
-Jeden blok jest kopiowany do pamięci należącej do kernela/DMA32 przed
-uruchomieniem bus-master engine. Aplikacja Ring-3 nie będzie dostawać surowego
-adresu DMA ani prawa do bezpośredniego programowania BAR-ów kontrolera.
 
 ## Dlaczego AC'97
 
@@ -87,12 +95,10 @@ output jest gotowy.
 
 ## Dla programistów
 
-Nie używaj bezpośrednio portów AC'97 z aplikacji Ring-3. Sterownik sprzętowy
-należy do kernela.
-
-Dopóki stabilne publiczne audio API nie zostanie dodane, aplikacje powinny
-traktować playback audio jako capability jeszcze niedostępne przez publiczny
-SDK, zamiast importować prywatne nagłówki `kernel/drivers/audio/*`.
+Nie używaj bezpośrednio portów AC'97 ani prywatnych nagłówków sterownika z
+aplikacji Ring-3. Publicznym kontraktem jest wyłącznie `kurogane/audio.h`.
+Aplikacja nigdy nie otrzymuje surowego adresu DMA ani prawa do programowania
+BAR-ów kontrolera.
 
 Zobacz:
 

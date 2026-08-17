@@ -10,7 +10,7 @@ constexpr ku_abi_descriptor g_descriptor{
     KU_ABI_VERSION_CURRENT,
     KU_ARCHITECTURE_X86_64,
     4096,
-    KU_ABI_FEATURE_FILES,
+    KU_ABI_FEATURE_FILES | KU_ABI_FEATURE_AUDIO,
     {0, 0, 0}
 };
 

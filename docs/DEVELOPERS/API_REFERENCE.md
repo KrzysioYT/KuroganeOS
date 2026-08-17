@@ -60,12 +60,12 @@ if (child > 0) {
 #include <kurogane/filesystem.h>
 ```
 
-The public filesystem contract now exposes the mutable operations already
+The public filesystem contract exposes the mutable operations already
 implemented by the VFS/FAT32 backend:
 
 ```text
 open: read / write / append / directory
-read / write / close
+read / write / seek / close
 stat / readdir
 create / unlink / rename
 mkdir / rmdir
@@ -98,6 +98,22 @@ if (create_status == KU_STATUS_OK ||
 }
 ```
 
+Seek uses an overflow-checked signed displacement and one of the public origins
+`KU_FILE_SEEK_BEGIN`, `KU_FILE_SEEK_CURRENT` or `KU_FILE_SEEK_END`:
+
+```c
+uint64_t position = 0U;
+ku_status_t status = ku_file_seek(
+    file,
+    0,
+    KU_FILE_SEEK_END,
+    &position);
+```
+
+The call succeeds only for handles whose file stat advertises
+`KU_FILE_FLAG_SEEKABLE`. The resulting absolute offset is returned through the
+optional `new_offset` pointer.
+
 Directory enumeration uses a directory handle and returns
 `KU_STATUS_END_OF_STREAM` after the last entry:
 
@@ -121,8 +137,8 @@ Ring-3 syscall boundary. Mutation is naturally rejected with
 `KU_STATUS_ACCESS_DENIED` when the active root backend is read-only, including
 Try/live-package media.
 
-Current limitations: no public seek API, file-backed mmap, links, ACLs or full
-Unix permission model yet.
+Current limitations: no file-backed mmap, links, ACLs, process-local cwd API or
+full Unix permission model yet.
 
 ## UI / libui
 
@@ -251,12 +267,45 @@ filesystem/process integration and a much broader libc/POSIX platform layer.
 
 Applications must never include `kernel/net/*` directly.
 
-## Audio
+## Audio — bounded Ring-3 PCM foundation
 
-The kernel has an Intel ICH AC'97 (`8086:2415`) PCM backend for the reference
-VirtualBox profile. Ring 3 can query audio state and set master volume/mute. A
-stable Ring-3 PCM streaming API is still pending; applications must not program
-AC'97 DMA or I/O ports directly.
+```c
+#include <kurogane/audio.h>
+```
+
+The reference backend is Intel ICH AC'97 (`8086:2415`). Ring 3 can query state,
+set master volume/mute and submit one bounded PCM block through the public SDK.
+
+The playback contract is fixed in 3.3.3:
+
+```text
+signed 16-bit little-endian
+stereo / interleaved L,R
+48 kHz
+maximum 1024 frames per submitted block
+```
+
+Example:
+
+```c
+int16_t samples[2U * 256U];
+/* fill 256 stereo frames */
+ku_status_t status = ku_audio_play_pcm16_stereo(samples, 256U);
+if (status == KU_STATUS_OK) {
+    while (ku_audio_poll() == KU_STATUS_WOULD_BLOCK) {
+        (void)ku_yield();
+    }
+}
+```
+
+Accepted samples are copied into kernel-owned DMA memory before the submit
+syscall returns. Playback is currently exclusive and owned by the submitting
+PID; another process cannot poll or stop that playback. Process cleanup stops
+DMA automatically if the process exits while it still owns playback.
+
+This is not yet the final multi-stream audio service. Stream handles, mixing,
+format conversion/resampling, capture and Intel HDA remain future work.
+Applications must never program AC'97 DMA or I/O ports directly.
 
 ## Graphics / Direct3D
 
@@ -286,11 +335,15 @@ Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 29  KU_SYS_FS_MKDIR
 30  KU_SYS_FS_RMDIR
 31  KU_SYS_FS_SYNC
+32  KU_SYS_FS_SEEK
+33  KU_SYS_AUDIO_PLAY_PCM16
+34  KU_SYS_AUDIO_POLL
+35  KU_SYS_AUDIO_STOP
 ```
 
-`KU_SYS_WRITE` remains syscall 2 and now accepts generation-checked file handles
-in addition to stdout/stderr. `KU_SYS_OPEN` remains syscall 5 and accepts the
-new write/append/directory flags. This preserves source and syscall-number
+`KU_SYS_WRITE` remains syscall 2 and accepts generation-checked file handles in
+addition to stdout/stderr. `KU_SYS_OPEN` remains syscall 5 and accepts the
+write/append/directory flags. This preserves source and syscall-number
 compatibility for existing applications.
 
 Use SDK wrappers instead of hardcoding syscall numbers.
