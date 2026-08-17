@@ -51,14 +51,18 @@ int main(void) {
             scene_reported = 1;
         }
 
-        for (uint32_t tick = 0U; tick < 100U; ++tick) {
-            ku_ui_event event;
-            const int available = kui_next_event(window, &event);
-            if (available < 0 || (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
-                (void)ku_ui_close(window);
-                return 0;
-            }
-            (void)kuro_sleep(1U);
+        ku_ui_event event;
+        const int available = kui_next_event(window, &event);
+        if (available < 0 ||
+            (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
+            (void)ku_ui_close(window);
+            return 0;
+        }
+
+        /* One scheduler wakeup per heartbeat instead of 100 wakeups/sec. */
+        if (kuro_sleep_seconds(UINT64_C(1)) != KU_STATUS_OK) {
+            (void)ku_ui_close(window);
+            return 3;
         }
         heartbeat = (heartbeat + 5U) % 101U;
     }
