@@ -167,6 +167,73 @@ Try/live-package media.
 Current limitations: no file-backed mmap, links, ACLs or full Unix permission
 model yet.
 
+## IPC — bounded message channels
+
+```c
+#include <kurogane/ipc.h>
+```
+
+KuroganeOS exposes a fixed-capacity, non-blocking message channel foundation for
+process-to-process services. A server binds a short service name, clients connect
+by name, and the server accepts each pending connection into a bidirectional
+channel.
+
+```text
+bind(name) -> endpoint handle
+connect(name) -> client channel handle
+accept(endpoint) -> server channel handle
+send(channel, bytes <= 256)
+receive(channel, ku_ipc_message)
+close(endpoint or channel)
+```
+
+Example server:
+
+```c
+const char service[] = "settings";
+ku_result_t endpoint = ku_ipc_bind(service, sizeof(service) - 1U);
+if (endpoint >= 0) {
+    ku_result_t channel = ku_ipc_accept((ku_ipc_handle_t)endpoint);
+    if (channel >= 0) {
+        ku_ipc_message message = {0};
+        if (ku_ipc_receive((ku_ipc_handle_t)channel, &message) == KU_STATUS_OK) {
+            /* message.sender_pid, message.data_size, message.data */
+        }
+    }
+}
+```
+
+Example client:
+
+```c
+const char service[] = "settings";
+const char request[] = "get theme";
+ku_result_t channel = ku_ipc_connect(service, sizeof(service) - 1U);
+if (channel >= 0) {
+    (void)ku_ipc_send(
+        (ku_ipc_handle_t)channel,
+        request,
+        sizeof(request) - 1U);
+}
+```
+
+Properties of the 3.3.3 foundation:
+
+- service names are 1-31 characters and limited to ASCII letters, digits,
+  `.`, `_` and `-`;
+- a message carries at most 256 bytes plus the sender PID;
+- queues are bounded; `accept`, `send` and `receive` return
+  `KU_STATUS_WOULD_BLOCK` instead of sleeping a kernel thread;
+- endpoint and channel handles are generation-checked and owner-checked by PID;
+- stale/cross-process handle use is rejected;
+- closing/exiting a process releases its IPC ownership and peers observe a
+  closed channel state;
+- accepted channels survive closure of the listening endpoint.
+
+This layer intentionally does **not** expose shared memory or blocking wait/event
+objects yet. Those are the next IPC primitives and will be used by async I/O and
+the future browser/renderer split.
+
 ## UI / libui
 
 ```c
@@ -368,6 +435,12 @@ Existing syscall numbers 1-17 remain unchanged. Entries added append-only are:
 35  KU_SYS_AUDIO_STOP
 36  KU_SYS_FS_CHDIR
 37  KU_SYS_FS_GETCWD
+38  KU_SYS_IPC_BIND
+39  KU_SYS_IPC_CONNECT
+40  KU_SYS_IPC_ACCEPT
+41  KU_SYS_IPC_SEND
+42  KU_SYS_IPC_RECEIVE
+43  KU_SYS_IPC_CLOSE
 ```
 
 `KU_SYS_WRITE` remains syscall 2 and accepts generation-checked file handles in

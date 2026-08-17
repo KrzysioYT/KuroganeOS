@@ -66,10 +66,10 @@ ukończenia funkcji.
 
 ## R3 — IPC i sandbox
 
-- [ ] 🟡 Generation-checked IPC endpoint/channel handles z nazwanym
-  `bind/connect/accept` zaimplementowane; oczekują pełnej kwalifikacji `main`.
-- [ ] 🟡 Bounded 256-byte message send/receive, ownership, stale-handle checks i
-  cleanup po PID zaimplementowane; oczekują pełnej kwalifikacji `main`.
+- [x] ✅ Generation-checked IPC endpoint/channel handles z nazwanym
+  `bind/connect/accept` i ownership per PID.
+- [x] ✅ Bounded 256-byte message send/receive, queue backpressure,
+  stale-handle checks, peer-close semantics i cleanup po PID.
 - [ ] ⬜ Shared-memory objects z kontrolą mapowania/ownership.
 - [ ] ⬜ Process event/wait integration dla IPC i async I/O.
 - [ ] ⬜ Capability/permission model dla usług systemowych.
@@ -172,7 +172,8 @@ ukończenia funkcji.
 - [ ] ⬜ Async socket ABI.
 - [ ] ⬜ TLS/HTTPS.
 - [ ] ⬜ Userspace threads/task primitives/timers.
-- [ ] ⬜ Shared memory + browser/renderer IPC.
+- [ ] 🟡 Bounded message IPC foundation istnieje; Chromium nadal wymaga shared
+  memory, wait/event integration i docelowego browser/renderer sandbox model.
 - [ ] ⬜ libc++/Chromium `base` platform layer.
 - [ ] ⬜ GN `target_os = "kurogane"` toolchain definition.
 - [ ] ⬜ Build/run Chromium `base` + `url` smoke target.
@@ -185,16 +186,15 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. IPC message channels — implementacja w toku kwalifikacji;
-2. shared memory + wait/event primitives;
-3. userspace threads + monotonic time;
-4. async sockets + DNS service;
-5. TLS/trust store/HTTPS;
-6. settings/account credential services;
-7. shell pipes/redirection/env;
-8. graphics runtime i software 3D;
-9. Chromium platform layer;
-10. SMP/NVMe/HDA i szerszy hardware qualification.
+1. shared memory + wait/event primitives;
+2. userspace threads + monotonic time;
+3. async sockets + DNS service;
+4. TLS/trust store/HTTPS;
+5. settings/account credential services;
+6. shell pipes/redirection/env;
+7. graphics runtime i software 3D;
+8. Chromium platform layer;
+9. SMP/NVMe/HDA i szerszy hardware qualification.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.
