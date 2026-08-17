@@ -1,5 +1,6 @@
 #include "tcp_client.hpp"
 
+#include "protocols.hpp"
 #include "../arch/x86_64/io.hpp"
 #include "../drivers/pit.hpp"
 
