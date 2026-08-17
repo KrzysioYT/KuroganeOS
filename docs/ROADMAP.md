@@ -59,7 +59,9 @@ ukończenia funkcji.
 - [x] ✅ Process-local cwd/chdir/getcwd, relative path resolution oraz
   dziedziczenie cwd przez dziecko przy `spawn`.
 - [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
-- [ ] ⬜ Symlinks/hard links albo jawna decyzja o ich braku w stabilnym ABI.
+- [x] ✅ ABI v1 świadomie nie implementuje symlinków/hard linków na FAT32;
+  polityka i warunki przyszłego rozszerzenia są zapisane w
+  `docs/DEVELOPERS/FILESYSTEM_POLICY.md`.
 - [ ] ⬜ Model owner/group/permissions/ACL.
 - [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia desktopu i aplikacji.
 - [ ] ⬜ Recovery + transakcyjne aktualizacje systemu.
