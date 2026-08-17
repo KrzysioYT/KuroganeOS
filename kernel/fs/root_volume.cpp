@@ -6,6 +6,9 @@
 #include "../install/package.hpp"
 #include "../install/package_vfs.hpp"
 #include "../storage/partition_device.hpp"
+#if !defined(KUROGANE_HOST_TEST)
+#include "../task/process.hpp"
+#endif
 
 namespace fs::root_volume {
 
@@ -210,14 +213,50 @@ size_t configuration_size() { return g_mounted ? g_configuration_size : 0U; }
 
 vfs::Status initialize_path_context(vfs::PathContext* context) {
     if (!g_mounted) return vfs::Status::NotInitialized;
+    if (context == nullptr) return vfs::Status::InvalidArgument;
     VfsGuard guard{};
-    return vfs::initialize_path_context(&g_vfs, context);
+    vfs::Status status = vfs::initialize_path_context(&g_vfs, context);
+#if !defined(KUROGANE_HOST_TEST)
+    if (status == vfs::Status::Ok) {
+        const process::ProcessId pid = process::current();
+        if (pid != process::INVALID_PROCESS_ID) {
+            process::Stat info{};
+            if (process::stat(pid, &info) == process::Status::Ok &&
+                info.working_directory[0] == '/') {
+                status = vfs::chdir(&g_vfs, context, info.working_directory);
+            }
+        }
+    }
+#endif
+    return status;
 }
 
 vfs::Status chdir(vfs::PathContext* context, const char* path) {
     if (!g_mounted) return vfs::Status::NotInitialized;
+    if (context == nullptr || path == nullptr) return vfs::Status::InvalidArgument;
     VfsGuard guard{};
+#if defined(KUROGANE_HOST_TEST)
     return vfs::chdir(&g_vfs, context, path);
+#else
+    vfs::PathContext candidate = *context;
+    vfs::Status status = vfs::chdir(&g_vfs, &candidate, path);
+    if (status != vfs::Status::Ok) return status;
+
+    char canonical[vfs::MAX_PATH_LENGTH + 1U]{};
+    status = vfs::getcwd(&candidate, canonical, sizeof(canonical), nullptr);
+    if (status != vfs::Status::Ok) return status;
+
+    const process::ProcessId pid = process::current();
+    if (pid != process::INVALID_PROCESS_ID) {
+        const process::Status process_status =
+            process::set_working_directory(pid, canonical);
+        if (process_status != process::Status::Ok) {
+            return vfs::Status::BackendFailure;
+        }
+    }
+    *context = candidate;
+    return vfs::Status::Ok;
+#endif
 }
 
 vfs::Status getcwd(
