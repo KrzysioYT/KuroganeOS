@@ -164,8 +164,10 @@ Ring-3 syscall boundary. Mutation is naturally rejected with
 `KU_STATUS_ACCESS_DENIED` when the active root backend is read-only, including
 Try/live-package media.
 
-Current limitations: no file-backed mmap, links, ACLs or full Unix permission
-model yet.
+Public ABI major 1 deliberately does not implement symbolic or hard links on the
+FAT32 root. This is a compatibility/security policy, not an accidental missing
+syscall; see [`FILESYSTEM_POLICY.md`](FILESYSTEM_POLICY.md). File-backed mmap,
+ACLs and the full Unix permission model are still pending.
 
 ## IPC — bounded message channels
 
@@ -297,7 +299,7 @@ close window
 `libui` view types include panel, label, button, input, list item, progress and
 separator. Applications should use named key values rather than PS/2 scancodes.
 
-## Live system snapshot — 3.3.3
+## Live system snapshot and monotonic clock — 3.3.3
 
 ```c
 #include <kurogane/system.h>
@@ -314,6 +316,22 @@ if (ku_system_get_snapshot(&snapshot) == KU_STATUS_OK) {
 Returned fields include CPU activity, RAM totals/percentage, disk activity,
 GOP/software-compositor activity and monotonic scheduler uptime ticks.
 
+The public monotonic timebase is currently the scheduler/PIT clock at exactly
+`KU_SYSTEM_TICKS_PER_SECOND == 100`. It is monotonic, not wall-clock/calendar
+time. Applications can use the stable helpers without duplicating conversion
+logic:
+
+```c
+uint64_t ticks = 0U;
+uint64_t milliseconds = 0U;
+(void)ku_system_monotonic_ticks(&ticks);
+(void)ku_system_monotonic_milliseconds(&milliseconds);
+```
+
+`ku_system_ticks_to_milliseconds()` is overflow-safe. A future high-resolution
+timer backend can extend the API; the present 100 Hz clock must not be described
+as a high-resolution timer.
+
 `gpu_percent` is **not physical GPU-core utilization** in 3.3.3. Hardware 3D
 command submission is not enabled yet.
 
@@ -324,9 +342,14 @@ command submission is not enabled yet.
 ```
 
 Known application IDs are Home, Terminal, Files, Performance, Kurogane Web,
-System Monitor, Settings and About. Home is always pinned. Pin state is
-session-local in 3.3.3; persistent desktop configuration will move to the
-writable settings service.
+System Monitor, Settings and About. Home is always pinned.
+
+The Red Flux Home/launcher now persists the application pin mask through the
+public Ring-3 writable filesystem API at `/home/desktop.cfg`. It restores that
+mask when Home starts and synchronizes the file after a `P: PIN/UNPIN` change.
+On a read-only Try/live root, the operation naturally falls back to session-only
+state because filesystem mutation is denied. A broader typed settings/profile
+service for other application preferences is still pending.
 
 ## Networking — 3.3.3 transitional public ABI
 
