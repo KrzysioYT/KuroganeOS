@@ -72,7 +72,9 @@ ukończenia funkcji.
   stale-handle checks, peer-close semantics i cleanup po PID.
 - [x] ✅ Shared-memory objects: PMM-backed zero-filled pages, generation-checked
   handles, owner/grant per PID, writable+NX Ring-3 map/unmap i refcount cleanup.
-- [ ] ⬜ Process event/wait integration dla IPC i async I/O.
+- [ ] 🟡 Waitable event objects: generation-checked owner/grant handles,
+  auto/manual reset, signal/reset/poll/close i sleeping `ku_event_wait`; bezpośrednie
+  wake-up z `Blocked` i automatyczne readiness z IPC/async I/O pozostają do spięcia.
 - [ ] ⬜ Capability/permission model dla usług systemowych.
 - [ ] ⬜ Sandbox primitives potrzebne przez model browser/renderer.
 
@@ -173,8 +175,8 @@ ukończenia funkcji.
 - [ ] ⬜ Async socket ABI.
 - [ ] ⬜ TLS/HTTPS.
 - [ ] ⬜ Userspace threads/task primitives/timers.
-- [ ] 🟡 Bounded message IPC + shared-memory foundation istnieją; Chromium nadal
-  wymaga wait/event integration i docelowego browser/renderer sandbox model.
+- [ ] 🟡 Bounded message IPC, shared memory i waitable-event foundation istnieją;
+  nadal brakuje bezpośredniego wake/event readiness i docelowego sandbox model.
 - [ ] ⬜ libc++/Chromium `base` platform layer.
 - [ ] ⬜ GN `target_os = "kurogane"` toolchain definition.
 - [ ] ⬜ Build/run Chromium `base` + `url` smoke target.
@@ -187,7 +189,7 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. wait/event primitives;
+1. direct blocked-thread wake + IPC/event readiness;
 2. userspace threads + monotonic time;
 3. async sockets + DNS service;
 4. TLS/trust store/HTTPS;
