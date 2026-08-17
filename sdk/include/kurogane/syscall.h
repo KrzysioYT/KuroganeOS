@@ -45,7 +45,9 @@ enum ku_syscall_number {
     KU_SYS_FS_SEEK = 32,
     KU_SYS_AUDIO_PLAY_PCM16 = 33,
     KU_SYS_AUDIO_POLL = 34,
-    KU_SYS_AUDIO_STOP = 35
+    KU_SYS_AUDIO_STOP = 35,
+    KU_SYS_FS_CHDIR = 36,
+    KU_SYS_FS_GETCWD = 37
 };
 
 enum ku_open_flags {
