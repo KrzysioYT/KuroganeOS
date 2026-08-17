@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/event.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
 #include <kurogane/network.h>
@@ -19,6 +20,7 @@
 #include "../drivers/audio/ac97.hpp"
 #include "../fs/root_volume.hpp"
 #include "../ipc/channel.hpp"
+#include "../ipc/event.hpp"
 #include "../ipc/shared_memory.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
@@ -31,10 +33,6 @@
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
 
-// Keep the already-qualified runtime implementation byte-for-byte and extend
-// only its public initialize entry point and syscall handler. All headers are
-// pre-included above so renaming the single implementation-level initialize()
-// token does not affect declarations from included headers.
 #define initialize legacy_initialize
 #include "runtime_base.inc"
 #undef initialize
@@ -99,6 +97,22 @@ ku_status_t shared_memory_status(ipc::shared_memory::Status status) {
     return KU_STATUS_IO_ERROR;
 }
 
+ku_status_t event_status(ipc::event::Status status) {
+    using EventStatus = ipc::event::Status;
+    switch (status) {
+        case EventStatus::Ok:
+        case EventStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case EventStatus::InvalidArgument:
+        case EventStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case EventStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
+        case EventStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
+        case EventStatus::AlreadyGranted: return KU_STATUS_ALREADY_EXISTS;
+        case EventStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
+        case EventStatus::NotInitialized: return KU_STATUS_BAD_STATE;
+    }
+    return KU_STATUS_IO_ERROR;
+}
+
 bool copy_user_ipc_name(
     Context& context,
     uint64_t address,
@@ -121,7 +135,8 @@ bool copy_user_ipc_name(
 
 bool extended_syscall_number(uint64_t number) {
     return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
-        (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE);
+        (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
+        (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
 }
 
 RuntimeSharedMapping* find_shared_mapping(
@@ -279,6 +294,7 @@ void extended_syscall_handler(
         const uint64_t interrupt_flags = save_and_disable_interrupts();
         ipc::release_process(context->pid);
         ipc::shared_memory::release_process(context->pid);
+        ipc::event::release_process(context->pid);
         restore_interrupts(interrupt_flags);
         syscall_handler(frame);
         return;
@@ -455,6 +471,64 @@ void extended_syscall_handler(
             frame.rax = static_cast<uint64_t>(shared_memory_status(status));
             return;
         }
+        case KU_SYS_EVENT_CREATE: {
+            if (frame.rdx != 0U || frame.rdi > KU_EVENT_MANUAL_RESET ||
+                frame.rsi > 1U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            ipc::event::Handle handle = ipc::event::INVALID_HANDLE;
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::event::Status status = ipc::event::create(
+                context->pid,
+                frame.rdi == KU_EVENT_MANUAL_RESET
+                    ? ipc::event::ResetMode::Manual : ipc::event::ResetMode::Auto,
+                frame.rsi != 0U,
+                &handle);
+            restore_interrupts(interrupt_flags);
+            frame.rax = status == ipc::event::Status::Ok
+                ? handle : static_cast<uint64_t>(event_status(status));
+            return;
+        }
+        case KU_SYS_EVENT_GRANT: {
+            if (frame.rdx != 0U || frame.rsi == 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::event::Status status = ipc::event::grant(
+                context->pid,
+                static_cast<ipc::event::Handle>(frame.rdi),
+                static_cast<ipc::event::ProcessId>(frame.rsi));
+            restore_interrupts(interrupt_flags);
+            frame.rax = static_cast<uint64_t>(event_status(status));
+            return;
+        }
+        case KU_SYS_EVENT_SIGNAL:
+        case KU_SYS_EVENT_RESET:
+        case KU_SYS_EVENT_POLL:
+        case KU_SYS_EVENT_CLOSE: {
+            if (frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const ipc::event::Handle handle =
+                static_cast<ipc::event::Handle>(frame.rdi);
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            ipc::event::Status status = ipc::event::Status::InvalidArgument;
+            if (frame.rax == KU_SYS_EVENT_SIGNAL) {
+                status = ipc::event::signal(context->pid, handle);
+            } else if (frame.rax == KU_SYS_EVENT_RESET) {
+                status = ipc::event::reset(context->pid, handle);
+            } else if (frame.rax == KU_SYS_EVENT_POLL) {
+                status = ipc::event::poll(context->pid, handle);
+            } else {
+                status = ipc::event::close(context->pid, handle);
+            }
+            restore_interrupts(interrupt_flags);
+            frame.rax = static_cast<uint64_t>(event_status(status));
+            return;
+        }
         default:
             syscall_handler(frame);
             return;
@@ -473,6 +547,11 @@ Status initialize() {
         ipc::shared_memory::initialize();
     if (shared_initialize_status != ipc::shared_memory::Status::Ok &&
         shared_initialize_status != ipc::shared_memory::Status::AlreadyInitialized) {
+        return Status::InterruptRegistrationFailed;
+    }
+    const ipc::event::Status event_initialize_status = ipc::event::initialize();
+    if (event_initialize_status != ipc::event::Status::Ok &&
+        event_initialize_status != ipc::event::Status::AlreadyInitialized) {
         return Status::InterruptRegistrationFailed;
     }
     for (RuntimeSharedMapping& mapping : g_shared_mappings) mapping = {};
