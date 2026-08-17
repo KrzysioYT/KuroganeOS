@@ -13,8 +13,7 @@ constexpr uint32_t kSampleRate = 48000U;
 constexpr uint8_t kChannels = 2U;
 constexpr uint8_t kBitsPerSample = 16U;
 constexpr size_t kBytesPerFrame = 4U;
-constexpr size_t kMaximumFrames =
-    4096U / kBytesPerFrame;
+constexpr size_t kMaximumFrames = 4096U / kBytesPerFrame;
 
 constexpr uint16_t kMixerReset = 0x00U;
 constexpr uint16_t kMixerMasterVolume = 0x02U;
@@ -23,6 +22,8 @@ constexpr uint16_t kMixerExtendedAudioId = 0x28U;
 constexpr uint16_t kMixerExtendedAudioStatus = 0x2AU;
 constexpr uint16_t kMixerPcmFrontDacRate = 0x2CU;
 constexpr uint16_t kExtendedVariableRate = UINT16_C(1) << 0U;
+constexpr uint16_t kMixerMute = UINT16_C(1) << 15U;
+constexpr uint16_t kMixerAttenuationMask = UINT16_C(0x1F);
 
 constexpr uint16_t kPcmOutBdbase = 0x10U;
 constexpr uint16_t kPcmOutCiv = 0x14U;
@@ -66,20 +67,18 @@ storage::dma::Page g_pcm_page{};
 bool g_initialized = false;
 bool g_busy = false;
 Status g_status = Status::NotInitialized;
+uint32_t g_master_volume_percent = 100U;
+bool g_muted = false;
 
 void clear_bytes(void* destination, size_t size) {
     auto* bytes = static_cast<uint8_t*>(destination);
-    for (size_t index = 0U; index < size; ++index) {
-        bytes[index] = 0U;
-    }
+    for (size_t index = 0U; index < size; ++index) bytes[index] = 0U;
 }
 
 void copy_bytes(void* destination, const void* source, size_t size) {
     auto* output = static_cast<uint8_t*>(destination);
     const auto* input = static_cast<const uint8_t*>(source);
-    for (size_t index = 0U; index < size; ++index) {
-        output[index] = input[index];
-    }
+    for (size_t index = 0U; index < size; ++index) output[index] = input[index];
 }
 
 uint16_t mixer_port(uint16_t offset) {
@@ -123,6 +122,18 @@ bool valid_io_bar(uint64_t address, bool is_io, uint16_t span) {
         static_cast<uint64_t>(span) <= UINT16_MAX - address;
 }
 
+void apply_master_volume() {
+    const uint32_t bounded = g_master_volume_percent > 100U
+        ? 100U : g_master_volume_percent;
+    const uint16_t attenuation = static_cast<uint16_t>(
+        ((100U - bounded) * static_cast<uint32_t>(kMixerAttenuationMask) + 50U) /
+        100U);
+    uint16_t value = static_cast<uint16_t>(
+        attenuation | static_cast<uint16_t>(attenuation << 8U));
+    if (g_muted) value = static_cast<uint16_t>(value | kMixerMute);
+    mixer_write(kMixerMasterVolume, value);
+}
+
 bool reset_pcm_engine() {
     bus_write8(kPcmOutControl, 0U);
     bus_write8(kPcmOutControl, kControlReset);
@@ -141,9 +152,8 @@ bool reset_codec() {
     for (uint32_t attempt = 0U; attempt < kCodecPollBudget; ++attempt) {
         const uint16_t master = mixer_read(kMixerMasterVolume);
         if (master != UINT16_MAX) {
-            // Unmute master and PCM output at 0 dB attenuation.
-            mixer_write(kMixerMasterVolume, 0U);
             mixer_write(kMixerPcmOutVolume, 0U);
+            apply_master_volume();
 
             const uint16_t extended = mixer_read(kMixerExtendedAudioId);
             if ((extended & kExtendedVariableRate) != 0U) {
@@ -174,9 +184,7 @@ void release_dma() {
 } // namespace
 
 Status initialize() {
-    if (g_initialized) {
-        return Status::AlreadyInitialized;
-    }
+    if (g_initialized) return Status::AlreadyInitialized;
 
     g_status = Status::NotInitialized;
     g_pci_device = pci::find(kIntelVendor, kIchAc97Device);
@@ -197,8 +205,6 @@ Status initialize() {
     g_mixer_base = static_cast<uint16_t>(mixer);
     g_bus_master_base = static_cast<uint16_t>(bus);
 
-    // AC'97 uses I/O space and bus-master DMA. Preserve any device-specific
-    // command bits while explicitly enabling both capabilities.
     uint16_t command = pci::read16(g_pci_device->address, 0x04U);
     command = static_cast<uint16_t>(command | UINT16_C(0x0005));
     pci::write16(g_pci_device->address, 0x04U, command);
@@ -240,17 +246,24 @@ Status initialize() {
     return Status::Ok;
 }
 
-bool initialized() {
-    return g_initialized;
-}
-
-Status initialization_status() {
-    return g_status;
-}
+bool initialized() { return g_initialized; }
+Status initialization_status() { return g_status; }
 
 Capabilities capabilities() {
     return {kSampleRate, kChannels, kBitsPerSample, kMaximumFrames};
 }
+
+Status set_master_volume(uint32_t percent, bool muted_value) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (percent > 100U) return Status::InvalidArgument;
+    g_master_volume_percent = percent;
+    g_muted = muted_value;
+    apply_master_volume();
+    return Status::Ok;
+}
+
+uint32_t master_volume_percent() { return g_master_volume_percent; }
+bool muted() { return g_muted; }
 
 Status play_pcm16_stereo(const int16_t* samples, size_t frame_count) {
     if (!g_initialized) return Status::NotInitialized;
@@ -313,9 +326,7 @@ Status poll() {
     return Status::Ok;
 }
 
-bool busy() {
-    return g_busy;
-}
+bool busy() { return g_busy; }
 
 Status stop() {
     if (!g_initialized) return Status::NotInitialized;
