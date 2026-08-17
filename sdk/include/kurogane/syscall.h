@@ -58,7 +58,13 @@ enum ku_syscall_number {
     KU_SYS_SHM_GRANT = 45,
     KU_SYS_SHM_MAP = 46,
     KU_SYS_SHM_UNMAP = 47,
-    KU_SYS_SHM_CLOSE = 48
+    KU_SYS_SHM_CLOSE = 48,
+    KU_SYS_EVENT_CREATE = 49,
+    KU_SYS_EVENT_GRANT = 50,
+    KU_SYS_EVENT_SIGNAL = 51,
+    KU_SYS_EVENT_RESET = 52,
+    KU_SYS_EVENT_POLL = 53,
+    KU_SYS_EVENT_CLOSE = 54
 };
 
 enum ku_open_flags {
