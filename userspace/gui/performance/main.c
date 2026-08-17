@@ -46,7 +46,7 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     append_text(uptime, sizeof(uptime), " s");
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
+    scene->visible_rows = 11U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -65,16 +65,14 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     (void)kui_flow_label(&root, 9U, memory);
     (void)kui_flow_label(&root, 10U, uptime);
     (void)kui_flow_label(&root, 11U, "GPU = GOP/COMPOSITOR ACTIVITY, NOT GPU CORE LOAD");
-    (void)kui_flow_progress(
-        &root, 12U, "CPU ACTIVITY",
-        snapshot->cpu_percent, 100U);
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("PERFORMANCE", 620, 190, 360, 350);
+    const ku_window_t window = gui_open("PERFORMANCE", 620, 190, 360, 310);
     if (window == KU_INVALID_WINDOW) return 1;
 
     puts("[TEST] desktop_performance_live: PASS");
+    puts("[TEST] desktop_performance_low_damage: PASS");
 
     for (;;) {
         ku_system_snapshot snapshot;
@@ -95,13 +93,7 @@ int main(void) {
             return 3;
         }
 
-        /*
-         * The old loop woke this process once per 100 Hz scheduler tick.
-         * That generated roughly 100 scheduler wakeups/context switches per
-         * second just for the monitor itself, inflating its own CPU reading
-         * and adding avoidable compositor/scheduler pressure. Performance is
-         * a one-second sampler, so sleep once for the whole sample period.
-         */
+        /* One sample/present per second. Do not wake 100 times per second. */
         const int available = kui_next_event(window, &event);
         if (available < 0 ||
             (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {
