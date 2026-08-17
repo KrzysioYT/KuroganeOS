@@ -20,6 +20,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
   -o "$OUT_DIR/test_sdk_abi"
 
 "$OUT_DIR/test_sdk_abi"
-"$HOST_PYTHON" tests/test_sdk_project_generator.py
+
+# The project-generator integration test consumes the real SDK sysroot rather
+# than an ad-hoc header copy. Building it here also validates that public ABI
+# header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
+bash ./scripts/build-sdk.sh
+
+"$HOST_PYTHON" tests/test_sdk_project_generator.py \
+  --root "$ROOT_DIR" \
+  --cxx "${KUROGANE_CXX:-${CXX:-g++}}"
 
 echo "[host-tests] PASS"
