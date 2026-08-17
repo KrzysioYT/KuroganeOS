@@ -86,6 +86,9 @@ Status run_preemptive_for(
 Status wait(ProcessId pid, int32_t* exit_code);
 Status terminate(ProcessId pid, int32_t exit_code);
 Status stat(ProcessId pid, Stat* output);
+// Updates the process-table copy of cwd after VFS canonicalization. This is an
+// internal process-management API; Ring-3 changes cwd through the filesystem ABI.
+Status set_working_directory(ProcessId pid, const char* directory);
 Status list(ListCallback callback, void* context);
 ProcessId current();
 const char* status_message(Status status);
