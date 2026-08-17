@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MBEDTLS_DIR="$ROOT_DIR/third_party/mbedtls"
+OUT_DIR="${MBEDTLS_PROBE_DIR:-$ROOT_DIR/build/tests/mbedtls-freestanding}"
+CC_BIN="${CC:-gcc}"
+
+[[ -f "$MBEDTLS_DIR/include/mbedtls/build_info.h" ]] || {
+    echo "[mbedtls-probe] pinned submodule missing; run git submodule update --init --recursive" >&2
+    exit 1
+}
+
+grep -Fq '#define MBEDTLS_VERSION_STRING         "3.6.7"' \
+    "$MBEDTLS_DIR/include/mbedtls/build_info.h" || {
+    echo "[mbedtls-probe] unexpected Mbed TLS version" >&2
+    exit 1
+}
+
+rm -rf "$OUT_DIR"
+mkdir -p "$OUT_DIR"
+
+CFLAGS=(
+    -std=c11 -O2 -Wall -Wextra -Wpedantic
+    -Werror=implicit-function-declaration
+    -ffreestanding -fno-builtin -fno-stack-protector
+    -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
+    -I"$ROOT_DIR/kernel/net/tls"
+    -I"$MBEDTLS_DIR/include"
+    -I"$MBEDTLS_DIR/library"
+    '-DMBEDTLS_CONFIG_FILE="kurogane_mbedtls_config.h"'
+)
+
+# Compile the exact modules required by the first HTTPS client profile. This is
+# deliberately a compile-only probe: Kurogane platform allocation, entropy,
+# wall-clock validation and TCP callbacks are linked only after their kernel
+# contracts exist and are independently tested.
+SOURCES=(
+    aes.c
+    asn1parse.c
+    asn1write.c
+    base64.c
+    bignum.c
+    bignum_core.c
+    bignum_mod.c
+    bignum_mod_raw.c
+    block_cipher.c
+    cipher.c
+    cipher_wrap.c
+    constant_time.c
+    ctr_drbg.c
+    ecdh.c
+    ecdsa.c
+    ecp.c
+    ecp_curves.c
+    entropy.c
+    entropy_poll.c
+    gcm.c
+    md.c
+    oid.c
+    pem.c
+    pk.c
+    pk_ecc.c
+    pk_wrap.c
+    pkparse.c
+    platform.c
+    platform_util.c
+    rsa.c
+    rsa_alt_helpers.c
+    sha256.c
+    sha512.c
+    x509.c
+    x509_crt.c
+    ssl_ciphersuites.c
+    ssl_client.c
+    ssl_msg.c
+    ssl_tls.c
+    ssl_tls12_client.c
+)
+
+for source in "${SOURCES[@]}"; do
+    path="$MBEDTLS_DIR/library/$source"
+    [[ -f "$path" ]] || {
+        echo "[mbedtls-probe] source missing: $source" >&2
+        exit 1
+    }
+    echo "[mbedtls-probe] CC $source"
+    "$CC_BIN" "${CFLAGS[@]}" -c "$path" -o "$OUT_DIR/${source%.c}.o"
+done
+
+echo "[mbedtls-probe] freestanding TLS 1.2/X.509 source profile: PASS"
