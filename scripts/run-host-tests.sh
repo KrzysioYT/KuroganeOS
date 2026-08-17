@@ -21,6 +21,17 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_sdk_abi"
 
+# Exercise canonicalization, relative paths, cwd/chdir/getcwd, chroot bounds,
+# generation-checked handles and the mutable VFS contract on the host. These
+# semantics are shared by the Ring-3 process-local PathContext wrappers.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_vfs.cpp \
+  kernel/fs/vfs.cpp \
+  -o "$OUT_DIR/test_vfs"
+
+"$OUT_DIR/test_vfs"
+
 # The project-generator integration test consumes the real SDK sysroot rather
 # than an ad-hoc header copy. Building it here also validates that public ABI
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
