@@ -1,7 +1,0 @@
-Step: WSL2 and toolchain preflight
-Started: 2026-08-14T03:42:39.8854465+02:00
-Finished: 2026-08-14T03:42:40.0605039+02:00
-Duration: 0,2 seconds
-Exit code: 0
-
-WSL2 kernel: 6.18.33.2-microsoft-standard-WSL2
