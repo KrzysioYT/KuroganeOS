@@ -84,9 +84,13 @@ ukończenia funkcji.
 ## R4 — networking
 
 - [x] ✅ E1000 82540EM + Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS.
+- [x] ✅ QEMU Windows/WSL i QEMU macOS używają wspólnego profilu user-NAT + E1000,
+  zgodnego z tym samym sterownikiem co profil VirtualBox E1000.
 - [x] ✅ Minimalny TCP backend i bounded HTTP/80 transport.
 - [x] ✅ Ring-3 network status snapshot.
 - [x] ✅ Ring-3 bounded HTTP GET dla bootstrap Kurogane Web.
+- [ ] ⬜ Drugi fizyczny/wirtualny NIC backend i runtime device selection zamiast
+  uzależniania hardware support od E1000.
 - [ ] ⬜ Publiczne async socket handles.
 - [ ] ⬜ Connect/send/recv/close bez długiego blocking syscall.
 - [ ] ⬜ DNS resolver jako async/public service.
@@ -135,18 +139,23 @@ ukończenia funkcji.
 - [ ] ⬜ Eliminacja compatibility `ku_ui_frame` na rzecz docelowego surface API.
 - [ ] ⬜ Natywne per-window accelerated surfaces.
 
-## R8 — graphics runtime
+## R8 — graphics runtime / Direct3D compatibility
 
 - [x] ✅ PCI display-class discovery i driver-manager binding.
 - [x] ✅ GOP/software compositor capability reporting bez fałszywego 3D support.
-- [ ] ⬜ Kurogane Graphics Runtime: surface/image/buffer/texture handles.
-- [ ] ⬜ Command buffers + viewport/scissor + render/depth/blend state.
-- [ ] ⬜ Present/swap + synchronization/fences.
-- [ ] ⬜ Software 3D: triangles, depth, textures i prosty shader IR.
+- [ ] 🟡 Publiczny bounded software surface runtime istnieje w SDK: XRGB8888,
+  clear, clipped rect/line i integer filled-triangle rasterizer bez FPU/SSE.
+- [ ] 🟡 Wspólny source-level Direct3D compatibility foundation dla frontendów
+  9/11/12 istnieje nad software surface; ma frame/draw budgets oraz bounded
+  D3D12-style command listę. Nie jest to jeszcze Windows COM ABI.
+- [ ] ⬜ Natywne surface/image/buffer/texture handles zarządzane przez kernel/runtime.
+- [ ] ⬜ Per-window command buffer present + viewport/scissor + render/depth/blend state.
+- [ ] ⬜ Present/swap + synchronization/fences do WindowManagera.
+- [ ] ⬜ Software 3D: depth buffer, textures i shader IR ponad gotowym triangle rasterizerem.
 - [ ] ⬜ Pierwszy realny GPU command-submission backend.
-- [ ] ⬜ D3D9 compatibility frontend.
-- [ ] ⬜ D3D11 compatibility frontend.
-- [ ] ⬜ D3D12 compatibility frontend.
+- [ ] ⬜ D3D9 pełniejsza semantyka device/resources/state + compatibility frontend.
+- [ ] ⬜ D3D11 device/context/resources/shaders + compatibility frontend.
+- [ ] ⬜ D3D12 queues/lists/barriers/descriptors + compatibility frontend.
 
 ## R9 — installer, security i accounts
 
@@ -176,9 +185,12 @@ ukończenia funkcji.
 
 - [x] ✅ BrowserContext / NavigationController / PlatformDelegate bootstrap.
 - [x] ✅ Plain HTTP navigation + bounded redirects + bootstrap text renderer.
+- [x] ✅ Search-capable omnibox: pełny URL, sama domena i zwykły tekst zapytania;
+  zapytania są percent-encoded i rozwiązywane do HTTPS search target.
 - [x] ✅ Writable filesystem foundation dla przyszłego profile/cache.
+- [ ] ⬜ TLS/HTTPS transport wymagany do faktycznego wykonania wyszukiwania oraz
+  większości współczesnych stron.
 - [ ] ⬜ Async socket ABI.
-- [ ] ⬜ TLS/HTTPS.
 - [ ] 🟡 Monotonic time foundation jest publiczny; nadal brakuje userspace threads,
   bezpośrednich wait primitives i timer objects potrzebnych przez Chromium task model.
 - [ ] 🟡 Bounded message IPC, shared memory i waitable-event foundation istnieją;
@@ -193,16 +205,17 @@ ukończenia funkcji.
 
 ## Najbliższa kolejność implementacji
 
-Kolejność jest zależnościowa, nie marketingowa:
+Kolejność jest zależnościowa i podporządkowana działającej przeglądarce,
+przenośnej sieci oraz stabilności:
 
-1. direct blocked-thread wake + IPC/event readiness;
-2. userspace threads + high-resolution timer objects;
-3. async sockets + DNS service;
-4. TLS/trust store/HTTPS;
-5. settings/account credential services;
-6. shell pipes/redirection/env;
-7. graphics runtime i software 3D;
-8. Chromium platform layer;
+1. TLS/trust store/HTTPS oraz wzmocnienie TCP;
+2. drugi NIC backend + runtime device selection i kwalifikacja QEMU/VirtualBox;
+3. direct blocked-thread wake + IPC/event readiness;
+4. async sockets + DNS service + userspace threads/timery;
+5. native graphics command-buffer/present path do WindowManagera;
+6. depth/textures/shader IR i rozszerzanie D3D9 -> D3D11 -> D3D12;
+7. Chromium platform layer / `content_shell` / Blink / V8;
+8. settings/account credential services i recovery;
 9. SMP/NVMe/HDA i szerszy hardware qualification.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
