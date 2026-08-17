@@ -157,6 +157,25 @@ static inline ku_status_t ku_file_seek(
     return status;
 }
 
+static inline ku_status_t ku_file_chdir(const char* path, size_t size) {
+    if (path == NULL || size == 0U) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_FS_CHDIR,
+        (uint64_t)(uintptr_t)path,
+        (uint64_t)size,
+        0U);
+}
+
+/* Returns the visible cwd length excluding the trailing NUL, or a status < 0. */
+static inline ku_result_t ku_file_getcwd(char* buffer, size_t capacity) {
+    if (buffer == NULL || capacity == 0U) return KU_STATUS_INVALID_ARGUMENT;
+    return ku_syscall3(
+        KU_SYS_FS_GETCWD,
+        (uint64_t)(uintptr_t)buffer,
+        (uint64_t)capacity,
+        0U);
+}
+
 static inline ku_status_t ku_file_create(const char* path, size_t size) {
     return (ku_status_t)ku_syscall3(
         KU_SYS_FS_CREATE,
