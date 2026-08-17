@@ -383,7 +383,7 @@ ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requeste
         return requested;
     }
     const int32_t width = workspace.work_area.width >= 390 ? 360 : 300;
-    const int32_t height = workspace.work_area.height >= 390 ? 350 : 240;
+    const int32_t height = workspace.work_area.height >= 350 ? 310 : 240;
     return {
         workspace.work_area.x + workspace.work_area.width - width - 18,
         workspace.work_area.y + (workspace.work_area.height - height) / 2,
@@ -678,7 +678,10 @@ void render_layers() {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
         if (index == 0U) {
-            ui::button(dock_pin_rect(index), "HOME", active);
+            // The session-root Home surface is also the system application
+            // menu. Present it as an explicit Start-style APPS button while
+            // keeping the HOME desktop shortcut permanently pinned.
+            ui::button(dock_pin_rect(index), "APPS", active);
         } else {
             ui::dock_item(
                 dock_pin_rect(index), kDockPins[index].icon,
@@ -973,6 +976,14 @@ Status desktop_pin(
 
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
+
+    // Windows/Super key opens the persistent Red Flux application list.
+    if (event.type == input::EventType::KeyDown &&
+        (event.key == drivers::keyboard::KeyCode::LeftGui ||
+         event.key == drivers::keyboard::KeyCode::RightGui)) {
+        return login_surface() == nullptr
+            ? activate_dock_pin(0U) : Status::InvalidState;
+    }
     if (event.type == input::EventType::KeyDown && event.alt &&
         event.key == drivers::keyboard::KeyCode::F4) {
         return g_focused == INVALID_WINDOW ? Status::NotFound : close(g_focused);
