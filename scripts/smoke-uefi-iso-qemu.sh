@@ -2,25 +2,27 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh ISO [--timeout SECONDS] [--nic none|e1000|pcnet] [--require-network]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet] [--require-network]" >&2
     exit 2
 }
 
-iso=""
+media=""
+media_kind="iso"
 timeout_seconds=60
 nic_model="none"
 require_network=false
 while (($#)); do
     case "$1" in
+        --disk) media_kind="disk"; shift ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         -h|--help) usage ;;
         -*) usage ;;
-        *) [[ -z "$iso" ]] || usage; iso="$1"; shift ;;
+        *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
     esac
 done
-[[ -n "$iso" ]] || usage
+[[ -n "$media" ]] || usage
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 180)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
@@ -33,10 +35,10 @@ if $require_network && [[ "$nic_model" == "none" ]]; then
 fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
     echo "qemu-system-x86_64 is required" >&2; exit 1; }
-iso="$(cd "$(dirname "$iso")" && pwd)/$(basename "$iso")"
-[[ -f "$iso" && -s "$iso" ]] || { echo "ISO missing or empty: $iso" >&2; exit 1; }
+media="$(cd "$(dirname "$media")" && pwd)/$(basename "$media")"
+[[ -f "$media" && -s "$media" ]] || { echo "media missing or empty: $media" >&2; exit 1; }
 
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-iso.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-smoke.XXXXXX")"
 serial="$tmp/serial.log"
 qemu_log="$tmp/qemu.log"
 pid=""
@@ -120,14 +122,29 @@ if [[ "$nic_model" != "none" ]]; then
     )
 fi
 
+media_args=()
+if [[ "$media_kind" == "disk" ]]; then
+    # The Foundation image is intentionally attached as a protected snapshot.
+    # It contains the runnable system but no install.pkg, so qualification
+    # exercises the live OS instead of accidentally entering the installer.
+    media_args=(
+        -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
+        -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+    )
+else
+    media_args=(
+        -boot order=d,menu=off
+        -cdrom "$media"
+    )
+fi
+
 qemu-system-x86_64 \
     -machine q35,accel=tcg \
     -cpu max \
     -m 1024 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$firmware_code" \
     -drive if=pflash,format=raw,unit=1,file="$firmware_vars" \
-    -boot order=d,menu=off \
-    -cdrom "$iso" \
+    "${media_args[@]}" \
     -serial "file:$serial" \
     -display none \
     "${network_args[@]}" \
@@ -143,20 +160,20 @@ while ((SECONDS < deadline)); do
             if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
                grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
                grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then
-                echo "[uefi-iso-qemu] $nic_model DHCP/gateway network: PASS"
-                echo "[uefi-iso-qemu] firmware CODE: $firmware_code"
-                echo "[uefi-iso-qemu] firmware VARS: $firmware_vars_template"
+                echo "[uefi-qemu] $media_kind/$nic_model DHCP/gateway network: PASS"
+                echo "[uefi-qemu] firmware CODE: $firmware_code"
+                echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
             fi
             if grep -Eq '\[TEST\] (dhcp_lease|network_gateway_icmp|ALL_REQUIRED_TESTS_PASSED): FAIL' "$serial"; then
                 echo "KuroganeOS reported a network/runtime qualification failure for $nic_model" >&2
-                tail -n 160 "$serial" >&2 || true
+                tail -n 180 "$serial" >&2 || true
                 exit 1
             fi
         elif grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
-            echo "[uefi-iso-qemu] optical UEFI boot: PASS"
-            echo "[uefi-iso-qemu] firmware CODE: $firmware_code"
-            echo "[uefi-iso-qemu] firmware VARS: $firmware_vars_template"
+            echo "[uefi-qemu] $media_kind UEFI boot: PASS"
+            echo "[uefi-qemu] firmware CODE: $firmware_code"
+            echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
             exit 0
         fi
     fi
@@ -172,8 +189,8 @@ done
 if $require_network; then
     echo "OVMF/QEMU did not qualify $nic_model networking within $timeout_seconds seconds" >&2
 else
-    echo "OVMF/QEMU did not boot the KuroganeOS ISO within $timeout_seconds seconds" >&2
+    echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
-[[ -f "$serial" ]] && tail -n 160 "$serial" >&2 || true
+[[ -f "$serial" ]] && tail -n 180 "$serial" >&2 || true
 exit 1
