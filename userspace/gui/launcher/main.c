@@ -4,6 +4,7 @@
 #define APP_COUNT 7U
 #define CHILD_CAPACITY 10U
 #define NO_APP_ID UINT32_C(0xFFFFFFFF)
+#define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
 
 typedef struct launcher_app {
     const char* label;
@@ -117,6 +118,63 @@ static int pin_state(uint32_t app_id) {
     return request.pinned != 0U;
 }
 
+static void set_pin_state(uint32_t app_id, int pinned) {
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = app_id;
+    request.action = KU_DESKTOP_PIN_SET;
+    request.value = pinned != 0 ? 1U : 0U;
+    (void)ku_desktop_pin(&request);
+}
+
+static uint8_t collect_pin_mask(void) {
+    uint8_t mask = UINT8_C(1);
+    size_t index;
+    for (index = 0U; index < APP_COUNT; ++index) {
+        if (pin_state(g_apps[index].desktop_id)) {
+            mask = (uint8_t)(mask | (uint8_t)(UINT8_C(1) << g_apps[index].desktop_id));
+        }
+    }
+    return mask;
+}
+
+static int save_pin_state(void) {
+    const char path[] = DESKTOP_PIN_STATE_PATH;
+    ku_result_t opened;
+    const uint8_t mask = collect_pin_mask();
+    ku_status_t status = ku_file_create(path, sizeof(path) - 1U);
+    if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
+    opened = ku_file_open_ex(path, sizeof(path) - 1U, KU_FILE_OPEN_WRITE);
+    if (opened < 0) return 0;
+    if (ku_file_write((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
+        (void)ku_file_close((ku_file_t)opened);
+        return 0;
+    }
+    status = ku_file_close((ku_file_t)opened);
+    if (status != KU_STATUS_OK) return 0;
+    return ku_file_sync() == KU_STATUS_OK;
+}
+
+static int load_pin_state(void) {
+    const char path[] = DESKTOP_PIN_STATE_PATH;
+    uint8_t mask = 0U;
+    size_t index;
+    ku_result_t opened = ku_file_open(path, sizeof(path) - 1U);
+    if (opened < 0) return 0;
+    if (ku_file_read((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
+        (void)ku_file_close((ku_file_t)opened);
+        return 0;
+    }
+    if (ku_file_close((ku_file_t)opened) != KU_STATUS_OK) return 0;
+
+    for (index = 0U; index < APP_COUNT; ++index) {
+        const uint32_t app_id = g_apps[index].desktop_id;
+        set_pin_state(app_id, (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
+    }
+    return 1;
+}
+
 static void toggle_selected_pin(void) {
     ku_desktop_pin_request request;
     const launcher_app* app = &g_apps[g_selected];
@@ -131,7 +189,11 @@ static void toggle_selected_pin(void) {
     (void)strlcpy(g_status, request.pinned != 0U ? "PINNED " : "UNPINNED ",
                   sizeof(g_status));
     append_text(g_status, sizeof(g_status), app->label);
-    append_text(g_status, sizeof(g_status), " / DESKTOP");
+    if (save_pin_state()) {
+        append_text(g_status, sizeof(g_status), " / SAVED");
+    } else {
+        append_text(g_status, sizeof(g_status), " / SESSION ONLY");
+    }
 }
 
 static void build_scene(kui_scene* scene) {
@@ -176,6 +238,13 @@ int main(void) {
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
         g_children[index] = 0U;
         g_child_apps[index] = NO_APP_ID;
+    }
+
+    if (load_pin_state()) {
+        (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
+        puts("[TEST] desktop_pin_persistence_load: PASS");
+    } else {
+        puts("[TEST] desktop_pin_persistence_load: DEFAULT");
     }
 
     puts("[TEST] desktop_launcher_ring3: PASS");
