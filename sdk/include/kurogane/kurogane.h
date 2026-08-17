@@ -8,6 +8,7 @@
 #include <kurogane/memory.h>
 #include <kurogane/network.h>
 #include <kurogane/process.h>
+#include <kurogane/shared_memory.h>
 #include <kurogane/system.h>
 
 #ifdef __cplusplus
