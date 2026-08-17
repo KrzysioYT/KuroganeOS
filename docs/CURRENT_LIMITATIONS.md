@@ -1,6 +1,6 @@
-# Aktualne ograniczenia — KuroganeOS 3.3.1-dev
+# Aktualne ograniczenia — KuroganeOS 3.3.3-dev
 
-KuroganeOS 3.3.1-dev jest **DEV BETA**, a nie stabilnym systemem codziennego
+KuroganeOS 3.3.3-dev jest **DEV BETA**, a nie stabilnym systemem codziennego
 użytku. Ten dokument mówi wprost co działa, co jest eksperymentalne i czego nie
 należy jeszcze oczekiwać.
 
@@ -59,7 +59,7 @@ Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE
 
 ## VirtualBox
 
-Referencyjny profil 3.3.1 to x86-64 UEFI, SATA/AHCI, E1000 82540EM i AC'97.
+Referencyjny profil 3.3.x to x86-64 UEFI, SATA/AHCI, E1000 82540EM i AC'97.
 
 Builder potrafi dowieść struktury nośnika i repo ma realny smoke boot helper, ale
 nie istnieje matematyczna "100% gwarancja" dla każdej wersji VirtualBox, hosta i
@@ -79,7 +79,7 @@ service.
 
 ## Audio
 
-3.3.1 ma kernelowy Intel ICH AC'97 PCM output backend:
+3.3.x ma kernelowy Intel ICH AC'97 PCM output backend:
 
 ```text
 S16LE / stereo / 48 kHz / DMA32
@@ -90,7 +90,7 @@ per-process, capture/microphone ani konwersji formatów.
 
 ## Grafika / DirectX
 
-**KuroganeOS 3.3.1-dev nie obsługuje jeszcze pełnego DirectX/Direct3D 9/10/11/12.**
+**KuroganeOS 3.3.3-dev nie obsługuje jeszcze pełnego DirectX/Direct3D 9/10/11/12.**
 
 Obecnie dostępny jest software framebuffer/UI stack. Pełna zgodność D3D wymaga
 native graphics runtime, zasobów, shaderów, command submission i backendu GPU.
@@ -114,7 +114,7 @@ Każda rewizja systemu musi zostać ponownie zbudowana i uruchomiona. Sam fakt, 
 kod się kompiluje albo że plik ISO istnieje, nie jest wystarczającym dowodem
 runtime PASS.
 
-Dla 3.3.1 kwalifikacja ISO składa się z:
+Dla 3.3.x kwalifikacja ISO składa się z:
 
 1. build od zera;
 2. 20-pass El Torito/FAT/GPT/PE verifier;

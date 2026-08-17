@@ -61,7 +61,7 @@ pozostaje stabilny system do regularnego używania.
 
 ## 3.3 — DEV BETA Media & Installer — AKTYWNY
 
-Aktualna rewizja: `3.3.1-dev`, kanał: **DEV BETA**.
+Aktualna rewizja: `3.3.3-dev`, kanał: **DEV BETA**.
 
 Docelowy media flow:
 

@@ -78,7 +78,7 @@ endef
 endif
 
 .DEFAULT_GOAL := all
-.PHONY: all kernel stage macos linux powershell rebuild clean verify print-sources
+.PHONY: all kernel stage macos linux powershell rebuild clean verify test print-sources
 
 ifeq ($(HOST_OS),Darwin)
 all: macos
@@ -133,6 +133,14 @@ $(OBJ_DIR)/%.o: kernel/%.asm
 verify: $(KERNEL)
 	$(READELF) -hW $(KERNEL)
 	$(READELF) -lW $(KERNEL)
+
+ifneq ($(filter $(HOST_OS),Darwin Linux),)
+test:
+	bash ./scripts/run-host-tests.sh
+else
+test:
+	@$(POWERSHELL) -NoProfile -Command "Write-Error 'Host regression tests require macOS, Linux, or WSL.'; exit 2"
+endif
 
 print-sources:
 	@$(foreach source,$(CPP_SOURCES),echo $(source);)

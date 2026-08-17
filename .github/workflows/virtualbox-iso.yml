@@ -42,6 +42,15 @@ jobs:
           echo "KUROGANE_ISO=dist/KuroganeOS-$version-x86_64.iso" >> "$GITHUB_ENV"
           echo "KUROGANE_IMG=dist/KuroganeOS-$version-linux-qemu.img" >> "$GITHUB_ENV"
 
+      - name: Compile kernel test configuration
+        run: |
+          make CONFIG=test kernel
+
+      - name: Run host ABI and SDK regression tests
+        run: |
+          chmod +x scripts/run-host-tests.sh
+          make test
+
       - name: Build Linux IMG and ISO
         run: |
           chmod +x scripts/*.sh

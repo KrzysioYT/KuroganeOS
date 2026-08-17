@@ -14,6 +14,11 @@
 *.vbox
 *.vbox-prev
 
+# Python test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
 # Optional upstream Chromium developer checkout. The port pins the revision in
 # third_party/chromium/UPSTREAM_REVISION; Chromium keeps its own licenses.
 /third_party/chromium/src/
