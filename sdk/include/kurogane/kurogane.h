@@ -3,6 +3,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/event.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
 #include <kurogane/memory.h>
