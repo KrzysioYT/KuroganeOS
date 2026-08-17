@@ -95,6 +95,8 @@ args=(
     -serial "file:$serial"
     -netdev user,id=kurogane_net
     -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01
+    -audiodev coreaudio,id=kurogane_audio
+    -device AC97,audiodev=kurogane_audio
     -no-reboot -no-shutdown
 )
 if $display; then
@@ -123,6 +125,7 @@ trap cleanup EXIT INT TERM
 echo "[qemu-macos] PID $pid"
 echo "[qemu-macos] image: $image"
 echo "[qemu-macos] serial: $serial"
+echo "[qemu-macos] audio: Intel AC97 -> CoreAudio"
 if $display; then
     if $fullscreen; then
         echo "[qemu-macos] display: Cocoa fullscreen + zoom-to-fit"
