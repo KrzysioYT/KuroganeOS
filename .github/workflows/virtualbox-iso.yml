@@ -15,6 +15,20 @@ on:
       - 'Makefile'
       - 'linker.ld'
       - '.github/workflows/virtualbox-iso.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'boot/**'
+      - 'common/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'userspace/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'Makefile'
+      - 'linker.ld'
+      - '.github/workflows/virtualbox-iso.yml'
   workflow_dispatch:
 
 jobs:

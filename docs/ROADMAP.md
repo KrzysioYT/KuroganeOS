@@ -25,6 +25,8 @@ ukończenia funkcji.
 - [x] ✅ Linux IMG + wspólne ISO.
 - [x] ✅ El Torito EFI + GPT ESP verifier 20/20.
 - [x] ✅ OVMF/QEMU optical UEFI smoke do markera kernela.
+- [ ] 🟡 Pre-merge pull-request qualification trigger; weryfikacja nastąpi na
+  następnym feature PR.
 - [ ] 🔒 Oracle VirtualBox x86-64: realny ISO boot -> kernel marker.
 - [ ] 🔒 VirtualBox: Try -> Login -> Home.
 - [ ] 🔒 VirtualBox: Install -> SATA VDI -> reboot bez ISO -> Login.
@@ -52,7 +54,8 @@ ukończenia funkcji.
 - [x] ✅ Ring-3 stat/readdir.
 - [x] ✅ Ring-3 create/unlink/rename/mkdir/rmdir/sync.
 - [x] ✅ Read-only live-package root odrzucający mutacje.
-- [ ] ⬜ Publiczne `seek`/pozycjonowanie pliku.
+- [x] ✅ Publiczne `seek`/pozycjonowanie pliku z `BEGIN/CURRENT/END` i
+  overflow-checked VFS offsets.
 - [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
 - [ ] ⬜ Process-local cwd/chdir/getcwd zamiast globalnego kontekstu ścieżki.
 - [ ] ⬜ Symlinks/hard links albo jawna decyzja o ich braku w stabilnym ABI.
@@ -178,7 +181,7 @@ ukończenia funkcji.
 
 Kolejność jest zależnościowa, nie marketingowa:
 
-1. filesystem seek + process-local path groundwork;
+1. process-local path groundwork (`cwd/chdir/getcwd`);
 2. Ring-3 PCM playback foundation;
 3. IPC message channels;
 4. shared memory + wait/event primitives;
