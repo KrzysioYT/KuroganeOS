@@ -14,6 +14,14 @@
 #define MBEDTLS_PLATFORM_SNPRINTF_MACRO ku_tls_snprintf
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 
+/*
+ * Hosted build machines expose AF_INET/AF_INET6 through system headers, which
+ * makes x509_crt.c select the platform inet_pton(). KuroganeOS deliberately
+ * links the kernel without a hosted libc, so that symbol does not exist in the
+ * final kernel. Force Mbed TLS' self-contained IPv4/IPv6 parser instead.
+ */
+#define MBEDTLS_TEST_SW_INET_PTON
+
 /* TLS client protocol surface. TLS 1.3 is added after the 1.2 transport works. */
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_CLI_C
