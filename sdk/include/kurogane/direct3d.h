@@ -258,9 +258,10 @@ static inline ku_status_t ku_d3d_end_scene(ku_d3d_device* device) {
 static inline ku_status_t ku_d3d_clear(
     ku_d3d_device* device,
     ku_gfx_color_t color) {
-    const uint64_t pixels = (uint64_t)device->target->width * device->target->height;
+    uint64_t pixels;
     ku_status_t status;
     if (!ku_d3d_device_valid(device)) return KU_STATUS_INVALID_ARGUMENT;
+    pixels = (uint64_t)device->target->width * device->target->height;
     status = ku_d3d_charge_raster(device, pixels);
     if (status != KU_STATUS_OK) return status;
     status = ku_gfx_clear(device->target, color);
@@ -291,13 +292,14 @@ static inline ku_status_t ku_d3d_draw_triangle(
     const ku_gfx_vertex2d* c) {
     ku_status_t status;
     uint64_t work = 0U;
-    const ku_gfx_rect clip = ku_d3d_effective_clip(device);
+    ku_gfx_rect clip;
     if (!ku_d3d_device_valid(device) || a == NULL || b == NULL || c == NULL) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     if (device->frontend == KU_D3D_FRONTEND_9 && device->scene_active == 0U) {
         return KU_STATUS_BAD_STATE;
     }
+    clip = ku_d3d_effective_clip(device);
     if (clip.width <= 0 || clip.height <= 0) return KU_STATUS_OK;
     if (device->draw_calls >= device->draw_budget) return KU_STATUS_WOULD_BLOCK;
     status = ku_gfx_fill_triangle_clipped(
@@ -317,13 +319,14 @@ static inline ku_status_t ku_d3d_draw_triangle3d(
     const ku_gfx_vertex3d* c) {
     ku_status_t status;
     uint64_t work = 0U;
-    const ku_gfx_rect clip = ku_d3d_effective_clip(device);
+    ku_gfx_rect clip;
     if (!ku_d3d_device_valid(device) || a == NULL || b == NULL || c == NULL) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     if (device->frontend == KU_D3D_FRONTEND_9 && device->scene_active == 0U) {
         return KU_STATUS_BAD_STATE;
     }
+    clip = ku_d3d_effective_clip(device);
     if (clip.width <= 0 || clip.height <= 0) return KU_STATUS_OK;
     if (device->draw_calls >= device->draw_budget) return KU_STATUS_WOULD_BLOCK;
     status = ku_gfx_raster_triangle3d(
