@@ -12,7 +12,7 @@ Pinned revision for the KuroganeOS 3.3.x port work:
 
 `4137589c17766b2c0036332e00ad0d453e342a92`
 
-Chromium is distributed under the BSD 3-Clause license, with additional third-party licenses in its source tree. Chromium source is not relicensed under KSAL-1.0.
+Chromium is distributed under the BSD 3-Clause license, with additional third-party licenses in its source tree. Chromium source is Third-Party Material and is not relicensed under KSAL-2.0.
 
 ## What is already in KuroganeOS
 
