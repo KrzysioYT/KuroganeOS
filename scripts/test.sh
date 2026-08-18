@@ -42,6 +42,7 @@ run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
 run_test install-disk-layout "$root/tests/test_install_disk_layout.cpp" \
+    "$root/tests/host_system_metrics_stub.cpp" \
     "$root/kernel/install/disk_layout.cpp" \
     "$root/kernel/storage/gpt.cpp" \
     "$root/kernel/storage/partition_device.cpp" \
@@ -86,10 +87,15 @@ if [[ -f "$root/build/images/KuroganeOS-base.img" ]]; then
     echo "[build] root-volume-image"
     "$cxx" "${flags[@]}" \
         "$root/tests/test_root_volume_image.cpp" \
+        "$root/tests/host_system_metrics_stub.cpp" \
+        "$root/tests/host_process_path_stub.cpp" \
         "$root/kernel/fs/root_volume.cpp" \
         "$root/kernel/fs/fat32.cpp" \
         "$root/kernel/fs/fat32_vfs.cpp" \
         "$root/kernel/fs/vfs.cpp" \
+        "$root/kernel/install/package.cpp" \
+        "$root/kernel/install/package_vfs.cpp" \
+        "$root/kernel/libk/crc.cpp" \
         "$root/kernel/storage/gpt.cpp" \
         "$root/kernel/storage/partition_device.cpp" \
         -o "$out/root-volume-image"
