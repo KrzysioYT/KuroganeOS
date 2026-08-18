@@ -3,7 +3,7 @@
 > Jeśli pierwszy raz uruchamiasz KuroganeOS i nie wiesz czym są UEFI, GPT, AHCI
 > albo QEMU, zacznij **tutaj**. Nie musisz znać programowania.
 
-KuroganeOS 3.3.1-dev jest systemem x86-64 w fazie **DEV BETA**. Najbezpieczniej
+KuroganeOS 3.3.3-dev jest systemem x86-64 w fazie **DEV BETA**. Najbezpieczniej
 uruchamiać go w maszynie wirtualnej. Nie instaluj go na prawdziwym dysku z
 ważnymi danymi.
 
@@ -13,13 +13,14 @@ ważnymi danymi.
 
 Najprostsza droga:
 
-1. Zbuduj albo pobierz plik `KuroganeOS-3.3.1-dev-x86_64.iso`.
+1. Zbuduj albo pobierz plik `KuroganeOS-3.3.3-dev-x86_64.iso`.
 2. Utwórz nową maszynę w VirtualBox na komputerze Intel/AMD x86-64.
-3. Włącz **EFI/UEFI**.
+3. Włącz **EFI/UEFI** — oficjalne ISO KuroganeOS jest UEFI-only.
 4. Ustaw ISO jako napęd optyczny.
-5. Uruchom VM.
-6. Na ekranie KuroganeOS wybierz **Try KuroganeOS**.
-7. System uruchomi sesję live bez instalowania na dysku.
+5. Ustaw boot order `DVD/Optical -> Hard Disk`.
+6. Uruchom VM.
+7. Na ekranie KuroganeOS wybierz **Try KuroganeOS**.
+8. System uruchomi sesję live bez instalowania na dysku.
 
 Jeżeli używasz Maca z Apple Silicon (M1/M2/M3/M4), użyj QEMU. KuroganeOS jest
 systemem x86-64 i nie jest systemem ARM64.
@@ -42,7 +43,7 @@ Szczegółowa instrukcja VirtualBox: [`VIRTUALBOX.md`](VIRTUALBOX.md).
 Ustaw:
 
 ```text
-Firmware:       UEFI / EFI
+Firmware:       UEFI / EFI64
 RAM:            1024 MiB
 CPU:            1 lub 2
 Graphics:       standardowy kontroler VirtualBox
@@ -85,6 +86,9 @@ INSTALL
 
 ## 3. VirtualBox pokazuje `No bootable medium`, `No bootable drive` albo podobny błąd
 
+KuroganeOS nie ma obecnie legacy-BIOS bootloadera. Jeśli VM działa z BIOS-em,
+VirtualBox nie ma poprawnej ścieżki startu z oficjalnego ISO.
+
 Nie zmieniaj losowo ustawień. Sprawdź po kolei:
 
 1. Czy używasz pliku `.iso`, a nie `.img`?
@@ -95,15 +99,27 @@ Nie zmieniaj losowo ustawień. Sprawdź po kolei:
 6. Czy ISO ma nazwę odpowiadającą aktualnej wersji, np.:
 
 ```text
-KuroganeOS-3.3.1-dev-x86_64.iso
+KuroganeOS-3.3.3-dev-x86_64.iso
 ```
 
 7. Czy build zakończył się komunikatem `VIRTUALBOX ISO VERIFIED`?
 8. Czy plik ISO nie ma rozmiaru 0 B i czy jego SHA-256 zgadza się z
    `dist/SHA256SUMS.txt`?
 
-Jeżeli wszystkie punkty są poprawne, zobacz:
-[`VIRTUALBOX.md#diagnostyka`](VIRTUALBOX.md#diagnostyka).
+### Windows — automatyczna naprawa istniejącej VM
+
+Wyłącz maszynę i uruchom z katalogu repo:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\repair-virtualbox-boot.ps1 `
+  -Name "KuroganeOS 3.3.3-dev" `
+  -Iso .\dist\KuroganeOS-3.3.3-dev-x86_64.iso
+```
+
+Skrypt wymusza `EFI64`, I/O APIC, `DVD -> Disk` i ponownie podpina ISO.
+
+Pełna diagnostyka: [`VIRTUALBOX.md`](VIRTUALBOX.md).
 
 ---
 
@@ -166,8 +182,8 @@ bash ./scripts/build-media-linux.sh --configuration release --rebuild
 Po poprawnym buildzie w `dist/` powinny znaleźć się co najmniej:
 
 ```text
-KuroganeOS-3.3.1-dev-<host>-qemu.img
-KuroganeOS-3.3.1-dev-x86_64.iso
+KuroganeOS-3.3.3-dev-<host>-qemu.img
+KuroganeOS-3.3.3-dev-x86_64.iso
 SHA256SUMS.txt
 ```
 
@@ -177,7 +193,7 @@ ISO jest artefaktem do VirtualBox. IMG jest artefaktem przede wszystkim do QEMU.
 
 ## 5. Internet w VirtualBox
 
-Najprostsze ustawienie:
+Najbezpieczniejszy profil zgodności:
 
 ```text
 Attached to: NAT
@@ -185,9 +201,10 @@ Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
 Cable Connected: ON
 ```
 
-KuroganeOS ma sterownik E1000 oraz kernelowy stos IPv4/DHCP/ARP/ICMP/DNS i
-podstawowy TCP. W DEV BETA kolejne publiczne API sieciowe dla aplikacji są
-rozwijane osobno od samego sterownika.
+Kernel ma obecnie backendy VirtIO-net, E1000 i PCnet oraz wspólny stos
+Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS, aktywnego klienta TCP i rozwijaną warstwę
+HTTP/HTTPS/TLS. E1000 pozostaje domyślnym profilem VirtualBox do czasu pełnej
+kwalifikacji VirtIO na realnym hoście VirtualBox x86-64.
 
 Dokumentacja: [`NETWORKING.md`](NETWORKING.md).
 
@@ -203,7 +220,7 @@ Audio Controller: Intel AC'97
 Audio Output: ON
 ```
 
-KuroganeOS 3.3.1-dev rozwija własny sterownik Intel ICH AC'97 przeznaczony m.in.
+KuroganeOS 3.3.3-dev posiada własny sterownik Intel ICH AC'97 przeznaczony m.in.
 dla sprzętu emulowanego przez VirtualBox.
 
 Dokumentacja: [`AUDIO.md`](AUDIO.md).
@@ -240,7 +257,7 @@ wejścia do Ring-0 tylko po to, żeby łatwiej zaimplementować funkcję.
 
 ---
 
-## 9. Czego 3.3.1-dev jeszcze NIE obiecuje
+## 9. Czego 3.3.3-dev jeszcze NIE obiecuje
 
 DEV BETA nie oznacza gotowego zamiennika Windows/macOS/Linux.
 
