@@ -203,3 +203,67 @@ size_t format_i64(char* output, size_t capacity, int64_t value) {
 extern "C" size_t strlen(const char* text) {
     return kstd::strlen(text);
 }
+
+extern "C" int strcmp(const char* left, const char* right) {
+    return kstd::strcmp(left, right);
+}
+
+extern "C" int strncmp(const char* left, const char* right, size_t count) {
+    return kstd::strncmp(left, right, count);
+}
+
+extern "C" char* strchr(const char* text, int character) {
+    if (text == nullptr) {
+        return nullptr;
+    }
+    const char wanted = static_cast<char>(character);
+    for (;;) {
+        if (*text == wanted) {
+            return const_cast<char*>(text);
+        }
+        if (*text == '\0') {
+            return nullptr;
+        }
+        ++text;
+    }
+}
+
+extern "C" char* strstr(const char* haystack, const char* needle) {
+    if (haystack == nullptr || needle == nullptr) {
+        return nullptr;
+    }
+    if (*needle == '\0') {
+        return const_cast<char*>(haystack);
+    }
+    const size_t needle_length = kstd::strlen(needle);
+    for (const char* cursor = haystack; *cursor != '\0'; ++cursor) {
+        if (*cursor == *needle && kstd::strncmp(cursor, needle, needle_length) == 0) {
+            return const_cast<char*>(cursor);
+        }
+    }
+    return nullptr;
+}
+
+extern "C" char* strcpy(char* destination, const char* source) {
+    if (destination == nullptr || source == nullptr) {
+        return destination;
+    }
+    char* output = destination;
+    do {
+        *output++ = *source;
+    } while (*source++ != '\0');
+    return destination;
+}
+
+extern "C" size_t strlcpy(char* destination, const char* source, size_t capacity) {
+    const size_t source_length = kstd::strlen(source);
+    if (destination == nullptr || capacity == 0) {
+        return source_length;
+    }
+    const size_t copied = source_length < capacity - 1 ? source_length : capacity - 1;
+    for (size_t index = 0; index < copied; ++index) {
+        destination[index] = source[index];
+    }
+    destination[copied] = '\0';
+    return source_length;
+}
