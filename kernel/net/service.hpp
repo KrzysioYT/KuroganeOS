@@ -22,11 +22,17 @@ Status tcp_connect_probe(
     uint16_t port,
     const char* host_name);
 
-// Transitional 3.3.3 browser transport. It performs one bounded HTTP/1.0 GET
-// over the native E1000/IPv4/TCP stack. HTTPS and a general socket ABI are
-// intentionally not pretended here; those require TLS and asynchronous socket
-// ownership before a Chromium-class engine can be ported safely.
+// Bounded HTTP/1.0 transports used by Kurogane Web. HTTPS uses the pinned
+// Mbed TLS client with required CA/hostname verification and Kurogane RTC
+// certificate-validity checks; it never silently downgrades to plaintext.
 Status http_get(
+    const char* host_name,
+    const char* path,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length,
+    uint16_t* out_http_status);
+Status https_get(
     const char* host_name,
     const char* path,
     uint8_t* output,
