@@ -79,7 +79,10 @@ FREESTANDING_FLAGS := \
 KERNEL_CXXFLAGS := -std=c++17 $(OPTFLAGS) $(WARNFLAGS) $(FREESTANDING_FLAGS) -fvisibility=hidden
 KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 	-Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
-MBEDTLS_CPPFLAGS := -Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
+# Mbed TLS is part of the freestanding kernel, so point it at KuroganeOS's
+# libc-compatible SDK headers instead of expecting a hosted target libc from
+# the x86_64-elf cross-toolchain.
+MBEDTLS_CPPFLAGS := -Isdk/include -Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
 	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
 MBEDTLS_CFLAGS := -std=c11 $(OPTFLAGS) -Wall -Wextra -Wpedantic \
 	-Werror=implicit-function-declaration -ffreestanding -fno-builtin \
