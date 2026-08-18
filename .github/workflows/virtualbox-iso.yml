@@ -38,7 +38,7 @@ on:
 jobs:
   iso-qualification:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
@@ -71,6 +71,11 @@ jobs:
         run: |
           chmod +x scripts/run-host-tests.sh
           make test
+
+      - name: Run full host regression suite
+        run: |
+          chmod +x scripts/test.sh
+          bash ./scripts/test.sh
 
       - name: Build Linux IMG and ISO
         run: |
@@ -124,6 +129,15 @@ jobs:
             "$KUROGANE_LIVE_IMG" \
             --disk \
             --nic pcnet \
+            --require-network \
+            --timeout 120
+
+      - name: Qualify QEMU VirtIO-net NAT networking
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            "$KUROGANE_LIVE_IMG" \
+            --disk \
+            --nic virtio \
             --require-network \
             --timeout 120
 
