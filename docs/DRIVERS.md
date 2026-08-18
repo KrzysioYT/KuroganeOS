@@ -19,9 +19,9 @@ ostatnim workflow `KuroganeOS UEFI ISO qualification`.
 | SATA / AHCI | bounded block I/O, IDENTIFY, read/write/flush i instalacyjny target dla VM |
 | FAT32 / VFS | root/ESP i zapisy instalatora; szczegóły w dokumentacji filesystem/storage |
 | Intel ICH AC'97 | PCM output 48 kHz S16LE stereo dla kompatybilnego emulowanego urządzenia |
-| Intel E1000 | własny backend PCI/DMA dla 82540EM |
-| AMD PCnet | backend zgodności dla starszych wirtualnych NIC |
-| VirtIO-net PCI | transitional/modern PCI, capability discovery, split virtqueues i RX/TX DMA |
+| Intel E1000 | własny backend PCI/DMA dla 82540EM; QEMU NAT DHCP/gateway qualified |
+| AMD PCnet | backend zgodności dla starszych wirtualnych NIC; QEMU NAT DHCP/gateway qualified |
+| VirtIO-net PCI | transitional/modern PCI, capability discovery, split virtqueues i RX/TX DMA; QEMU NAT DHCP/gateway qualified |
 | xHCI / USB | kod backendu/protokołu istnieje, ale szeroka kompatybilność sprzętowa nadal jest etapem rozwoju |
 
 Enumeracja PCI nie oznacza automatycznie obsługi dowolnego urządzenia. Każda
@@ -30,7 +30,7 @@ kwalifikacji.
 
 ## Sieć
 
-Aktualna kolejność wykrywania fizycznego backendu sieciowego w kernelu:
+Aktualna kolejność wykrywania backendu sieciowego w kernelu:
 
 ```text
 VirtIO-net -> E1000 -> PCnet
@@ -45,8 +45,9 @@ Ethernet -> ARP -> IPv4 -> ICMP / UDP / DHCP / DNS / TCP -> HTTP/TLS foundation
 Szczegóły i ograniczenia: [`NETWORKING.md`](NETWORKING.md).
 
 Dla VirtualBox E1000/82540EM pozostaje domyślnym profilem zgodności. VirtIO-net
-jest właściwym kierunkiem parawirtualizowanym, ale bezwarunkowy status
-VirtualBox wymaga realnego smoke na hoście x86-64, nie tylko testu QEMU.
+jest właściwym kierunkiem parawirtualizowanym i przechodzi obecny runtime smoke
+QEMU, ale bezwarunkowy status VirtualBox nadal wymaga realnego smoke na hoście
+x86-64, nie tylko testu QEMU.
 
 ## Storage i boot
 
