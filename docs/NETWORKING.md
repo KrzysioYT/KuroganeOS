@@ -44,9 +44,10 @@ Kernel zawiera własny backend VirtIO-net PCI. Implementacja obsługuje m.in.:
 - DMA-backed buffers;
 - negocjację `VIRTIO_F_VERSION_1` i `VIRTIO_NET_F_MAC`.
 
-QEMU qualification na tej gałęzi używa `virtio-net-pci`. Realny test Oracle
-VirtualBox x86-64 pozostaje osobnym wymaganiem przed oznaczeniem VirtIO-net jako
-bezwarunkowo zweryfikowanego profilu VirtualBox.
+QEMU qualification używa `virtio-net-pci` i **przechodzi wymagany runtime smoke
+DHCP + gateway ICMP**. Realny test Oracle VirtualBox x86-64 pozostaje osobnym
+wymaganiem przed oznaczeniem VirtIO-net jako bezwarunkowo zweryfikowanego
+profilu VirtualBox.
 
 ### Intel E1000
 
@@ -74,7 +75,8 @@ Cable Connected: ON
 ### AMD PCnet
 
 PCnet jest utrzymywanym backendem zgodności dla starszych maszyn wirtualnych.
-Nie jest domyślnym profilem dla nowych VM.
+Nie jest domyślnym profilem dla nowych VM. QEMU runtime qualification DHCP +
+gateway ICMP również przechodzi.
 
 ## DHCP i konfiguracja IPv4
 
@@ -104,16 +106,13 @@ ARP/gateway reachability
 ICMP gateway
 ```
 
-Modele używane przez CI:
+Bieżący workflow kwalifikuje runtime wszystkie trzy modele:
 
 ```text
-e1000
-pcnet
-virtio-net-pci
+e1000          PASS
+pcnet          PASS
+virtio-net-pci PASS
 ```
-
-Dokładny status runtime powinien być brany z ostatniego zielonego workflow
-`KuroganeOS UEFI ISO qualification`, a nie wyłącznie z obecności kodu sterownika.
 
 ## DNS, TCP, HTTP i TLS
 
