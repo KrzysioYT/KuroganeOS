@@ -29,6 +29,12 @@ CXX     := $(TARGET_PREFIX)g++$(EXEEXT)
 LD      := $(TARGET_PREFIX)ld$(EXEEXT)
 READELF := $(TARGET_PREFIX)readelf$(EXEEXT)
 
+# Freestanding code can still make use of compiler-emitted arithmetic/runtime
+# helpers. In particular, Mbed TLS bignum division on x86-64 may lower 128-bit
+# division to __udivti3. Link the matching compiler runtime archive explicitly
+# because KuroganeOS invokes ld directly instead of the GCC linker driver.
+LIBGCC := $(shell $(CC) -print-libgcc-file-name)
+
 BUILD_DIR := build
 OBJ_DIR   := $(BUILD_DIR)/obj
 KERNEL    := $(BUILD_DIR)/kernel.elf
@@ -141,7 +147,7 @@ kernel: $(KERNEL)
 
 $(KERNEL): $(OBJECTS) linker.ld
 	$(call ensure-dir,$(abspath $(BUILD_DIR)))
-	$(LD) $(KERNEL_LDFLAGS) -Map=$(MAP) -o $@ $(OBJECTS)
+	$(LD) $(KERNEL_LDFLAGS) -Map=$(MAP) -o $@ $(OBJECTS) $(LIBGCC)
 
 $(OBJ_DIR)/%.o: kernel/%.cpp
 	$(call ensure-dir,$(abspath $(dir $@)))
