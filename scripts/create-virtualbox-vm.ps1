@@ -2,14 +2,29 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Iso,
-    [string]$Name = 'KuroganeOS 3.3.1-dev',
+    [string]$Name,
     [string]$Disk,
     [ValidateRange(1024, 1048576)]
-    [int]$DiskSizeMb = 2048
+    [int]$DiskSizeMb = 2048,
+    [ValidateSet('e1000', 'virtio', 'pcnet')]
+    [string]$Nic = 'e1000'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+
+if ([string]::IsNullOrWhiteSpace($Name)) {
+    $versionHeader = Join-Path $RootDir 'common\version.h'
+    $version = 'DEV'
+    if (Test-Path -LiteralPath $versionHeader -PathType Leaf) {
+        $versionText = Get-Content -LiteralPath $versionHeader -Raw
+        if ($versionText -match '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
+            $version = $Matches[1]
+        }
+    }
+    $Name = "KuroganeOS $version"
+}
 
 $VBoxManage = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
 if ($null -eq $VBoxManage) {
@@ -24,6 +39,9 @@ $VBox = $VBoxManage.Source
 $Iso = [System.IO.Path]::GetFullPath($Iso)
 if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
     throw "ISO not found: $Iso"
+}
+if ([System.IO.Path]::GetExtension($Iso) -ne '.iso') {
+    throw "VirtualBox optical boot requires the KuroganeOS .iso, not an .img: $Iso"
 }
 
 & $VBox showvminfo $Name *> $null
@@ -41,6 +59,13 @@ if ([string]::IsNullOrWhiteSpace($Disk)) {
         [System.IO.Path]::GetDirectoryName($Disk)) | Out-Null
 }
 
+$nicType = switch ($Nic) {
+    'e1000' { '82540EM' }
+    'virtio' { 'virtio' }
+    'pcnet' { 'Am79C973' }
+    default { throw "Unsupported NIC profile: $Nic" }
+}
+
 & $VBox createvm --name $Name --register | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'VirtualBox createvm failed.' }
 $created = $true
@@ -53,11 +78,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'VirtualBox base VM configuration failed.' }
 
     & $VBox modifyvm $Name `
-        --nic1 nat --nic-type1 82540EM --cable-connected1 on *> $null
+        --nic1 nat --nic-type1 $nicType --cable-connected1 on *> $null
     if ($LASTEXITCODE -ne 0) {
         & $VBox modifyvm $Name `
-            --nic1 nat --nictype1 82540EM --cableconnected1 on | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw 'VirtualBox E1000 network setup failed.' }
+            --nic1 nat --nictype1 $nicType --cableconnected1 on | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "VirtualBox network setup failed for NIC profile '$Nic' ($nicType)." }
     }
 
     & $VBox modifyvm $Name `
@@ -97,4 +122,6 @@ try {
 Write-Host "Created VirtualBox VM: $Name"
 Write-Host "ISO: $Iso"
 Write-Host "Disk: $Disk"
+Write-Host "NIC: $Nic ($nicType), NAT"
+Write-Host 'Firmware: EFI64; Boot order: DVD -> Disk'
 Write-Host "Start with: VBoxManage startvm `"$Name`""
