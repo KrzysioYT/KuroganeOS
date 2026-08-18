@@ -6,6 +6,7 @@
 #include "tcp_client.hpp"
 #include "tls/client.hpp"
 #include "../arch/x86_64/io.hpp"
+#include "../core/log.hpp"
 #include "../drivers/pit.hpp"
 #include "../fs/root_volume.hpp"
 
@@ -38,12 +39,15 @@ constexpr uint64_t kDnsSendTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kDnsReplyTimeoutMs = UINT64_C(5000);
 constexpr uint64_t kTcpTimeoutMs = UINT64_C(7000);
 constexpr uint64_t kHttpReceiveTimeoutMs = UINT64_C(12000);
-constexpr size_t kTrustStoreCapacity = 16U * 1024U;
+// Public Web PKI needs substantially more than the two bootstrap GTS roots
+// originally carried by 3.3.3-dev. The macOS build exports Apple's immutable
+// SystemRootCertificates keychain into the live/install overlay. Keep the
+// kernel copy bounded while leaving enough room for that complete PEM bundle.
+constexpr size_t kTrustStoreCapacity = 512U * 1024U;
 constexpr char kTrustStorePath[] = "/etc/ssl/certs.pem";
 
 uint8_t g_trust_store[kTrustStoreCapacity]{};
 size_t g_trust_store_size = 0U;
-bool g_trust_store_attempted = false;
 
 bool acceptable_poll_status(Status status) {
     return status == Status::Ok || status == Status::NotForUs ||
@@ -241,9 +245,13 @@ Status map_tls_status(tls::Status status) {
 
 Status load_trust_store() {
     if (g_trust_store_size != 0U) return Status::Ok;
-    if (g_trust_store_attempted) return Status::NotConfigured;
-    g_trust_store_attempted = true;
-    if (!fs::root_volume::mounted()) return Status::NotConfigured;
+    // Do not negatively cache a transient early-boot read failure. GUI
+    // applications may reach the network service while the root volume is
+    // still becoming available; a later HTTPS request must be allowed to retry.
+    if (!fs::root_volume::mounted()) {
+        log::write(log::Level::Warn, "TLS", "trust store unavailable: root volume not mounted");
+        return Status::NotConfigured;
+    }
 
     uint64_t file_size = 0U;
     size_t bytes_read = 0U;
@@ -256,10 +264,18 @@ Status load_trust_store() {
     if (read_status != fs::vfs::Status::Ok || bytes_read == 0U ||
         file_size != static_cast<uint64_t>(bytes_read) ||
         bytes_read >= sizeof(g_trust_store)) {
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "trust store VFS status=",
+            static_cast<uint64_t>(read_status));
+        log::write_u64(log::Level::Error, "TLS", "trust store bytes=", bytes_read);
+        log::write_u64(log::Level::Error, "TLS", "trust store file size=", file_size);
         return Status::NotConfigured;
     }
     g_trust_store[bytes_read] = '\0';
     g_trust_store_size = bytes_read + 1U;
+    log::write_u64(log::Level::Info, "TLS", "trust store loaded bytes=", bytes_read);
     return Status::Ok;
 }
 
@@ -289,10 +305,10 @@ Status http_request_over_tcp(
     if (!append_request_text(request, sizeof(request), &request_length, "GET ") ||
         !append_request_text(request, sizeof(request), &request_length, path) ||
         !append_request_text(request, sizeof(request), &request_length,
-            " HTTP/1.0\r\nHost: ") ||
+            " HTTP/1.1\r\nHost: ") ||
         !append_request_text(request, sizeof(request), &request_length, host_name) ||
         !append_request_text(request, sizeof(request), &request_length,
-            "\r\nUser-Agent: KuroganeWeb/0.2\r\n"
+            "\r\nUser-Agent: KuroganeWeb/0.3\r\n"
             "Accept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n")) {
         static_cast<void>(tcp_client::close(&client));
         return Status::PayloadTooLarge;
@@ -344,7 +360,6 @@ Status initialize() {
     g_physical_status = Status::NotInitialized;
     g_lease = {};
     g_trust_store_size = 0U;
-    g_trust_store_attempted = false;
 #ifdef KUROGANE_HOST_TEST
     return initialize_loopback_fallback();
 #else
@@ -523,7 +538,7 @@ Status tcp_connect_probe(
     uint8_t request[256]{};
     size_t request_length = 0U;
     if (!append_request_text(request, sizeof(request), &request_length,
-            "HEAD / HTTP/1.0\r\nHost: ") ||
+            "HEAD / HTTP/1.1\r\nHost: ") ||
         !append_request_text(request, sizeof(request), &request_length, host_name) ||
         !append_request_text(request, sizeof(request), &request_length,
             "\r\nConnection: close\r\n\r\n")) {
@@ -577,8 +592,15 @@ Status http_get(
 
     IPv4Address address{};
     const Status resolve_status = resolve_a(effective_host, &address);
-    if (resolve_status != Status::Ok) return resolve_status;
-    return http_request_over_tcp(
+    if (resolve_status != Status::Ok) {
+        log::write_u64(
+            log::Level::Error,
+            "HTTP",
+            "DNS A resolution failed status=",
+            static_cast<uint64_t>(resolve_status));
+        return resolve_status;
+    }
+    const Status request_status = http_request_over_tcp(
         address,
         effective_host,
         path,
@@ -586,6 +608,14 @@ Status http_get(
         output_capacity,
         out_length,
         out_http_status);
+    if (request_status != Status::Ok && request_status != Status::BufferTooSmall) {
+        log::write_u64(
+            log::Level::Error,
+            "HTTP",
+            "TCP/HTTP request failed status=",
+            static_cast<uint64_t>(request_status));
+    }
+    return request_status;
 }
 
 Status https_get(
@@ -606,14 +636,24 @@ Status https_get(
     }
 
     const Status trust_status = load_trust_store();
-    if (trust_status != Status::Ok) return trust_status;
+    if (trust_status != Status::Ok) {
+        log::write(log::Level::Error, "TLS", "HTTPS blocked: trust store unavailable");
+        return trust_status;
+    }
 
     IPv4Address address{};
     const Status resolve_status = resolve_a(host_name, &address);
-    if (resolve_status != Status::Ok) return resolve_status;
+    if (resolve_status != Status::Ok) {
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "HTTPS DNS A resolution failed status=",
+            static_cast<uint64_t>(resolve_status));
+        return resolve_status;
+    }
     const uint16_t source_port = next_ephemeral_port();
     const uint32_t initial_sequence = UINT32_C(0x4b580001) + source_port;
-    return map_tls_status(tls::https_get(
+    const tls::Status tls_status = tls::https_get(
         &g_stack,
         address,
         source_port,
@@ -625,7 +665,16 @@ Status https_get(
         output,
         output_capacity,
         out_length,
-        out_http_status));
+        out_http_status);
+    if (tls_status != tls::Status::Ok && tls_status != tls::Status::ResponseTooLarge) {
+        log::write(log::Level::Error, "TLS", tls::status_message(tls_status));
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "TLS status=",
+            static_cast<uint64_t>(tls_status));
+    }
+    return map_tls_status(tls_status);
 }
 
 Status stats(NetworkStats* output) { return get_stats(&g_stack, output); }
