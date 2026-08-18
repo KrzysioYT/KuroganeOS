@@ -40,6 +40,28 @@ void log_mbedtls_error(const char* stage, int result) {
         static_cast<uint64_t>(static_cast<int64_t>(result)));
 }
 
+void log_verify_flags(const mbedtls_ssl_context* ssl) {
+    if (ssl == nullptr) return;
+    const uint32_t flags = mbedtls_ssl_get_verify_result(ssl);
+    if (flags != 0U) {
+        log::write_hex(
+            log::Level::Error,
+            "TLS",
+            "certificate verify flags=",
+            static_cast<uint64_t>(flags));
+    }
+}
+
+size_t count_certificates(const mbedtls_x509_crt* chain) {
+    size_t count = 0U;
+    for (const mbedtls_x509_crt* certificate = chain;
+         certificate != nullptr && certificate->raw.p != nullptr;
+         certificate = certificate->next) {
+        ++count;
+    }
+    return count;
+}
+
 void zero_bytes(void* pointer, size_t size) {
     auto* bytes = static_cast<uint8_t*>(pointer);
     if (bytes == nullptr) return;
@@ -258,6 +280,11 @@ Status setup_tls(
         log_mbedtls_error("x509_crt_parse error=", result);
         return Status::TrustStoreInvalid;
     }
+    log::write_u64(
+        log::Level::Info,
+        "TLS",
+        "trust certificates accepted=",
+        static_cast<uint64_t>(count_certificates(&session->trust)));
     if (result > 0) {
         log::write_u64(
             log::Level::Warn,
@@ -309,11 +336,7 @@ Status perform_handshake(Session* session) {
         if (result == 0) {
             const uint32_t verify_result = mbedtls_ssl_get_verify_result(&session->ssl);
             if (verify_result != 0U) {
-                log::write_hex(
-                    log::Level::Error,
-                    "TLS",
-                    "certificate verify flags=",
-                    static_cast<uint64_t>(verify_result));
+                log_verify_flags(&session->ssl);
                 return Status::CertificateFailure;
             }
             const mbedtls_x509_crt* peer =
@@ -324,10 +347,12 @@ Status perform_handshake(Session* session) {
         if (result != MBEDTLS_ERR_SSL_WANT_READ &&
             result != MBEDTLS_ERR_SSL_WANT_WRITE) {
             log_mbedtls_error("ssl_handshake error=", result);
+            log_verify_flags(&session->ssl);
             return Status::HandshakeFailure;
         }
     }
     log::write(log::Level::Error, "TLS", "TLS handshake deadline exceeded");
+    log_verify_flags(&session->ssl);
     return Status::Timeout;
 }
 
