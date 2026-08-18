@@ -405,12 +405,19 @@ Alt+F4            zamknięcie zwykłego okna; Home jest tylko chowane
 ## Licencja
 
 Aktualne rewizje KuroganeOS są udostępniane na warunkach
-**KuroganeOS Source-Available License 1.0 (KSAL-1.0)**.
+**KuroganeOS Source-Available License 2.0 (KSAL-2.0)**.
 
-Nie jest to licencja Open Source zatwierdzona przez OSI.
+Jest to licencja **source-available**, a nie licencja Open Source zatwierdzona
+przez OSI. Domyślnie pozwala m.in. na prywatne użycie niekomercyjne, naukę,
+prywatne modyfikacje, wkład przez fork/PR, niezależne kompatybilne implementacje
+bez kopiowania chronionej formy kodu oraz recenzje, filmy i streamy w zakresie
+opisanym w licencji. Komercyjne użycie samego KuroganeOS, redystrybucja
+nieoficjalnych buildów/ISO i wykorzystanie chronionego kodu w innych produktach
+wymagają osobnej pisemnej zgody.
 
 - [LICENSE](LICENSE)
-- [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY)
 - [docs/LICENSING.md](docs/LICENSING.md)
 - [CLA.md](CLA.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [TRADEMARKS.md](TRADEMARKS.md)
+- [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY) — wyłącznie historyczne rewizje MIT
