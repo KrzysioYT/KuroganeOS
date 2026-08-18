@@ -30,6 +30,7 @@ constexpr IPv4Address kLoopbackIp = {{127, 0, 0, 1}};
 constexpr IPv4Address kLoopbackMask = {{255, 0, 0, 0}};
 constexpr IPv4Address kNoGateway = {{0, 0, 0, 0}};
 constexpr uint8_t kPingPayload[] = {'K', 'U', 'R', 'O'};
+constexpr char kHttpsTransportTag[] = "~tls~";
 
 constexpr uint64_t kArpTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kPingTimeoutMs = UINT64_C(3000);
@@ -210,6 +211,14 @@ bool valid_web_target(const char* host_name, const char* path) {
     while (path_length < 160U && path[path_length] != '\0') ++path_length;
     return host_length != 0U && host_length < 64U &&
         path_length != 0U && path_length < 160U;
+}
+
+bool has_https_transport_tag(const char* host_name) {
+    if (host_name == nullptr) return false;
+    for (size_t index = 0U; index < sizeof(kHttpsTransportTag) - 1U; ++index) {
+        if (host_name[index] != kHttpsTransportTag[index]) return false;
+    }
+    return true;
 }
 
 Status map_tls_status(tls::Status status) {
@@ -545,18 +554,33 @@ Status http_get(
     if (out_http_status != nullptr) *out_http_status = 0U;
     if (!g_ready) return Status::NotInitialized;
     if (!g_physical || !g_dhcp) return Status::NotConfigured;
-    if (!valid_web_target(host_name, path) || output == nullptr ||
+    if (host_name == nullptr) return Status::InvalidArgument;
+
+    const bool secure = has_https_transport_tag(host_name);
+    const char* effective_host = secure
+        ? host_name + (sizeof(kHttpsTransportTag) - 1U)
+        : host_name;
+    if (!valid_web_target(effective_host, path) || output == nullptr ||
         output_capacity == 0U || out_length == nullptr ||
         out_http_status == nullptr) {
         return Status::InvalidArgument;
     }
+    if (secure) {
+        return https_get(
+            effective_host,
+            path,
+            output,
+            output_capacity,
+            out_length,
+            out_http_status);
+    }
 
     IPv4Address address{};
-    const Status resolve_status = resolve_a(host_name, &address);
+    const Status resolve_status = resolve_a(effective_host, &address);
     if (resolve_status != Status::Ok) return resolve_status;
     return http_request_over_tcp(
         address,
-        host_name,
+        effective_host,
         path,
         output,
         output_capacity,
