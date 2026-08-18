@@ -9,6 +9,7 @@
 
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/entropy.h>
+#include <mbedtls/oid.h>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 
@@ -29,6 +30,7 @@ struct Session {
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
     mbedtls_x509_crt trust;
+    mbedtls_x509_crt_profile certificate_profile;
     tcp_client::Client tcp;
 };
 
@@ -60,6 +62,69 @@ size_t count_certificates(const mbedtls_x509_crt* chain) {
         ++count;
     }
     return count;
+}
+
+bool x509_buffer_equal(
+    const mbedtls_x509_buf& left,
+    const mbedtls_x509_buf& right) {
+    if (left.len != right.len || left.p == nullptr || right.p == nullptr) {
+        return false;
+    }
+    for (size_t index = 0U; index < left.len; ++index) {
+        if (left.p[index] != right.p[index]) return false;
+    }
+    return true;
+}
+
+bool certificate_is_self_issued(const mbedtls_x509_crt* certificate) {
+    return certificate != nullptr &&
+        x509_buffer_equal(certificate->subject_raw, certificate->issuer_raw);
+}
+
+int web_pki_verify_callback(
+    void*,
+    mbedtls_x509_crt* certificate,
+    int depth,
+    uint32_t* flags) {
+    if (certificate == nullptr || flags == nullptr) {
+        return MBEDTLS_ERR_X509_BAD_INPUT_DATA;
+    }
+
+    mbedtls_md_type_t md_algorithm = MBEDTLS_MD_NONE;
+    mbedtls_pk_type_t pk_algorithm = MBEDTLS_PK_NONE;
+    const int algorithm_status = mbedtls_oid_get_sig_alg(
+        &certificate->sig_oid,
+        &md_algorithm,
+        &pk_algorithm);
+    static_cast<void>(pk_algorithm);
+    if (algorithm_status != 0) {
+        *flags |= MBEDTLS_X509_BADCERT_BAD_MD;
+        return 0;
+    }
+
+    if (md_algorithm != MBEDTLS_MD_SHA1) return 0;
+
+    // Public Web PKI still contains old trusted roots whose self-signature is
+    // SHA-1 (for example AAA Certificate Services).  The self-signature on a
+    // trust anchor is not the signature authenticating the leaf/intermediate
+    // chain. Allow SHA-1 only for a self-issued anchor candidate. Any SHA-1
+    // leaf or intermediate remains a hard verification failure.
+    if (certificate_is_self_issued(certificate)) {
+        log::write_u64(
+            log::Level::Info,
+            "TLS",
+            "legacy SHA-1 root anchor accepted depth=",
+            depth < 0 ? 0U : static_cast<uint64_t>(depth));
+        return 0;
+    }
+
+    *flags |= MBEDTLS_X509_BADCERT_BAD_MD;
+    log::write_u64(
+        log::Level::Error,
+        "TLS",
+        "SHA-1 non-root certificate rejected depth=",
+        depth < 0 ? 0U : static_cast<uint64_t>(depth));
+    return 0;
 }
 
 void zero_bytes(void* pointer, size_t size) {
@@ -302,6 +367,21 @@ Status setup_tls(
         log_mbedtls_error("ssl_config_defaults error=", result);
         return Status::SetupFailure;
     }
+
+    // Keep Mbed TLS' modern default profile for everything except SHA-1. Some
+    // still-trusted public roots use SHA-1 only on their self-signature. The
+    // verification callback below re-adds BAD_MD for every non-root SHA-1
+    // certificate, so leaf/intermediate SHA-1 remains rejected.
+    session->certificate_profile = mbedtls_x509_crt_profile_default;
+    session->certificate_profile.allowed_mds |=
+        MBEDTLS_X509_ID_FLAG(MBEDTLS_MD_SHA1);
+    mbedtls_ssl_conf_cert_profile(
+        &session->config,
+        &session->certificate_profile);
+    mbedtls_ssl_conf_verify(
+        &session->config,
+        web_pki_verify_callback,
+        nullptr);
     mbedtls_ssl_conf_authmode(&session->config, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&session->config, &session->trust, nullptr);
     mbedtls_ssl_conf_rng(
