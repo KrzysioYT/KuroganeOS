@@ -14,6 +14,10 @@ extern "C" {
 #define KU_NET_PATH_CAPACITY 160U
 #define KU_HTTP_RESPONSE_CAPACITY_LIMIT 4096U
 
+#define KU_HTTP_FLAG_NONE UINT32_C(0)
+#define KU_HTTP_FLAG_TLS  (UINT32_C(1) << 0U)
+#define KU_HTTP_KNOWN_FLAGS KU_HTTP_FLAG_TLS
+
 typedef struct ku_network_status {
     uint32_t structure_size;
     uint32_t ready;
@@ -47,7 +51,24 @@ static inline ku_status_t ku_network_get_status(ku_network_status* output) {
         0U);
 }
 
+/*
+ * The same versioned request structure is used for HTTP and HTTPS. The TLS bit
+ * is append-only ABI state in the existing flags field, so old applications
+ * that pass flags=0 keep the plaintext behavior unchanged.
+ */
 static inline ku_status_t ku_http_get(ku_http_request* request) {
+    if (request == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    request->flags &= ~KU_HTTP_FLAG_TLS;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_HTTP_GET,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(ku_http_request),
+        0U);
+}
+
+static inline ku_status_t ku_https_get(ku_http_request* request) {
+    if (request == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    request->flags |= KU_HTTP_FLAG_TLS;
     return (ku_status_t)ku_syscall3(
         KU_SYS_HTTP_GET,
         (uint64_t)(uintptr_t)request,
