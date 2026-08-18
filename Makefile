@@ -55,7 +55,7 @@ MBEDTLS_MODULES := \
 	aes asn1parse asn1write base64 bignum bignum_core bignum_mod \
 	bignum_mod_raw block_cipher cipher cipher_wrap constant_time ctr_drbg \
 	ecdh ecdsa ecp ecp_curves entropy entropy_poll gcm md oid pem pk pk_ecc \
-	pk_wrap pkparse platform platform_util rsa rsa_alt_helpers sha256 sha512 \
+	pk_wrap pkparse platform platform_util rsa rsa_alt_helpers sha1 sha256 sha512 \
 	x509 x509_crt ssl_ciphersuites ssl_client ssl_msg ssl_tls ssl_tls12_client
 MBEDTLS_SOURCES := $(addprefix $(MBEDTLS_LIBRARY_DIR)/,$(addsuffix .c,$(MBEDTLS_MODULES)))
 MBEDTLS_OBJECTS := $(addprefix $(OBJ_DIR)/third_party/mbedtls/,$(addsuffix .o,$(MBEDTLS_MODULES)))
