@@ -3,12 +3,15 @@
 #include "physical.hpp"
 #include "dhcp.hpp"
 #include "protocols.hpp"
+#include "tcp_client.hpp"
+#include "tls/client.hpp"
 #include "../arch/x86_64/io.hpp"
 #include "../drivers/pit.hpp"
+#include "../fs/root_volume.hpp"
 
 namespace net::service {
-
 namespace {
+
 LoopbackInterface g_loopback{};
 NetworkStack g_stack{};
 bool g_ready = false;
@@ -32,10 +35,14 @@ constexpr uint64_t kArpTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kPingTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kDnsSendTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kDnsReplyTimeoutMs = UINT64_C(5000);
-constexpr uint64_t kTcpNeighborTimeoutMs = UINT64_C(3000);
-constexpr uint64_t kTcpHandshakeTimeoutMs = UINT64_C(5000);
-constexpr uint64_t kTcpReplyTimeoutMs = UINT64_C(8000);
+constexpr uint64_t kTcpTimeoutMs = UINT64_C(7000);
 constexpr uint64_t kHttpReceiveTimeoutMs = UINT64_C(12000);
+constexpr size_t kTrustStoreCapacity = 16U * 1024U;
+constexpr char kTrustStorePath[] = "/etc/ssl/certs.pem";
+
+uint8_t g_trust_store[kTrustStoreCapacity]{};
+size_t g_trust_store_size = 0U;
+bool g_trust_store_attempted = false;
 
 bool acceptable_poll_status(Status status) {
     return status == Status::Ok || status == Status::NotForUs ||
@@ -79,8 +86,6 @@ void wait_for_transport_progress() {
 #if defined(KUROGANE_HOST_TEST)
     arch::pause();
 #else
-    // E1000/PCnet are polled today. Sleeping until the next interrupt lets PIT
-    // wake us to poll again without burning an entire CPU in a tight loop.
     const bool interrupts_enabled =
         (arch::read_flags() & (UINT64_C(1) << 9U)) != 0U;
     if (drivers::pit::initialized() && interrupts_enabled) {
@@ -121,7 +126,7 @@ Status wait_for_ping(
              ++attempt) {
             size_t processed = 0U;
             status = net::poll(&g_stack, 8U, &processed);
-            if (status != Status::Ok) return status;
+            if (!acceptable_poll_status(status)) return status;
             NeighborEntry neighbor{};
             if (lookup_neighbor(&g_stack, destination, &neighbor) == Status::Ok) {
                 resolved = true;
@@ -146,7 +151,7 @@ Status wait_for_ping(
          ++attempt) {
         size_t processed = 0U;
         status = net::poll(&g_stack, 8U, &processed);
-        if (status != Status::Ok) return status;
+        if (!acceptable_poll_status(status)) return status;
         PingReply result{};
         status = get_last_ping_reply(&g_stack, &result);
         if (status == Status::Ok && result.valid &&
@@ -167,7 +172,10 @@ bool append_request_text(
     size_t capacity,
     size_t* cursor,
     const char* text) {
-    if (output == nullptr || cursor == nullptr || text == nullptr) return false;
+    if (output == nullptr || cursor == nullptr || text == nullptr ||
+        *cursor > capacity) {
+        return false;
+    }
     for (size_t index = 0U; text[index] != '\0'; ++index) {
         if (*cursor >= capacity) return false;
         output[(*cursor)++] = static_cast<uint8_t>(text[index]);
@@ -176,21 +184,147 @@ bool append_request_text(
 }
 
 uint16_t parse_http_status(const uint8_t* bytes, size_t length) {
-    if (bytes == nullptr || length < 12U) return 0U;
-    if (bytes[0] != 'H' || bytes[1] != 'T' || bytes[2] != 'T' ||
-        bytes[3] != 'P' || bytes[4] != '/' || bytes[8] != ' ') {
+    if (bytes == nullptr || length < 12U || bytes[0] != 'H' || bytes[1] != 'T' ||
+        bytes[2] != 'T' || bytes[3] != 'P' || bytes[4] != '/') {
         return 0U;
     }
-    if (bytes[9] < '0' || bytes[9] > '9' ||
-        bytes[10] < '0' || bytes[10] > '9' ||
-        bytes[11] < '0' || bytes[11] > '9') {
+    size_t index = 5U;
+    while (index < length && bytes[index] != ' ') ++index;
+    while (index < length && bytes[index] == ' ') ++index;
+    if (index + 2U >= length || bytes[index] < '0' || bytes[index] > '9' ||
+        bytes[index + 1U] < '0' || bytes[index + 1U] > '9' ||
+        bytes[index + 2U] < '0' || bytes[index + 2U] > '9') {
         return 0U;
     }
     return static_cast<uint16_t>(
-        static_cast<uint16_t>(bytes[9] - '0') * 100U +
-        static_cast<uint16_t>(bytes[10] - '0') * 10U +
-        static_cast<uint16_t>(bytes[11] - '0'));
+        static_cast<uint16_t>(bytes[index] - '0') * 100U +
+        static_cast<uint16_t>(bytes[index + 1U] - '0') * 10U +
+        static_cast<uint16_t>(bytes[index + 2U] - '0'));
 }
+
+bool valid_web_target(const char* host_name, const char* path) {
+    if (host_name == nullptr || path == nullptr || path[0] != '/') return false;
+    size_t host_length = 0U;
+    while (host_length < 64U && host_name[host_length] != '\0') ++host_length;
+    size_t path_length = 0U;
+    while (path_length < 160U && path[path_length] != '\0') ++path_length;
+    return host_length != 0U && host_length < 64U &&
+        path_length != 0U && path_length < 160U;
+}
+
+Status map_tls_status(tls::Status status) {
+    switch (status) {
+        case tls::Status::Ok: return Status::Ok;
+        case tls::Status::InvalidArgument: return Status::InvalidArgument;
+        case tls::Status::ResponseTooLarge: return Status::BufferTooSmall;
+        case tls::Status::Timeout: return Status::WouldBlock;
+        case tls::Status::EntropyUnavailable:
+        case tls::Status::TrustStoreInvalid: return Status::NotConfigured;
+        case tls::Status::TcpFailure:
+        case tls::Status::SetupFailure:
+        case tls::Status::HandshakeFailure:
+        case tls::Status::CertificateFailure:
+        case tls::Status::CertificateTimeFailure:
+        case tls::Status::IoFailure: return Status::InterfaceError;
+    }
+    return Status::InterfaceError;
+}
+
+Status load_trust_store() {
+    if (g_trust_store_size != 0U) return Status::Ok;
+    if (g_trust_store_attempted) return Status::NotConfigured;
+    g_trust_store_attempted = true;
+    if (!fs::root_volume::mounted()) return Status::NotConfigured;
+
+    uint64_t file_size = 0U;
+    size_t bytes_read = 0U;
+    const fs::vfs::Status read_status = fs::root_volume::read_file(
+        kTrustStorePath,
+        g_trust_store,
+        sizeof(g_trust_store) - 1U,
+        &bytes_read,
+        &file_size);
+    if (read_status != fs::vfs::Status::Ok || bytes_read == 0U ||
+        file_size != static_cast<uint64_t>(bytes_read) ||
+        bytes_read >= sizeof(g_trust_store)) {
+        return Status::NotConfigured;
+    }
+    g_trust_store[bytes_read] = '\0';
+    g_trust_store_size = bytes_read + 1U;
+    return Status::Ok;
+}
+
+Status http_request_over_tcp(
+    const IPv4Address& address,
+    const char* host_name,
+    const char* path,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length,
+    uint16_t* out_http_status) {
+    tcp_client::Client client{};
+    const uint16_t source_port = next_ephemeral_port();
+    const uint32_t initial_sequence = UINT32_C(0x4b570001) + source_port;
+    Status status = tcp_client::connect(
+        &client,
+        &g_stack,
+        address,
+        source_port,
+        80U,
+        initial_sequence,
+        kTcpTimeoutMs);
+    if (status != Status::Ok) return status;
+
+    uint8_t request[768]{};
+    size_t request_length = 0U;
+    if (!append_request_text(request, sizeof(request), &request_length, "GET ") ||
+        !append_request_text(request, sizeof(request), &request_length, path) ||
+        !append_request_text(request, sizeof(request), &request_length,
+            " HTTP/1.0\r\nHost: ") ||
+        !append_request_text(request, sizeof(request), &request_length, host_name) ||
+        !append_request_text(request, sizeof(request), &request_length,
+            "\r\nUser-Agent: KuroganeWeb/0.2\r\n"
+            "Accept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n")) {
+        static_cast<void>(tcp_client::close(&client));
+        return Status::PayloadTooLarge;
+    }
+
+    status = tcp_client::send(&client, request, request_length, kTcpTimeoutMs);
+    if (status != Status::Ok) {
+        static_cast<void>(tcp_client::close(&client));
+        return status;
+    }
+
+    size_t written = 0U;
+    for (;;) {
+        if (written == output_capacity) {
+            static_cast<void>(tcp_client::close(&client));
+            *out_length = written;
+            return Status::BufferTooSmall;
+        }
+        size_t received = 0U;
+        status = tcp_client::receive(
+            &client,
+            output + written,
+            output_capacity - written,
+            &received,
+            kHttpReceiveTimeoutMs);
+        if (status != Status::Ok) {
+            static_cast<void>(tcp_client::close(&client));
+            *out_length = written;
+            return status;
+        }
+        if (received == 0U) break;
+        written += received;
+        if (*out_http_status == 0U) {
+            *out_http_status = parse_http_status(output, written);
+        }
+    }
+    static_cast<void>(tcp_client::close(&client));
+    *out_length = written;
+    return written == 0U ? Status::WouldBlock : Status::Ok;
+}
+
 } // namespace
 
 Status initialize() {
@@ -200,6 +334,8 @@ Status initialize() {
     g_physical_detected = false;
     g_physical_status = Status::NotInitialized;
     g_lease = {};
+    g_trust_store_size = 0U;
+    g_trust_store_attempted = false;
 #ifdef KUROGANE_HOST_TEST
     return initialize_loopback_fallback();
 #else
@@ -227,8 +363,6 @@ Status initialize() {
             g_physical_status = status;
             return initialize_loopback_fallback();
         }
-        // Missing cable, hypervisor NAT startup races or an unavailable DHCP
-        // server must degrade networking instead of making KuroganeOS unbootable.
         g_physical_status = dhcp_status;
         return initialize_loopback_fallback();
     }
@@ -243,7 +377,7 @@ bool ready() { return g_ready; }
 
 Status poll(size_t budget, size_t* processed) {
     if (!g_ready) {
-        if (processed) *processed = 0;
+        if (processed != nullptr) *processed = 0U;
         return Status::NotInitialized;
     }
     return net::poll(&g_stack, budget, processed);
@@ -255,8 +389,8 @@ Status ping_loopback(uint16_t sequence, PingReply* reply) {
         &g_stack, kLoopbackIp, UINT16_C(0x4B4F), sequence,
         kPingPayload, sizeof(kPingPayload));
     if (status != Status::Ok) return status;
-    size_t processed = 0;
-    status = net::poll(&g_stack, 4, &processed);
+    size_t processed = 0U;
+    status = net::poll(&g_stack, 4U, &processed);
     if (status != Status::Ok) return status;
     PingReply result{};
     status = get_last_ping_reply(&g_stack, &result);
@@ -267,7 +401,7 @@ Status ping_loopback(uint16_t sequence, PingReply* reply) {
         result.payload_length != sizeof(kPingPayload)) {
         return status == Status::Ok ? Status::MalformedPacket : status;
     }
-    if (reply) *reply = result;
+    if (reply != nullptr) *reply = result;
     return Status::Ok;
 }
 
@@ -288,7 +422,9 @@ Status ping_address(
 
 Status resolve_a(const char* name, IPv4Address* out_address) {
     if (!g_ready) return Status::NotInitialized;
-    if (name == nullptr || out_address == nullptr) return Status::InvalidArgument;
+    if (name == nullptr || out_address == nullptr || name[0] == '\0') {
+        return Status::InvalidArgument;
+    }
     if (!g_dhcp || ipv4_is_zero(g_lease.dns_server)) return Status::NotConfigured;
 
     uint8_t query[512]{};
@@ -306,8 +442,12 @@ Status resolve_a(const char* name, IPv4Address* out_address) {
          wait_window_open(send_started, kDnsSendTimeoutMs, attempt, 200000U);
          ++attempt) {
         status = send_udp(
-            &g_stack, g_lease.dns_server,
-            source_port, 53U, query, query_length);
+            &g_stack,
+            g_lease.dns_server,
+            source_port,
+            53U,
+            query,
+            query_length);
         if (status == Status::Ok) {
             sent = true;
             break;
@@ -334,8 +474,10 @@ Status resolve_a(const char* name, IPv4Address* out_address) {
             datagram.destination_port == source_port) {
             DnsAnswer answer{};
             status = parse_dns_a_response(
-                datagram.payload, datagram.payload_length,
-                transaction, &answer);
+                datagram.payload,
+                datagram.payload_length,
+                transaction,
+                &answer);
             if (status == Status::Ok) {
                 *out_address = answer.address;
                 return Status::Ok;
@@ -352,103 +494,44 @@ Status tcp_connect_probe(
     uint16_t port,
     const char* host_name) {
     if (!g_ready) return Status::NotInitialized;
-    if (port == 0U || host_name == nullptr) return Status::InvalidArgument;
-    const uint16_t source_port = next_ephemeral_port();
-    const uint32_t initial_sequence = UINT32_C(0x4b550001);
-    TcpSegment stale{};
-    while (take_tcp_segment(&g_stack, &stale) == Status::Ok) {}
-    bool sent = false;
-    Status status = Status::WouldBlock;
-    const uint64_t send_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(send_started, kTcpNeighborTimeoutMs, attempt, 200000U);
-         ++attempt) {
-        status = send_tcp(
-            &g_stack, address, source_port, port,
-            initial_sequence, 0U, TcpSyn, UINT16_C(32768), nullptr, 0U);
-        if (status == Status::Ok) {
-            sent = true;
-            break;
-        }
-        if (status != Status::NeighborResolutionPending) return status;
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 8U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-        wait_for_transport_progress();
+    if (!g_physical || !g_dhcp) return Status::NotConfigured;
+    if (port == 0U || host_name == nullptr || host_name[0] == '\0') {
+        return Status::InvalidArgument;
     }
-    if (!sent) return Status::WouldBlock;
 
-    TcpSegment reply{};
-    bool established = false;
-    const uint64_t handshake_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(handshake_started, kTcpHandshakeTimeoutMs, attempt, 500000U);
-         ++attempt) {
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 8U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-        if (take_tcp_segment(&g_stack, &reply) == Status::Ok &&
-            ipv4_equal(reply.source, address) && reply.source_port == port &&
-            reply.destination_port == source_port) {
-            if ((reply.flags & TcpRst) != 0U) return Status::InterfaceError;
-            if ((reply.flags & (TcpSyn | TcpAck)) == (TcpSyn | TcpAck) &&
-                reply.acknowledgement == initial_sequence + 1U) {
-                established = true;
-                break;
-            }
-        }
-        wait_for_transport_progress();
-    }
-    if (!established) return Status::WouldBlock;
-    status = send_tcp(
-        &g_stack, address, source_port, port,
-        initial_sequence + 1U, reply.sequence + 1U,
-        TcpAck, UINT16_C(32768), nullptr, 0U);
+    tcp_client::Client client{};
+    const uint16_t source_port = next_ephemeral_port();
+    Status status = tcp_client::connect(
+        &client,
+        &g_stack,
+        address,
+        source_port,
+        port,
+        UINT32_C(0x4b550001) + source_port,
+        kTcpTimeoutMs);
     if (status != Status::Ok) return status;
 
-    uint8_t request[192]{};
-    const char prefix[] = "HEAD / HTTP/1.0\r\nHost: ";
-    const char suffix[] = "\r\nConnection: close\r\n\r\n";
-    size_t cursor = 0U;
-    if (!append_request_text(request, sizeof(request), &cursor, prefix) ||
-        !append_request_text(request, sizeof(request), &cursor, host_name) ||
-        !append_request_text(request, sizeof(request), &cursor, suffix)) {
+    uint8_t request[256]{};
+    size_t request_length = 0U;
+    if (!append_request_text(request, sizeof(request), &request_length,
+            "HEAD / HTTP/1.0\r\nHost: ") ||
+        !append_request_text(request, sizeof(request), &request_length, host_name) ||
+        !append_request_text(request, sizeof(request), &request_length,
+            "\r\nConnection: close\r\n\r\n")) {
+        static_cast<void>(tcp_client::close(&client));
         return Status::PayloadTooLarge;
     }
-    status = send_tcp(
-        &g_stack, address, source_port, port,
-        initial_sequence + 1U, reply.sequence + 1U,
-        TcpPsh | TcpAck, UINT16_C(32768), request, cursor);
-    if (status != Status::Ok) return status;
-    const uint32_t expected_ack = initial_sequence + 1U +
-        static_cast<uint32_t>(cursor);
-    const uint64_t reply_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(reply_started, kTcpReplyTimeoutMs, attempt, 800000U);
-         ++attempt) {
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 8U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-        TcpSegment segment{};
-        if (take_tcp_segment(&g_stack, &segment) == Status::Ok &&
-            ipv4_equal(segment.source, address) &&
-            segment.source_port == port && segment.destination_port == source_port) {
-            if ((segment.flags & TcpRst) != 0U) return Status::InterfaceError;
-            if ((segment.flags & TcpAck) != 0U &&
-                segment.acknowledgement == expected_ack) {
-                const uint32_t receive_next = segment.sequence +
-                    static_cast<uint32_t>(segment.payload_length) +
-                    (((segment.flags & TcpFin) != 0U) ? 1U : 0U);
-                static_cast<void>(send_tcp(
-                    &g_stack, address, source_port, port,
-                    expected_ack, receive_next, TcpAck,
-                    UINT16_C(32768), nullptr, 0U));
-                return Status::Ok;
-            }
-        }
-        wait_for_transport_progress();
+    status = tcp_client::send(&client, request, request_length, kTcpTimeoutMs);
+    if (status != Status::Ok) {
+        static_cast<void>(tcp_client::close(&client));
+        return status;
     }
-    return Status::WouldBlock;
+    uint8_t response[64]{};
+    size_t received = 0U;
+    status = tcp_client::receive(
+        &client, response, sizeof(response), &received, kTcpTimeoutMs);
+    static_cast<void>(tcp_client::close(&client));
+    return status == Status::Ok && received != 0U ? Status::Ok : status;
 }
 
 Status http_get(
@@ -462,161 +545,63 @@ Status http_get(
     if (out_http_status != nullptr) *out_http_status = 0U;
     if (!g_ready) return Status::NotInitialized;
     if (!g_physical || !g_dhcp) return Status::NotConfigured;
-    if (host_name == nullptr || path == nullptr || output == nullptr ||
-        out_length == nullptr || out_http_status == nullptr ||
-        output_capacity == 0U || path[0] != '/') {
-        return Status::InvalidArgument;
-    }
-
-    size_t host_length = 0U;
-    while (host_length < 64U && host_name[host_length] != '\0') ++host_length;
-    size_t path_length = 0U;
-    while (path_length < 160U && path[path_length] != '\0') ++path_length;
-    if (host_length == 0U || host_length == 64U ||
-        path_length == 0U || path_length == 160U) {
+    if (!valid_web_target(host_name, path) || output == nullptr ||
+        output_capacity == 0U || out_length == nullptr ||
+        out_http_status == nullptr) {
         return Status::InvalidArgument;
     }
 
     IPv4Address address{};
-    Status status = resolve_a(host_name, &address);
-    if (status != Status::Ok) return status;
+    const Status resolve_status = resolve_a(host_name, &address);
+    if (resolve_status != Status::Ok) return resolve_status;
+    return http_request_over_tcp(
+        address,
+        host_name,
+        path,
+        output,
+        output_capacity,
+        out_length,
+        out_http_status);
+}
 
+Status https_get(
+    const char* host_name,
+    const char* path,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length,
+    uint16_t* out_http_status) {
+    if (out_length != nullptr) *out_length = 0U;
+    if (out_http_status != nullptr) *out_http_status = 0U;
+    if (!g_ready) return Status::NotInitialized;
+    if (!g_physical || !g_dhcp) return Status::NotConfigured;
+    if (!valid_web_target(host_name, path) || output == nullptr ||
+        output_capacity == 0U || out_length == nullptr ||
+        out_http_status == nullptr) {
+        return Status::InvalidArgument;
+    }
+
+    const Status trust_status = load_trust_store();
+    if (trust_status != Status::Ok) return trust_status;
+
+    IPv4Address address{};
+    const Status resolve_status = resolve_a(host_name, &address);
+    if (resolve_status != Status::Ok) return resolve_status;
     const uint16_t source_port = next_ephemeral_port();
-    const uint32_t initial_sequence = UINT32_C(0x4b570001) + source_port;
-    TcpSegment stale{};
-    while (take_tcp_segment(&g_stack, &stale) == Status::Ok) {}
-
-    bool syn_sent = false;
-    const uint64_t send_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(send_started, kTcpNeighborTimeoutMs, attempt, 200000U);
-         ++attempt) {
-        status = send_tcp(
-            &g_stack, address, source_port, 80U,
-            initial_sequence, 0U, TcpSyn, UINT16_C(32768), nullptr, 0U);
-        if (status == Status::Ok) {
-            syn_sent = true;
-            break;
-        }
-        if (status != Status::NeighborResolutionPending) return status;
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 1U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-        wait_for_transport_progress();
-    }
-    if (!syn_sent) return Status::WouldBlock;
-
-    TcpSegment handshake{};
-    bool established = false;
-    const uint64_t handshake_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(handshake_started, kTcpHandshakeTimeoutMs, attempt, 500000U);
-         ++attempt) {
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 1U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-        if (take_tcp_segment(&g_stack, &handshake) == Status::Ok &&
-            ipv4_equal(handshake.source, address) && handshake.source_port == 80U &&
-            handshake.destination_port == source_port) {
-            if ((handshake.flags & TcpRst) != 0U) return Status::InterfaceError;
-            if ((handshake.flags & (TcpSyn | TcpAck)) == (TcpSyn | TcpAck) &&
-                handshake.acknowledgement == initial_sequence + 1U) {
-                established = true;
-                break;
-            }
-        }
-        wait_for_transport_progress();
-    }
-    if (!established) return Status::WouldBlock;
-
-    const uint32_t client_sequence = initial_sequence + 1U;
-    uint32_t receive_next = handshake.sequence + 1U;
-    status = send_tcp(
-        &g_stack, address, source_port, 80U,
-        client_sequence, receive_next, TcpAck,
-        UINT16_C(32768), nullptr, 0U);
-    if (status != Status::Ok) return status;
-
-    uint8_t request[512]{};
-    size_t request_length = 0U;
-    if (!append_request_text(request, sizeof(request), &request_length, "GET ") ||
-        !append_request_text(request, sizeof(request), &request_length, path) ||
-        !append_request_text(request, sizeof(request), &request_length,
-            " HTTP/1.0\r\nHost: ") ||
-        !append_request_text(request, sizeof(request), &request_length, host_name) ||
-        !append_request_text(request, sizeof(request), &request_length,
-            "\r\nUser-Agent: KuroganeWeb/0.1\r\n"
-            "Accept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n")) {
-        return Status::PayloadTooLarge;
-    }
-
-    status = send_tcp(
-        &g_stack, address, source_port, 80U,
-        client_sequence, receive_next, TcpPsh | TcpAck,
-        UINT16_C(32768), request, request_length);
-    if (status != Status::Ok) return status;
-    const uint32_t request_end = client_sequence +
-        static_cast<uint32_t>(request_length);
-
-    size_t written = 0U;
-    bool received_any = false;
-    const uint64_t receive_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         wait_window_open(receive_started, kHttpReceiveTimeoutMs, attempt, 1200000U);
-         ++attempt) {
-        size_t processed = 0U;
-        status = net::poll(&g_stack, 1U, &processed);
-        if (!acceptable_poll_status(status)) return status;
-
-        TcpSegment segment{};
-        if (take_tcp_segment(&g_stack, &segment) != Status::Ok ||
-            !ipv4_equal(segment.source, address) || segment.source_port != 80U ||
-            segment.destination_port != source_port) {
-            wait_for_transport_progress();
-            continue;
-        }
-        if ((segment.flags & TcpRst) != 0U) return Status::InterfaceError;
-        if ((segment.flags & TcpAck) != 0U &&
-            segment.acknowledgement < request_end) {
-            continue;
-        }
-
-        if (segment.payload_length != 0U) {
-            if (segment.sequence != receive_next) {
-                // Duplicate data is harmless; genuinely out-of-order delivery
-                // is outside the intentionally small 3.3.3 HTTP transport.
-                if (segment.sequence < receive_next) continue;
-                return Status::WouldBlock;
-            }
-            received_any = true;
-            const size_t remaining = output_capacity - written;
-            const size_t copy_length = segment.payload_length < remaining
-                ? segment.payload_length : remaining;
-            for (size_t index = 0U; index < copy_length; ++index) {
-                output[written + index] = segment.payload[index];
-            }
-            written += copy_length;
-            receive_next += static_cast<uint32_t>(segment.payload_length);
-            if (*out_http_status == 0U) {
-                *out_http_status = parse_http_status(output, written);
-            }
-        }
-        if ((segment.flags & TcpFin) != 0U) ++receive_next;
-
-        static_cast<void>(send_tcp(
-            &g_stack, address, source_port, 80U,
-            request_end, receive_next, TcpAck,
-            UINT16_C(32768), nullptr, 0U));
-
-        if ((segment.flags & TcpFin) != 0U || written == output_capacity) {
-            *out_length = written;
-            return received_any ? Status::Ok : Status::WouldBlock;
-        }
-        wait_for_transport_progress();
-    }
-
-    *out_length = written;
-    return received_any ? Status::Ok : Status::WouldBlock;
+    const uint32_t initial_sequence = UINT32_C(0x4b580001) + source_port;
+    return map_tls_status(tls::https_get(
+        &g_stack,
+        address,
+        source_port,
+        initial_sequence,
+        host_name,
+        path,
+        g_trust_store,
+        g_trust_store_size,
+        output,
+        output_capacity,
+        out_length,
+        out_http_status));
 }
 
 Status stats(NetworkStats* output) { return get_stats(&g_stack, output); }
