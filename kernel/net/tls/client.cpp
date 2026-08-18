@@ -2,6 +2,7 @@
 
 #include "kurogane_mbedtls_platform.h"
 #include "../tcp_client.hpp"
+#include "../../core/log.hpp"
 #include "../../drivers/pit.hpp"
 #include "../../drivers/rtc.hpp"
 #include "../../memory/allocator.hpp"
@@ -30,6 +31,14 @@ struct Session {
     mbedtls_x509_crt trust;
     tcp_client::Client tcp;
 };
+
+void log_mbedtls_error(const char* stage, int result) {
+    log::write_hex(
+        log::Level::Error,
+        "TLS",
+        stage,
+        static_cast<uint64_t>(static_cast<int64_t>(result)));
+}
 
 void zero_bytes(void* pointer, size_t size) {
     auto* bytes = static_cast<uint8_t*>(pointer);
@@ -106,6 +115,11 @@ int bio_send(void* context, const unsigned char* buffer, size_t length) {
             : static_cast<int>(length);
     }
     if (status == net::Status::WouldBlock) return MBEDTLS_ERR_SSL_WANT_WRITE;
+    log::write_u64(
+        log::Level::Error,
+        "TLS",
+        "BIO send network status=",
+        static_cast<uint64_t>(status));
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 }
 
@@ -127,6 +141,11 @@ int bio_receive(void* context, unsigned char* buffer, size_t length) {
             : static_cast<int>(received);
     }
     if (status == net::Status::WouldBlock) return MBEDTLS_ERR_SSL_WANT_READ;
+    log::write_u64(
+        log::Level::Error,
+        "TLS",
+        "BIO receive network status=",
+        static_cast<uint64_t>(status));
     return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
 }
 
@@ -156,12 +175,16 @@ int compare_datetime(
 
 bool peer_certificate_times_valid(const mbedtls_x509_crt* peer) {
     rtc::DateTime now{};
-    if (peer == nullptr || !rtc::read(now) || !rtc_valid(now)) return false;
+    if (peer == nullptr || !rtc::read(now) || !rtc_valid(now)) {
+        log::write(log::Level::Error, "TLS", "RTC unavailable or invalid for certificate check");
+        return false;
+    }
     for (const mbedtls_x509_crt* certificate = peer;
          certificate != nullptr;
          certificate = certificate->next) {
         if (compare_datetime(now, certificate->valid_from) < 0 ||
             compare_datetime(now, certificate->valid_to) > 0) {
+            log::write(log::Level::Error, "TLS", "certificate validity interval rejected by RTC");
             return false;
         }
     }
@@ -196,41 +219,60 @@ Status setup_tls(
     const uint8_t* trust_pem,
     size_t trust_pem_size) {
     if (ku_tls_hardware_entropy_available() == 0) {
+        log::write(log::Level::Error, "TLS", "RDRAND/RDSEED entropy unavailable");
         return Status::EntropyUnavailable;
     }
-    if (mbedtls_entropy_add_source(
-            &session->entropy,
-            ku_tls_hardware_entropy,
-            nullptr,
-            32U,
-            MBEDTLS_ENTROPY_SOURCE_STRONG) != 0) {
+    int result = mbedtls_entropy_add_source(
+        &session->entropy,
+        ku_tls_hardware_entropy,
+        nullptr,
+        32U,
+        MBEDTLS_ENTROPY_SOURCE_STRONG);
+    if (result != 0) {
+        log_mbedtls_error("entropy_add_source error=", result);
         return Status::EntropyUnavailable;
     }
 
     static constexpr unsigned char personalization[] =
         "KuroganeOS TLS 3.3.3";
-    if (mbedtls_ctr_drbg_seed(
-            &session->drbg,
-            mbedtls_entropy_func,
-            &session->entropy,
-            personalization,
-            sizeof(personalization) - 1U) != 0) {
+    result = mbedtls_ctr_drbg_seed(
+        &session->drbg,
+        mbedtls_entropy_func,
+        &session->entropy,
+        personalization,
+        sizeof(personalization) - 1U);
+    if (result != 0) {
+        log_mbedtls_error("ctr_drbg_seed error=", result);
         return Status::EntropyUnavailable;
     }
 
-    if (trust_pem_size < 2U || trust_pem[trust_pem_size - 1U] != '\0' ||
-        mbedtls_x509_crt_parse(
-            &session->trust,
-            trust_pem,
-            trust_pem_size) < 0) {
+    if (trust_pem_size < 2U || trust_pem[trust_pem_size - 1U] != '\0') {
+        log::write(log::Level::Error, "TLS", "trust PEM is empty or not NUL terminated");
         return Status::TrustStoreInvalid;
     }
+    result = mbedtls_x509_crt_parse(
+        &session->trust,
+        trust_pem,
+        trust_pem_size);
+    if (result < 0) {
+        log_mbedtls_error("x509_crt_parse error=", result);
+        return Status::TrustStoreInvalid;
+    }
+    if (result > 0) {
+        log::write_u64(
+            log::Level::Warn,
+            "TLS",
+            "trust certificates skipped during parse=",
+            static_cast<uint64_t>(result));
+    }
 
-    if (mbedtls_ssl_config_defaults(
-            &session->config,
-            MBEDTLS_SSL_IS_CLIENT,
-            MBEDTLS_SSL_TRANSPORT_STREAM,
-            MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
+    result = mbedtls_ssl_config_defaults(
+        &session->config,
+        MBEDTLS_SSL_IS_CLIENT,
+        MBEDTLS_SSL_TRANSPORT_STREAM,
+        MBEDTLS_SSL_PRESET_DEFAULT);
+    if (result != 0) {
+        log_mbedtls_error("ssl_config_defaults error=", result);
         return Status::SetupFailure;
     }
     mbedtls_ssl_conf_authmode(&session->config, MBEDTLS_SSL_VERIFY_REQUIRED);
@@ -239,8 +281,14 @@ Status setup_tls(
         &session->config,
         mbedtls_ctr_drbg_random,
         &session->drbg);
-    if (mbedtls_ssl_setup(&session->ssl, &session->config) != 0 ||
-        mbedtls_ssl_set_hostname(&session->ssl, host_name) != 0) {
+    result = mbedtls_ssl_setup(&session->ssl, &session->config);
+    if (result != 0) {
+        log_mbedtls_error("ssl_setup error=", result);
+        return Status::SetupFailure;
+    }
+    result = mbedtls_ssl_set_hostname(&session->ssl, host_name);
+    if (result != 0) {
+        log_mbedtls_error("ssl_set_hostname error=", result);
         return Status::SetupFailure;
     }
     mbedtls_ssl_set_bio(
@@ -259,7 +307,13 @@ Status perform_handshake(Session* session) {
          ++iteration) {
         const int result = mbedtls_ssl_handshake(&session->ssl);
         if (result == 0) {
-            if (mbedtls_ssl_get_verify_result(&session->ssl) != 0U) {
+            const uint32_t verify_result = mbedtls_ssl_get_verify_result(&session->ssl);
+            if (verify_result != 0U) {
+                log::write_hex(
+                    log::Level::Error,
+                    "TLS",
+                    "certificate verify flags=",
+                    static_cast<uint64_t>(verify_result));
                 return Status::CertificateFailure;
             }
             const mbedtls_x509_crt* peer =
@@ -269,9 +323,11 @@ Status perform_handshake(Session* session) {
         }
         if (result != MBEDTLS_ERR_SSL_WANT_READ &&
             result != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            log_mbedtls_error("ssl_handshake error=", result);
             return Status::HandshakeFailure;
         }
     }
+    log::write(log::Level::Error, "TLS", "TLS handshake deadline exceeded");
     return Status::Timeout;
 }
 
@@ -291,7 +347,11 @@ Status write_all(Session* session, const uint8_t* data, size_t length) {
             result == MBEDTLS_ERR_SSL_WANT_WRITE) {
             continue;
         }
+        log_mbedtls_error("ssl_write error=", result);
         return Status::IoFailure;
+    }
+    if (offset != length) {
+        log::write(log::Level::Error, "TLS", "TLS request write deadline exceeded");
     }
     return offset == length ? Status::Ok : Status::Timeout;
 }
@@ -313,7 +373,10 @@ Status read_response(
             continue;
         }
         if (result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) break;
-        if (result < 0) return Status::IoFailure;
+        if (result < 0) {
+            log_mbedtls_error("ssl_read error=", result);
+            return Status::IoFailure;
+        }
         idle_attempts = 0U;
         const size_t available = static_cast<size_t>(result);
         if (available > output_capacity - written) {
@@ -337,6 +400,9 @@ Status read_response(
         }
     }
     *out_length = written;
+    if (written == 0U) {
+        log::write(log::Level::Error, "TLS", "HTTPS peer returned no response bytes");
+    }
     return written == 0U ? Status::IoFailure : Status::Ok;
 }
 
@@ -367,7 +433,10 @@ Status https_get(
 
     auto* session = static_cast<Session*>(
         memory::kmalloc(sizeof(Session), alignof(Session)));
-    if (session == nullptr) return Status::SetupFailure;
+    if (session == nullptr) {
+        log::write(log::Level::Error, "TLS", "unable to allocate TLS session");
+        return Status::SetupFailure;
+    }
     initialize_session(session);
 
     Status status = setup_tls(session, host_name, trust_pem, trust_pem_size);
@@ -385,6 +454,11 @@ Status https_get(
         initial_sequence,
         kTcpTimeoutMs);
     if (tcp_status != net::Status::Ok) {
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "TCP connect to 443 failed status=",
+            static_cast<uint64_t>(tcp_status));
         free_session(session);
         return Status::TcpFailure;
     }
@@ -400,10 +474,10 @@ Status https_get(
     if (!append_text(request, sizeof(request), &request_length, "GET ") ||
         !append_text(request, sizeof(request), &request_length, path) ||
         !append_text(request, sizeof(request), &request_length,
-            " HTTP/1.0\r\nHost: ") ||
+            " HTTP/1.1\r\nHost: ") ||
         !append_text(request, sizeof(request), &request_length, host_name) ||
         !append_text(request, sizeof(request), &request_length,
-            "\r\nUser-Agent: KuroganeWeb/0.2\r\n"
+            "\r\nUser-Agent: KuroganeWeb/0.3\r\n"
             "Accept: text/html,text/plain,*/*\r\n"
             "Connection: close\r\n\r\n")) {
         free_session(session);
