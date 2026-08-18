@@ -48,7 +48,7 @@ done
 if ! $no_build; then
     build_args=(--configuration "$configuration" --no-image)
     if $rebuild; then build_args+=(--rebuild); fi
-    "$root/scripts/build-macos.sh" "${build_args[@]}"
+    bash "$root/scripts/build-macos.sh" "${build_args[@]}"
 fi
 
 kernel="$root/build/kernel.elf"
@@ -91,7 +91,7 @@ cp "$package" "$stage/install.pkg"
 # 30 MiB FAT16 builder instead of the historical 64 MiB FAT32 image.
 bash "$root/scripts/build-installer-esp.sh" "$stage" "$esp"
 
-"$root/scripts/build-installer-iso.sh" "$stage" "$esp" "$internal_iso"
+bash "$root/scripts/build-installer-iso.sh" "$stage" "$esp" "$internal_iso"
 
 cp "$internal_iso" "$release_iso"
 cp "$internal_iso" "$compatibility_iso"
