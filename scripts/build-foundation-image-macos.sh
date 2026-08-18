@@ -126,6 +126,7 @@ echo "[macos] validating Foundation image through KuroganeOS FAT32/VFS..."
 "$host_cxx" -std=c++17 -O2 -Wall -Wextra -Wpedantic \
     "$repo_root/tests/test_root_volume_image.cpp" \
     "$repo_root/tests/host_system_metrics_stub.cpp" \
+    "$repo_root/tests/host_process_path_stub.cpp" \
     "$repo_root/kernel/fs/root_volume.cpp" \
     "$repo_root/kernel/fs/fat32.cpp" \
     "$repo_root/kernel/fs/fat32_vfs.cpp" \
