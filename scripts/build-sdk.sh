@@ -80,7 +80,28 @@ overlay_gui="$root/build/userspace/rootfs/gui"
 
 rm -rf -- "$sysroot" "$obj" "$examples"
 mkdir -p "$include" "$lib" "$obj" "$examples" "$overlay_apps" "$overlay_gui"
-cp -R "$root/sdk/include/." "$include/"
+
+# Stage the public headers explicitly instead of relying on cp -R source/.
+# The latter has produced intermittent partial nested-directory copies on macOS
+# during repeated development builds. Creating every destination directory
+# first makes the sysroot deterministic and gives us a useful integrity check.
+header_source="$root/sdk/include"
+while IFS= read -r -d '' directory; do
+    relative="${directory#"$header_source"}"
+    mkdir -p "$include$relative"
+done < <(find "$header_source" -type d -print0)
+while IFS= read -r -d '' header; do
+    relative="${header#"$header_source"/}"
+    cp "$header" "$include/$relative"
+done < <(find "$header_source" -type f -print0)
+for required_header in \
+    stdlib.h string.h kurogane/kurogane.h kurogane/graphics.h kurogane/test_host.h; do
+    [[ -f "$include/$required_header" ]] || {
+        echo "[sdk] sysroot header staging failed: $required_header" >&2
+        exit 1
+    }
+done
+
 cp "$root/userspace/linker.ld" "$lib/kurogane-user.ld"
 
 common=(
