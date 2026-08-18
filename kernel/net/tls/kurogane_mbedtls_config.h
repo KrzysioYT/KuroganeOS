@@ -22,12 +22,18 @@
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
+/* ssl.h evaluates this compatibility selector even when DTLS CID is disabled.
+ * Define the standards-based value explicitly so freestanding -Wundef builds
+ * remain warning-clean without enabling DTLS itself. */
+#define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT 0
+
 /* Certificate/key formats used by the public Web PKI. */
 #define MBEDTLS_X509_USE_C
 #define MBEDTLS_X509_CRT_PARSE_C
 #define MBEDTLS_X509_RSASSA_PSS_SUPPORT
 #define MBEDTLS_PK_C
 #define MBEDTLS_PK_PARSE_C
+#define MBEDTLS_BIGNUM_C
 #define MBEDTLS_RSA_C
 #define MBEDTLS_PKCS1_V15
 #define MBEDTLS_PKCS1_V21
