@@ -13,6 +13,8 @@ $ErrorActionPreference = 'Stop'
 
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $KernelDir = Join-Path $RootDir 'kernel'
+$MbedTlsDir = Join-Path $RootDir 'third_party\mbedtls'
+$MbedTlsLibraryDir = Join-Path $MbedTlsDir 'library'
 $BuildDir = Join-Path $RootDir 'build'
 $ObjectDir = Join-Path $BuildDir 'obj'
 $KernelElf = Join-Path $BuildDir 'kernel.elf'
@@ -565,6 +567,26 @@ try {
             throw "No C++ kernel sources found below $KernelDir."
         }
 
+        $mbedTlsModules = @(
+            'aes', 'asn1parse', 'asn1write', 'base64', 'bignum', 'bignum_core',
+            'bignum_mod', 'bignum_mod_raw', 'block_cipher', 'cipher', 'cipher_wrap',
+            'constant_time', 'ctr_drbg', 'ecdh', 'ecdsa', 'ecp', 'ecp_curves',
+            'entropy', 'entropy_poll', 'gcm', 'md', 'oid', 'pem', 'pk', 'pk_ecc',
+            'pk_wrap', 'pkparse', 'platform', 'platform_util', 'rsa',
+            'rsa_alt_helpers', 'sha256', 'sha512', 'x509', 'x509_crt',
+            'ssl_ciphersuites', 'ssl_client', 'ssl_msg', 'ssl_tls',
+            'ssl_tls12_client'
+        )
+        $mbedTlsSources = @(
+            foreach ($module in $mbedTlsModules) {
+                $sourcePath = Join-Path $MbedTlsLibraryDir ($module + '.c')
+                if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+                    throw "Missing pinned Mbed TLS source: $sourcePath. Run git submodule update --init --recursive."
+                }
+                Get-Item -LiteralPath $sourcePath
+            }
+        )
+
         $entrySource = Join-Path $KernelDir 'arch\x86_64\entry.asm'
         if (-not (Test-Path -LiteralPath $entrySource -PathType Leaf)) {
             throw "Missing kernel entry source: $entrySource"
@@ -604,7 +626,11 @@ try {
             '-I', 'kernel/include',
             '-I', 'kernel/memory',
             '-I', 'kernel/fs',
-            '-I', 'sdk/include'
+            '-I', 'sdk/include',
+            '-I', 'kernel/net/tls',
+            '-I', 'third_party/mbedtls/include',
+            '-I', 'third_party/mbedtls/library',
+            '-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"'
         )
         $features = Read-FeatureConfiguration
         foreach ($entry in $features.GetEnumerator()) {
@@ -627,31 +653,34 @@ try {
             '-fno-asynchronous-unwind-tables',
             '-fvisibility=hidden'
         )
+        $mbedTlsCFlags = @(
+            '-std=c11',
+            '-Wall',
+            '-Wextra',
+            '-Wpedantic',
+            '-Werror=implicit-function-declaration',
+            '-fno-builtin',
+            '-fno-unwind-tables',
+            '-fno-asynchronous-unwind-tables',
+            '-fvisibility=hidden'
+        )
         if ($Configuration -eq 'debug') {
-            $cxxFlags += @(
-                '-O0',
-                '-g3',
-                '-DKUROGANE_DEBUG=1',
-                '-DKUROGANE_TEST=0'
+            $configurationFlags = @(
+                '-O0', '-g3', '-DKUROGANE_DEBUG=1', '-DKUROGANE_TEST=0'
             )
         }
         elseif ($Configuration -eq 'release') {
-            $cxxFlags += @(
-                '-O2',
-                '-g1',
-                '-DNDEBUG',
-                '-DKUROGANE_DEBUG=0',
-                '-DKUROGANE_TEST=0'
+            $configurationFlags = @(
+                '-O2', '-g1', '-DNDEBUG', '-DKUROGANE_DEBUG=0', '-DKUROGANE_TEST=0'
             )
         }
         else {
-            $cxxFlags += @(
-                '-O1',
-                '-g3',
-                '-DKUROGANE_DEBUG=1',
-                '-DKUROGANE_TEST=1'
+            $configurationFlags = @(
+                '-O1', '-g3', '-DKUROGANE_DEBUG=1', '-DKUROGANE_TEST=1'
             )
         }
+        $cxxFlags += $configurationFlags
+        $mbedTlsCFlags += $configurationFlags
 
         $kernelLinkFlags = @(
             '--fatal-warnings',
@@ -669,6 +698,9 @@ try {
             $sourceManifest.Add((Get-RootRelativePath -Path $assemblySource))
         }
         foreach ($source in $cppSources) {
+            $sourceManifest.Add((Get-RootRelativePath -Path $source.FullName))
+        }
+        foreach ($source in $mbedTlsSources) {
             $sourceManifest.Add((Get-RootRelativePath -Path $source.FullName))
         }
         $toolHashes = @(
@@ -690,6 +722,7 @@ try {
             'common=' + ($commonFlags -join [char]0x1f)
             'include=' + ($includeFlags -join [char]0x1f)
             'cxxflags=' + ($cxxFlags -join [char]0x1f)
+            'mbedtls_cflags=' + ($mbedTlsCFlags -join [char]0x1f)
             'linkflags=' + ($kernelLinkFlags -join [char]0x1f)
             'linker=' + $linkerHash
             'tools=' + ($toolHashes -join [char]0x1f)
@@ -711,7 +744,9 @@ try {
         $headerRoots = @(
             (Join-Path $RootDir 'kernel'),
             (Join-Path $RootDir 'common'),
-            (Join-Path $RootDir 'sdk\include')
+            (Join-Path $RootDir 'sdk\include'),
+            (Join-Path $MbedTlsDir 'include'),
+            $MbedTlsLibraryDir
         )
         $newestHeaderWriteTime = [DateTime]::MinValue
         foreach ($headerRoot in $headerRoots) {
@@ -771,11 +806,8 @@ try {
                     $assemblyRelative,
                     '-o', $assemblyObjectRelative
                 )
-                $assemblyObjectPath =
-                    Join-Path $RootDir $assemblyObjectRelative
-                if (Test-ObjectNeedsBuild `
-                        -SourcePath $assemblySource `
-                        -ObjectPath $assemblyObjectPath) {
+                $assemblyObjectPath = Join-Path $RootDir $assemblyObjectRelative
+                if (Test-ObjectNeedsBuild -SourcePath $assemblySource -ObjectPath $assemblyObjectPath) {
                     Invoke-NativeTool -Tool $tools.CC -Arguments $assemblyArguments
                     $objectsChanged = $true
                 } else {
@@ -806,10 +838,38 @@ try {
                     '-o', $objectRelative
                 )
                 $objectPath = Join-Path $RootDir $objectRelative
-                if (Test-ObjectNeedsBuild `
-                        -SourcePath $source.FullName `
-                        -ObjectPath $objectPath) {
+                if (Test-ObjectNeedsBuild -SourcePath $source.FullName -ObjectPath $objectPath) {
                     Invoke-NativeTool -Tool $tools.CXX -Arguments $compileArguments
+                    $objectsChanged = $true
+                } else {
+                    Write-Host "[up-to-date] $objectRelative"
+                }
+                $objects.Add($objectRelative)
+            }
+
+            foreach ($source in $mbedTlsSources) {
+                $sourceRelative = Get-RootRelativePath -Path $source.FullName
+                $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($source.Name)
+                $objectRelative = "build/obj/third_party/mbedtls/$moduleName.o"
+                $dependencyRelative = "build/obj/third_party/mbedtls/$moduleName.d"
+                $objectParent = Split-Path -Parent (Join-Path $RootDir $objectRelative)
+                [System.IO.Directory]::CreateDirectory($objectParent) | Out-Null
+
+                $compileArguments = @()
+                $compileArguments += $commonFlags
+                $compileArguments += $mbedTlsCFlags
+                $compileArguments += $includeFlags
+                $compileArguments += @(
+                    '-MMD', '-MP',
+                    '-MF', $dependencyRelative,
+                    '-MT', $objectRelative,
+                    "-frandom-seed=$sourceRelative",
+                    '-c', $sourceRelative,
+                    '-o', $objectRelative
+                )
+                $objectPath = Join-Path $RootDir $objectRelative
+                if (Test-ObjectNeedsBuild -SourcePath $source.FullName -ObjectPath $objectPath) {
+                    Invoke-NativeTool -Tool $tools.CC -Arguments $compileArguments
                     $objectsChanged = $true
                 } else {
                     Write-Host "[up-to-date] $objectRelative"
@@ -869,8 +929,7 @@ try {
                     Select-String '\bR_X86_64_RELATIVE\b'
             )
             if ($relocationSections.Count -ne 1 -or
-                $relocationSections[0].Matches[0].Groups[1].Value -ne
-                    '.rela.dyn' -or
+                $relocationSections[0].Matches[0].Groups[1].Value -ne '.rela.dyn' -or
                 $relativeRelocations.Count -eq 0) {
                 throw 'PIE kernel relocation layout does not match the loader contract.'
             }
@@ -891,11 +950,10 @@ try {
             if ($undefinedSymbols.Count -ne 0) {
                 throw 'PIE kernel contains undefined symbols.'
             }
-            Set-Content -LiteralPath $fingerprintPath `
-                -Value $fingerprintHash -Encoding ascii
+            Set-Content -LiteralPath $fingerprintPath -Value $fingerprintHash -Encoding ascii
             Write-BuildManifest `
                 -Profile $Configuration `
-                -CompilerFlags (@($commonFlags) + @($cxxFlags) + @($includeFlags)) `
+                -CompilerFlags (@($commonFlags) + @($cxxFlags) + @($mbedTlsCFlags) + @($includeFlags)) `
                 -LinkerFlags $kernelLinkFlags `
                 -Features $features
         }
