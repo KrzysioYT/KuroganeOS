@@ -161,12 +161,14 @@ done
 
 # SDK build adds the external sample and Ring-3 GUI applications to the same
 # userspace overlay. Pass only Kurogane-specific tool variables so ambient
-# CC/CXX=clang/clang++ cannot leak into the x86-64 target build.
+# CC/CXX=clang/clang++ cannot leak into the x86-64 target build. Invoke nested
+# shell pipelines through bash so a checkout that lost executable mode bits
+# cannot break an otherwise valid macOS build.
 KUROGANE_CC="$cc" \
 KUROGANE_CXX="$cxx" \
 KUROGANE_AR="$ar" \
 KUROGANE_READELF="$readelf" \
-    "$root/scripts/build-sdk.sh"
+    bash "$root/scripts/build-sdk.sh"
 
 # User-built applications installed with build-app-macos.sh live in state/ so
 # clean/rebuild does not silently destroy developer work.
@@ -238,7 +240,7 @@ for tool in sgdisk mkfs.fat fsck.fat mcopy mmd mdir; do
 done
 
 image="build/images/KuroganeOS-macos.img"
-"$root/scripts/build-foundation-image-macos.sh" \
+bash "$root/scripts/build-foundation-image-macos.sh" \
     --output "$image" --efi build/BOOTX64.EFI --kernel build/kernel.elf \
     --rootfs rootfs --overlay build/userspace/rootfs
 
@@ -254,6 +256,6 @@ echo "[macos] QEMU image: $release_image"
 
 if $build_iso; then
     echo "[macos] building installable ISO"
-    "$root/scripts/build-installer-macos.sh" \
+    bash "$root/scripts/build-installer-macos.sh" \
         --configuration "$configuration" --no-build
 fi
