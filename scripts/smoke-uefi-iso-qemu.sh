@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet] [--require-network]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network]" >&2
     exit 2
 }
 
@@ -26,11 +26,11 @@ done
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 180)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
-    none|e1000|pcnet) ;;
+    none|e1000|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
 esac
 if $require_network && [[ "$nic_model" == "none" ]]; then
-    echo "--require-network needs --nic e1000 or --nic pcnet" >&2
+    echo "--require-network needs --nic e1000, pcnet or virtio" >&2
     exit 2
 fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
@@ -116,9 +116,13 @@ cp "$firmware_vars_template" "$firmware_vars"
 
 network_args=(-net none)
 if [[ "$nic_model" != "none" ]]; then
+    qemu_nic_model="$nic_model"
+    if [[ "$nic_model" == "virtio" ]]; then
+        qemu_nic_model="virtio-net-pci"
+    fi
     network_args=(
         -netdev user,id=kurogane_net
-        -device "$nic_model,netdev=kurogane_net,mac=52:54:00:4b:55:01"
+        -device "$qemu_nic_model,netdev=kurogane_net,mac=52:54:00:4b:55:01"
     )
 fi
 
