@@ -170,6 +170,14 @@ KUROGANE_AR="$ar" \
 KUROGANE_READELF="$readelf" \
     bash "$root/scripts/build-sdk.sh"
 
+# The live IMG and the installer package must boot with the same Web PKI trust
+# set. Export only Apple's immutable SystemRootCertificates keychain into the
+# userspace overlay. build-foundation-image-macos.sh overlays it onto the live
+# root filesystem, while build-installer-macos.sh packages that exact overlay
+# into install.pkg when --iso is requested.
+bash "$root/scripts/export-macos-trust-store.sh" \
+    "$root/build/userspace/rootfs/etc/ssl/certs.pem"
+
 # User-built applications installed with build-app-macos.sh live in state/ so
 # clean/rebuild does not silently destroy developer work.
 if [[ -d state/macos-apps ]]; then
@@ -255,7 +263,7 @@ echo "[macos] SDK: build/sdk/sysroot"
 echo "[macos] QEMU image: $release_image"
 
 if $build_iso; then
-    echo "[macos] building installable ISO"
+    echo "[macos] building installable ISO from the same live userspace/trust overlay"
     bash "$root/scripts/build-installer-macos.sh" \
         --configuration "$configuration" --no-build
 fi
