@@ -143,13 +143,11 @@ run_test network-protocols "$root/tests/test_network_protocols.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
 run_test profiler -DKUROGANE_HOST_TEST "$root/tests/test_profiler.cpp" \
+    "$root/tests/host_network_service_stub.cpp" \
     "$root/kernel/diagnostics/profiler.cpp" \
     "$root/kernel/apps/framework.cpp" \
     "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/memory/physical_memory.cpp" \
-    "$root/kernel/net/network.cpp" \
-    "$root/kernel/net/protocols.cpp" \
-    "$root/kernel/net/service.cpp" \
     "$root/kernel/task/scheduler.cpp" \
     "$root/kernel/core/string.cpp"
 run_test sdk-abi -I"$root/sdk/include" \
