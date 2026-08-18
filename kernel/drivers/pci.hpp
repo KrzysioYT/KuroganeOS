@@ -31,6 +31,36 @@ uint8_t read8(Address address, uint8_t offset);
 void write32(Address address, uint8_t offset, uint32_t value);
 void write16(Address address, uint8_t offset, uint16_t value);
 
+/*
+ * Convenience overloads keep drivers on the validated Device descriptor while
+ * preserving the same config-space implementation and ABI underneath.
+ */
+static inline uint32_t read32(const Device& device, uint8_t offset) {
+    return read32(device.address, offset);
+}
+
+static inline uint16_t read16(const Device& device, uint8_t offset) {
+    return read16(device.address, offset);
+}
+
+static inline uint8_t read8(const Device& device, uint8_t offset) {
+    return read8(device.address, offset);
+}
+
+static inline void write32(
+    const Device& device,
+    uint8_t offset,
+    uint32_t value) {
+    write32(device.address, offset, value);
+}
+
+static inline void write16(
+    const Device& device,
+    uint8_t offset,
+    uint16_t value) {
+    write16(device.address, offset, value);
+}
+
 void scan();
 size_t device_count();
 const Device* device_at(size_t index);
