@@ -2,7 +2,15 @@
 
 ## Unreleased
 
-- No unreleased changes yet.
+### Licensing
+
+- Adopted KuroganeOS Source-Available License 2.0 (KSAL-2.0) for current revisions.
+- Removed the percentage-based copying threshold from the license and clarified independent implementations, interoperability, and protected source expression.
+- Added an explicit copyright-term license duration, a 30-day cure path for a first unintentional curable breach, and a limited patent clause.
+- Added an express permission for reviews, tutorials, screenshots, videos, livestreams, benchmarks, news reporting, and similar media coverage, including monetized coverage within the license limits.
+- Made CLA acceptance mandatory before a contribution can be incorporated into the official repository.
+- Synchronized `LICENSE`, `CLA.md`, `NOTICE`, `TRADEMARKS.md`, `CONTRIBUTING.md`, `README.md`, and `docs/LICENSING.md` with the current licensing model.
+- Preserved the historical MIT boundary without applying MIT to later revisions.
 
 ## 2.2.5 - 2026-08-16
 
@@ -123,5 +131,5 @@
 
 ### Licensing
 
-- Current revisions remain licensed under KuroganeOS Source-Available License 1.0 (KSAL-1.0).
+- At this release, current revisions used the project's then-current custom source-available license.
 - Historical revisions previously distributed under MIT remain documented by `LICENSE-MIT-LEGACY`.
