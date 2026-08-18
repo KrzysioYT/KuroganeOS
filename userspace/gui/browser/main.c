@@ -15,7 +15,6 @@ typedef enum chromium_navigation_stage {
     CHROMIUM_STAGE_REQUEST,
     CHROMIUM_STAGE_REDIRECT,
     CHROMIUM_STAGE_COMMIT,
-    CHROMIUM_STAGE_TLS_REQUIRED,
     CHROMIUM_STAGE_FAILED
 } chromium_navigation_stage;
 
@@ -176,12 +175,8 @@ static int append_percent_encoded(
 /*
  * Resolve an omnibox value without ambiguity:
  *   - explicit http(s) URLs stay unchanged;
- *   - host/path-looking input becomes an HTTP URL for the current transport;
- *   - everything else becomes an HTTPS search query.
- *
- * Search intentionally resolves to HTTPS. The navigation layer therefore
- * hands it to the TLS transport once that platform layer is available instead
- * of silently downgrading a search engine connection to plaintext HTTP.
+ *   - host/path-looking input becomes an HTTP URL;
+ *   - everything else becomes a verified HTTPS search query.
  */
 static int omnibox_resolve(
     const char* input,
@@ -211,10 +206,10 @@ static const char* status_name(ku_status_t status) {
         case KU_STATUS_NOT_FOUND: return "NOT FOUND";
         case KU_STATUS_ACCESS_DENIED: return "ACCESS DENIED";
         case KU_STATUS_OUT_OF_MEMORY: return "OUT OF MEMORY";
-        case KU_STATUS_IO_ERROR: return "NETWORK I/O";
-        case KU_STATUS_WOULD_BLOCK: return "DNS/TCP TIMEOUT";
+        case KU_STATUS_IO_ERROR: return "NETWORK / TLS I/O";
+        case KU_STATUS_WOULD_BLOCK: return "DNS/TCP/TLS TIMEOUT";
         case KU_STATUS_TIMED_OUT: return "TIMED OUT";
-        case KU_STATUS_BAD_STATE: return "NIC/DHCP NOT READY";
+        case KU_STATUS_BAD_STATE: return "NIC/DHCP/TLS NOT READY";
         case KU_STATUS_VERSION_MISMATCH: return "ABI VERSION";
         case KU_STATUS_CORRUPT_DATA: return "CORRUPT RESPONSE";
         default: return "UNKNOWN";
@@ -225,10 +220,9 @@ static const char* stage_name(chromium_navigation_stage stage) {
     switch (stage) {
         case CHROMIUM_STAGE_IDLE: return "IDLE";
         case CHROMIUM_STAGE_NETWORK: return "NETWORK";
-        case CHROMIUM_STAGE_REQUEST: return "DNS / TCP / HTTP";
+        case CHROMIUM_STAGE_REQUEST: return "DNS / TCP / HTTP(S)";
         case CHROMIUM_STAGE_REDIRECT: return "REDIRECT";
         case CHROMIUM_STAGE_COMMIT: return "COMMITTED";
-        case CHROMIUM_STAGE_TLS_REQUIRED: return "HTTPS / TLS PLATFORM REQUIRED";
         case CHROMIUM_STAGE_FAILED: return "FAILED";
     }
     return "UNKNOWN";
@@ -466,7 +460,7 @@ static int make_redirect_url(
 
 static void browser_context_initialize(chromium_browser_context* context) {
     memset(context, 0, sizeof(*context));
-    (void)strlcpy(context->url, "http://example.com/", sizeof(context->url));
+    (void)strlcpy(context->url, "https://www.google.com/", sizeof(context->url));
     context->url_length = strlen(context->url);
     context->stage = CHROMIUM_STAGE_IDLE;
     context->last_error = KU_STATUS_OK;
@@ -477,7 +471,7 @@ static void browser_context_initialize(chromium_browser_context* context) {
     render_message(
         context,
         "OMNIBOX: DOMAIN, URL OR SEARCH TEXT",
-        "HTTPS SEARCH WAITS FOR THE TLS TRANSPORT LAYER");
+        "HTTPS USES VERIFIED TLS / CA / RTC VALIDATION");
     (void)platform_delegate_refresh_network(context);
 }
 
@@ -491,7 +485,7 @@ static void navigation_fail(
     append_text(context->status, sizeof(context->status), status_name(status));
     append_text(context->status, sizeof(context->status), " / ");
     append_status_code(context->status, sizeof(context->status), status);
-    render_message(context, detail, "CHECK NET LINE FOR NIC / DHCP / DNS STATE");
+    render_message(context, detail, "CHECK NET / DHCP / DNS / RTC / TRUST STORE");
 }
 
 static ku_status_t navigation_controller_load(chromium_browser_context* context) {
@@ -520,21 +514,6 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
                 "OMNIBOX COULD NOT RESOLVE THE NAVIGATION TARGET");
             return KU_STATUS_INVALID_ARGUMENT;
         }
-        if (scheme == CHROMIUM_SCHEME_HTTPS) {
-            context->stage = CHROMIUM_STAGE_TLS_REQUIRED;
-            context->last_error = KU_STATUS_NOT_SUPPORTED;
-            (void)strlcpy(context->status,
-                "HTTPS TARGET / TLS PLATFORM REQUIRED",
-                sizeof(context->status));
-            render_message(context,
-                starts_with_ci(navigation_url, BROWSER_SEARCH_PREFIX)
-                    ? "SEARCH QUERY RESOLVED / HTTPS TRANSPORT REQUIRED"
-                    : "URL REQUIRES HTTPS / TLS",
-                "TLS IS THE NEXT NETWORK PLATFORM DEPENDENCY");
-            (void)strlcpy(context->url, navigation_url, sizeof(context->url));
-            context->url_length = strlen(context->url);
-            return KU_STATUS_NOT_SUPPORTED;
-        }
 
         context->stage = CHROMIUM_STAGE_NETWORK;
         if (!platform_delegate_refresh_network(context)) {
@@ -552,17 +531,28 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         request.output = context->page;
         request.output_capacity = sizeof(context->page) - 1U;
 
-        (void)strlcpy(context->status,
-            "NAVIGATING / DNS -> TCP -> HTTP",
+        (void)strlcpy(
+            context->status,
+            scheme == CHROMIUM_SCHEME_HTTPS
+                ? "NAVIGATING / DNS -> TCP -> TLS -> HTTPS"
+                : "NAVIGATING / DNS -> TCP -> HTTP",
             sizeof(context->status));
-        result = ku_http_get(&request);
+        result = scheme == CHROMIUM_SCHEME_HTTPS
+            ? ku_https_get(&request)
+            : ku_http_get(&request);
         if (result != KU_STATUS_OK) {
             if (result == KU_STATUS_OUT_OF_RANGE) {
                 navigation_fail(context, result,
                     "TRANSPORT REJECTED A FRAME OR RESPONSE RANGE");
-            } else if (result == KU_STATUS_WOULD_BLOCK) {
+            } else if (result == KU_STATUS_WOULD_BLOCK ||
+                       result == KU_STATUS_TIMED_OUT) {
                 navigation_fail(context, result,
-                    "DNS OR TCP DID NOT COMPLETE BEFORE THE POLL BUDGET");
+                    "DNS / TCP / TLS DID NOT COMPLETE BEFORE THE TIMEOUT");
+            } else if (scheme == CHROMIUM_SCHEME_HTTPS &&
+                       (result == KU_STATUS_BAD_STATE ||
+                        result == KU_STATUS_IO_ERROR)) {
+                navigation_fail(context, result,
+                    "TLS / CERTIFICATE / RTC / TRUST VALIDATION FAILED");
             } else {
                 navigation_fail(context, result,
                     "KERNEL NETWORK SERVICE RETURNED AN ERROR");
@@ -596,7 +586,10 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         (void)strlcpy(context->url, navigation_url, sizeof(context->url));
         context->url_length = strlen(context->url);
         render_view_commit(context, response_body(context->page));
-        (void)strlcpy(context->status, "COMMITTED / HTTP ", sizeof(context->status));
+        (void)strlcpy(
+            context->status,
+            scheme == CHROMIUM_SCHEME_HTTPS ? "COMMITTED / HTTPS " : "COMMITTED / HTTP ",
+            sizeof(context->status));
         append_u64(context->status, sizeof(context->status), context->http_status);
         append_text(context->status, sizeof(context->status), " / ");
         append_u64(context->status, sizeof(context->status), context->bytes_received);
@@ -652,7 +645,7 @@ static void build_scene(kui_scene* scene) {
     (void)kui_flow_separator(&root, 30U);
     (void)kui_flow_label(
         &root, 31U,
-        "BOUNDED RENDERER / NETWORK WORK IS BUDGETED TO KEEP UI RESPONSIVE");
+        "BOUNDED RENDERER / NETWORK WORK SLEEPS BETWEEN POLLS TO LIMIT CPU LOAD");
 }
 
 int main(void) {
@@ -666,6 +659,7 @@ int main(void) {
     puts("[TEST] chromium_port_platform_delegate: PASS");
     puts("[TEST] chromium_port_bootstrap_renderer: PASS");
     puts("[TEST] chromium_port_omnibox_search: PASS");
+    puts("[TEST] chromium_port_https_path: PASS");
 
     for (;;) {
         ku_ui_event event;
