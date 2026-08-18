@@ -24,8 +24,9 @@ SOFTWARE.
 
 HISTORICAL NOTICE
 
-This file is retained only to document the license that applied to KuroganeOS
-revisions published under MIT before the project's transition to KSAL-1.0.
+This file is retained only to document the MIT License that applied to
+historical KuroganeOS revisions before the project moved to a source-available
+licensing model.
 
 For project-history clarity, revisions at or before commit:
 
@@ -33,5 +34,9 @@ For project-history clarity, revisions at or before commit:
 
 were published under MIT.
 
-This archival file does NOT grant MIT rights to later revisions that are
-distributed under KSAL-1.0.
+Rights validly granted under MIT for those historical copies are not revoked by
+later license changes.
+
+This archival file does NOT grant MIT rights to later revisions unless a later
+revision expressly states otherwise. Current revisions are governed by the
+license text distributed with them; see LICENSE.
