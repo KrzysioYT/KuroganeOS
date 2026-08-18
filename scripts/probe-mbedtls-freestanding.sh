@@ -20,11 +20,24 @@ grep -Fq '#define MBEDTLS_VERSION_STRING         "3.6.7"' \
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
+# A host gcc invocation still sees /usr/include even with -ffreestanding.
+# That used to hide missing Kurogane libc headers in CI and only fail later
+# under the real x86_64-elf cross-toolchain. Keep compiler intrinsic headers
+# (stddef/stdint/limits/etc.) but reject the host libc completely.
+COMPILER_INCLUDE_DIR="$($CC_BIN -print-file-name=include)"
+[[ -d "$COMPILER_INCLUDE_DIR" ]] || {
+    echo "[mbedtls-probe] cannot locate compiler intrinsic headers for $CC_BIN" >&2
+    exit 1
+}
+
 CFLAGS=(
     -std=c11 -O2 -Wall -Wextra -Wpedantic
     -Werror=implicit-function-declaration
     -ffreestanding -fno-builtin -fno-stack-protector
     -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
+    -nostdinc
+    -isystem "$COMPILER_INCLUDE_DIR"
+    -I"$ROOT_DIR/sdk/include"
     -I"$ROOT_DIR/kernel/net/tls"
     -I"$MBEDTLS_DIR/include"
     -I"$MBEDTLS_DIR/library"
