@@ -27,6 +27,12 @@
  * remain warning-clean without enabling DTLS itself. */
 #define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT 0
 
+/* Mbed TLS debug.h includes <inttypes.h> solely to obtain PRId64 for its
+ * millisecond timestamp formatter. KuroganeOS does not expose a hosted libc
+ * inttypes header to the kernel build, so provide the x86-64 formatter here.
+ * This does not enable the Mbed TLS debug module. */
+#define MBEDTLS_PRINTF_MS_TIME "lld"
+
 /* Certificate/key formats used by the public Web PKI. */
 #define MBEDTLS_X509_USE_C
 #define MBEDTLS_X509_CRT_PARSE_C
