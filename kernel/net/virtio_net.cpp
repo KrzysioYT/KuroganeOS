@@ -2,6 +2,7 @@
 
 #include "../drivers/pci.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
+#include "../memory/virtual_memory.hpp"
 #include "../storage/dma.hpp"
 
 namespace net::virtio_net {
@@ -16,10 +17,9 @@ constexpr uint8_t kNotifyConfigType = 2U;
 constexpr uint8_t kDeviceConfigType = 4U;
 constexpr uint8_t kCapabilityIterations = 48U;
 constexpr uint8_t kMaxBarIndex = 5U;
-constexpr uint32_t kPageSize = UINT32_C(4096);
 constexpr size_t kQueueCapacity = 8U;
 constexpr size_t kVirtioNetHeaderSize = 12U;
-constexpr size_t kDmaBufferSize = kPageSize;
+constexpr size_t kDmaBufferSize = memory::virtual_memory::PAGE_SIZE;
 constexpr uint16_t kVirtqDescWrite = UINT16_C(2);
 constexpr uint16_t kAvailNoInterrupt = UINT16_C(1);
 constexpr uint16_t kNoMsixVector = UINT16_C(0xFFFF);
@@ -30,9 +30,9 @@ constexpr uint8_t kStatusDriver = UINT8_C(2);
 constexpr uint8_t kStatusDriverOk = UINT8_C(4);
 constexpr uint8_t kStatusFeaturesOk = UINT8_C(8);
 constexpr uint8_t kStatusFailed = UINT8_C(128);
-constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFC00001000000);
-constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFC00001010000);
-constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFC00001020000);
+constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB20000000000);
+constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB20000010000);
+constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB20000020000);
 
 struct VirtioCapability {
     bool present;
@@ -141,7 +141,8 @@ void clear_bytes(void* destination, size_t size) {
 
 bool capability_valid(const VirtioCapability& capability) {
     return capability.present && capability.bar <= kMaxBarIndex &&
-        capability.length != 0U && capability.length <= kPageSize &&
+        capability.length != 0U &&
+        capability.length <= memory::virtual_memory::PAGE_SIZE &&
         capability.offset <= UINT32_MAX - capability.length;
 }
 
@@ -202,24 +203,51 @@ bool map_capability(
     const VirtioCapability& capability,
     uintptr_t virtual_base,
     MappedRegion* output) {
-    if (output == nullptr || !capability_valid(capability) ||
-        pci::bar_type(device, capability.bar) == pci::BarType::Io) {
+    if (output == nullptr || !capability_valid(capability)) return false;
+    bool io_space = false;
+    const uint64_t bar = pci::bar_address(device, capability.bar, &io_space);
+    if (bar == 0U || io_space || bar > UINT64_MAX - capability.offset) return false;
+
+    auto* address_space = memory::kernel_virtual_memory::address_space();
+    if (address_space == nullptr) return false;
+    constexpr uint64_t page_size = memory::virtual_memory::PAGE_SIZE;
+    constexpr uint64_t page_mask = page_size - 1U;
+    const uint64_t physical = bar + capability.offset;
+    const uint64_t aligned = physical & ~page_mask;
+    const size_t prefix = static_cast<size_t>(physical & page_mask);
+    const size_t extent = prefix + capability.length;
+    const size_t pages = static_cast<size_t>((extent + page_mask) / page_size);
+    if (pages == 0U || pages > 2U) return false;
+
+    const auto flags = memory::virtual_memory::MapFlags::Writable |
+        memory::virtual_memory::MapFlags::WriteThrough |
+        memory::virtual_memory::MapFlags::CacheDisable |
+        memory::virtual_memory::MapFlags::NoExecute;
+    size_t mapped = 0U;
+    for (; mapped < pages; ++mapped) {
+        memory::virtual_memory::Mapping existing{};
+        const uintptr_t target = virtual_base + mapped * page_size;
+        if (memory::virtual_memory::query_page(
+                address_space,
+                target,
+                &existing) != memory::virtual_memory::Status::NotMapped ||
+            memory::virtual_memory::map_page(
+                address_space,
+                target,
+                aligned + mapped * page_size,
+                flags) != memory::virtual_memory::Status::Ok) {
+            break;
+        }
+    }
+    if (mapped != pages) {
+        while (mapped != 0U) {
+            --mapped;
+            static_cast<void>(memory::virtual_memory::unmap_page(
+                address_space,
+                virtual_base + mapped * page_size));
+        }
         return false;
     }
-    const uint64_t bar = pci::bar_address(device, capability.bar);
-    if (bar == 0U || bar > UINT64_MAX - capability.offset) return false;
-    const uint64_t physical = bar + capability.offset;
-    const uint64_t aligned = physical & ~static_cast<uint64_t>(kPageSize - 1U);
-    const size_t prefix = static_cast<size_t>(physical - aligned);
-    const size_t extent = prefix + capability.length;
-    const size_t pages = (extent + kPageSize - 1U) / kPageSize;
-    if (pages == 0U || pages > 2U) return false;
-    const auto status = memory::kernel_virtual_memory::map_device_mmio(
-        aligned,
-        virtual_base,
-        pages,
-        false);
-    if (status != memory::kernel_virtual_memory::Status::Ok) return false;
     output->base = reinterpret_cast<volatile uint8_t*>(virtual_base + prefix);
     output->length = capability.length;
     return true;
@@ -261,9 +289,15 @@ bool allocate_queue_storage(Queue* queue, uint16_t size) {
         release_queue(queue);
         return false;
     }
-    clear_bytes(queue->descriptor_page.virtual_address, kPageSize);
-    clear_bytes(queue->available_page.virtual_address, kPageSize);
-    clear_bytes(queue->used_page.virtual_address, kPageSize);
+    clear_bytes(
+        queue->descriptor_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    clear_bytes(
+        queue->available_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    clear_bytes(
+        queue->used_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
     for (uint16_t index = 0U; index < size; ++index) {
         if (storage::dma::allocate_page(true, &queue->buffers[index]) !=
             storage::dma::Status::Ok) {
@@ -292,7 +326,10 @@ bool allocate_queue_storage(Queue* queue, uint16_t size) {
 bool write_queue_address(size_t low_offset, uint64_t address) {
     if (g_common.length < low_offset + 8U) return false;
     mmio_write32(g_common, low_offset, static_cast<uint32_t>(address));
-    mmio_write32(g_common, low_offset + 4U, static_cast<uint32_t>(address >> 32U));
+    mmio_write32(
+        g_common,
+        low_offset + 4U,
+        static_cast<uint32_t>(address >> 32U));
     return true;
 }
 
@@ -346,7 +383,8 @@ void notify_queue(Queue& queue) {
 }
 
 void make_available(Queue& queue, uint16_t descriptor) {
-    const uint16_t slot = static_cast<uint16_t>(queue.available_index % queue.size);
+    const uint16_t slot = static_cast<uint16_t>(
+        queue.available_index % queue.size);
     queue.available[2U + slot] = descriptor;
     memory_barrier();
     ++queue.available_index;
@@ -372,7 +410,8 @@ void reclaim_transmit() {
     const uint16_t used_index = queue.used_header[1];
     memory_barrier();
     while (queue.last_used_index != used_index) {
-        const uint16_t slot = static_cast<uint16_t>(queue.last_used_index % queue.size);
+        const uint16_t slot = static_cast<uint16_t>(
+            queue.last_used_index % queue.size);
         const uint32_t id = queue.used_elements[slot].id;
         if (id < queue.size) queue.buffer_free[id] = true;
         ++queue.last_used_index;
@@ -411,9 +450,10 @@ MacAddress fallback_mac(const pci::Device& device) {
 }
 
 Status transmit_frame(void*, const uint8_t* frame, size_t frame_length) {
-    if (!g_initialized) return net::Status::NotInitialized == net::Status::NotInitialized
-        ? Status::NotInitialized : Status::DeviceFault;
-    if (frame == nullptr || frame_length < ETHERNET_HEADER_SIZE) return Status::InvalidArgument;
+    if (!g_initialized) return Status::NotInitialized;
+    if (frame == nullptr || frame_length < ETHERNET_HEADER_SIZE) {
+        return Status::InvalidArgument;
+    }
     if (frame_length > ETHERNET_MAX_FRAME_SIZE ||
         frame_length + kVirtioNetHeaderSize > kDmaBufferSize) {
         return Status::FrameTooLarge;
@@ -430,12 +470,14 @@ Status transmit_frame(void*, const uint8_t* frame, size_t frame_length) {
     }
     if (descriptor >= queue.size) return Status::WouldBlock;
 
-    auto* buffer = static_cast<uint8_t*>(queue.buffers[descriptor].virtual_address);
+    auto* buffer = static_cast<uint8_t*>(
+        queue.buffers[descriptor].virtual_address);
     clear_bytes(buffer, kVirtioNetHeaderSize);
     for (size_t index = 0U; index < frame_length; ++index) {
         buffer[kVirtioNetHeaderSize + index] = frame[index];
     }
-    queue.descriptors[descriptor].address = queue.buffers[descriptor].physical_address;
+    queue.descriptors[descriptor].address =
+        queue.buffers[descriptor].physical_address;
     queue.descriptors[descriptor].length = static_cast<uint32_t>(
         kVirtioNetHeaderSize + frame_length);
     queue.descriptors[descriptor].flags = 0U;
@@ -453,14 +495,17 @@ Status receive_frame(
     size_t* out_length) {
     if (out_length != nullptr) *out_length = 0U;
     if (!g_initialized) return Status::NotInitialized;
-    if (output == nullptr || out_length == nullptr) return Status::InvalidArgument;
+    if (output == nullptr || out_length == nullptr) {
+        return Status::InvalidArgument;
+    }
 
     Queue& queue = g_receive_queue;
     const uint16_t used_index = queue.used_header[1];
     memory_barrier();
     if (queue.last_used_index == used_index) return Status::WouldBlock;
 
-    const uint16_t slot = static_cast<uint16_t>(queue.last_used_index % queue.size);
+    const uint16_t slot = static_cast<uint16_t>(
+        queue.last_used_index % queue.size);
     const uint32_t id = queue.used_elements[slot].id;
     const uint32_t length = queue.used_elements[slot].length;
     ++queue.last_used_index;
@@ -470,8 +515,10 @@ Status receive_frame(
     if (length < kVirtioNetHeaderSize || length > kDmaBufferSize) {
         result = Status::DeviceFault;
     } else {
-        const size_t frame_length = static_cast<size_t>(length) - kVirtioNetHeaderSize;
-        if (frame_length < ETHERNET_HEADER_SIZE || frame_length > ETHERNET_MAX_FRAME_SIZE) {
+        const size_t frame_length = static_cast<size_t>(length) -
+            kVirtioNetHeaderSize;
+        if (frame_length < ETHERNET_HEADER_SIZE ||
+            frame_length > ETHERNET_MAX_FRAME_SIZE) {
             result = Status::DeviceFault;
         } else if (frame_length > output_capacity) {
             result = Status::FrameTooLarge;
@@ -510,7 +557,11 @@ net::Status interface_receive_callback(
     uint8_t* output,
     size_t output_capacity,
     size_t* out_length) {
-    const Status status = receive_frame(context, output, output_capacity, out_length);
+    const Status status = receive_frame(
+        context,
+        output,
+        output_capacity,
+        out_length);
     switch (status) {
         case Status::Ok: return net::Status::Ok;
         case Status::NotInitialized: return net::Status::NotInitialized;
@@ -524,7 +575,10 @@ net::Status interface_receive_callback(
 void mark_failed() {
     if (g_common.base != nullptr && g_common.length > 20U) {
         const uint8_t current = mmio_read8(g_common, 20U);
-        mmio_write8(g_common, 20U, static_cast<uint8_t>(current | kStatusFailed));
+        mmio_write8(
+            g_common,
+            20U,
+            static_cast<uint8_t>(current | kStatusFailed));
     }
 }
 
@@ -551,8 +605,12 @@ Status initialize() {
     g_interface = {};
     g_mac = {};
 
-    const pci::Device* found = pci::find(kVirtioVendor, kVirtioNetModernDevice);
-    if (found == nullptr) found = pci::find(kVirtioVendor, kVirtioNetTransitionalDevice);
+    const pci::Device* found = pci::find(
+        kVirtioVendor,
+        kVirtioNetModernDevice);
+    if (found == nullptr) {
+        found = pci::find(kVirtioVendor, kVirtioNetTransitionalDevice);
+    }
     if (found == nullptr) {
         g_status = Status::NoDevice;
         return g_status;
@@ -579,21 +637,32 @@ Status initialize() {
         (command & UINT32_C(0x0000FFFF)) | UINT32_C(0x00000006));
 
     if (!map_capability(
-            g_device, common_capability, kCommonVirtualBase, &g_common) ||
+            g_device,
+            common_capability,
+            kCommonVirtualBase,
+            &g_common) ||
         !map_capability(
-            g_device, notify_capability, kNotifyVirtualBase, &g_notify)) {
+            g_device,
+            notify_capability,
+            kNotifyVirtualBase,
+            &g_notify)) {
         return fail(Status::MappingFailed);
     }
     if (device_capability.present &&
         !map_capability(
-            g_device, device_capability, kDeviceVirtualBase, &g_device_config)) {
+            g_device,
+            device_capability,
+            kDeviceVirtualBase,
+            &g_device_config)) {
         return fail(Status::MappingFailed);
     }
     if (g_common.length < 56U) return fail(Status::MissingCapability);
 
     mmio_write8(g_common, 20U, 0U);
     memory_barrier();
-    if (mmio_read8(g_common, 20U) != 0U) return fail(Status::DeviceFault);
+    if (mmio_read8(g_common, 20U) != 0U) {
+        return fail(Status::DeviceFault);
+    }
     mmio_write8(g_common, 20U, kStatusAcknowledge);
     mmio_write8(
         g_common,
@@ -621,12 +690,16 @@ Status initialize() {
     }
 
     if ((driver_low & kMacFeature) != 0U) {
-        if (!read_mac_from_device(&g_mac)) return fail(Status::DeviceFault);
+        if (!read_mac_from_device(&g_mac)) {
+            return fail(Status::DeviceFault);
+        }
     } else {
         g_mac = fallback_mac(g_device);
     }
 
-    if (mmio_read16(g_common, 18U) < 2U) return fail(Status::QueueUnavailable);
+    if (mmio_read16(g_common, 18U) < 2U) {
+        return fail(Status::QueueUnavailable);
+    }
     if (!configure_queue(0U, notify_capability, &g_receive_queue) ||
         !configure_queue(1U, notify_capability, &g_transmit_queue)) {
         return fail(Status::QueueConfigurationFailed);
@@ -653,7 +726,9 @@ Status initialize() {
 bool initialized() { return g_initialized; }
 bool detected() { return g_detected; }
 Status last_status() { return g_status; }
-NetworkInterface* interface() { return g_initialized ? &g_interface : nullptr; }
+NetworkInterface* interface() {
+    return g_initialized ? &g_interface : nullptr;
+}
 
 const char* status_message(Status status) {
     switch (status) {
@@ -661,13 +736,17 @@ const char* status_message(Status status) {
         case Status::NotInitialized: return "VirtIO-net not initialized";
         case Status::AlreadyInitialized: return "VirtIO-net already initialized";
         case Status::NoDevice: return "VirtIO-net PCI function not found";
-        case Status::UnsupportedTransport: return "VirtIO modern PCI capabilities missing";
+        case Status::UnsupportedTransport:
+            return "VirtIO modern PCI capabilities missing";
         case Status::MissingCapability: return "VirtIO capability layout incomplete";
         case Status::MappingFailed: return "VirtIO MMIO capability mapping failed";
-        case Status::FeatureNegotiationFailed: return "VirtIO feature negotiation failed";
+        case Status::FeatureNegotiationFailed:
+            return "VirtIO feature negotiation failed";
         case Status::QueueUnavailable: return "VirtIO RX/TX queues unavailable";
-        case Status::QueueAllocationFailed: return "VirtIO queue DMA allocation failed";
-        case Status::QueueConfigurationFailed: return "VirtIO queue configuration failed";
+        case Status::QueueAllocationFailed:
+            return "VirtIO queue DMA allocation failed";
+        case Status::QueueConfigurationFailed:
+            return "VirtIO queue configuration failed";
         case Status::InvalidArgument: return "invalid VirtIO-net argument";
         case Status::FrameTooLarge: return "VirtIO-net frame exceeds MTU";
         case Status::WouldBlock: return "VirtIO-net queue would block";
