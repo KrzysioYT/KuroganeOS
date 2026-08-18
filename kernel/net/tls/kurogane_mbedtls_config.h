@@ -48,11 +48,21 @@
 #define MBEDTLS_ECP_C
 #define MBEDTLS_ECP_DP_SECP256R1_ENABLED
 #define MBEDTLS_ECP_DP_SECP384R1_ENABLED
+#define MBEDTLS_ECP_DP_SECP521R1_ENABLED
 #define MBEDTLS_ASN1_PARSE_C
 #define MBEDTLS_ASN1_WRITE_C
 #define MBEDTLS_OID_C
 #define MBEDTLS_BASE64_C
 #define MBEDTLS_PEM_PARSE_C
+
+/*
+ * Public root stores still contain trusted anchors whose *self-signature* uses
+ * SHA-1.  Mbed TLS needs the SHA-1 implementation enabled merely to recognize
+ * and parse those certificates.  This does NOT re-enable SHA-1 for Web-PKI
+ * certificate-chain acceptance: mbedtls_x509_crt_profile_default continues to
+ * allow only SHA-256/384/512 for verified chain signatures.
+ */
+#define MBEDTLS_SHA1_C
 
 /* TLS 1.2 AEAD and DRBG. */
 #define MBEDTLS_AES_C
@@ -81,6 +91,6 @@
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, \
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 
-/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, SHA-1, debug/error text. */
+/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, debug/error text. */
 
 #endif
