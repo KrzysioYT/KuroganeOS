@@ -335,8 +335,22 @@ Status http_request_over_tcp(
             &received,
             kHttpReceiveTimeoutMs);
         if (status != Status::Ok) {
+            const bool keep_partial_response =
+                status == Status::WouldBlock && written != 0U &&
+                *out_http_status != 0U;
             static_cast<void>(tcp_client::close(&client));
             *out_length = written;
+            if (keep_partial_response) {
+                log::write_u64(
+                    log::Level::Warn,
+                    "HTTP",
+                    "peer close timed out; keeping received bytes=",
+                    static_cast<uint64_t>(written));
+                // The browser already treats BufferTooSmall as a bounded
+                // partial-response success. Reuse that contract instead of
+                // discarding a valid response solely because FIN was delayed.
+                return Status::BufferTooSmall;
+            }
             return status;
         }
         if (received == 0U) break;
