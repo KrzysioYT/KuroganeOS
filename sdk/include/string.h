@@ -21,6 +21,8 @@ int memcmp(const void* left, const void* right, size_t size);
 size_t strlen(const char* text);
 int strcmp(const char* left, const char* right);
 int strncmp(const char* left, const char* right, size_t size);
+char* strchr(const char* text, int character);
+char* strstr(const char* haystack, const char* needle);
 char* strcpy(char* destination, const char* source);
 size_t strlcpy(char* destination, const char* source, size_t capacity);
 
