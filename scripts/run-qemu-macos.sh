@@ -7,22 +7,25 @@ timeout_seconds=45
 display=false
 keep=false
 fullscreen=true
+build_if_missing=false
 
 usage() {
     cat >&2 <<'EOF'
 usage: ./scripts/run-qemu-macos.sh [options]
-  --image FILE       raw GPT image (default: newest dist/*-macos-qemu.img)
-  --timeout SECONDS  smoke-test timeout (default: 45)
-  --display          show a large Cocoa QEMU window; fullscreen + zoom-to-fit
-  --windowed         show a resizable Cocoa window with zoom-to-fit
-  --fullscreen       explicitly use fullscreen Cocoa display
-  --keep             leave QEMU running after successful smoke markers
+  --image FILE        raw GPT image (default: newest dist/*-macos-qemu.img)
+  --build-if-missing  explicitly build a debug image when none exists
+  --timeout SECONDS   smoke-test timeout (default: 45)
+  --display           show a large Cocoa QEMU window; fullscreen + zoom-to-fit
+  --windowed          show a resizable Cocoa window with zoom-to-fit
+  --fullscreen        explicitly use fullscreen Cocoa display
+  --keep              leave QEMU running after successful smoke markers
 EOF
     exit 2
 }
 while (($#)); do
     case "$1" in
         --image) image="${2:-}"; shift 2 ;;
+        --build-if-missing) build_if_missing=true; shift ;;
         --timeout) timeout_seconds="${2:-}"; shift 2 ;;
         --display) display=true; keep=true; fullscreen=true; shift ;;
         --windowed) display=true; keep=true; fullscreen=false; shift ;;
@@ -42,10 +45,17 @@ command -v qemu-system-x86_64 >/dev/null 2>&1 || {
 
 if [[ -z "$image" ]]; then
     image="$(ls -t "$root"/dist/KuroganeOS-*-macos-qemu.img 2>/dev/null | head -n 1 || true)"
-    if [[ -z "$image" ]]; then
-        "$root/scripts/build-macos.sh" --configuration debug
-        image="$(ls -t "$root"/dist/KuroganeOS-*-macos-qemu.img | head -n 1)"
+    if [[ -z "$image" && "$build_if_missing" == true ]]; then
+        echo "[qemu-macos] no built image found; explicit --build-if-missing requested"
+        bash "$root/scripts/build-macos.sh" --configuration debug
+        image="$(ls -t "$root"/dist/KuroganeOS-*-macos-qemu.img 2>/dev/null | head -n 1 || true)"
     fi
+fi
+if [[ -z "$image" ]]; then
+    echo "QEMU image not found in dist/. Build it first with:" >&2
+    echo "  ./scripts/build-macos.sh --rebuild --configuration debug" >&2
+    echo "or explicitly allow the runner to build with --build-if-missing." >&2
+    exit 1
 fi
 [[ -f "$image" ]] || { echo "QEMU image not found: $image" >&2; exit 1; }
 image="$(cd "$(dirname "$image")" && pwd)/$(basename "$image")"
@@ -62,7 +72,7 @@ search_dirs=(
 firmware=""; vars=""
 for dir in "${search_dirs[@]}"; do
     [[ -d "$dir" ]] || continue
-    for candidate in edk2-x86_64-code.fd edk2-x86_64-code.fd; do
+    for candidate in edk2-x86_64-code.fd edk2-i386-code.fd; do
         [[ -f "$dir/$candidate" ]] && { firmware="$dir/$candidate"; break 2; }
     done
 done
