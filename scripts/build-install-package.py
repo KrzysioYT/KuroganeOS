@@ -70,14 +70,35 @@ def main() -> int:
     add(DEST_ESP, "/EFI/BOOT/kernel.elf", kernel.read_bytes())
     add(DEST_ROOT, "/boot/kernel.elf", kernel.read_bytes())
 
-    for tree in (rootfs, overlay):
+    # Build the root payload as a real overlay: files from --overlay replace
+    # files at the same path from --rootfs.  The final merged paths are then
+    # added through add(), so collisions with protected installer-generated
+    # records (for example /boot/kernel.elf) still fail closed.
+    root_records: dict[str, bytes] = {}
+    overlay_replacements = 0
+
+    def collect_tree(tree: pathlib.Path, replace_existing: bool) -> None:
+        nonlocal overlay_replacements
         for source in sorted(path for path in tree.rglob("*") if path.is_file()):
             relative = source.relative_to(tree).as_posix()
             # Ignore the pre-2.0 legacy LFN spelling. The native system.cfg
             # keeps installer writes within the FAT 8.3 contract.
             if relative.lower() == "etc/system.conf":
                 continue
-            add(DEST_ROOT, "/" + relative, source.read_bytes())
+            package_path = checked_path("/" + relative)
+            if package_path in root_records:
+                if not replace_existing:
+                    raise ValueError(f"duplicate rootfs path: {package_path}")
+                overlay_replacements += 1
+            root_records[package_path] = source.read_bytes()
+
+    collect_tree(rootfs, False)
+    collect_tree(overlay, True)
+    for package_path, contents in sorted(root_records.items()):
+        add(DEST_ROOT, package_path, contents)
+
+    if overlay_replacements:
+        print(f"[installer] overlay replacements: {overlay_replacements}")
 
     add(DEST_ROOT, "/etc/boot.cfg", b"DEFAULT=console\nKERNEL=/kernel.elf\n")
     ordered = sorted(records.items(), key=lambda item: item[0])
