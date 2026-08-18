@@ -117,7 +117,16 @@ Kernel próbuje je wykrywać automatycznie. Dla VirtualBox **E1000 pozostaje
 profilem domyślnym**, ponieważ ma najdłuższą historię testów KuroganeOS na tym
 hypervisorze.
 
-Helpery pozwalają też wybrać alternatywę:
+Rozszerzony CI kwalifikuje wszystkie trzy backendy pod QEMU user NAT i wymaga
+dzierżawy DHCP oraz odpowiedzi ICMP z gateway:
+
+```text
+E1000      PASS
+PCnet      PASS
+VirtIO-net PASS
+```
+
+Helpery pozwalają wybrać alternatywę:
 
 Windows:
 
@@ -143,9 +152,9 @@ virtio -> VirtIO-net
 pcnet   -> Am79C973
 ```
 
-Nie traktuj VirtIO-net jako bezwarunkowo zweryfikowanego na VirtualBox, dopóki
-nie zostanie zapisany realny smoke na x86-64 VirtualBox. CI QEMU ma osobną
-kwalifikację VirtIO-net.
+QEMU PASS nie jest automatycznie VirtualBox PASS. Przed zmianą domyślnego
+profilu na VirtIO-net nadal wymagany jest realny test Oracle VirtualBox x86-64
+na Windows: NAT + DHCP + gateway + DNS oraz install/reboot smoke.
 
 ---
 
@@ -266,7 +275,7 @@ bash ./scripts/verify-virtualbox-iso.sh \
 
 Na Windows media build może wykonać ten smoke przez `-VirtualBoxSmoke`.
 
-GitHub Actions dodatkowo bootuje ISO przez OVMF/QEMU i kwalifikuje sieć na
-obsługiwanych emulowanych NIC-ach. Realny VirtualBox smoke pozostaje wymagany
-przed bezwarunkowym oznaczeniem konkretnego release candidate jako
+GitHub Actions dodatkowo bootuje ISO przez OVMF/QEMU i kwalifikuje E1000,
+PCnet oraz VirtIO-net. Realny VirtualBox smoke pozostaje wymagany przed
+bezwarunkowym oznaczeniem konkretnego release candidate jako
 `VirtualBox runtime PASS`.
