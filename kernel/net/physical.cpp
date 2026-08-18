@@ -1,5 +1,6 @@
 #include "physical.hpp"
 
+#include "virtio_net.hpp"
 #include "e1000.hpp"
 #include "pcnet.hpp"
 
@@ -10,6 +11,10 @@ Driver g_driver = Driver::None;
 Status g_status = Status::NotFound;
 bool g_initialized = false;
 bool g_detected = false;
+
+bool virtio_present(virtio_net::Status status) {
+    return status != virtio_net::Status::NoDevice;
+}
 
 bool e1000_present(e1000::Status status) {
     return status != e1000::Status::NotFound;
@@ -26,6 +31,17 @@ Status initialize() {
     g_driver = Driver::None;
     g_status = Status::NotFound;
     g_detected = false;
+
+    const virtio_net::Status virtio_status = virtio_net::initialize();
+    if (virtio_present(virtio_status)) g_detected = true;
+    if ((virtio_status == virtio_net::Status::Ok ||
+         virtio_status == virtio_net::Status::AlreadyInitialized) &&
+        virtio_net::interface() != nullptr) {
+        g_driver = Driver::VirtioNet;
+        g_status = Status::Ok;
+        g_initialized = true;
+        return g_status;
+    }
 
     const e1000::Status e1000_status = e1000::initialize();
     if (e1000_present(e1000_status)) g_detected = true;
@@ -56,6 +72,7 @@ Status initialize() {
 
 bool ready() {
     switch (g_driver) {
+        case Driver::VirtioNet: return virtio_net::interface() != nullptr;
         case Driver::E1000: return e1000::interface() != nullptr;
         case Driver::Pcnet: return pcnet::interface() != nullptr;
         case Driver::None: return false;
@@ -68,6 +85,7 @@ Driver driver() { return ready() ? g_driver : Driver::None; }
 
 NetworkInterface* interface() {
     switch (driver()) {
+        case Driver::VirtioNet: return virtio_net::interface();
         case Driver::E1000: return e1000::interface();
         case Driver::Pcnet: return pcnet::interface();
         case Driver::None: return nullptr;
@@ -77,6 +95,7 @@ NetworkInterface* interface() {
 
 const char* name() {
     switch (driver()) {
+        case Driver::VirtioNet: return "virtio-net";
         case Driver::E1000: return "e1000";
         case Driver::Pcnet: return "pcnet";
         case Driver::None: return "none";
