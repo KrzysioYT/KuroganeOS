@@ -3,33 +3,48 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-usage: ./scripts/create-virtualbox-vm.sh --iso FILE [--name NAME] [--disk FILE] [--disk-size MB]
+usage: ./scripts/create-virtualbox-vm.sh --iso FILE [--name NAME] [--disk FILE] [--disk-size MB] [--nic e1000|virtio|pcnet]
 
 Creates a reference KuroganeOS x86-64 VirtualBox VM:
-  EFI64, 1 GiB RAM, SATA/AHCI disk, ISO DVD, NAT + 82540EM, AC97, PS/2 input.
+  EFI64, 1 GiB RAM, SATA/AHCI disk, ISO DVD, NAT, AC97, PS/2 input.
+The default NIC remains E1000 for compatibility; VirtIO and PCnet can be selected.
 EOF
     exit 2
 }
 
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' "$root/common/version.h" 2>/dev/null || true)"
+[[ -n "$version" ]] || version="DEV"
+
 iso=""
-name="KuroganeOS 3.3.1-dev"
+name="KuroganeOS $version"
 disk=""
 disk_size=2048
+nic="e1000"
 while (($#)); do
     case "$1" in
         --iso) iso="${2:-}"; shift 2 ;;
         --name) name="${2:-}"; shift 2 ;;
         --disk) disk="${2:-}"; shift 2 ;;
         --disk-size) disk_size="${2:-}"; shift 2 ;;
+        --nic) nic="${2:-}"; shift 2 ;;
         -h|--help) usage ;;
         *) usage ;;
     esac
 done
 [[ -n "$iso" ]] || usage
+case "$nic" in
+    e1000) nic_type="82540EM" ;;
+    virtio) nic_type="virtio" ;;
+    pcnet) nic_type="Am79C973" ;;
+    *) echo "unsupported NIC profile: $nic" >&2; usage ;;
+esac
 command -v VBoxManage >/dev/null 2>&1 || {
     echo "VBoxManage is not installed or not in PATH" >&2; exit 1; }
 iso="$(cd "$(dirname "$iso")" && pwd)/$(basename "$iso")"
 [[ -f "$iso" ]] || { echo "ISO not found: $iso" >&2; exit 1; }
+[[ "$iso" == *.iso ]] || {
+    echo "VirtualBox optical boot requires the KuroganeOS .iso, not an .img: $iso" >&2; exit 1; }
 [[ "$disk_size" =~ ^[0-9]+$ ]] && ((disk_size >= 1024)) || {
     echo "--disk-size must be at least 1024 MB" >&2; exit 2; }
 
@@ -63,9 +78,9 @@ VBoxManage modifyvm "$name" \
     --keyboard ps2 --mouse ps2 >/dev/null
 
 if ! VBoxManage modifyvm "$name" \
-    --nic1 nat --nic-type1 82540EM --cable-connected1 on >/dev/null 2>&1; then
+    --nic1 nat --nic-type1 "$nic_type" --cable-connected1 on >/dev/null 2>&1; then
     VBoxManage modifyvm "$name" \
-        --nic1 nat --nictype1 82540EM --cableconnected1 on >/dev/null
+        --nic1 nat --nictype1 "$nic_type" --cableconnected1 on >/dev/null
 fi
 if ! VBoxManage modifyvm "$name" \
     --audio-enabled on --audio-controller ac97 --audio-out on >/dev/null 2>&1; then
@@ -92,4 +107,6 @@ trap - EXIT INT TERM
 echo "Created VirtualBox VM: $name"
 echo "ISO: $iso"
 echo "Disk: $disk"
+echo "NIC: $nic ($nic_type), NAT"
+echo "Firmware: EFI64; Boot order: DVD -> Disk"
 echo "Start with: VBoxManage startvm \"$name\""
