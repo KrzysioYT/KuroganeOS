@@ -16,9 +16,9 @@ danego emulowanego urządzenia/platformy.
 | SATA / Intel AHCI | implemented; QEMU qualified, real-hardware coverage experimental |
 | NVMe | unsupported |
 | VirtIO-blk | unsupported |
-| Intel E1000 / 82540EM | implemented; QEMU NAT DHCP/gateway qualification |
-| AMD PCnet | implemented; QEMU NAT DHCP/gateway qualification |
-| VirtIO-net PCI | implemented; QEMU runtime qualification gate present; VirtualBox host smoke still required |
+| Intel E1000 / 82540EM | implemented; QEMU NAT DHCP/gateway qualified |
+| AMD PCnet | implemented; QEMU NAT DHCP/gateway qualified |
+| VirtIO-net PCI | implemented; QEMU NAT DHCP/gateway qualified; VirtualBox host smoke still required |
 | USB xHCI / HID | implementation in progress; not universal hardware support |
 | Intel ICH AC'97 | implemented PCM output path; VirtualBox/QEMU host coverage still release-dependent |
 | UEFI GOP software compositor | implemented; no hardware 3D command submission |
