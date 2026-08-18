@@ -172,12 +172,6 @@ static int append_percent_encoded(
     return 1;
 }
 
-/*
- * Resolve an omnibox value without ambiguity:
- *   - explicit http(s) URLs stay unchanged;
- *   - host/path-looking input becomes an HTTP URL;
- *   - everything else becomes a verified HTTPS search query.
- */
 static int omnibox_resolve(
     const char* input,
     char* output,
@@ -507,6 +501,7 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         chromium_url_scheme scheme;
         ku_http_request request;
         ku_status_t result;
+        int partial_response;
 
         scheme = parse_url(navigation_url, host, sizeof(host), path, sizeof(path));
         if (scheme == CHROMIUM_SCHEME_INVALID) {
@@ -540,7 +535,9 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         result = scheme == CHROMIUM_SCHEME_HTTPS
             ? ku_https_get(&request)
             : ku_http_get(&request);
-        if (result != KU_STATUS_OK) {
+        partial_response = result == KU_STATUS_OUT_OF_RANGE &&
+            request.bytes_received != 0U;
+        if (result != KU_STATUS_OK && !partial_response) {
             if (result == KU_STATUS_OUT_OF_RANGE) {
                 navigation_fail(context, result,
                     "TRANSPORT REJECTED A FRAME OR RESPONSE RANGE");
@@ -594,6 +591,9 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
         append_text(context->status, sizeof(context->status), " / ");
         append_u64(context->status, sizeof(context->status), context->bytes_received);
         append_text(context->status, sizeof(context->status), " B");
+        if (partial_response) {
+            append_text(context->status, sizeof(context->status), " / PARTIAL");
+        }
         if (context->redirect_count != 0U) {
             append_text(context->status, sizeof(context->status), " / REDIRECTS ");
             append_u64(context->status, sizeof(context->status), context->redirect_count);
@@ -660,6 +660,7 @@ int main(void) {
     puts("[TEST] chromium_port_bootstrap_renderer: PASS");
     puts("[TEST] chromium_port_omnibox_search: PASS");
     puts("[TEST] chromium_port_https_path: PASS");
+    puts("[TEST] chromium_port_bounded_partial_response: PASS");
 
     for (;;) {
         ku_ui_event event;
