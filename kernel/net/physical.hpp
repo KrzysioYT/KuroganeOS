@@ -8,6 +8,7 @@ namespace net::physical {
 
 enum class Driver : uint8_t {
     None = 0,
+    VirtioNet,
     E1000,
     Pcnet,
 };
