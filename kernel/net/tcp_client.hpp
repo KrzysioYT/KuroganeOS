@@ -8,18 +8,52 @@
 namespace net::tcp_client {
 
 constexpr size_t MAX_SEGMENT_PAYLOAD = 1400U;
-constexpr size_t PENDING_RECEIVE_CAPACITY = TRANSPORT_INBOX_CAPACITY;
+constexpr size_t STREAM_RECEIVE_CAPACITY = 8U * 1024U;
+constexpr size_t OUT_OF_ORDER_QUEUE_DEPTH = 4U;
+constexpr size_t OUT_OF_ORDER_PAYLOAD_CAPACITY = TRANSPORT_INBOX_CAPACITY;
+
+enum class State : uint8_t {
+    Closed = 0,
+    SynSent,
+    Established,
+    CloseWait,
+    FinWait1,
+    Reset,
+    Error,
+};
+
+struct BufferedSegment {
+    uint32_t sequence;
+    uint8_t flags;
+    uint16_t window;
+    size_t payload_length;
+    uint8_t payload[OUT_OF_ORDER_PAYLOAD_CAPACITY];
+    bool valid;
+};
 
 struct Client {
     NetworkStack* stack;
     IPv4Address peer;
     uint16_t local_port;
     uint16_t remote_port;
+
+    // RFC-style sequence-space split. send_unacknowledged is SND.UNA,
+    // send_next is SND.NXT and receive_next is RCV.NXT.
+    uint32_t send_unacknowledged;
     uint32_t send_next;
     uint32_t receive_next;
-    uint8_t pending[PENDING_RECEIVE_CAPACITY];
+    uint16_t peer_window;
+
+    // In-order byte stream ready for the consumer.
+    uint8_t pending[STREAM_RECEIVE_CAPACITY];
     size_t pending_offset;
     size_t pending_length;
+
+    // Bounded reassembly queue for segments that arrive ahead of RCV.NXT.
+    BufferedSegment out_of_order[OUT_OF_ORDER_QUEUE_DEPTH];
+    size_t out_of_order_count;
+
+    State state;
     bool connected;
     bool peer_closed;
 };
@@ -36,8 +70,9 @@ Status connect(
     uint64_t timeout_ms);
 
 /*
- * Sends the entire buffer in bounded TCP payload chunks. The call sleeps with
- * HLT between polls when PIT interrupts are available; it never hot-spins.
+ * Sends the entire buffer in bounded TCP payload chunks. Unacknowledged data
+ * is retransmitted with the original sequence number; a retry never creates a
+ * second copy of the application bytes at a new sequence number.
  */
 Status send(
     Client* client,
@@ -47,7 +82,8 @@ Status send(
 
 /*
  * Returns at least one byte when data is available, up to output_capacity.
- * Unconsumed bytes from a received segment remain buffered in the Client.
+ * In-order bytes are delivered from the stream queue. Out-of-order segments
+ * are retained and merged when the missing sequence range arrives.
  */
 Status receive(
     Client* client,
