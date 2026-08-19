@@ -44,9 +44,23 @@ int main() {
     assert(install::package::file_at(package, 0U, &file) == Status::Ok);
     assert(std::strcmp(file.path, "/EFI/BOOT/BOOTX64.EFI") == 0);
     assert(file.size == 4U && std::memcmp(file.data, "BOOT", 4U) == 0);
+
     bytes[225U] ^= 1U;
     assert(install::package::parse(bytes, sizeof(bytes), &package) ==
            Status::InvalidFileChecksum);
+    bytes[225U] ^= 1U;
+
+    // Runtime preflight must enforce the same bounded FAT 8.3 mutation
+    // contract as build-install-package.py. Otherwise a malformed package can
+    // pass validation, erase the target disk, and only fail later in FAT32
+    // create().
+    std::memset(bytes + 64U, 0, 128U);
+    static constexpr char kInvalidPath[] = "/TOOLONGNAME/FILE.TXT";
+    std::memcpy(bytes + 64U, kInvalidPath, sizeof(kInvalidPath) - 1U);
+    put32(bytes + 48U, k_crc32(bytes + 64U, 160U));
+    assert(install::package::parse(bytes, sizeof(bytes), &package) ==
+           Status::InvalidPath);
+
     std::cout << "installer package tests: PASS\n";
     return 0;
 }
