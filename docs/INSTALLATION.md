@@ -307,3 +307,73 @@ UEFI activation lub verification mają oblać release build.
 4. Sprawdź first-boot/Login i trwałość `/etc`.
 
 Jeżeli po instalacji ponownie uruchamia się Setup, VM nadal bootuje z DVD.
+
+## Post-install boot contract
+
+Zainstalowany system bootuje z własnego ESP i ROOT. Podczas pierwszego startu
+kernel montuje `Kurogane Root`, obsługuje `/etc/first.run`, a następnie próbuje
+uruchomić `/system/init` jako PID 1.
+
+Nie wszystkie markery `[TEST] ...` są fatalnym mechanizmem sterowania. Testy
+first-boot/persistence mogą oznaczyć zbiorczy stan jako zdegradowany, podczas
+gdy kernel nadal ma wystarczający stan do uruchomienia userspace. Historyczny
+bug 3.3.3-dev powodował, że warstwa terminala traktowała sam tekst:
+
+```text
+[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL
+```
+
+jak bezwarunkowy rozkaz `halt()`. To mogło zatrzymać poprawnie zainstalowany
+system zanim doszedł do `/system/init`, mimo że `main.cpp` celowo oznaczył
+problem jako recoverable.
+
+Bieżący kontrakt rozdziela te przypadki:
+
+```text
+recoverable aggregate failure
+  -> marker pozostaje w COM1
+  -> chwilowy ekran BOOT CHECK DEGRADED
+  -> kernel kontynuuje
+  -> po userspace_init_spawn: PASS wraca graficzny boot Red Flux
+
+true boot_failure()
+  -> marker FAIL
+  -> caller wykonuje fatal halt
+  -> system pozostaje w service console
+```
+
+Po poprawnym starcie zainstalowanego systemu oczekiwane są m.in.:
+
+```text
+[INFO][VFS] persistent FAT32 root mounted read-write
+[TEST] userspace_init_spawn: PASS
+[INFO][INIT] spawned /system/init as PID 1
+/system/init: PID 1 online
+```
+
+### Diagnostyka po instalacji w VirtualBox
+
+Referencyjne helpery mogą skierować COM1 do pliku. Przykład:
+
+```powershell
+.\scripts\repair-virtualbox-boot.ps1 `
+    -Name "KuroganeOS-VB-Test" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -SerialLog ".\state\runlogs\virtualbox-manual.log"
+```
+
+Podgląd końcówki logu:
+
+```powershell
+Get-Content .\state\runlogs\virtualbox-manual.log -Tail 120
+```
+
+Podgląd na żywo:
+
+```powershell
+Get-Content .\state\runlogs\virtualbox-manual.log -Wait
+```
+
+Jeżeli boot nadal zatrzyma się po poprawce terminala, ostatnia linia
+`[FATAL][MODULE] ...` w COM1 jest właściwą przyczyną i należy diagnozować ten
+moduł, a nie sam zbiorczy marker `ALL_REQUIRED_TESTS_PASSED: FAIL`.
