@@ -39,11 +39,12 @@ constexpr uint64_t kDnsSendTimeoutMs = UINT64_C(3000);
 constexpr uint64_t kDnsReplyTimeoutMs = UINT64_C(5000);
 constexpr uint64_t kTcpTimeoutMs = UINT64_C(7000);
 constexpr uint64_t kHttpReceiveTimeoutMs = UINT64_C(12000);
-// Public Web PKI needs substantially more than the two bootstrap GTS roots
-// originally carried by 3.3.3-dev. The macOS build exports Apple's immutable
-// SystemRootCertificates keychain into the live/install overlay. Keep the
-// kernel copy bounded while leaving enough room for that complete PEM bundle.
-constexpr size_t kTrustStoreCapacity = 512U * 1024U;
+// Host public-Web-PKI stores can exceed 512 KiB even after filtering to
+// current TLS server-auth CA roots. Keep a hard 2 MiB upper bound so the
+// complete generated bundle fits without silently truncating trust anchors.
+// This buffer lives in kernel BSS; Mbed TLS uses the kernel heap separately
+// for its parsed X.509 structures.
+constexpr size_t kTrustStoreCapacity = 2U * 1024U * 1024U;
 constexpr char kTrustStorePath[] = "/etc/ssl/certs.pem";
 
 uint8_t g_trust_store[kTrustStoreCapacity]{};
