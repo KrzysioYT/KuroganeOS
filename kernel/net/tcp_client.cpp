@@ -153,7 +153,10 @@ Status poll_one(Client* client, TcpSegment* out_segment) {
         return Status::InvalidArgument;
     }
     size_t processed = 0U;
-    const Status poll_status = net::poll(client->stack, 4U, &processed);
+    // NetworkStack currently exposes a single TCP inbox slot. Poll exactly one
+    // frame before consuming it so a burst of TLS records cannot overwrite an
+    // earlier TCP segment before take_tcp_segment() sees it.
+    const Status poll_status = net::poll(client->stack, 1U, &processed);
     if (poll_status != Status::Ok && poll_status != Status::NotForUs &&
         poll_status != Status::UnsupportedProtocol) {
         return poll_status;
@@ -248,7 +251,10 @@ Status connect(
          window_open(handshake_started, timeout_ms, attempt);
          ++attempt) {
         size_t processed = 0U;
-        const Status poll_status = net::poll(stack, 4U, &processed);
+        // SYN-ACK is consumed through the same single TCP inbox slot. Keep this
+        // path single-frame as well so unrelated follow-up data cannot replace
+        // the handshake segment before it is examined.
+        const Status poll_status = net::poll(stack, 1U, &processed);
         if (poll_status != Status::Ok && poll_status != Status::NotForUs &&
             poll_status != Status::UnsupportedProtocol) {
             return poll_status;
