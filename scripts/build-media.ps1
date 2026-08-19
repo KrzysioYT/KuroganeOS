@@ -3,7 +3,7 @@ param(
     [ValidateSet('debug', 'release', 'test')]
     [string]$Configuration = 'release',
     [switch]$Rebuild,
-    [switch]$VirtualBoxSmoke
+    [switch]$SkipVirtualBoxSmoke
 )
 
 Set-StrictMode -Version Latest
@@ -41,56 +41,77 @@ if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
 $Version = $Matches[1]
 $BaseImage = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 $Package = Join-Path $RootDir 'build\install.pkg'
-$Iso = Join-Path $RootDir "dist\KuroganeOS-$Version-x86_64.iso"
 $Dist = Join-Path $RootDir 'dist'
-$Image = Join-Path $Dist "KuroganeOS-$Version-windows-qemu.img"
+
+# Canonical media are intentionally hypervisor-specific. Never infer one from
+# the other and never publish a generic filename that hides the boot contract.
+$VirtualBoxIso = Join-Path $Dist "KuroganeOS-$Version-virtualbox-x86_64.iso"
+$QemuImage = Join-Path $Dist "KuroganeOS-$Version-qemu-x86_64.img"
+$LegacyQemuImage = Join-Path $Dist "KuroganeOS-$Version-windows-qemu.img"
+$LegacyGenericIso = Join-Path $Dist "KuroganeOS-$Version-x86_64.iso"
 $Checksums = Join-Path $Dist 'SHA256SUMS.txt'
 $InjectScript = Join-Path $PSScriptRoot 'inject-install-package.sh'
 
-foreach ($required in @($BaseImage, $Package, $Iso, $InjectScript)) {
+foreach ($required in @($BaseImage, $Package, $VirtualBoxIso, $InjectScript)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Missing media input: $required"
     }
 }
 
 [System.IO.Directory]::CreateDirectory($Dist) | Out-Null
-Copy-Item -LiteralPath $BaseImage -Destination $Image -Force
+Copy-Item -LiteralPath $BaseImage -Destination $QemuImage -Force
 & wsl.exe bash `
     (Convert-ToKuroganeWslPath $InjectScript) `
-    (Convert-ToKuroganeWslPath $Image) `
+    (Convert-ToKuroganeWslPath $QemuImage) `
     (Convert-ToKuroganeWslPath $Package)
 if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to inject install.pkg into the Windows QEMU IMG.'
+    throw 'Failed to inject install.pkg into the canonical QEMU IMG.'
 }
 
-# The installer ISO builder already runs the mandatory 20-pass structural UEFI
-# verifier. For release qualification on an x86-64 Windows host, this optional
-# switch adds a second, independent gate: Oracle VirtualBox must actually boot
-# the optical media and emit a KuroganeOS kernel marker on COM1.
-if ($VirtualBoxSmoke) {
-    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $Iso
-    if (-not $?) { throw 'Real VirtualBox ISO smoke boot failed.' }
+# Delete old ambiguous names from the current version. They caused repeated
+# accidental tests of stale media and make it impossible to tell which
+# hypervisor contract an artifact was built for.
+foreach ($stale in @($LegacyQemuImage, $LegacyGenericIso)) {
+    if (Test-Path -LiteralPath $stale -PathType Leaf) {
+        Remove-Item -LiteralPath $stale -Force
+        Write-Host "[media-windows] removed stale ambiguous artifact: $stale"
+    }
 }
 
-$imageHash = (Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash.ToLowerInvariant()
-$isoHash = (Get-FileHash -LiteralPath $Iso -Algorithm SHA256).Hash.ToLowerInvariant()
+# A file is not allowed to carry the canonical 'virtualbox' release name on a
+# Windows build unless real Oracle VirtualBox EFI64 boots it to the kernel. The
+# escape hatch is explicit and intentionally noisy for build hosts which do not
+# have VirtualBox installed.
+if (-not $SkipVirtualBoxSmoke) {
+    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $VirtualBoxIso -TimeoutSeconds 90
+    if (-not $?) { throw 'Real Oracle VirtualBox ISO qualification failed.' }
+} else {
+    Write-Warning 'VirtualBox real-boot qualification was explicitly skipped. ISO is NOT release-qualified.'
+}
+
+$qemuHash = (Get-FileHash -LiteralPath $QemuImage -Algorithm SHA256).Hash.ToLowerInvariant()
+$isoHash = (Get-FileHash -LiteralPath $VirtualBoxIso -Algorithm SHA256).Hash.ToLowerInvariant()
 $lines = @(
-    "$imageHash  $([System.IO.Path]::GetFileName($Image))",
-    "$isoHash  $([System.IO.Path]::GetFileName($Iso))"
+    "$qemuHash  $([System.IO.Path]::GetFileName($QemuImage))",
+    "$isoHash  $([System.IO.Path]::GetFileName($VirtualBoxIso))"
 )
 [System.IO.File]::WriteAllLines(
     $Checksums, $lines, (New-Object System.Text.UTF8Encoding($false)))
 [System.IO.File]::WriteAllText(
-    "$Image.sha256",
+    "$QemuImage.sha256",
     $lines[0] + [Environment]::NewLine,
+    (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText(
+    "$VirtualBoxIso.sha256",
+    $lines[1] + [Environment]::NewLine,
     (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "[media-windows] KuroganeOS $Version"
-Write-Host "[media-windows] live/setup IMG: $Image"
-Write-Host "[media-windows] live/setup ISO: $Iso"
-Write-Host '[media-windows] ISO structural UEFI verification: 20/20 required'
-if ($VirtualBoxSmoke) {
-    Write-Host '[media-windows] real VirtualBox EFI optical boot: PASS'
+Write-Host "[media-windows] QEMU-only IMG:       $QemuImage"
+Write-Host "[media-windows] VirtualBox-only ISO: $VirtualBoxIso"
+Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
+if (-not $SkipVirtualBoxSmoke) {
+    Write-Host '[media-windows] ISO real Oracle VirtualBox EFI64 boot: PASS'
 }
-Write-Host '[media-windows] both media enter Try / Install setup'
+Write-Host '[media-windows] no generic versioned .iso/.img aliases are published'
 Write-Host "[media-windows] checksums: $Checksums"
