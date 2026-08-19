@@ -26,16 +26,17 @@ if ([string]::IsNullOrWhiteSpace($Name)) {
     $Name = "KuroganeOS $version"
 }
 
-$VBoxManage = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
-if ($null -eq $VBoxManage) {
+$VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
+if ($null -ne $VBoxCommand) {
+    $VBox = $VBoxCommand.Path
+} else {
     $candidate = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $VBoxManage = Get-Item -LiteralPath $candidate
+        $VBox = [System.IO.Path]::GetFullPath($candidate)
     } else {
         throw 'VBoxManage.exe was not found. Install Oracle VirtualBox first.'
     }
 }
-$VBox = $VBoxManage.Source
 $Iso = [System.IO.Path]::GetFullPath($Iso)
 if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
     throw "ISO not found: $Iso"
