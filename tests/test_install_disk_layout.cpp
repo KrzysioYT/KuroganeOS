@@ -93,9 +93,29 @@ int main() {
     }
     assert(root_format == fs::fat32::Status::Ok);
 
+    // The conservative API remains useful for tooling that requires a blank
+    // target and must refuse an existing partition table.
     install::disk_layout::Layout second{};
     assert(install::disk_layout::prepare_empty_disk(&device, &second) ==
            install::disk_layout::Status::DiskNotEmpty);
+
+    // The real installer reaches this API only after explicit erase
+    // confirmation. It must therefore be able to recover from a previous,
+    // partially completed KuroganeOS installation without asking the user to
+    // recreate the VDI manually.
+    install::disk_layout::Layout retry{};
+    assert(install::disk_layout::prepare_install_target(&device, &retry) ==
+           install::disk_layout::Status::Ok);
+    assert(retry.esp_first_lba == layout.esp_first_lba);
+    assert(retry.esp_sector_count == layout.esp_sector_count);
+    assert(retry.root_first_lba == layout.root_first_lba);
+    assert(retry.root_sector_count == layout.root_sector_count);
+    table = {};
+    assert(storage::gpt::parse_primary(&device, &table).status ==
+           storage::gpt::Status::Ok);
+    assert(table.partition_count == 2U);
+    assert(disk.flushes >= 2U);
+
     std::cout << "installer disk-layout tests: PASS\n";
     return 0;
 }
