@@ -14,6 +14,7 @@ if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
     throw "Missing Windows/WSL path bridge: $WslBridge"
 }
 . $WslBridge
+Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
 
 $BuildDir = Join-Path $RootDir 'build'
 $StageDir = Join-Path $BuildDir 'installer-staging'
