@@ -15,48 +15,49 @@ function Get-KuroganeFileSystemPath {
     )
 
     try {
-        # Do not use [System.IO.Path]::GetFullPath() directly for user supplied
-        # relative PowerShell paths. On Windows, .NET's process working directory
-        # can differ from PowerShell's current provider location (for example,
-        # C:\Windows\System32 while the prompt is E:\KuroganeOS). Resolve through
-        # PowerShell's path engine so '.\foo.iso' is anchored to $PWD exactly as
-        # the caller expects.
+        # Resolve relative paths through PowerShell's provider location rather
+        # than the process working directory. The latter can be System32 even
+        # while the caller is at E:\KuroganeOS.
         return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     } catch {
         throw "Invalid filesystem path '$Path': $($_.Exception.Message)"
     }
 }
 
+function Get-VmInfo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VBoxManage,
+        [Parameter(Mandatory = $true)]
+        [string]$VmName
+    )
+
+    $result = & $VBoxManage showvminfo $VmName --machinereadable 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to inspect VirtualBox VM '$VmName'.`n$($result -join [Environment]::NewLine)"
+    }
+    return @($result)
+}
+
 $VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
 if ($null -ne $VBoxCommand) {
-    # Get-Command returns ApplicationInfo for an executable. Use Path directly;
-    # unlike Source, this is the canonical executable path on Windows PowerShell
-    # and PowerShell 7.
     $VBox = $VBoxCommand.Path
 } else {
     $candidate = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        # Keep the fallback as a plain path string. Get-Item would return a
-        # FileInfo object, which has FullName but no Source property under
-        # Set-StrictMode and caused the repair helper to abort before VBox ran.
         $VBox = [System.IO.Path]::GetFullPath($candidate)
     } else {
         throw 'VBoxManage.exe was not found. Install Oracle VirtualBox first.'
     }
 }
 
-$info = & $VBox showvminfo $Name --machinereadable 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "VirtualBox VM was not found: $Name`n$($info -join [Environment]::NewLine)"
-}
-
+$info = Get-VmInfo -VBoxManage $VBox -VmName $Name
 $stateLine = $info | Where-Object { $_ -like 'VMState=*' } | Select-Object -First 1
 if ($stateLine -match '^VMState="([^"]+)"$' -and $Matches[1] -notin @('poweroff', 'aborted', 'saved')) {
     throw "VM '$Name' must be powered off before repair. Current state: $($Matches[1])"
 }
 
-# Resolve and validate media before changing any VM setting. This makes a bad
-# -Iso argument fail safely without leaving a partially modified VM profile.
+# Validate media before changing the VM so a typo cannot leave a partial repair.
 $IsoPath = $null
 if (-not [string]::IsNullOrWhiteSpace($Iso)) {
     $IsoPath = Get-KuroganeFileSystemPath -Path $Iso
@@ -87,29 +88,31 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if ($null -ne $IsoPath) {
-    $controllerReady = $false
-    & $VBox storagectl $Name --name IDE --add ide --controller PIIX4 *> $null
-    if ($LASTEXITCODE -eq 0) {
-        $controllerReady = $true
-    } else {
-        $freshInfo = & $VBox showvminfo $Name --machinereadable 2>&1
-        if ($LASTEXITCODE -eq 0 -and ($freshInfo -match 'storagecontrollername\d+="IDE"')) {
-            $controllerReady = $true
+    $freshInfo = Get-VmInfo -VBoxManage $VBox -VmName $Name
+    $ideController = $freshInfo |
+        Where-Object { $_ -match '^storagecontrollername\d+="IDE"$' } |
+        Select-Object -First 1
+
+    if ($null -eq $ideController) {
+        Write-Host '[virtualbox-repair] IDE controller absent; creating PIIX4 IDE controller'
+        & $VBox storagectl $Name --name IDE --add ide --controller PIIX4 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not create the reference IDE controller named 'IDE'."
         }
-    }
-    if (-not $controllerReady) {
-        throw "Could not create or find the reference IDE optical controller named 'IDE'. Attach the ISO manually and rerun without -Iso."
-    }
-
-    # Never replace an existing attachment. A KuroganeOS VDI may already live at
-    # IDE 0:0; blindly attaching a DVD there can detach or replace the boot disk.
-    # Prefer the conventional secondary-master slot for optical media, then only
-    # consider other currently free IDE positions.
-    $freshInfo = & $VBox showvminfo $Name --machinereadable 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Unable to inspect IDE attachments before mounting the ISO.'
+        $freshInfo = Get-VmInfo -VBoxManage $VBox -VmName $Name
+        $ideController = $freshInfo |
+            Where-Object { $_ -match '^storagecontrollername\d+="IDE"$' } |
+            Select-Object -First 1
+        if ($null -eq $ideController) {
+            throw "VirtualBox did not expose the newly created IDE controller named 'IDE'."
+        }
+    } else {
+        Write-Host '[virtualbox-repair] existing IDE controller detected; reusing it'
     }
 
+    # Never replace an existing attachment. A KuroganeOS VDI may already live
+    # at IDE 0:0. Prefer secondary master for optical media, then other free IDE
+    # slots. Existing disks are never detached or moved by this helper.
     $slotCandidates = @(
         @{ Port = 1; Device = 0 },
         @{ Port = 0; Device = 1 },
@@ -143,11 +146,7 @@ if ($null -ne $IsoPath) {
     Write-Host "[virtualbox-repair] ISO attached: IDE $($selectedSlot.Port):$($selectedSlot.Device) -> $IsoPath"
 }
 
-$finalInfo = & $VBox showvminfo $Name --machinereadable 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw 'Unable to verify the repaired VirtualBox VM.'
-}
-
+$finalInfo = Get-VmInfo -VBoxManage $VBox -VmName $Name
 $firmware = $finalInfo | Where-Object { $_ -like 'firmware=*' } | Select-Object -First 1
 $boot1 = $finalInfo | Where-Object { $_ -like 'boot1=*' } | Select-Object -First 1
 $boot2 = $finalInfo | Where-Object { $_ -like 'boot2=*' } | Select-Object -First 1
