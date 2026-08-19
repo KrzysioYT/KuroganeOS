@@ -101,16 +101,46 @@ if ($null -ne $IsoPath) {
         throw "Could not create or find the reference IDE optical controller named 'IDE'. Attach the ISO manually and rerun without -Iso."
     }
 
+    # Never replace an existing attachment. A KuroganeOS VDI may already live at
+    # IDE 0:0; blindly attaching a DVD there can detach or replace the boot disk.
+    # Prefer the conventional secondary-master slot for optical media, then only
+    # consider other currently free IDE positions.
+    $freshInfo = & $VBox showvminfo $Name --machinereadable 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to inspect IDE attachments before mounting the ISO.'
+    }
+
+    $slotCandidates = @(
+        @{ Port = 1; Device = 0 },
+        @{ Port = 0; Device = 1 },
+        @{ Port = 1; Device = 1 },
+        @{ Port = 0; Device = 0 }
+    )
+
+    $selectedSlot = $null
+    foreach ($slot in $slotCandidates) {
+        $slotPattern = '^"IDE-' + $slot.Port + '-' + $slot.Device + '"='
+        $occupied = $freshInfo | Where-Object { $_ -match $slotPattern } | Select-Object -First 1
+        if ($null -eq $occupied) {
+            $selectedSlot = $slot
+            break
+        }
+    }
+
+    if ($null -eq $selectedSlot) {
+        throw 'No free IDE slot is available for the repair ISO. Existing storage attachments were left untouched.'
+    }
+
     & $VBox storageattach $Name `
         --storagectl IDE `
-        --port 0 `
-        --device 0 `
+        --port $selectedSlot.Port `
+        --device $selectedSlot.Device `
         --type dvddrive `
         --medium $IsoPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to attach ISO to IDE 0:0: $IsoPath"
+        throw "Failed to attach ISO to free IDE $($selectedSlot.Port):$($selectedSlot.Device): $IsoPath"
     }
-    Write-Host "[virtualbox-repair] ISO attached: $IsoPath"
+    Write-Host "[virtualbox-repair] ISO attached: IDE $($selectedSlot.Port):$($selectedSlot.Device) -> $IsoPath"
 }
 
 $finalInfo = & $VBox showvminfo $Name --machinereadable 2>&1
