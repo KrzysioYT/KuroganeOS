@@ -21,11 +21,11 @@ foreach ($required in @($Qemu, $Firmware, $FirmwareVars)) {
 
 if ([string]::IsNullOrWhiteSpace($Image)) {
     $candidate = Get-ChildItem -LiteralPath (Join-Path $RootDir 'dist') `
-        -Filter 'KuroganeOS-*-windows-qemu.img' -File -ErrorAction SilentlyContinue |
+        -Filter 'KuroganeOS-*-qemu-x86_64.img' -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTimeUtc -Descending |
         Select-Object -First 1
     if ($null -eq $candidate) {
-        throw 'No Windows QEMU IMG found in dist. Build with scripts\build-media.ps1 first.'
+        throw 'No canonical QEMU IMG found in dist. Build with scripts\build-media.ps1 first.'
     }
     $Image = $candidate.FullName
 }
@@ -33,7 +33,7 @@ if ([string]::IsNullOrWhiteSpace($Image)) {
 $resolvedImage = (Resolve-Path -LiteralPath $Image -ErrorAction Stop).ProviderPath
 $resolvedImage = [System.IO.Path]::GetFullPath($resolvedImage)
 if ([System.IO.Path]::GetExtension($resolvedImage) -ne '.img') {
-    throw "Expected a raw .img system image: $resolvedImage"
+    throw "Expected the canonical raw QEMU .img system image: $resolvedImage"
 }
 
 $RuntimeDir = Join-Path $RootDir 'build\qemu-windows'
@@ -63,7 +63,7 @@ $arguments = @(
     '-no-shutdown'
 )
 
-Write-Host "[qemu-windows] image: $resolvedImage"
+Write-Host "[qemu-windows] canonical QEMU IMG: $resolvedImage"
 Write-Host '[qemu-windows] network: E1000 + user NAT'
 Write-Host '[qemu-windows] audio: Intel AC97 -> DirectSound'
 
