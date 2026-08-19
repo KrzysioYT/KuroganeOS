@@ -77,18 +77,20 @@
 #define MBEDTLS_PEM_PARSE_C
 
 /*
- * Keep the first Web-PKI profile on modern digest algorithms only. This also
- * keeps every build frontend on the same linked module set: SHA-1 is not a
- * dependency of the TLS 1.2 profile and legacy SHA-1-signed trust anchors can
- * be filtered when the KuroganeOS public-root store is finalized.
+ * Public Web PKI roots and intermediates commonly use SHA-384 signatures.
+ * In Mbed TLS 3.6.x SHA-384 is a distinct capability flag: MBEDTLS_SHA512_C
+ * does not imply MBEDTLS_SHA384_C even though both algorithms share sha512.c.
+ * Without this flag GTS Root R1/R4 fail during x509_crt_parse() with
+ * MBEDTLS_ERR_X509_UNKNOWN_SIG_ALG + MBEDTLS_ERR_OID_NOT_FOUND (-0x262E).
  */
 
-/* TLS 1.2 AEAD and DRBG. */
+/* TLS 1.2 AEAD, digest algorithms and DRBG. */
 #define MBEDTLS_AES_C
 #define MBEDTLS_GCM_C
 #define MBEDTLS_CIPHER_C
 #define MBEDTLS_MD_C
 #define MBEDTLS_SHA256_C
+#define MBEDTLS_SHA384_C
 #define MBEDTLS_SHA512_C
 #define MBEDTLS_CTR_DRBG_C
 #define MBEDTLS_ENTROPY_C
