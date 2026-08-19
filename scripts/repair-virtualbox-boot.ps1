@@ -8,6 +8,25 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-KuroganeFileSystemPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    try {
+        # Do not use [System.IO.Path]::GetFullPath() directly for user supplied
+        # relative PowerShell paths. On Windows, .NET's process working directory
+        # can differ from PowerShell's current provider location (for example,
+        # C:\Windows\System32 while the prompt is E:\KuroganeOS). Resolve through
+        # PowerShell's path engine so '.\foo.iso' is anchored to $PWD exactly as
+        # the caller expects.
+        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    } catch {
+        throw "Invalid filesystem path '$Path': $($_.Exception.Message)"
+    }
+}
+
 $VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
 if ($null -ne $VBoxCommand) {
     # Get-Command returns ApplicationInfo for an executable. Use Path directly;
@@ -36,9 +55,25 @@ if ($stateLine -match '^VMState="([^"]+)"$' -and $Matches[1] -notin @('poweroff'
     throw "VM '$Name' must be powered off before repair. Current state: $($Matches[1])"
 }
 
+# Resolve and validate media before changing any VM setting. This makes a bad
+# -Iso argument fail safely without leaving a partially modified VM profile.
+$IsoPath = $null
+if (-not [string]::IsNullOrWhiteSpace($Iso)) {
+    $IsoPath = Get-KuroganeFileSystemPath -Path $Iso
+    if (-not (Test-Path -LiteralPath $IsoPath -PathType Leaf)) {
+        throw "ISO not found: $IsoPath"
+    }
+    if ([System.IO.Path]::GetExtension($IsoPath) -ne '.iso') {
+        throw "Expected an .iso optical image, got: $IsoPath"
+    }
+}
+
 Write-Host "[virtualbox-repair] VM: $Name"
 Write-Host "[virtualbox-repair] VBoxManage: $VBox"
 Write-Host '[virtualbox-repair] enforcing KuroganeOS x86-64 UEFI boot profile'
+if ($null -ne $IsoPath) {
+    Write-Host "[virtualbox-repair] ISO: $IsoPath"
+}
 
 & $VBox modifyvm $Name `
     --firmware efi64 `
@@ -51,15 +86,7 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Failed to switch the VM to EFI64/DVD-first boot.'
 }
 
-if (-not [string]::IsNullOrWhiteSpace($Iso)) {
-    $Iso = [System.IO.Path]::GetFullPath($Iso)
-    if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
-        throw "ISO not found: $Iso"
-    }
-    if ([System.IO.Path]::GetExtension($Iso) -ne '.iso') {
-        throw "Expected an .iso optical image, got: $Iso"
-    }
-
+if ($null -ne $IsoPath) {
     $controllerReady = $false
     & $VBox storagectl $Name --name IDE --add ide --controller PIIX4 *> $null
     if ($LASTEXITCODE -eq 0) {
@@ -79,11 +106,11 @@ if (-not [string]::IsNullOrWhiteSpace($Iso)) {
         --port 0 `
         --device 0 `
         --type dvddrive `
-        --medium $Iso | Out-Null
+        --medium $IsoPath | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        throw "Failed to attach ISO to IDE 0:0: $Iso"
+        throw "Failed to attach ISO to IDE 0:0: $IsoPath"
     }
-    Write-Host "[virtualbox-repair] ISO attached: $Iso"
+    Write-Host "[virtualbox-repair] ISO attached: $IsoPath"
 }
 
 $finalInfo = & $VBox showvminfo $Name --machinereadable 2>&1
