@@ -41,7 +41,7 @@ SATA / IntelAHCI (Port Count = 1)
 └── SATA 0:0 -> KuroganeOS.vdi
 
 IDE / PIIX4
-└── DVD -> KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso
+└── DVD -> KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 ```
 
 Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
@@ -56,7 +56,7 @@ Najprostszy pełny start:
 
 ```powershell
 .\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
     -Name "KuroganeOS-3.3.3-VB" `
     -Nic e1000 `
     -Start
@@ -86,7 +86,7 @@ VM musi być całkowicie wyłączona, nie tylko zapisana w saved state.
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso"
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
 ```
 
 Helper najpierw próbuje dokładnej nazwy. Jeżeli nie istnieje, pobiera
@@ -104,7 +104,7 @@ wypisywana przez helper. Można podać własną:
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS-VB-Test" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
     -SerialLog ".\state\runlogs\virtualbox-manual.log"
 ```
 
@@ -245,7 +245,7 @@ installer stage 9/9: installation complete
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
     -TimeoutSeconds 180
 ```
 
@@ -289,7 +289,7 @@ Oczekiwane zakończenie:
 
 ```bash
 bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso \
+  ./dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso \
   --passes 20
 ```
 
