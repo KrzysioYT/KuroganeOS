@@ -26,8 +26,17 @@ enum class Status : uint8_t {
     BlockDeviceError
 };
 
-// Creates a deterministic GPT only when LBA 0 is entirely zero. Both GPT
-// copies are committed before the protective MBR is published.
+// Destructive installer path. The caller must obtain explicit erase
+// authorization before calling this function. Existing GPT/MBR/filesystem
+// metadata may be replaced so an interrupted KuroganeOS installation can be
+// retried on the same target disk.
+Status prepare_install_target(
+    const storage::block::Device* device,
+    Layout* output);
+
+// Conservative helper retained for diagnostics/tests that specifically need a
+// blank-media contract. It refuses non-zero LBA 0, then delegates to the same
+// deterministic GPT writer used by the real installer.
 Status prepare_empty_disk(
     const storage::block::Device* device,
     Layout* output);
