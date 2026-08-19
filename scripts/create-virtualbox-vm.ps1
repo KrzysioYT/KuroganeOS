@@ -7,7 +7,7 @@ param(
     [ValidateRange(1024, 1048576)]
     [int]$DiskSizeMb = 2048,
     [ValidateSet('e1000', 'virtio', 'pcnet')]
-    [string]$Nic = 'e1000',
+    [string]$Nic = 'pcnet',
     [switch]$Start
 )
 
