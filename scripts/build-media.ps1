@@ -12,6 +12,10 @@ $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $WindowsBuildFilesUrl = 'https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing'
 $Toolchain = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe'
 $WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
+$TrustExporter = Join-Path $PSScriptRoot 'export-windows-trust-store.ps1'
+$TrustOutput = Join-Path $RootDir 'build\userspace\rootfs\etc\ssl\certs.pem'
+$FoundationBuilder = Join-Path $PSScriptRoot 'build-foundation-image.ps1'
+$InstallerBuilder = Join-Path $PSScriptRoot 'build-installer.ps1'
 
 if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
     throw "Windows build toolchain is missing.`nRequired files: $WindowsBuildFilesUrl`nDownload and copy/extract them into the KuroganeOS repository root."
@@ -19,8 +23,10 @@ if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
 if ($null -eq (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is required by the current Windows image/ISO tooling.'
 }
-if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
-    throw "Missing Windows/WSL path bridge: $WslBridge"
+foreach ($requiredScript in @($WslBridge, $TrustExporter, $FoundationBuilder, $InstallerBuilder)) {
+    if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
+        throw "Missing Windows media helper: $requiredScript"
+    }
 }
 . $WslBridge
 Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
@@ -32,6 +38,19 @@ if ($Rebuild) {
     & $BuildScript -Configuration $Configuration
 }
 if (-not $?) { throw 'KuroganeOS Windows build failed.' }
+
+# build.ps1 creates the userspace overlay first. Replace the two-repository-root
+# bootstrap bundle with the Windows machine's trusted LocalMachine Root store,
+# then rebuild only the filesystem/package/media layers that consume that
+# overlay. This mirrors build-macos.sh, which exports the macOS system roots.
+& $TrustExporter -OutputPath $TrustOutput
+if (-not $?) { throw 'Windows Web PKI trust-store export failed.' }
+
+& $FoundationBuilder -NoWorkingImage
+if (-not $?) { throw 'Foundation image rebuild with Windows trust roots failed.' }
+
+& $InstallerBuilder -Configuration $Configuration -NoBuild
+if (-not $?) { throw 'Installer ISO/package rebuild with Windows trust roots failed.' }
 
 $VersionHeader = Join-Path $RootDir 'common\version.h'
 $versionText = Get-Content -LiteralPath $VersionHeader -Raw
@@ -52,7 +71,7 @@ $LegacyGenericIso = Join-Path $Dist "KuroganeOS-$Version-x86_64.iso"
 $Checksums = Join-Path $Dist 'SHA256SUMS.txt'
 $InjectScript = Join-Path $PSScriptRoot 'inject-install-package.sh'
 
-foreach ($required in @($BaseImage, $Package, $VirtualBoxIso, $InjectScript)) {
+foreach ($required in @($BaseImage, $Package, $VirtualBoxIso, $InjectScript, $TrustOutput)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Missing media input: $required"
     }
@@ -108,6 +127,7 @@ $lines = @(
 Write-Host "[media-windows] KuroganeOS $Version"
 Write-Host "[media-windows] QEMU-only IMG:       $QemuImage"
 Write-Host "[media-windows] VirtualBox-only ISO: $VirtualBoxIso"
+Write-Host "[media-windows] Windows Web PKI roots: $TrustOutput"
 Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
 if (-not $SkipVirtualBoxSmoke) {
     Write-Host '[media-windows] ISO real Oracle VirtualBox full install: PASS'
