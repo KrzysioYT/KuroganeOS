@@ -22,6 +22,15 @@
  */
 #define MBEDTLS_TEST_SW_INET_PTON
 
+/*
+ * KuroganeOS links a freestanding kernel directly instead of relying on a
+ * hosted compiler driver to inject compiler-runtime helpers. Prevent Mbed TLS
+ * bignum code from lowering 128-bit division to helpers such as __udivti3.
+ * The portable division path is slower but deterministic on every supported
+ * build host and does not change cryptographic results.
+ */
+#define MBEDTLS_NO_UDBL_DIVISION
+
 /* TLS client protocol surface. TLS 1.3 is added after the 1.2 transport works. */
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_CLI_C
@@ -31,23 +40,13 @@
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
 /*
- * Mbed TLS 3.6.x ssl.h evaluates MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT with
- * '#if MACRO == 0' even when MBEDTLS_SSL_DTLS_CONNECTION_ID itself is not
- * enabled. A minimal custom configuration therefore has to give the selector
- * an explicit value or every -Wundef build emits a diagnostic.
- *
- * KuroganeOS does not enable DTLS, and if DTLS CID is enabled in a later
- * revision we want the RFC 9146 standards mode rather than the legacy
- * compatibility mode. Keep this setting centralized here so Windows,
- * macOS, Linux/WSL and CI all compile the exact same Mbed TLS configuration.
+ * Do not define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT here. Mbed TLS 3.6.7
+ * config_adjust_ssl.h deliberately undefines every DTLS CID selector when
+ * MBEDTLS_SSL_PROTO_DTLS is disabled. Its public ssl.h later evaluates that
+ * selector numerically without a defined() guard. KuroganeOS keeps DTLS
+ * disabled and isolates that upstream -Wundef diagnostic at the third-party
+ * include boundary rather than enabling an unused protocol feature.
  */
-#ifndef MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT
-#define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT 0
-#endif
-
-#if MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT != 0
-#error "KuroganeOS requires the standards-based Mbed TLS DTLS CID compatibility selector"
-#endif
 
 /* Mbed TLS debug.h includes <inttypes.h> solely to obtain PRId64 for its
  * millisecond timestamp formatter. KuroganeOS does not expose a hosted libc
@@ -78,13 +77,11 @@
 #define MBEDTLS_PEM_PARSE_C
 
 /*
- * Public root stores still contain trusted anchors whose *self-signature* uses
- * SHA-1. Mbed TLS needs the SHA-1 implementation enabled merely to recognize
- * and parse those certificates. This does NOT re-enable SHA-1 for Web-PKI
- * certificate-chain acceptance: mbedtls_x509_crt_profile_default continues to
- * allow only SHA-256/384/512 for verified chain signatures.
+ * Keep the first Web-PKI profile on modern digest algorithms only. This also
+ * keeps every build frontend on the same linked module set: SHA-1 is not a
+ * dependency of the TLS 1.2 profile and legacy SHA-1-signed trust anchors can
+ * be filtered when the KuroganeOS public-root store is finalized.
  */
-#define MBEDTLS_SHA1_C
 
 /* TLS 1.2 AEAD and DRBG. */
 #define MBEDTLS_AES_C
@@ -113,6 +110,6 @@
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, \
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 
-/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, debug/error text. */
+/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, SHA-1, debug/error text. */
 
 #endif
