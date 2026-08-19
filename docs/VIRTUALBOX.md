@@ -166,6 +166,16 @@ potwierdzeniu i markerze:
 [TEST] installer_confirmation: PASS
 ```
 
+Po nim udany zapis GPT jest raportowany jako:
+
+```text
+installer stage 1/9: target confirmed and GPT written
+```
+
+Ten marker jest również wiarygodnym runtime proof ścieżki SATA/AHCI: installer
+nie może go osiągnąć bez poprawnie wykrytego block device i udanego zapisu na
+tymczasowy VDI.
+
 ## Diagnostyka
 
 ### `No bootable medium` / `No bootable drive`
@@ -206,18 +216,28 @@ VDI -> SATA / Intel AHCI
 ISO -> IDE / PIIX4 DVD
 ```
 
-Po poprawnym wykryciu kernel powinien pokazać m.in.:
+Normalny boot systemu (poza skróconą ścieżką instalatora) może wypisywać m.in.:
 
 ```text
 [INFO][AHCI][CPU0][KERNEL] PCI AHCI controllers detected=1
 [INFO][AHCI][CPU0][KERNEL] active AHCI controllers=1
 ```
 
+Installer mode 3.3.3-dev może nie wypisać tych liczników, mimo że AHCI działa.
+Jeżeli zamiast nich pojawi się:
+
+```text
+[TEST] installer_confirmation: PASS
+installer stage 1/9: target confirmed and GPT written
+```
+
+to kontroler, VDI oraz zapis przez AHCI faktycznie działają.
+
 ### Smoke zatrzymuje się po `Intel ICH AC97 PCM output ready`
 
-Jeżeli realny VirtualBox smoke uruchamia loader/kernel, ale przez 90 sekund nie
-pojawia się `active AHCI controllers=1`, sprawdź liczbę portów SATA. Dla jednej
-maszyny testowej z jednym VDI użyj:
+Jeżeli realny VirtualBox smoke uruchamia loader/kernel, ale długo nie przechodzi
+do setupu, sprawdź liczbę portów SATA. Dla jednej maszyny testowej z jednym VDI
+użyj:
 
 ```text
 Controller: IntelAHCI
@@ -229,6 +249,26 @@ Starszy helper CLI tworzył kontroler bez jawnego `--portcount`, co mogło
 wystawić wiele pustych portów. Kernel sonduje porty zaimplementowane przez HBA,
 więc taki profil mógł wyglądać jak zawieszenie AHCI mimo poprawnego ISO.
 Bieżące helpery i smoke-test tworzą kontroler z `--portcount 1`.
+
+### Smoke dochodzi do `GPT written`, ale nadal kończy timeoutem
+
+To był błąd starszej kwalifikacji, nie błąd VirtualBoxa. Smoke czekał wyłącznie
+na tekst `active AHCI controllers=...`, którego installer mode nie musi
+emitować. Bieżący `smoke-virtualbox-iso.ps1` akceptuje dwa dowody runtime:
+
+```text
+[INFO][AHCI] ... active AHCI controllers=N   (N >= 1)
+```
+
+albo silniejszy test zapisu:
+
+```text
+[TEST] installer_confirmation: PASS
+installer stage 1/9: target confirmed and GPT written
+```
+
+Drugi wariant potwierdza nie tylko wykrycie HBA, ale również wybór block device i
+rzeczywisty zapis GPT do tymczasowego VDI.
 
 ### `INSTALLATION CONFIRMATION DID NOT MATCH INSTALL`
 
@@ -274,8 +314,10 @@ E1000 NAT. `VBoxManage.exe` jest uruchamiany przez `System.Diagnostics.Process`,
 dlatego normalne komunikaty progress `0%...100%` na stderr nie są traktowane
 jako PowerShell `NativeCommandError`.
 
-Smoke nie zalicza samego `kernel entry`. Wymaga wykrycia aktywnego AHCI i
-odrzuca log zawierający `[FATAL][INSTALL]`.
+Smoke nie zalicza samego `kernel entry`. Wymaga runtime proof storage: jawnego
+`active AHCI controllers >= 1` albo udanego `installer stage 1/9` z zapisem GPT
+na tymczasowy VDI. Odrzuca log zawierający `[FATAL][INSTALL]` lub wymagany test
+FAIL.
 
 Windows `build-media.ps1` uruchamia realny smoke domyślnie. Można go pominąć
 wyłącznie jawnie:
