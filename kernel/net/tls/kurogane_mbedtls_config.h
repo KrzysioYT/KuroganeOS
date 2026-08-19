@@ -30,10 +30,24 @@
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
-/* ssl.h evaluates this compatibility selector even when DTLS CID is disabled.
- * Define the standards-based value explicitly so freestanding -Wundef builds
- * remain warning-clean without enabling DTLS itself. */
+/*
+ * Mbed TLS 3.6.x ssl.h evaluates MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT with
+ * '#if MACRO == 0' even when MBEDTLS_SSL_DTLS_CONNECTION_ID itself is not
+ * enabled. A minimal custom configuration therefore has to give the selector
+ * an explicit value or every -Wundef build emits a diagnostic.
+ *
+ * KuroganeOS does not enable DTLS, and if DTLS CID is enabled in a later
+ * revision we want the RFC 9146 standards mode rather than the legacy
+ * compatibility mode. Keep this setting centralized here so Windows,
+ * macOS, Linux/WSL and CI all compile the exact same Mbed TLS configuration.
+ */
+#ifndef MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT
 #define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT 0
+#endif
+
+#if MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT != 0
+#error "KuroganeOS requires the standards-based Mbed TLS DTLS CID compatibility selector"
+#endif
 
 /* Mbed TLS debug.h includes <inttypes.h> solely to obtain PRId64 for its
  * millisecond timestamp formatter. KuroganeOS does not expose a hosted libc
@@ -65,8 +79,8 @@
 
 /*
  * Public root stores still contain trusted anchors whose *self-signature* uses
- * SHA-1.  Mbed TLS needs the SHA-1 implementation enabled merely to recognize
- * and parse those certificates.  This does NOT re-enable SHA-1 for Web-PKI
+ * SHA-1. Mbed TLS needs the SHA-1 implementation enabled merely to recognize
+ * and parse those certificates. This does NOT re-enable SHA-1 for Web-PKI
  * certificate-chain acceptance: mbedtls_x509_crt_profile_default continues to
  * allow only SHA-256/384/512 for verified chain signatures.
  */
