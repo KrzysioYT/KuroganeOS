@@ -58,6 +58,30 @@ function Invoke-VBox {
     return $output
 }
 
+function Invoke-VBoxCleanup {
+    param([Parameter(Mandatory = $true)][string[]]$Arguments)
+
+    # VBoxManage writes normal progress (for example 0%...100%) to stderr for
+    # operations such as unregistervm --delete. Windows PowerShell converts
+    # native stderr into ErrorRecord objects and $ErrorActionPreference='Stop'
+    # can therefore throw NativeCommandError even when VBoxManage exits 0.
+    # Cleanup is best-effort: suppress both streams and judge the native process
+    # only by its exit code. A cleanup problem must never overwrite the actual
+    # ISO boot qualification result.
+    $previousPreference = $ErrorActionPreference
+    $exitCode = -1
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        & $VBox @Arguments 1>$null 2>$null
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $exitCode = -1
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    return $exitCode
+}
+
 try {
     Invoke-VBox createvm --name $vm --ostype Other_64 --register *> $null
     $registered = $true
@@ -137,10 +161,17 @@ try {
     Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX BOOT: PASS'
 } finally {
     if ($started) {
-        & $VBox controlvm $vm poweroff *> $null
+        $null = Invoke-VBoxCleanup -Arguments @('controlvm', $vm, 'poweroff')
     }
     if ($registered) {
-        & $VBox unregistervm $vm --delete *> $null
+        # Give VBoxSVC a short moment to settle the powered-off machine before
+        # unregistering and deleting the temporary VDI. Retry only cleanup; the
+        # smoke result above remains authoritative.
+        for ($attempt = 0; $attempt -lt 3; ++$attempt) {
+            $cleanupExit = Invoke-VBoxCleanup -Arguments @('unregistervm', $vm, '--delete')
+            if ($cleanupExit -eq 0) { break }
+            Start-Sleep -Milliseconds 250
+        }
     }
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
