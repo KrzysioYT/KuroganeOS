@@ -88,6 +88,13 @@ bool strings_equal(const char* left, const char* right) {
     return left[index] == right[index];
 }
 
+char ascii_upper(char value) {
+    if (value >= 'a' && value <= 'z') {
+        return static_cast<char>(value - 'a' + 'A');
+    }
+    return value;
+}
+
 void u64_to_decimal(uint64_t value, char* output, size_t capacity) {
     if (output == nullptr || capacity < 2U) return;
     char reversed[32]{};
@@ -256,7 +263,7 @@ void draw_input_page(
     if (error != nullptr) {
         graphics::draw_text(x, 320, error, kDanger, kPanel, 1U, true);
     }
-    draw_footer("TYPE VALUE   BACKSPACE: ERASE   ENTER: CONTINUE");
+    draw_footer("TYPE VALUE   BACKSPACE: ERASE   ENTER: CONTINUE   ESC: BACK");
 }
 
 bool valid_username(const char* value) {
@@ -504,11 +511,41 @@ size_t choose_disk() {
 
 bool confirm_erase() {
     char confirmation[16]{};
-    return read_input(
-        "CONFIRM INSTALLATION",
-        "TYPE INSTALL TO ERASE THE SELECTED DISK",
-        confirmation, sizeof(confirmation), false, false) &&
-        strings_equal(confirmation, "INSTALL");
+    size_t length = 0U;
+    const char* error = nullptr;
+
+    for (;;) {
+        draw_input_page(
+            "CONFIRM INSTALLATION",
+            "TYPE INSTALL TO ERASE THE SELECTED DISK",
+            confirmation,
+            false,
+            error);
+        const auto event = wait_key();
+        error = nullptr;
+
+        if (event.key == drivers::keyboard::KeyCode::Escape) {
+            return false;
+        }
+        if (event.key == drivers::keyboard::KeyCode::Backspace) {
+            if (length != 0U) confirmation[--length] = '\0';
+            continue;
+        }
+        if (event.key == drivers::keyboard::KeyCode::Enter ||
+            event.key == drivers::keyboard::KeyCode::KeypadEnter) {
+            if (strings_equal(confirmation, "INSTALL")) {
+                return true;
+            }
+            error = "TYPE INSTALL EXACTLY OR ESC TO GO BACK";
+            continue;
+        }
+
+        const char ch = ascii_upper(event.character);
+        if (ch >= 0x20 && ch <= 0x7E && length + 1U < sizeof(confirmation)) {
+            confirmation[length++] = ch;
+            confirmation[length] = '\0';
+        }
+    }
 }
 
 void draw_complete(const InstallProfile& profile) {
@@ -612,14 +649,20 @@ void run_interactive(
         fail("PASSWORD SETUP CANCELLED");
     }
 
-    const size_t target_index = choose_disk();
-    const storage::block::Device* target =
-        storage::ahci::device_at(target_index);
-    if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
+    const storage::block::Device* target = nullptr;
+    for (;;) {
+        const size_t target_index = choose_disk();
+        target = storage::ahci::device_at(target_index);
+        if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
 
-    if (!confirm_erase()) {
+        if (confirm_erase()) {
+            terminal::println("[TEST] installer_confirmation: PASS");
+            break;
+        }
+
+        // Escape from the destructive confirmation is a normal, safe action.
+        // No partition table has been written yet; return to disk selection.
         terminal::println("[TEST] installer_cancel_safe: PASS");
-        fail("INSTALLATION CONFIRMATION DID NOT MATCH INSTALL");
     }
 
     draw_progress(1U, "TARGET CONFIRMED");
