@@ -78,13 +78,12 @@ foreach ($stale in @($LegacyQemuImage, $LegacyGenericIso)) {
     }
 }
 
-# A file is not allowed to carry the canonical 'virtualbox' release name on a
-# Windows build unless real Oracle VirtualBox EFI64 boots it to the kernel. The
-# escape hatch is explicit and intentionally noisy for build hosts which do not
-# have VirtualBox installed.
+# Full-install qualification intentionally waits beyond the old boot-only
+# budget. Stage 8 performs byte-for-byte readback through the production FAT32
+# and AHCI paths, so a real VirtualBox run may legitimately need more than 90s.
 if (-not $SkipVirtualBoxSmoke) {
-    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $VirtualBoxIso -TimeoutSeconds 90
-    if (-not $?) { throw 'Real Oracle VirtualBox ISO qualification failed.' }
+    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $VirtualBoxIso -TimeoutSeconds 180
+    if (-not $?) { throw 'Real Oracle VirtualBox full-install qualification failed.' }
 } else {
     Write-Warning 'VirtualBox real-boot qualification was explicitly skipped. ISO is NOT release-qualified.'
 }
@@ -111,7 +110,7 @@ Write-Host "[media-windows] QEMU-only IMG:       $QemuImage"
 Write-Host "[media-windows] VirtualBox-only ISO: $VirtualBoxIso"
 Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
 if (-not $SkipVirtualBoxSmoke) {
-    Write-Host '[media-windows] ISO real Oracle VirtualBox EFI64 boot: PASS'
+    Write-Host '[media-windows] ISO real Oracle VirtualBox full install: PASS'
 }
 Write-Host '[media-windows] no generic versioned .iso/.img aliases are published'
 Write-Host "[media-windows] checksums: $Checksums"
