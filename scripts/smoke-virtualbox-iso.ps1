@@ -2,8 +2,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Iso,
-    [ValidateRange(15, 180)]
-    [int]$TimeoutSeconds = 90
+    [ValidateRange(30, 300)]
+    [int]$TimeoutSeconds = 180
 )
 
 Set-StrictMode -Version Latest
@@ -160,12 +160,6 @@ try {
     Invoke-VBox modifyvm $vm --uart1 0x3F8 4 | Out-Null
     Invoke-VBox modifyvm $vm --uartmode1 file $serial | Out-Null
 
-    # Installer contract: blank target disk must be exposed through a real
-    # VirtualBox Intel AHCI controller. Keep the controller to exactly one
-    # implemented SATA port. VBoxManage otherwise defaults to a much larger
-    # port count; KuroganeOS deliberately polls implemented AHCI ports after
-    # reset and empty VBox ports can turn a boot smoke into a long false
-    # timeout. IDE remains reserved for optical media.
     Invoke-VBox createmedium disk --filename $disk --size 2048 --format VDI | Out-Null
     Invoke-VBox storagectl $vm --name SATA --add sata --controller IntelAHCI --portcount 1 | Out-Null
     Invoke-VBox storageattach $vm --storagectl SATA --port 0 --device 0 `
@@ -202,6 +196,7 @@ try {
     $booted = $false
     $storageReady = $false
     $storageProof = $null
+    $installerComplete = $false
     $fatal = $null
     do {
         Start-Sleep -Milliseconds 500
@@ -212,6 +207,11 @@ try {
                     $fatal = $Matches[0]
                     break
                 }
+                if ($text -match '\[TEST\] installer_complete: FAIL') {
+                    $tail = ($text -split "`r?`n" | Select-Object -Last 20) -join [Environment]::NewLine
+                    $fatal = "installer_complete: FAIL`n$tail"
+                    break
+                }
                 if ($text -match '\[TEST\] ALL_REQUIRED_TESTS_PASSED: FAIL') {
                     $fatal = '[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL'
                     break
@@ -219,27 +219,19 @@ try {
                 if ($text -match 'KuroganeOS kernel entry') {
                     $booted = $true
                 }
-
-                # Newer installer kernels expose explicit AHCI counters. Keep
-                # this as the preferred non-destructive proof when available.
                 if ($text -match '\[INFO\]\[AHCI\].*active AHCI controllers=([1-9][0-9]*)') {
                     $storageReady = $true
                     $storageProof = 'explicit kernel AHCI discovery'
                 }
-
-                # Older/current installer-mode images initialize AHCI before
-                # entering Red Flux Setup but do not print initialize_storage_probe()
-                # counters. Reaching stage 1 after confirmation is stronger
-                # runtime evidence than a counter: the installer selected the
-                # SATA block device and successfully wrote the primary/backup
-                # GPT to the temporary VDI through the AHCI block interface.
                 if ($text -match '\[TEST\] installer_confirmation: PASS' -and
                     $text -match 'installer stage 1/9: target confirmed and GPT written') {
                     $storageReady = $true
                     $storageProof = 'installer GPT write through SATA/AHCI'
                 }
-
-                if ($booted -and $storageReady) {
+                if ($text -match '\[TEST\] installer_complete: PASS') {
+                    $installerComplete = $true
+                }
+                if ($booted -and $storageReady -and $installerComplete) {
                     break
                 }
             }
@@ -247,14 +239,14 @@ try {
     } while ([DateTime]::UtcNow -lt $deadline)
 
     if ($null -ne $fatal) {
-        throw "VirtualBox ISO reached the kernel but failed installer qualification: $fatal"
+        throw "VirtualBox ISO reached the installer but failed qualification: $fatal"
     }
-    if (-not $booted -or -not $storageReady) {
+    if (-not $booted -or -not $storageReady -or -not $installerComplete) {
         $tail = ''
         if (Test-Path -LiteralPath $serial -PathType Leaf) {
-            $tail = (Get-Content -LiteralPath $serial -Tail 120) -join [Environment]::NewLine
+            $tail = (Get-Content -LiteralPath $serial -Tail 160) -join [Environment]::NewLine
         }
-        throw "VirtualBox EFI64 optical boot did not reach kernel + operational SATA/AHCI proof within $TimeoutSeconds seconds.`n$tail"
+        throw "VirtualBox EFI64 install did not reach installer_complete: PASS within $TimeoutSeconds seconds.`n$tail"
     }
 
     Write-Host "[virtualbox-smoke] ISO: $Iso"
@@ -263,7 +255,9 @@ try {
     Write-Host '[virtualbox-smoke] Intel AHCI target disk configuration: PASS'
     Write-Host '[virtualbox-smoke] BOOTX64.EFI -> kernel: PASS'
     Write-Host "[virtualbox-smoke] SATA/AHCI runtime proof: PASS ($storageProof)"
-    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX BOOT/STORAGE: PASS'
+    Write-Host '[virtualbox-smoke] full root + UEFI payload installation: PASS'
+    Write-Host '[virtualbox-smoke] installed payload verification: PASS'
+    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX FULL INSTALL: PASS'
 } finally {
     if ($started) {
         $null = Invoke-VBoxNative -Arguments @('controlvm', $vm, 'poweroff') -AllowFailure
