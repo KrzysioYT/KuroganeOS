@@ -20,7 +20,7 @@ Secure Boot:        OFF
 I/O APIC:           ON
 RAM:                2048 MiB
 CPU:                1-2
-Graphics:           VBoxSVGA, 64-128 MiB VRAM, 3D OFF
+Graphics:           VMSVGA, 128 MiB VRAM, 3D OFF
 HDD controller:     SATA / Intel AHCI
 SATA port count:    1 dla pojedynczego VDI
 HDD:                VDI >= 2 GiB, SATA 0:0
@@ -31,6 +31,7 @@ Network:            NAT
 NIC:                Intel PRO/1000 MT Desktop (82540EM)
 Audio:              Intel AC'97
 Keyboard/Mouse:     PS/2
+Serial:             COM1 0x3F8 IRQ4 -> file
 ```
 
 Canonical storage layout:
@@ -40,7 +41,7 @@ SATA / IntelAHCI (Port Count = 1)
 └── SATA 0:0 -> KuroganeOS.vdi
 
 IDE / PIIX4
-└── DVD -> KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+└── DVD -> KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso
 ```
 
 Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
@@ -51,19 +52,32 @@ wydłużyć polling linku i fałszować timeout automatycznej kwalifikacji.
 
 ## Automatyczne utworzenie VM — Windows
 
+Najprostszy pełny start:
+
 ```powershell
 .\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
     -Name "KuroganeOS-3.3.3-VB" `
-    -Nic e1000
+    -Nic e1000 `
+    -Start
 ```
 
-Helper tworzy EFI64, I/O APIC, jednoportowy IntelAHCI + VDI, IDE/PIIX4 + ISO,
-DVD-first boot i E1000/NAT.
+Helper tworzy EFI64, I/O APIC, `VMSVGA + 128 MiB`, jednoportowy IntelAHCI +
+VDI, IDE/PIIX4 + ISO, DVD-first boot, E1000/NAT oraz COM1 log.
+
+Bez `-Start` helper tylko tworzy i weryfikuje VM, a na końcu wypisuje dokładną
+komendę uruchomienia przez znaleziony `VBoxManage.exe`.
+
+Dla domyślnej lokalizacji VM serial znajduje się tutaj:
+
+```text
+%USERPROFILE%\VirtualBox VMs\<NAZWA_VM>\kurogane-serial.log
+```
 
 Windowsowe helpery rozwiązują ścieżki względem bieżącej lokalizacji PowerShell,
-a `VBoxManage.exe` jest uruchamiany bez polegania na PowerShellowym traktowaniu
-normalnego stderr `0%...100%` jako `NativeCommandError`.
+a `VBoxManage.exe` jest uruchamiany przez `System.Diagnostics.Process`, bez
+polegania na PowerShellowym traktowaniu normalnego stderr `0%...100%` jako
+`NativeCommandError`.
 
 ## Naprawa istniejącej VM
 
@@ -72,25 +86,42 @@ VM musi być całkowicie wyłączona, nie tylko zapisana w saved state.
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso"
 ```
 
-Helper wymusza EFI64 + DVD -> Disk, zapewnia IntelAHCI, może przenieść istniejący
-HDD z IDE na SATA 0:0 z próbą rollbacku i utrzymuje ISO jako IDE DVD. Nie usuwa
-zawartości VDI.
+Helper najpierw próbuje dokładnej nazwy. Jeżeli nie istnieje, pobiera
+`VBoxManage list vms`. Gdy `-Name` pasuje jako prefix do dokładnie jednej VM,
+wybierze ją i wypisze resolved name. Gdy pasuje kilka VM, zatrzyma się i poda
+listę zamiast zgadywać.
+
+Repair wymusza EFI64 + DVD -> Disk + VMSVGA, zapewnia IntelAHCI, może przenieść
+istniejący HDD z IDE na SATA 0:0 z próbą rollbacku, utrzymuje ISO jako IDE DVD
+i konfiguruje COM1 serial diagnostics. Nie usuwa zawartości VDI.
+
+Domyślny serial log naprawianej VM trafia do `%TEMP%` i jego pełna ścieżka jest
+wypisywana przez helper. Można podać własną:
+
+```powershell
+.\scripts\repair-virtualbox-boot.ps1 `
+    -Name "KuroganeOS-VB-Test" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
+    -SerialLog ".\state\runlogs\virtualbox-manual.log"
+```
 
 ## Konfiguracja ręczna
 
 1. `New` -> `Other / Other 64-bit`, bez unattended installation.
 2. RAM 2048 MiB, CPU 1-2.
 3. `System` -> EFI/UEFI ON, I/O APIC ON, Secure Boot OFF.
-4. `Storage` -> SATA Controller / Intel AHCI, `Port Count = 1`.
-5. VDI -> SATA Port 0.
-6. IDE Controller / PIIX4.
-7. Canonical VirtualBox ISO -> IDE DVD.
-8. Boot order `Optical -> Hard Disk`.
-9. Network -> NAT, Intel PRO/1000 MT Desktop (82540EM), Cable Connected.
-10. Audio -> Intel AC'97.
+4. `Display` -> VMSVGA, 128 MiB VRAM, 3D OFF.
+5. `Storage` -> SATA Controller / Intel AHCI, `Port Count = 1`.
+6. VDI -> SATA Port 0.
+7. IDE Controller / PIIX4.
+8. Canonical VirtualBox ISO -> IDE DVD.
+9. Boot order `Optical -> Hard Disk`.
+10. Network -> NAT, Intel PRO/1000 MT Desktop (82540EM), Cable Connected.
+11. Audio -> Intel AC'97.
+12. Opcjonalnie COM1: `0x3F8`, IRQ4, file output.
 
 ## Co oznacza wejście do Red Flux Setup
 
@@ -158,6 +189,22 @@ Bieżąca kolejność publikuje UEFI payload dopiero po skopiowaniu i
 zsynchronizowaniu ROOT. Dzięki temu niekompletna instalacja nie jest celowo
 aktywowanym boot targetem przed trwałym root payloadem.
 
+### Szybka, nadal pełna weryfikacja
+
+Stage 8 nadal robi byte-for-byte readback całego payloadu. Starszy kod używał
+4 KiB okna. Ponieważ każdy `fat32::read(path, offset, ...)` zaczyna traversing
+łańcucha pliku od początku, było to szczególnie kosztowne na ESP z klastrem
+512 B i mogło zatrzymywać realny VirtualBox smoke na stage 7/8 przez ponad 90 s.
+
+Bieżący installer używa bounded 1 MiB readback window, dzięki czemu zachowuje
+pełną weryfikację danych, ale radykalnie ogranicza ponowne przechodzenie FAT.
+Dodatkowo serial pokazuje każdy weryfikowany plik:
+
+```text
+[INSTALL][VERIFY] file=... destination=ROOT path=... bytes=...
+[INSTALL][VERIFY] PASS path=...
+```
+
 ### Diagnostyka kopiowania
 
 Serial log przy błędzie podaje np.:
@@ -181,6 +228,8 @@ installer stage 4/9: fresh filesystems mounted
 installer stage 5/9: root payload copied and synced
 installer stage 6/9: profile and first-boot state committed
 installer stage 7/9: UEFI payload activated and synced
+[INSTALL][VERIFY] file=...
+[INSTALL][VERIFY] PASS path=...
 installer stage 8/9: installed payload verified
 [TEST] installer_gpt: PASS
 [TEST] installer_filesystems: PASS
@@ -196,14 +245,19 @@ installer stage 9/9: installation complete
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso" `
     -TimeoutSeconds 180
 ```
+
+`TimeoutSeconds` jest teraz **limitem braku postępu**, a nie jednym zegarem od
+startu VM. Nowy serial output resetuje idle deadline. Jednocześnie smoke ma
+twardy całkowity limit, więc prawdziwy hang nadal kończy się FAIL.
 
 Smoke tworzy prawdziwą tymczasową VM:
 
 ```text
 EFI64
+VMSVGA / 128 MiB
 1 x SATA/IntelAHCI port
 2 GiB VDI @ SATA 0:0
 IDE/PIIX4 DVD
@@ -211,16 +265,12 @@ E1000/NAT
 COM1 serial log
 ```
 
-Kwalifikacja **nie kończy się już na `kernel entry` ani `GPT written`**. Finalny
+Kwalifikacja **nie kończy się na `kernel entry` ani `GPT written`**. Finalny
 PASS wymaga:
 
 ```text
 [TEST] installer_complete: PASS
 ```
-
-Dzięki temu package copy, format, mount, nested-directory deployment, UEFI
-activation i byte-for-byte verification są częścią realnego Windows/VirtualBox
-release gate.
 
 Oczekiwane zakończenie:
 
@@ -239,7 +289,7 @@ Oczekiwane zakończenie:
 
 ```bash
 bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso \
+  ./dist/KuroganeOS-3.3.3-dev-virtualbox_x86_64.iso \
   --passes 20
 ```
 
@@ -247,6 +297,37 @@ Statyczny verifier sprawdza strukturę EFI/El Torito/GPT/ESP. Nie zastępuje
 pełnego runtime smoke.
 
 ## Diagnostyka
+
+### Czarny ekran po utworzeniu VM
+
+Najpierw upewnij się, że używasz bieżącego helpera. Referencyjna konfiguracja to
+`VMSVGA + 128 MiB`, a nie starsze wymuszane `VBoxSVGA`.
+
+Dla VM utworzonej helperem sprawdź serial bez zgadywania:
+
+```powershell
+Get-Content "$HOME\VirtualBox VMs\KuroganeOS-3.3.3-VB\kurogane-serial.log" -Tail 100
+```
+
+Interpretacja:
+
+```text
+serial pusty
+  -> VM nie dotarła do loadera/kernela; sprawdź ISO/EFI/boot order
+
+KuroganeOS loader ... / kernel entry
+  -> boot działa; problem dotyczy widocznego framebuffer/GOP
+
+[SETUP] KuroganeOS ...
+  -> system jest już w installerze nawet jeśli GUI pozostaje czarne
+```
+
+### `Unable to inspect VirtualBox VM`
+
+Bieżący repair helper pokazuje stderr `VBoxManage` i zarejestrowane nazwy VM.
+Jeżeli `-Name "KuroganeOS"` pasuje jednoznacznie np. do
+`KuroganeOS-VB-Test`, helper rozwiąże prefix automatycznie. Przy kilku
+kandydatach poda listę i poprosi o dokładną nazwę.
 
 ### `No bootable medium`
 
@@ -278,6 +359,19 @@ ISO -> IDE / PIIX4 DVD
 Jeżeli widzisz wyłącznie ten stary komunikat bez `[INSTALL][COPY] ...` w serial
 logu, VM używa ISO sprzed transactional installer fix. Wykonaj pełny rebuild i
 podepnij świeży canonical ISO.
+
+### Timeout po `installer stage 7/9`
+
+Jeżeli serial zatrzymuje się po:
+
+```text
+installer stage 7/9: UEFI payload activated and synced
+```
+
+na starym buildzie, problemem był koszt stage 8 verification. Na bieżącym
+buildzie powinny zaraz pojawić się linie `[INSTALL][VERIFY] ...`. Jeżeli jedna
+konkretna ścieżka nie przechodzi przez cały idle timeout, właśnie ten plik lub
+jego FAT chain jest punktem dalszej diagnostyki.
 
 ### Setup po restarcie
 
