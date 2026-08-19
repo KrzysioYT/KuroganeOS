@@ -27,6 +27,7 @@ RAM:                2048 MiB zalecane
 CPU:                1-2
 Graphics:           VBoxSVGA, 64-128 MiB VRAM, 3D OFF
 HDD controller:     SATA / Intel AHCI
+SATA port count:    1 dla pojedynczego VDI
 HDD:                pusty VDI, >= 2 GiB
 Optical controller: IDE / PIIX4
 DVD:                KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
@@ -40,15 +41,21 @@ Keyboard/Mouse:     PS/2
 Najważniejsza zasada storage:
 
 ```text
-SATA / IntelAHCI
-└── KuroganeOS.vdi
+SATA / IntelAHCI (1 port dla pojedynczego dysku)
+└── SATA 0:0 -> KuroganeOS.vdi
 
 IDE / PIIX4
-└── KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+└── DVD -> KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 ```
 
 **Nie podpinaj dysku instalacyjnego VDI jako IDE.** Installer 3.3.3-dev zapisuje
 system przez własny sterownik PCI AHCI i wymaga wykrytego kontrolera Intel AHCI.
+
+Przy pojedynczym dysku ustaw `Port Count = 1`. VirtualBox potrafi utworzyć
+kontroler AHCI z dużą liczbą zaimplementowanych, ale pustych portów. Sterownik
+KuroganeOS po resecie HBA sonduje każdy port oznaczony jako implemented, więc
+niepotrzebnie wysoki `Port Count` może znacznie wydłużyć start lub spowodować
+fałszywy timeout automatycznego smoke-testu.
 
 ## Tworzenie nowej VM automatycznie — Windows
 
@@ -66,9 +73,15 @@ Helper tworzy:
 - firmware EFI64;
 - I/O APIC;
 - HDD na SATA / IntelAHCI;
+- pojedynczy port SATA dla pojedynczego VDI;
 - ISO jako DVD na IDE / PIIX4;
 - boot order DVD -> Disk;
 - E1000 82540EM + NAT.
+
+Windowsowy helper rozwiązuje ścieżki względem bieżącej lokalizacji PowerShell,
+a nie katalogu procesu Windows, i uruchamia `VBoxManage.exe` przez
+`System.Diagnostics.Process`. Normalny progress VirtualBox `0%...100%` na
+stderr nie jest dzięki temu traktowany jako `NativeCommandError`.
 
 ## Naprawa istniejącej VM — Windows
 
@@ -91,7 +104,9 @@ Aktualny helper:
 5. utrzymuje ISO jako optyczny napęd IDE;
 6. przed PASS sprawdza obecność IntelAHCI i dysku SATA.
 
-Helper nie usuwa zawartości wirtualnego dysku.
+Helper nie usuwa zawartości wirtualnego dysku. Istniejącego kontrolera SATA z
+wieloma używanymi portami nie zwęża automatycznie, ponieważ mogłoby to odłączyć
+inne dyski użytkownika.
 
 ## Konfiguracja ręczna w GUI
 
@@ -100,13 +115,14 @@ Helper nie usuwa zawartości wirtualnego dysku.
 3. `Settings -> System` -> włącz EFI/UEFI oraz I/O APIC.
 4. Secure Boot pozostaw wyłączony.
 5. `Settings -> Storage` -> dodaj `SATA Controller` typu `AHCI`.
-6. Podepnij pusty VDI jako `SATA Port 0`.
-7. Dodaj `IDE Controller / PIIX4`.
-8. Podepnij `KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso` jako napęd DVD.
-9. Ustaw boot order `Optical -> Hard Disk`.
-10. `Network -> Adapter 1`: NAT, Intel PRO/1000 MT Desktop (82540EM), Cable Connected.
-11. Audio: Intel AC'97.
-12. Uruchom VM.
+6. Dla pojedynczego VDI ustaw `Port Count = 1`.
+7. Podepnij pusty VDI jako `SATA Port 0`.
+8. Dodaj `IDE Controller / PIIX4`.
+9. Podepnij `KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso` jako napęd DVD.
+10. Ustaw boot order `Optical -> Hard Disk`.
+11. `Network -> Adapter 1`: NAT, Intel PRO/1000 MT Desktop (82540EM), Cable Connected.
+12. Audio: Intel AC'97.
+13. Uruchom VM.
 
 ## Oczekiwany boot ISO
 
@@ -197,6 +213,23 @@ Po poprawnym wykryciu kernel powinien pokazać m.in.:
 [INFO][AHCI][CPU0][KERNEL] active AHCI controllers=1
 ```
 
+### Smoke zatrzymuje się po `Intel ICH AC97 PCM output ready`
+
+Jeżeli realny VirtualBox smoke uruchamia loader/kernel, ale przez 90 sekund nie
+pojawia się `active AHCI controllers=1`, sprawdź liczbę portów SATA. Dla jednej
+maszyny testowej z jednym VDI użyj:
+
+```text
+Controller: IntelAHCI
+Port Count: 1
+VDI:        SATA 0:0
+```
+
+Starszy helper CLI tworzył kontroler bez jawnego `--portcount`, co mogło
+wystawić wiele pustych portów. Kernel sonduje porty zaimplementowane przez HBA,
+więc taki profil mógł wyglądać jak zawieszenie AHCI mimo poprawnego ISO.
+Bieżące helpery i smoke-test tworzą kontroler z `--portcount 1`.
+
 ### `INSTALLATION CONFIRMATION DID NOT MATCH INSTALL`
 
 Ten fatalny flow dotyczył starszego instalatora 3.3.3-dev. Bieżący installer
@@ -236,12 +269,12 @@ Na Windows realny smoke Oracle VirtualBox:
     -TimeoutSeconds 90
 ```
 
-Smoke tworzy tymczasową VM z EFI64, SATA/IntelAHCI, IDE DVD i E1000 NAT.
-`VBoxManage.exe` jest uruchamiany przez `System.Diagnostics.Process`, dlatego
-normalne komunikaty progress `0%...100%` na stderr nie są traktowane jako
-PowerShell `NativeCommandError`.
+Smoke tworzy tymczasową VM z EFI64, **jednoportowym SATA/IntelAHCI**, IDE DVD i
+E1000 NAT. `VBoxManage.exe` jest uruchamiany przez `System.Diagnostics.Process`,
+dlatego normalne komunikaty progress `0%...100%` na stderr nie są traktowane
+jako PowerShell `NativeCommandError`.
 
-Smoke nie zalicza już samego `kernel entry`. Wymaga wykrycia aktywnego AHCI i
+Smoke nie zalicza samego `kernel entry`. Wymaga wykrycia aktywnego AHCI i
 odrzuca log zawierający `[FATAL][INSTALL]`.
 
 Windows `build-media.ps1` uruchamia realny smoke domyślnie. Można go pominąć
