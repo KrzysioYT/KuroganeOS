@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Name,
-    [string]$Iso
+    [string]$Iso,
+    [string]$SerialLog
 )
 
 Set-StrictMode -Version Latest
@@ -230,12 +231,27 @@ if (-not [string]::IsNullOrWhiteSpace($Iso)) {
     }
 }
 
+if ([string]::IsNullOrWhiteSpace($SerialLog)) {
+    $safeName = $Name -replace '[^A-Za-z0-9._-]', '_'
+    $SerialLog = Join-Path ([System.IO.Path]::GetTempPath()) "KuroganeOS-$safeName-serial.log"
+} else {
+    $SerialLog = Get-KuroganeFileSystemPath -Path $SerialLog
+}
+$serialDirectory = [System.IO.Path]::GetDirectoryName($SerialLog)
+if (-not [string]::IsNullOrWhiteSpace($serialDirectory)) {
+    [System.IO.Directory]::CreateDirectory($serialDirectory) | Out-Null
+}
+if (Test-Path -LiteralPath $SerialLog -PathType Leaf) {
+    Remove-Item -LiteralPath $SerialLog -Force
+}
+
 Write-Host "[virtualbox-repair] VM: $Name"
 Write-Host "[virtualbox-repair] VBoxManage: $VBox"
 Write-Host '[virtualbox-repair] enforcing KuroganeOS VirtualBox contract: EFI64 + AHCI HDD + IDE DVD'
 if ($null -ne $IsoPath) {
     Write-Host "[virtualbox-repair] ISO: $IsoPath"
 }
+Write-Host "[virtualbox-repair] serial log: $SerialLog"
 
 $null = Invoke-VBoxChecked -Arguments @(
     'modifyvm', $Name,
@@ -248,6 +264,13 @@ $null = Invoke-VBoxChecked -Arguments @(
     '--graphicscontroller', 'vmsvga',
     '--vram', '128'
 ) -FailureMessage 'Failed to switch the VM to the supported EFI64/DVD-first profile.'
+
+$null = Invoke-VBoxChecked -Arguments @(
+    'modifyvm', $Name, '--uart1', '0x3F8', '4'
+) -FailureMessage 'Failed to enable COM1 serial diagnostics.'
+$null = Invoke-VBoxChecked -Arguments @(
+    'modifyvm', $Name, '--uartmode1', 'file', $SerialLog
+) -FailureMessage 'Failed to route COM1 to the serial log file.'
 
 $freshInfo = Get-VmInfo -VmName $Name
 $sataController = $freshInfo |
@@ -390,7 +413,10 @@ $boot1 = $finalInfo | Where-Object { $_ -like 'boot1=*' } | Select-Object -First
 $boot2 = $finalInfo | Where-Object { $_ -like 'boot2=*' } | Select-Object -First 1
 $graphics = $finalInfo | Where-Object { $_ -like 'graphicscontroller=*' } | Select-Object -First 1
 $ahciPresent = $finalText -match 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"'
-$sataDiskPresent = $finalText -match '^"SATA-\d+-\d+"=".+"$'
+$sataDiskPresent = @($finalInfo | Where-Object {
+    $_ -match '^"SATA-\d+-\d+"=".+"$' -and
+    $_ -notmatch '="(none|emptydrive)"$'
+}).Count -gt 0
 
 if ($firmware -ne 'firmware="EFI64"' -or
     $boot1 -ne 'boot1="dvd"' -or
@@ -412,5 +438,6 @@ Write-Host '[virtualbox-repair] SATA/IntelAHCI HDD: PASS'
 if ($null -ne $IsoPath) {
     Write-Host '[virtualbox-repair] IDE optical ISO: PASS'
 }
+Write-Host "[virtualbox-repair] COM1 serial diagnostics: $SerialLog"
 Write-Host '[virtualbox-repair] PASS: supported KuroganeOS VirtualBox boot/install profile applied.'
 Write-Host "[virtualbox-repair] Start with: & `"$VBox`" startvm `"$Name`" --type gui"
