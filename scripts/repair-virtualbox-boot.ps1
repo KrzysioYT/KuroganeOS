@@ -8,16 +8,23 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$VBoxManage = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
-if ($null -eq $VBoxManage) {
+$VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
+if ($null -ne $VBoxCommand) {
+    # Get-Command returns ApplicationInfo for an executable. Use Path directly;
+    # unlike Source, this is the canonical executable path on Windows PowerShell
+    # and PowerShell 7.
+    $VBox = $VBoxCommand.Path
+} else {
     $candidate = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
     if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $VBoxManage = Get-Item -LiteralPath $candidate
+        # Keep the fallback as a plain path string. Get-Item would return a
+        # FileInfo object, which has FullName but no Source property under
+        # Set-StrictMode and caused the repair helper to abort before VBox ran.
+        $VBox = [System.IO.Path]::GetFullPath($candidate)
     } else {
         throw 'VBoxManage.exe was not found. Install Oracle VirtualBox first.'
     }
 }
-$VBox = $VBoxManage.Source
 
 $info = & $VBox showvminfo $Name --machinereadable 2>&1
 if ($LASTEXITCODE -ne 0) {
@@ -30,6 +37,7 @@ if ($stateLine -match '^VMState="([^"]+)"$' -and $Matches[1] -notin @('poweroff'
 }
 
 Write-Host "[virtualbox-repair] VM: $Name"
+Write-Host "[virtualbox-repair] VBoxManage: $VBox"
 Write-Host '[virtualbox-repair] enforcing KuroganeOS x86-64 UEFI boot profile'
 
 & $VBox modifyvm $Name `
