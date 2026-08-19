@@ -52,8 +52,8 @@ CFLAGS=(
 
 # Verify the finalized configuration rather than fighting Mbed TLS' own
 # config-adjust pass. KuroganeOS is stream TLS only, uses no DTLS CID mode,
-# avoids compiler-runtime double-width division, and intentionally excludes
-# legacy SHA-1 from this first Web-PKI profile.
+# avoids compiler-runtime double-width division and requires SHA-384 because
+# the bundled GTS Web-PKI trust anchors are signed with SHA-384.
 cat > "$OUT_DIR/config_header_probe.c" <<'EOF'
 #include <mbedtls/build_info.h>
 #include <mbedtls/ssl.h>
@@ -71,6 +71,12 @@ cat > "$OUT_DIR/config_header_probe.c" <<'EOF'
 #endif
 #if defined(MBEDTLS_SHA1_C)
 #error "KuroganeOS first Web-PKI profile must not link legacy SHA-1"
+#endif
+#if !defined(MBEDTLS_SHA384_C)
+#error "KuroganeOS Web-PKI profile must enable SHA-384"
+#endif
+#if !defined(MBEDTLS_MD_CAN_SHA384)
+#error "Mbed TLS finalized config cannot parse SHA-384 certificate signatures"
 #endif
 int kurogane_mbedtls_config_header_probe(void) { return 0; }
 EOF
