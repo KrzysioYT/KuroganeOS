@@ -6,7 +6,7 @@ usage() {
 usage: ./scripts/create-virtualbox-vm.sh --iso FILE [--name NAME] [--disk FILE] [--disk-size MB] [--nic e1000|virtio|pcnet]
 
 Creates a reference KuroganeOS x86-64 VirtualBox VM:
-  EFI64, 1 GiB RAM, SATA/AHCI disk, ISO DVD, NAT, AC97, PS/2 input.
+  EFI64, 1 GiB RAM, single-port SATA/AHCI disk, ISO DVD, NAT, AC97, PS/2 input.
 The default NIC remains E1000 for compatibility; VirtIO and PCnet can be selected.
 EOF
     exit 2
@@ -91,7 +91,10 @@ if [[ ! -f "$disk" ]]; then
     VBoxManage createmedium disk --filename "$disk" \
         --size "$disk_size" --format VDI >/dev/null
 fi
-VBoxManage storagectl "$name" --name "SATA" --add sata --controller IntelAHCI >/dev/null
+# A single-disk KuroganeOS VM only needs one implemented AHCI port. Keeping the
+# VirtualBox controller bounded avoids spending boot time probing empty ports.
+VBoxManage storagectl "$name" --name "SATA" --add sata \
+    --controller IntelAHCI --portcount 1 >/dev/null
 VBoxManage storageattach "$name" --storagectl "SATA" --port 0 --device 0 \
     --type hdd --medium "$disk" >/dev/null
 VBoxManage storagectl "$name" --name "IDE" --add ide --controller PIIX4 >/dev/null
@@ -108,5 +111,6 @@ echo "Created VirtualBox VM: $name"
 echo "ISO: $iso"
 echo "Disk: $disk"
 echo "NIC: $nic ($nic_type), NAT"
+echo "Storage: IntelAHCI/SATA port 0 -> VDI; IDE/PIIX4 -> ISO DVD"
 echo "Firmware: EFI64; Boot order: DVD -> Disk"
 echo "Start with: VBoxManage startvm \"$name\""
