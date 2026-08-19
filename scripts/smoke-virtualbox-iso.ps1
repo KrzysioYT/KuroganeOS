@@ -29,24 +29,24 @@ function ConvertTo-WindowsCommandLineArgument {
     [void]$builder.Append('"')
     $backslashes = 0
     foreach ($character in $Value.ToCharArray()) {
-        if ($character -eq '\\') {
+        if ($character -eq '\') {
             ++$backslashes
             continue
         }
         if ($character -eq '"') {
-            [void]$builder.Append(('\\' * ($backslashes * 2 + 1)))
+            [void]$builder.Append(('\' * ($backslashes * 2 + 1)))
             [void]$builder.Append('"')
             $backslashes = 0
             continue
         }
         if ($backslashes -gt 0) {
-            [void]$builder.Append(('\\' * $backslashes))
+            [void]$builder.Append(('\' * $backslashes))
             $backslashes = 0
         }
         [void]$builder.Append($character)
     }
     if ($backslashes -gt 0) {
-        [void]$builder.Append(('\\' * ($backslashes * 2)))
+        [void]$builder.Append(('\' * ($backslashes * 2)))
     }
     [void]$builder.Append('"')
     return $builder.ToString()
@@ -161,9 +161,13 @@ try {
     Invoke-VBox modifyvm $vm --uartmode1 file $serial | Out-Null
 
     # Installer contract: blank target disk must be exposed through a real
-    # VirtualBox Intel AHCI controller. IDE is reserved for optical media.
+    # VirtualBox Intel AHCI controller. Keep the controller to exactly one
+    # implemented SATA port. VBoxManage otherwise defaults to a much larger
+    # port count; KuroganeOS deliberately polls implemented AHCI ports after
+    # reset and empty VBox ports can turn a boot smoke into a long false
+    # timeout. IDE remains reserved for optical media.
     Invoke-VBox createmedium disk --filename $disk --size 2048 --format VDI | Out-Null
-    Invoke-VBox storagectl $vm --name SATA --add sata --controller IntelAHCI | Out-Null
+    Invoke-VBox storagectl $vm --name SATA --add sata --controller IntelAHCI --portcount 1 | Out-Null
     Invoke-VBox storageattach $vm --storagectl SATA --port 0 --device 0 `
         --type hdd --medium $disk | Out-Null
     Invoke-VBox storagectl $vm --name IDE --add ide --controller PIIX4 | Out-Null
