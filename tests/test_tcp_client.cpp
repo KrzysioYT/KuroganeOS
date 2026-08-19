@@ -236,13 +236,13 @@ int main() {
     const net::TcpSegment later = make_peer_segment(
         base + static_cast<uint32_t>(sizeof(first_half)),
         reorder_client.send_next,
-        TcpAck | TcpPsh,
+        net::TcpAck | net::TcpPsh,
         second_half,
         sizeof(second_half));
     const net::TcpSegment earlier = make_peer_segment(
         base,
         reorder_client.send_next,
-        TcpAck | TcpPsh,
+        net::TcpAck | net::TcpPsh,
         first_half,
         sizeof(first_half));
     if (!enqueue_inbound(later) || !enqueue_inbound(earlier)) return 6;
