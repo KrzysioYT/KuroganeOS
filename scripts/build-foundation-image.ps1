@@ -16,6 +16,12 @@ if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
 }
 . $WslBridge
 
+# Git installations with core.autocrlf=true can leave an already-existing
+# Windows worktree with CRLF shell scripts even after the repository starts
+# enforcing eol=lf. Repair the scripts before Bash reads them. This changes
+# line endings only and converges the worktree to the canonical Git form.
+Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
+
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $OutputPath = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 }
