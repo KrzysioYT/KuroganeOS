@@ -7,9 +7,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# kernel/net/service.cpp keeps a bounded NUL-terminated PEM cache. Leave one
-# byte for the terminator and never silently truncate a trust anchor bundle.
-$MaximumBundleBytes = 512KB - 1
+# kernel/net/service.cpp loads the NUL-terminated PEM bundle dynamically for
+# HTTPS requests. Keep a hard upper bound so a damaged or unexpectedly large
+# host trust store cannot consume unbounded kernel heap. Leave one byte for the
+# terminator and never silently truncate trusted roots.
+$MaximumBundleBytes = 2MB - 1
 $ServerAuthenticationOid = '1.3.6.1.5.5.7.3.1'
 $AnyExtendedKeyUsageOid = '2.5.29.37.0'
 
@@ -181,7 +183,7 @@ if ($length -lt 4096) {
     throw "Generated Windows trust bundle is unexpectedly small: $length bytes"
 }
 if ($length -gt $MaximumBundleBytes) {
-    throw ("Filtered Windows TLS trust bundle is still too large for the current kernel budget: " +
+    throw ("Filtered Windows TLS trust bundle exceeds the bounded kernel TLS input budget: " +
         "$length bytes > $MaximumBundleBytes bytes. Refusing to silently truncate trust roots.")
 }
 
