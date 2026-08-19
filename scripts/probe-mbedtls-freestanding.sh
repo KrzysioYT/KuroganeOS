@@ -32,7 +32,7 @@ COMPILER_INCLUDE_DIR="$($CC_BIN -print-file-name=include)"
 }
 
 CFLAGS=(
-    -std=c11 -O2 -Wall -Wextra -Wpedantic
+    -std=c11 -O2 -Wall -Wextra -Wpedantic -Wundef -Werror=undef
     -Werror=implicit-function-declaration
     -ffreestanding -fno-builtin -fno-stack-protector
     -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
@@ -44,6 +44,27 @@ CFLAGS=(
     -I"$MBEDTLS_DIR/library"
     '-DMBEDTLS_CONFIG_FILE="kurogane_mbedtls_config.h"'
 )
+
+# First compile a minimal public-header translation unit. This catches custom
+# configuration selectors that Mbed TLS headers evaluate numerically (rather
+# than with defined(...)) before the larger source-profile build can hide the
+# issue among unrelated diagnostics.
+cat > "$OUT_DIR/config_header_probe.c" <<'EOF'
+#include <mbedtls/ssl.h>
+#if !defined(MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT)
+#error "Kurogane Mbed TLS config did not define the DTLS CID compatibility selector"
+#endif
+#if MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT != 0
+#error "Kurogane Mbed TLS config selected a non-standard DTLS CID compatibility mode"
+#endif
+int kurogane_mbedtls_config_header_probe(void) { return 0; }
+EOF
+
+"$CC_BIN" "${CFLAGS[@]}" -c \
+    "$OUT_DIR/config_header_probe.c" \
+    -o "$OUT_DIR/config_header_probe.o"
+
+echo "[mbedtls-probe] public ssl.h + custom config: PASS"
 
 # Compile the exact modules required by the first HTTPS client profile. This is
 # deliberately a compile-only probe: Kurogane platform allocation, entropy,
