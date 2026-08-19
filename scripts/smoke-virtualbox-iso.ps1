@@ -200,7 +200,8 @@ try {
 
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $booted = $false
-    $ahciReady = $false
+    $storageReady = $false
+    $storageProof = $null
     $fatal = $null
     do {
         Start-Sleep -Milliseconds 500
@@ -218,10 +219,27 @@ try {
                 if ($text -match 'KuroganeOS kernel entry') {
                     $booted = $true
                 }
+
+                # Newer installer kernels expose explicit AHCI counters. Keep
+                # this as the preferred non-destructive proof when available.
                 if ($text -match '\[INFO\]\[AHCI\].*active AHCI controllers=([1-9][0-9]*)') {
-                    $ahciReady = $true
+                    $storageReady = $true
+                    $storageProof = 'explicit kernel AHCI discovery'
                 }
-                if ($booted -and $ahciReady) {
+
+                # Older/current installer-mode images initialize AHCI before
+                # entering Red Flux Setup but do not print initialize_storage_probe()
+                # counters. Reaching stage 1 after confirmation is stronger
+                # runtime evidence than a counter: the installer selected the
+                # SATA block device and successfully wrote the primary/backup
+                # GPT to the temporary VDI through the AHCI block interface.
+                if ($text -match '\[TEST\] installer_confirmation: PASS' -and
+                    $text -match 'installer stage 1/9: target confirmed and GPT written') {
+                    $storageReady = $true
+                    $storageProof = 'installer GPT write through SATA/AHCI'
+                }
+
+                if ($booted -and $storageReady) {
                     break
                 }
             }
@@ -231,21 +249,21 @@ try {
     if ($null -ne $fatal) {
         throw "VirtualBox ISO reached the kernel but failed installer qualification: $fatal"
     }
-    if (-not $booted -or -not $ahciReady) {
+    if (-not $booted -or -not $storageReady) {
         $tail = ''
         if (Test-Path -LiteralPath $serial -PathType Leaf) {
             $tail = (Get-Content -LiteralPath $serial -Tail 120) -join [Environment]::NewLine
         }
-        throw "VirtualBox EFI64 optical boot did not reach kernel + active AHCI within $TimeoutSeconds seconds.`n$tail"
+        throw "VirtualBox EFI64 optical boot did not reach kernel + operational SATA/AHCI proof within $TimeoutSeconds seconds.`n$tail"
     }
 
     Write-Host "[virtualbox-smoke] ISO: $Iso"
     Write-Host '[virtualbox-smoke] firmware EFI64: PASS'
     Write-Host '[virtualbox-smoke] DVD-first optical attachment: PASS'
-    Write-Host '[virtualbox-smoke] Intel AHCI target disk: PASS'
+    Write-Host '[virtualbox-smoke] Intel AHCI target disk configuration: PASS'
     Write-Host '[virtualbox-smoke] BOOTX64.EFI -> kernel: PASS'
-    Write-Host '[virtualbox-smoke] kernel AHCI discovery: PASS'
-    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX BOOT: PASS'
+    Write-Host "[virtualbox-smoke] SATA/AHCI runtime proof: PASS ($storageProof)"
+    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX BOOT/STORAGE: PASS'
 } finally {
     if ($started) {
         $null = Invoke-VBoxNative -Arguments @('controlvm', $vm, 'poweroff') -AllowFailure
