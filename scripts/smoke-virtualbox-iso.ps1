@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Iso,
-    [ValidateRange(30, 300)]
+    [ValidateRange(30, 600)]
     [int]$TimeoutSeconds = 180
 )
 
@@ -122,7 +122,7 @@ $Iso = Resolve-KuroganePath -Path $Iso
 if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
     throw "ISO not found: $Iso"
 }
-if ([System.IO.Path]::GetExtension($Iso) -ne '.iso') {
+if ([System.IO.Path]::GetExtension($Iso).ToLowerInvariant() -ne '.iso') {
     throw "VirtualBox smoke requires an .iso optical image: $Iso"
 }
 if ((Get-Item -LiteralPath $Iso).Length -le 0) {
@@ -145,7 +145,7 @@ try {
     Invoke-VBox modifyvm $vm `
         --memory 2048 --cpus 1 --firmware efi64 --ioapic on `
         --boot1 dvd --boot2 disk --boot3 none --boot4 none `
-        --graphicscontroller vboxsvga --vram 64 `
+        --graphicscontroller vmsvga --vram 128 `
         --keyboard ps2 --mouse ps2 | Out-Null
 
     $networkResult = Invoke-VBoxNative -Arguments @(
@@ -192,7 +192,15 @@ try {
     Invoke-VBox startvm $vm --type headless | Out-Null
     $started = $true
 
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    # TimeoutSeconds is an inactivity budget, not a single wall-clock budget.
+    # Full byte-for-byte verification can legitimately take longer than boot,
+    # but any new serial output proves the installer is still making progress.
+    $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $hardBudgetSeconds = [Math]::Max(600, $TimeoutSeconds * 4)
+    $hardDeadline = [DateTime]::UtcNow.AddSeconds($hardBudgetSeconds)
+    $lastSerialLength = 0
+    $lastProgressLine = '<no installer serial output yet>'
+
     $booted = $false
     $storageReady = $false
     $storageProof = $null
@@ -203,12 +211,27 @@ try {
         if (Test-Path -LiteralPath $serial -PathType Leaf) {
             $text = Get-Content -LiteralPath $serial -Raw -ErrorAction SilentlyContinue
             if ($null -ne $text) {
+                if ($text.Length -gt $lastSerialLength) {
+                    $lastSerialLength = $text.Length
+                    $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+                    $progress = $text -split "`r?`n" |
+                        Where-Object {
+                            $_ -match '^installer stage ' -or
+                            $_ -match '^\[INSTALL\]\[VERIFY\]' -or
+                            $_ -match '^\[TEST\] installer_'
+                        } |
+                        Select-Object -Last 1
+                    if (-not [string]::IsNullOrWhiteSpace($progress)) {
+                        $lastProgressLine = $progress
+                    }
+                }
+
                 if ($text -match '\[FATAL\]\[INSTALL\].*') {
                     $fatal = $Matches[0]
                     break
                 }
                 if ($text -match '\[TEST\] installer_complete: FAIL') {
-                    $tail = ($text -split "`r?`n" | Select-Object -Last 20) -join [Environment]::NewLine
+                    $tail = ($text -split "`r?`n" | Select-Object -Last 30) -join [Environment]::NewLine
                     $fatal = "installer_complete: FAIL`n$tail"
                     break
                 }
@@ -236,7 +259,8 @@ try {
                 }
             }
         }
-    } while ([DateTime]::UtcNow -lt $deadline)
+    } while ([DateTime]::UtcNow -lt $idleDeadline -and
+             [DateTime]::UtcNow -lt $hardDeadline)
 
     if ($null -ne $fatal) {
         throw "VirtualBox ISO reached the installer but failed qualification: $fatal"
@@ -244,9 +268,14 @@ try {
     if (-not $booted -or -not $storageReady -or -not $installerComplete) {
         $tail = ''
         if (Test-Path -LiteralPath $serial -PathType Leaf) {
-            $tail = (Get-Content -LiteralPath $serial -Tail 160) -join [Environment]::NewLine
+            $tail = (Get-Content -LiteralPath $serial -Tail 180) -join [Environment]::NewLine
         }
-        throw "VirtualBox EFI64 install did not reach installer_complete: PASS within $TimeoutSeconds seconds.`n$tail"
+        $timeoutKind = if ([DateTime]::UtcNow -ge $hardDeadline) {
+            "hard limit of $hardBudgetSeconds seconds"
+        } else {
+            "no serial progress for $TimeoutSeconds seconds"
+        }
+        throw "VirtualBox EFI64 install did not reach installer_complete: PASS ($timeoutKind). Last progress: $lastProgressLine`n$tail"
     }
 
     Write-Host "[virtualbox-smoke] ISO: $Iso"
