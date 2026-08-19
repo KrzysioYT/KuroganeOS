@@ -31,7 +31,9 @@ done
     exit 1
 }
 
-# Verify the EFI boot filesystem itself before embedding it in El Torito.
+# The VirtualBox optical image is deliberately NOT the QEMU disk image.  The
+# boot payload is a bounded FAT EFI System Partition containing the standard
+# removable-media fallback path /EFI/BOOT/BOOTX64.EFI.
 mdir -i "$esp_image" ::/EFI/BOOT/BOOTX64.EFI >/dev/null
 mdir -i "$esp_image" ::/EFI/BOOT/kernel.elf >/dev/null
 mdir -i "$esp_image" ::/kernel.elf >/dev/null
@@ -39,25 +41,37 @@ mdir -i "$esp_image" ::/install.pkg >/dev/null
 
 rm -rf -- "$iso_stage"
 mkdir -p "$iso_stage"
+# Keep a visible copy for offline inspection. The actual El Torito boot entry
+# below points at the appended GPT ESP, not at this ISO9660 file copy.
 cp "$esp_image" "$iso_stage/efiboot.img"
 cp -R "$stage/EFI" "$iso_stage/EFI"
 cp "$stage/kernel.elf" "$iso_stage/kernel.elf"
 cp "$stage/install.pkg" "$iso_stage/install.pkg"
 rm -f -- "$iso_image"
 
-# Pure x86-64 UEFI media:
-# 1. El Torito platform 0xEF -> efiboot.img for optical firmware (VirtualBox).
-# 2. no-emulation mode, as required for EFI boot images.
-# 3. expose that same EFI image as a proper GPT EFI System Partition rather
-#    than the historical ISOLINUX isohybrid-gpt-basdat compatibility hack.
+# VirtualBox-targeted x86-64 UEFI optical layout.
+#
+# The ESP is appended outside the ISO9660 filesystem and represented as a real
+# GPT EFI partition. El Torito platform 0xEF points directly at that appended
+# partition. This avoids overlapping/nested GPT layouts and the historical
+# isohybrid-gpt-basdat trick. It is intentionally UEFI-only: there is no BIOS
+# boot entry because KuroganeOS has no legacy BIOS boot path.
+#
+# This layout follows xorriso's recommended pure-EFI recipe:
+#   -append_partition 2 0xef ESP
+#   -appended_part_as_gpt
+#   -e --interval:appended_partition_2:all::
+#   -no-emul-boot
 xorriso -as mkisofs \
-    -R -J -V KURO_INSTALL \
+    -iso-level 3 \
+    -R -J -V KURO_VBOX \
     -o "$iso_image" \
+    -append_partition 2 0xef "$esp_image" \
+    -appended_part_as_gpt \
+    -no-pad \
     -c boot.catalog \
-    -eltorito-platform efi \
-    -e efiboot.img \
+    -e --interval:appended_partition_2:all:: \
     -no-emul-boot \
-    -efi-boot-part --efi-boot-image \
     "$iso_stage"
 
 [[ -s "$iso_image" ]] || {
@@ -65,9 +79,10 @@ xorriso -as mkisofs \
     exit 1
 }
 
-# Publication gate: do not let any host-specific wrapper copy an ISO to dist/
-# until its El Torito entry, FAT boot filesystem, GPT ESP and AMD64 EFI loader
-# have survived twenty complete independent inspections.
+# Publication gate: the image must expose a GPT ESP, an EFI El Torito entry and
+# a valid AMD64 EFI application. The Windows media wrapper adds a mandatory real
+# Oracle VirtualBox boot smoke before the canonical dist ISO is considered
+# qualified.
 bash "$root/scripts/verify-virtualbox-iso.sh" "$iso_image" --passes 20
 
-echo "Built and VirtualBox-verified $iso_image"
+echo "Built VirtualBox-targeted UEFI ISO: $iso_image"
