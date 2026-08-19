@@ -68,7 +68,7 @@ CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include 
 	-Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
 	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
-	-Werror=return-type
+	-Werror=undef -Werror=return-type
 ifeq ($(CONFIG),release)
 OPTFLAGS := -O2 -g1 -DNDEBUG -DKUROGANE_DEBUG=0 -DKUROGANE_TEST=0
 else ifeq ($(CONFIG),test)
@@ -87,11 +87,13 @@ KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 	-Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
 # Mbed TLS is part of the freestanding kernel, so point it at KuroganeOS's
 # libc-compatible SDK headers instead of expecting a hosted target libc from
-# the x86_64-elf cross-toolchain.
+# the x86_64-elf cross-toolchain. Undefined configuration selectors are fatal:
+# if upstream starts evaluating a new macro numerically, the shared config must
+# define it explicitly instead of silently treating it as zero.
 MBEDTLS_CPPFLAGS := -Isdk/include -Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
 	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
-MBEDTLS_CFLAGS := -std=c11 $(OPTFLAGS) -Wall -Wextra -Wpedantic \
-	-Werror=implicit-function-declaration -ffreestanding -fno-builtin \
+MBEDTLS_CFLAGS := -std=c11 $(OPTFLAGS) -Wall -Wextra -Wpedantic -Wundef \
+	-Werror=undef -Werror=implicit-function-declaration -ffreestanding -fno-builtin \
 	-fno-stack-protector -fPIE -fno-plt -fno-omit-frame-pointer \
 	-fno-unwind-tables -fno-asynchronous-unwind-tables -Wa,--noexecstack \
 	-m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float -fvisibility=hidden
