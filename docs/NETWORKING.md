@@ -27,15 +27,28 @@ PCI NIC
     -> HTTPS / TLS 1.2 / X.509
 ```
 
-Referencyjnym profilem VirtualBox pozostaje Intel E1000 **82540EM
-(`8086:100E`)**.
+Referencyjnym profilem **Oracle VirtualBox** jest obecnie AMD PCnet-FAST III
+**Am79C973 (`1022:2000`)**. E1000 pozostaje wspieranym backendem i profilem
+QEMU, ale realny VBox smoke 3.3.3-dev wykazał `NIC OFFLINE` dla `82540EM`, więc
+nie jest obecnie canonical profile dla Oracle VirtualBox.
 
 ## Referencyjny VirtualBox NIC
 
 ```text
 Attached to: NAT
-Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
+Adapter Type: PCnet-FAST III (Am79C973)
 Cable Connected: ON
+```
+
+Pełna kwalifikacja VBox po instalacji wymaga nie tylko aktywnego desktopu, ale
+również:
+
+```text
+[TEST] dhcp_lease: PASS
+[TEST] network_gateway_icmp: PASS
+[TEST] dns_resolver: PASS
+[TEST] userspace_init_spawn: PASS
+/system/init: PID 1 online
 ```
 
 VirtualBox media i QEMU media są rozdzielone:
@@ -54,7 +67,7 @@ DMA-backed buffers i negocjacją wymaganych feature bits.
 
 ### Intel E1000
 
-Referencyjny model:
+Model:
 
 ```text
 Intel 82540EM / PCI 8086:100E
@@ -67,16 +80,31 @@ QEMU:
 -device e1000,netdev=net0
 ```
 
-VirtualBox:
+VirtualBox może nadal użyć E1000 jawnie przez:
 
-```text
-NAT + Intel PRO/1000 MT Desktop (82540EM)
+```powershell
+.\scripts\create-virtualbox-vm.ps1 ... -Nic e1000
 ```
+
+Jest to obecnie profil testowy, nie referencyjny. Do powrotu jako canonical
+wymaga realnego Oracle VirtualBox install + reboot + DHCP + gateway + DNS smoke.
 
 ### AMD PCnet
 
-PCnet pozostaje backendem zgodności dla starszych VM. Nie jest domyślnym
-profilem nowych maszyn VirtualBox.
+Canonical Oracle VirtualBox model:
+
+```text
+PCnet-FAST III / Am79C973 / PCI 1022:2000
+```
+
+VirtualBox:
+
+```text
+NAT + PCnet-FAST III (Am79C973)
+```
+
+Helper `create-virtualbox-vm.ps1` używa `pcnet` domyślnie. Można go też wybrać
+jawnie przez `-Nic pcnet`.
 
 ## DHCP i konfiguracja IPv4
 
@@ -95,10 +123,9 @@ poprawny `DHCPACK` nie powtarza wszystkich opcji.
 
 ## Jak czytać boot log
 
-Przykład zdrowej sieci QEMU E1000:
+Przykład zdrowej sieci:
 
 ```text
-[TEST] e1000_link: PASS
 [TEST] dhcp_lease: PASS
 [TEST] udp_transport: PASS
 gateway ICMP: PASS
@@ -109,8 +136,17 @@ DNS A example.com: PASS
 [TEST] network_online_icmp: PASS
 ```
 
-Jeżeli te markery są PASS, problem z HTTPS nie powinien być opisywany jako
-"brak internetu". Trzeba wtedy diagnozować TLS/X.509 osobno.
+Na QEMU E1000 powinien dodatkowo pojawić się:
+
+```text
+[TEST] e1000_link: PASS
+```
+
+Jeżeli DHCP, gateway i DNS są PASS, problem z HTTPS nie powinien być opisywany
+jako "brak internetu". Trzeba wtedy diagnozować TLS/X.509 osobno.
+
+Jeżeli GUI pokazuje `NIC OFFLINE`, aplikacja nie widzi aktywnego fizycznego
+interfejsu. To wcześniejsza warstwa niż DHCP, DNS czy TLS.
 
 ## TLS / HTTPS
 
