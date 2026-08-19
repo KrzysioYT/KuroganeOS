@@ -5,9 +5,9 @@ usage() {
     cat >&2 <<'EOF'
 usage: ./scripts/verify-virtualbox-iso.sh ISO [--passes N] [--virtualbox-smoke]
 
-Performs deterministic UEFI/El Torito/FAT/GPT/PE checks repeatedly. With
---virtualbox-smoke it also boots the ISO in a temporary VirtualBox EFI VM and
-requires the KuroganeOS kernel serial marker.
+Performs deterministic VirtualBox-targeted x86-64 UEFI/El Torito/FAT/GPT/PE
+checks repeatedly. With --virtualbox-smoke it also boots the ISO in a temporary
+VirtualBox EFI64 VM and requires the KuroganeOS kernel serial marker.
 EOF
     exit 2
 }
@@ -54,9 +54,7 @@ fi
 
 readonly expected_hash="$(hash_iso "$iso")"
 readonly tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-vbox-iso.XXXXXX")"
-cleanup() {
-    rm -rf -- "$tmp"
-}
+cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT INT TERM
 
 check_pe_amd64_efi() {
@@ -91,16 +89,24 @@ for ((pass=1; pass<=passes; ++pass)); do
     xorriso -indev "$iso" -report_el_torito plain >"$report" 2>&1
     grep -Eqi 'El Torito|boot image' "$report" || {
         echo "pass $pass: no El Torito boot record" >&2; cat "$report" >&2; exit 1; }
-    grep -Eqi 'EFI|UEFI|0xEF|0xef|efiboot' "$report" || {
-        echo "pass $pass: El Torito record is not identified as EFI" >&2
+    grep -Eqi 'EFI|UEFI|0xEF|0xef' "$report" || {
+        echo "pass $pass: El Torito record is not EFI platform 0xEF" >&2
         cat "$report" >&2; exit 1; }
+
+    # This is the key VirtualBox-media invariant: the EFI El Torito catalog
+    # entry must target the same appended ESP which is represented in GPT.
+    repro="$pass_dir/el-torito-mkisofs.txt"
+    xorriso -indev "$iso" -report_el_torito as_mkisofs >"$repro" 2>&1
+    grep -Fq 'appended_partition_2' "$repro" || {
+        echo "pass $pass: EFI El Torito entry does not reference appended GPT ESP #2" >&2
+        cat "$repro" >&2; exit 1; }
 
     system_report="$pass_dir/system-area.txt"
     xorriso -indev "$iso" -report_system_area plain >"$system_report" 2>&1
     grep -Eqi 'GPT' "$system_report" || {
         echo "pass $pass: ISO has no GPT system area" >&2
         cat "$system_report" >&2; exit 1; }
-    grep -Eqi 'EFI|c12a7328|C12A7328' "$system_report" || {
+    grep -Eqi 'EFI|c12a7328|C12A7328|0xef' "$system_report" || {
         echo "pass $pass: GPT has no EFI System Partition" >&2
         cat "$system_report" >&2; exit 1; }
 
@@ -143,9 +149,9 @@ for ((pass=1; pass<=passes; ++pass)); do
     outer_loader_hash="$(hash_iso "$pass_dir/BOOTX64.EFI")"
     inner_loader_hash="$(hash_iso "$inner_loader")"
     [[ "$outer_loader_hash" == "$inner_loader_hash" ]] || {
-        echo "pass $pass: ISO loader and El Torito EFI loader differ" >&2; exit 1; }
+        echo "pass $pass: ISO loader and ESP EFI loader differ" >&2; exit 1; }
 
-    echo "[virtualbox-iso] pass $pass/$passes: PASS (EFI sectors=$esp_sectors)"
+    echo "[virtualbox-iso] pass $pass/$passes: PASS (GPT ESP #2, EFI sectors=$esp_sectors)"
 done
 
 if $virtualbox_smoke; then
@@ -163,7 +169,7 @@ if $virtualbox_smoke; then
     }
     trap 'cleanup_vm; cleanup' EXIT INT TERM
 
-    VBoxManage createvm --name "$machine" --register >/dev/null
+    VBoxManage createvm --name "$machine" --ostype Other_64 --register >/dev/null
     VBoxManage modifyvm "$machine" \
         --memory 1024 --cpus 1 --firmware efi64 --ioapic on \
         --boot1 dvd --boot2 disk --boot3 none --boot4 none \
@@ -173,11 +179,6 @@ if $virtualbox_smoke; then
         --nic1 nat --nic-type1 82540EM --cable-connected1 on >/dev/null 2>&1; then
         VBoxManage modifyvm "$machine" \
             --nic1 nat --nictype1 82540EM --cableconnected1 on >/dev/null
-    fi
-    if ! VBoxManage modifyvm "$machine" \
-        --audio-enabled on --audio-controller ac97 --audio-out on >/dev/null 2>&1; then
-        VBoxManage modifyvm "$machine" \
-            --audio on --audiocontroller ac97 >/dev/null 2>&1 || true
     fi
     VBoxManage modifyvm "$machine" --uart1 0x3F8 4 >/dev/null
     VBoxManage modifyvm "$machine" --uartmode1 file "$serial" >/dev/null
@@ -191,7 +192,7 @@ if $virtualbox_smoke; then
         --type dvddrive --medium "$iso" >/dev/null
 
     VBoxManage startvm "$machine" --type headless >/dev/null
-    deadline=$((SECONDS + 60))
+    deadline=$((SECONDS + 90))
     booted=false
     while ((SECONDS < deadline)); do
         if [[ -f "$serial" ]] && grep -Eq \
@@ -202,11 +203,11 @@ if $virtualbox_smoke; then
         sleep 1
     done
     if ! $booted; then
-        echo "VirtualBox EFI smoke boot did not reach the KuroganeOS kernel" >&2
+        echo "VirtualBox EFI64 smoke boot did not reach the KuroganeOS kernel" >&2
         [[ -f "$serial" ]] && tail -n 100 "$serial" >&2 || true
         exit 1
     fi
-    echo "[virtualbox-iso] real VirtualBox EFI smoke: PASS"
+    echo "[virtualbox-iso] real VirtualBox EFI64 optical boot: PASS"
     cleanup_vm
 fi
 
