@@ -31,8 +31,13 @@ COMPILER_INCLUDE_DIR="$($CC_BIN -print-file-name=include)"
     exit 1
 }
 
+# Do not impose -Wundef on pinned third-party Mbed TLS 3.6.7 itself. Its
+# config_adjust_ssl.h intentionally undefines the DTLS CID compatibility
+# selector when DTLS is disabled, while ssl.h later evaluates that selector
+# numerically. KuroganeOS sources still use -Wundef/-Werror=undef; the upstream
+# header quirk is isolated at the integration boundary.
 CFLAGS=(
-    -std=c11 -O2 -Wall -Wextra -Wpedantic -Wundef -Werror=undef
+    -std=c11 -O2 -Wall -Wextra -Wpedantic
     -Werror=implicit-function-declaration
     -ffreestanding -fno-builtin -fno-stack-protector
     -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
@@ -45,17 +50,27 @@ CFLAGS=(
     '-DMBEDTLS_CONFIG_FILE="kurogane_mbedtls_config.h"'
 )
 
-# First compile a minimal public-header translation unit. This catches custom
-# configuration selectors that Mbed TLS headers evaluate numerically (rather
-# than with defined(...)) before the larger source-profile build can hide the
-# issue among unrelated diagnostics.
+# Verify the finalized configuration rather than fighting Mbed TLS' own
+# config-adjust pass. KuroganeOS is stream TLS only, uses no DTLS CID mode,
+# avoids compiler-runtime double-width division, and intentionally excludes
+# legacy SHA-1 from this first Web-PKI profile.
 cat > "$OUT_DIR/config_header_probe.c" <<'EOF'
+#include <mbedtls/build_info.h>
 #include <mbedtls/ssl.h>
-#if !defined(MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT)
-#error "Kurogane Mbed TLS config did not define the DTLS CID compatibility selector"
+#if defined(MBEDTLS_SSL_PROTO_DTLS)
+#error "KuroganeOS TLS profile unexpectedly enabled DTLS"
 #endif
-#if MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT != 0
-#error "Kurogane Mbed TLS config selected a non-standard DTLS CID compatibility mode"
+#if defined(MBEDTLS_SSL_DTLS_CONNECTION_ID)
+#error "KuroganeOS TLS profile unexpectedly enabled DTLS CID"
+#endif
+#if defined(MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT)
+#error "Mbed TLS finalized config should remove DTLS CID compatibility mode when DTLS is disabled"
+#endif
+#if !defined(MBEDTLS_NO_UDBL_DIVISION)
+#error "KuroganeOS freestanding Mbed TLS profile must avoid double-width division runtime helpers"
+#endif
+#if defined(MBEDTLS_SHA1_C)
+#error "KuroganeOS first Web-PKI profile must not link legacy SHA-1"
 #endif
 int kurogane_mbedtls_config_header_probe(void) { return 0; }
 EOF
@@ -64,7 +79,7 @@ EOF
     "$OUT_DIR/config_header_probe.c" \
     -o "$OUT_DIR/config_header_probe.o"
 
-echo "[mbedtls-probe] public ssl.h + custom config: PASS"
+echo "[mbedtls-probe] finalized stream TLS config: PASS"
 
 # Compile the exact modules required by the first HTTPS client profile. This is
 # deliberately a compile-only probe: Kurogane platform allocation, entropy,
