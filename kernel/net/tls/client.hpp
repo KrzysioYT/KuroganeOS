@@ -5,6 +5,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * Mbed TLS 3.6.7 intentionally undefines its DTLS CID compatibility selector
+ * when DTLS is disabled, but ssl.h later evaluates that selector numerically.
+ * Under -Wundef this produces an upstream-header diagnostic even though the
+ * KuroganeOS TLS profile is stream TLS only. Parse ssl.h once at this narrow
+ * third-party boundary with that diagnostic suppressed; KuroganeOS sources
+ * remain compiled with -Wundef normally.
+ */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wundef"
+#endif
+#include <mbedtls/ssl.h>
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
 namespace net::tls {
 
 enum class Status : uint8_t {
