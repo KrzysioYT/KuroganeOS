@@ -19,7 +19,8 @@ storage::partition::Device g_esp_partition{};
 storage::partition::Device g_root_partition{};
 fs::fat32::FileSystem g_esp{};
 fs::fat32::FileSystem g_root{};
-uint8_t g_verify_buffer[4096]{};
+constexpr size_t kVerifyBufferBytes = 1024U * 1024U;
+alignas(64) uint8_t g_verify_buffer[kVerifyBufferBytes]{};
 
 constexpr graphics::Color kBackground = UINT32_C(0x050608);
 constexpr graphics::Color kPanel = UINT32_C(0x111317);
@@ -480,9 +481,26 @@ bool verify_destination(const package::View& payload, uint32_t destination) {
             terminal::println(package::status_message(package_status));
             return false;
         }
-        if (file.destination == destination && !verify_file(file, index)) {
+        if (file.destination != destination) continue;
+
+        terminal::write("[INSTALL][VERIFY] file=");
+        terminal::write_u64(index + 1U);
+        terminal::write("/");
+        terminal::write_u64(payload.file_count);
+        terminal::write(" destination=");
+        terminal::write(
+            destination == package::DESTINATION_ESP ? "ESP" : "ROOT");
+        terminal::write(" path=");
+        terminal::write(file.path);
+        terminal::write(" bytes=");
+        terminal::write_u64(file.size);
+        terminal::println();
+
+        if (!verify_file(file, index)) {
             return false;
         }
+        terminal::write("[INSTALL][VERIFY] PASS path=");
+        terminal::println(file.path);
     }
     return true;
 }
