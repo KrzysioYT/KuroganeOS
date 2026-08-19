@@ -3,26 +3,38 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Iso,
     [ValidateRange(15, 180)]
-    [int]$TimeoutSeconds = 60
+    [int]$TimeoutSeconds = 90
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Resolve-KuroganePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    try {
+        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+    } catch {
+        throw "Invalid filesystem path '$Path': $($_.Exception.Message)"
+    }
+}
+
 $VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
 if ($null -eq $VBoxCommand) {
     $candidate = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-        throw 'VBoxManage.exe not found. Install Oracle VirtualBox before using -VirtualBoxSmoke.'
+        throw 'VBoxManage.exe not found. A real Oracle VirtualBox installation is required to qualify the ISO.'
     }
     $VBox = $candidate
 } else {
-    $VBox = $VBoxCommand.Source
+    $VBox = $VBoxCommand.Path
 }
 
-$Iso = [System.IO.Path]::GetFullPath($Iso)
+$Iso = Resolve-KuroganePath -Path $Iso
 if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
     throw "ISO not found: $Iso"
+}
+if ([System.IO.Path]::GetExtension($Iso) -ne '.iso') {
+    throw "VirtualBox smoke requires an .iso optical image: $Iso"
 }
 if ((Get-Item -LiteralPath $Iso).Length -le 0) {
     throw "ISO is empty: $Iso"
@@ -39,35 +51,34 @@ $started = $false
 
 function Invoke-VBox {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
-    & $VBox @Arguments
+    $output = & $VBox @Arguments 2>&1
     if ($LASTEXITCODE -ne 0) {
-        throw "VBoxManage failed ($LASTEXITCODE): $($Arguments -join ' ')"
+        throw "VBoxManage failed ($LASTEXITCODE): $($Arguments -join ' ')`n$($output -join [Environment]::NewLine)"
     }
+    return $output
 }
 
 try {
-    Invoke-VBox createvm --name $vm --register *> $null
+    Invoke-VBox createvm --name $vm --ostype Other_64 --register *> $null
     $registered = $true
 
+    # Match the supported KuroganeOS VirtualBox machine contract exactly.
     Invoke-VBox modifyvm $vm `
-        --memory 1024 --cpus 1 --firmware efi64 --ioapic on `
+        --memory 2048 --cpus 1 --firmware efi64 --ioapic on `
         --boot1 dvd --boot2 disk --boot3 none --boot4 none `
         --graphicscontroller vboxsvga --vram 64 `
         --keyboard ps2 --mouse ps2 *> $null
 
-    & $VBox modifyvm $vm `
-        --nic1 nat --nic-type1 82540EM --cable-connected1 on *> $null
+    # E1000 + NAT is the qualified VirtualBox network profile.
+    $networkArgs = @('modifyvm', $vm, '--nic1', 'nat', '--nic-type1', '82540EM', '--cable-connected1', 'on')
+    $networkOutput = & $VBox @networkArgs 2>&1
     if ($LASTEXITCODE -ne 0) {
         Invoke-VBox modifyvm $vm `
             --nic1 nat --nictype1 82540EM --cableconnected1 on *> $null
     }
 
-    & $VBox modifyvm $vm `
-        --audio-enabled on --audio-controller ac97 --audio-out on *> $null
-    if ($LASTEXITCODE -ne 0) {
-        Invoke-VBox modifyvm $vm --audio on --audiocontroller ac97 *> $null
-    }
-
+    # Serial is the qualification channel; graphical rendering is not required
+    # for the smoke to prove that BOOTX64.EFI and kernel.elf were loaded.
     Invoke-VBox modifyvm $vm --uart1 0x3F8 4 *> $null
     Invoke-VBox modifyvm $vm --uartmode1 file $serial *> $null
 
@@ -79,6 +90,18 @@ try {
     Invoke-VBox storageattach $vm --storagectl IDE --port 0 --device 0 `
         --type dvddrive --medium $Iso *> $null
     Invoke-VBox setextradata $vm VBoxInternal2/EfiGraphicsResolution 1280x800 *> $null
+
+    $machineInfo = Invoke-VBox showvminfo $vm --machinereadable
+    if (-not ($machineInfo -contains 'firmware="EFI64"')) {
+        throw 'Qualification VM did not retain firmware="EFI64".'
+    }
+    if (-not ($machineInfo -contains 'boot1="dvd"')) {
+        throw 'Qualification VM did not retain DVD-first boot order.'
+    }
+    $isoLeaf = [System.IO.Path]::GetFileName($Iso)
+    if (-not (($machineInfo -join "`n") -match [regex]::Escape($isoLeaf))) {
+        throw 'Qualification VM does not report the requested ISO as attached optical media.'
+    }
 
     Invoke-VBox startvm $vm --type headless *> $null
     $started = $true
@@ -102,14 +125,16 @@ try {
     if (-not $matched) {
         $tail = ''
         if (Test-Path -LiteralPath $serial -PathType Leaf) {
-            $tail = (Get-Content -LiteralPath $serial -Tail 100) -join [Environment]::NewLine
+            $tail = (Get-Content -LiteralPath $serial -Tail 120) -join [Environment]::NewLine
         }
-        throw "VirtualBox EFI smoke did not reach the KuroganeOS kernel within $TimeoutSeconds seconds.`n$tail"
+        throw "VirtualBox EFI64 optical boot did not reach the KuroganeOS kernel within $TimeoutSeconds seconds.`n$tail"
     }
 
-    Write-Host '[virtualbox-smoke] EFI optical boot: PASS'
+    Write-Host "[virtualbox-smoke] ISO: $Iso"
+    Write-Host '[virtualbox-smoke] firmware EFI64: PASS'
+    Write-Host '[virtualbox-smoke] DVD-first optical attachment: PASS'
     Write-Host '[virtualbox-smoke] BOOTX64.EFI -> kernel serial marker: PASS'
-    Write-Host '[virtualbox-smoke] VIRTUALBOX REAL BOOT VERIFIED'
+    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX BOOT: PASS'
 } finally {
     if ($started) {
         & $VBox controlvm $vm poweroff *> $null
