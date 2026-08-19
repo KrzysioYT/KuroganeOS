@@ -114,11 +114,7 @@ storage::block::Status write_sector(
     return storage::block::write_blocks(device, lba, 1U, sector, kSectorSize);
 }
 
-} // namespace
-
-Status prepare_empty_disk(
-    const storage::block::Device* device,
-    Layout* output) {
+Status validate_target(const storage::block::Device* device, Layout* output) {
     if (device == nullptr || output == nullptr) {
         return Status::InvalidArgument;
     }
@@ -129,17 +125,17 @@ Status prepare_empty_disk(
     if (device->sector_count < MINIMUM_DISK_SECTORS) {
         return Status::DiskTooSmall;
     }
+    return Status::Ok;
+}
 
-    uint8_t sector[kSectorSize]{};
-    if (storage::block::read_blocks(
-            device, 0U, 1U, sector, sizeof(sector)) !=
-        storage::block::Status::Ok) {
-        return Status::BlockDeviceError;
-    }
-    for (uint8_t byte : sector) {
-        if (byte != 0U) {
-            return Status::DiskNotEmpty;
-        }
+} // namespace
+
+Status prepare_install_target(
+    const storage::block::Device* device,
+    Layout* output) {
+    const Status validation = validate_target(device, output);
+    if (validation != Status::Ok) {
+        return validation;
     }
 
     const uint64_t backup_header_lba = device->sector_count - 1U;
@@ -158,6 +154,9 @@ Status prepare_empty_disk(
                 root_first_lba, last_usable_lba, "Kurogane Root");
     const uint32_t entries_crc = k_crc32(g_entries, sizeof(g_entries));
 
+    // Commit the backup GPT first, then the primary GPT, and publish the
+    // protective MBR last. A failed install can safely retry this same
+    // deterministic sequence after the user explicitly confirms erasure.
     for (uint64_t index = 0U; index < kEntrySectors; ++index) {
         const uint8_t* entry_sector = g_entries + index * kSectorSize;
         if (write_sector(device, backup_entries_lba + index, entry_sector) !=
@@ -168,6 +167,7 @@ Status prepare_empty_disk(
         }
     }
 
+    uint8_t sector[kSectorSize]{};
     build_header(sector, backup_header_lba, 1U, last_usable_lba,
                  backup_entries_lba, entries_crc);
     if (write_sector(device, backup_header_lba, sector) !=
@@ -202,6 +202,28 @@ Status prepare_empty_disk(
         last_usable_lba - root_first_lba + 1U
     };
     return Status::Ok;
+}
+
+Status prepare_empty_disk(
+    const storage::block::Device* device,
+    Layout* output) {
+    const Status validation = validate_target(device, output);
+    if (validation != Status::Ok) {
+        return validation;
+    }
+
+    uint8_t sector[kSectorSize]{};
+    if (storage::block::read_blocks(
+            device, 0U, 1U, sector, sizeof(sector)) !=
+        storage::block::Status::Ok) {
+        return Status::BlockDeviceError;
+    }
+    for (uint8_t byte : sector) {
+        if (byte != 0U) {
+            return Status::DiskNotEmpty;
+        }
+    }
+    return prepare_install_target(device, output);
 }
 
 const char* status_message(Status status) {
