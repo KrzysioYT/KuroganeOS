@@ -169,13 +169,16 @@ try {
         --graphicscontroller vmsvga --vram 128 `
         --keyboard ps2 --mouse ps2 | Out-Null
 
+    # Oracle VirtualBox qualification uses its native PCnet-FAST III model.
+    # E1000 remains an opt-in profile in create-virtualbox-vm.ps1, but the
+    # canonical smoke must use the adapter that passes the real VBox runtime.
     $networkResult = Invoke-VBoxNative -Arguments @(
         'modifyvm', $vm,
-        '--nic1', 'nat', '--nic-type1', '82540EM', '--cable-connected1', 'on'
+        '--nic1', 'nat', '--nic-type1', 'Am79C973', '--cable-connected1', 'on'
     ) -AllowFailure
     if ($networkResult.ExitCode -ne 0) {
         Invoke-VBox modifyvm $vm `
-            --nic1 nat --nictype1 82540EM --cableconnected1 on | Out-Null
+            --nic1 nat --nictype1 Am79C973 --cableconnected1 on | Out-Null
     }
 
     Invoke-VBox modifyvm $vm --uart1 0x3F8 4 | Out-Null
@@ -204,6 +207,12 @@ try {
     }
     if ($machineText -notmatch '"SATA-0-0"=.*\.vdi"') {
         throw 'Qualification VM target VDI is not attached to SATA port 0.'
+    }
+    if ($machineText -notmatch 'nictype1="Am79C973"') {
+        throw 'Qualification VM did not retain the canonical PCnet-FAST III (Am79C973) NIC.'
+    }
+    if ($machineText -notmatch 'nic1="nat"') {
+        throw 'Qualification VM did not retain NAT networking.'
     }
     $isoLeaf = [System.IO.Path]::GetFileName($Iso)
     if ($machineText -notmatch [regex]::Escape($isoLeaf)) {
@@ -294,6 +303,7 @@ try {
     Write-Host '[virtualbox-smoke] firmware EFI64: PASS'
     Write-Host '[virtualbox-smoke] DVD-first optical attachment: PASS'
     Write-Host '[virtualbox-smoke] Intel AHCI target disk configuration: PASS'
+    Write-Host '[virtualbox-smoke] PCnet-FAST III + NAT configuration: PASS'
     Write-Host '[virtualbox-smoke] BOOTX64.EFI -> kernel: PASS'
     Write-Host "[virtualbox-smoke] SATA/AHCI runtime proof: PASS ($storageProof)"
     Write-Host '[virtualbox-smoke] full root + UEFI payload installation: PASS'
@@ -301,8 +311,7 @@ try {
 
     # Phase 2: power off the installer session, remove installation media and
     # prove that the exact VDI produced above can boot its own ESP/ROOT all the
-    # way to userspace PID 1. This catches failures that an installer-only gate
-    # cannot see.
+    # way to userspace PID 1 with working VirtualBox NAT networking.
     $poweroff = Invoke-VBoxNative -Arguments @('controlvm', $vm, 'poweroff') -AllowFailure
     if ($poweroff.ExitCode -ne 0) {
         throw "Installed qualification VM could not be powered off before reboot.`n$($poweroff.StdErr)"
@@ -341,6 +350,9 @@ try {
     $rootMounted = $false
     $initSpawned = $false
     $initOnline = $false
+    $dhcpReady = $false
+    $gatewayReady = $false
+    $dnsReady = $false
     $postDegraded = $false
     $postFatal = $null
 
@@ -354,8 +366,8 @@ try {
                 $postIdleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
                 $progress = $phaseText -split "`r?`n" |
                     Where-Object {
-                        $_ -match '^\[INFO\]\[(VFS|INIT|BOOT)\]' -or
-                        $_ -match '^\[TEST\] (fat32_vfs_read|installed_|userspace_init_spawn|ALL_REQUIRED)' -or
+                        $_ -match '^\[INFO\]\[(VFS|INIT|BOOT|NET)\]' -or
+                        $_ -match '^\[TEST\] (fat32_vfs_read|installed_|userspace_init_spawn|dhcp_lease|network_gateway_icmp|dns_resolver|ALL_REQUIRED)' -or
                         $_ -match '^/system/init:'
                     } |
                     Select-Object -Last 1
@@ -368,6 +380,14 @@ try {
                 $postFatal = $Matches[0]
                 break
             }
+            if ($phaseText -match '\[TEST\] dhcp_lease: FAIL') {
+                $postFatal = '[TEST] dhcp_lease: FAIL'
+                break
+            }
+            if ($phaseText -match '\[TEST\] network_gateway_icmp: FAIL') {
+                $postFatal = '[TEST] network_gateway_icmp: FAIL'
+                break
+            }
             if ($phaseText -match 'KuroganeOS kernel entry') {
                 $postBooted = $true
             }
@@ -376,9 +396,18 @@ try {
             }
             if ($phaseText -match '\[TEST\] ALL_REQUIRED_TESTS_PASSED: FAIL') {
                 # Aggregate first-boot/persistence probes may be degraded while
-                # the kernel intentionally continues. The qualification only
-                # fails here if a real [FATAL] follows or PID 1 never appears.
+                # the kernel intentionally continues. Network readiness is
+                # qualified independently below and remains mandatory.
                 $postDegraded = $true
+            }
+            if ($phaseText -match '\[TEST\] dhcp_lease: PASS') {
+                $dhcpReady = $true
+            }
+            if ($phaseText -match '\[TEST\] network_gateway_icmp: PASS') {
+                $gatewayReady = $true
+            }
+            if ($phaseText -match '\[TEST\] dns_resolver: PASS') {
+                $dnsReady = $true
             }
             if ($phaseText -match '\[TEST\] userspace_init_spawn: PASS') {
                 $initSpawned = $true
@@ -386,7 +415,8 @@ try {
             if ($phaseText -match '/system/init: PID 1 online') {
                 $initOnline = $true
             }
-            if ($postBooted -and $rootMounted -and $initSpawned -and $initOnline) {
+            if ($postBooted -and $rootMounted -and $initSpawned -and $initOnline -and
+                $dhcpReady -and $gatewayReady -and $dnsReady) {
                 break
             }
         }
@@ -395,28 +425,30 @@ try {
 
     if ($null -ne $postFatal) {
         $tail = Get-SerialTail -Path $serial -Lines 180
-        throw "VirtualBox installed-disk reboot reached a fatal kernel path: $postFatal`n$tail"
+        throw "VirtualBox installed-disk reboot failed runtime/network qualification: $postFatal`n$tail"
     }
-    if (-not $postBooted -or -not $rootMounted -or -not $initSpawned -or -not $initOnline) {
+    if (-not $postBooted -or -not $rootMounted -or -not $initSpawned -or -not $initOnline -or
+        -not $dhcpReady -or -not $gatewayReady -or -not $dnsReady) {
         $tail = Get-SerialTail -Path $serial -Lines 180
         $timeoutKind = if ([DateTime]::UtcNow -ge $postHardDeadline) {
             "hard limit of $postHardBudgetSeconds seconds"
         } else {
             "no post-install serial progress for $TimeoutSeconds seconds"
         }
-        throw "VirtualBox installed VDI did not boot to persistent ROOT + PID 1 ($timeoutKind). Last progress: $postLastProgress`n$tail"
+        throw "VirtualBox installed VDI did not reach persistent ROOT + PID 1 + DHCP + gateway + DNS ($timeoutKind). Last progress: $postLastProgress`n$tail"
     }
 
     Write-Host '[virtualbox-smoke] installer ISO detached before reboot: PASS'
     Write-Host '[virtualbox-smoke] installed VDI UEFI boot: PASS'
     Write-Host '[virtualbox-smoke] persistent Kurogane Root mount: PASS'
     Write-Host '[virtualbox-smoke] /system/init PID 1 online: PASS'
+    Write-Host '[virtualbox-smoke] PCnet-FAST III NAT + DHCP + gateway + DNS: PASS'
     if ($postDegraded) {
-        Write-Warning '[virtualbox-smoke] post-install optional/runtime aggregate reported DEGRADED, but boot reached PID 1.'
+        Write-Warning '[virtualbox-smoke] post-install optional/runtime aggregate reported DEGRADED, but required boot/network qualification passed.'
     } else {
         Write-Host '[virtualbox-smoke] post-install runtime aggregate: PASS'
     }
-    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX INSTALL + REBOOT: PASS'
+    Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX INSTALL + REBOOT + NETWORK: PASS'
 } finally {
     if ($started) {
         $null = Invoke-VBoxNative -Arguments @('controlvm', $vm, 'poweroff') -AllowFailure
