@@ -1,13 +1,9 @@
 # Instalacja KuroganeOS 3.3.3-dev — DEV BETA
 
-Jeżeli pierwszy raz uruchamiasz KuroganeOS, zacznij od:
+Ta dokumentacja opisuje bieżący kontrakt Red Flux Setup dla KuroganeOS
+3.3.3-dev. Dla VirtualBox używaj również [`VIRTUALBOX.md`](VIRTUALBOX.md).
 
-- [`START_HERE.md`](START_HERE.md)
-- [`VIRTUALBOX.md`](VIRTUALBOX.md)
-
-## Media są rozdzielone według hypervisora
-
-Bieżący Windows build publikuje dwa canonical artefakty:
+## Canonical media
 
 ```text
 VirtualBox:
@@ -17,52 +13,51 @@ QEMU:
   dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
 ```
 
-Nie używaj `.img` jako napędu optycznego VirtualBox i nie traktuj ISO jako
-zamiennika raw QEMU IMG.
+`.iso` jest nośnikiem optycznym x86-64 UEFI dla Oracle VirtualBox. `.img` jest
+raw image przeznaczonym dla QEMU. Nie zamieniaj tych mediów między
+hypervisorami.
 
-Oba media prowadzą do Red Flux Setup:
+## Try i Install
+
+Red Flux Setup udostępnia dwa tryby:
 
 ```text
-boot media
-  -> Red Flux Setup
-     -> Try KuroganeOS
-     -> Install KuroganeOS
+Try KuroganeOS
+  -> read-only live package root
+  -> bez destrukcyjnego zapisu na HDD
+
+Install KuroganeOS
+  -> konfiguracja użytkownika
+  -> wybór dysku
+  -> jawne potwierdzenie INSTALL
+  -> destrukcyjny deployment na wybrany dysk
 ```
 
-> [!WARNING]
-> `Install KuroganeOS` zapisuje GPT i formatuje wybrany dysk. Testuj tę ścieżkę
-> wyłącznie na pustym wirtualnym dysku lub nośniku przeznaczonym do skasowania.
+## Bezpieczeństwo przed wymazaniem dysku
 
-## Try KuroganeOS
+`install.pkg` jest weryfikowany **przed** wyborem destrukcyjnej ścieżki. Runtime
+sprawdza:
 
-Try uruchamia system bez destrukcyjnego zapisu na dysk. `install.pkg` jest
-używany jako live root, z którego startują `/system/init`, Login, Red Flux Home
-i aplikacje Ring-3.
+- magic/version/layout paczki;
+- manifest CRC;
+- zakres każdego pliku;
+- CRC każdego pliku;
+- destination `ESP` lub `ROOT`;
+- brak duplikatów;
+- ten sam bounded FAT 8.3 path contract co build-time package generator.
 
-## Install KuroganeOS
+Poprawny preflight emituje:
 
-Wizard prowadzi przez:
+```text
+[TEST] installer_package_preflight: PASS
+```
 
-1. język `English` / `Polski`;
-2. nazwę lokalnego użytkownika;
-3. tryb bez hasła albo hasło testowe;
-4. wybór dysku SATA/AHCI;
-5. potwierdzenie destrukcyjnej instalacji;
-6. protective MBR + primary/backup GPT;
-7. ESP FAT32 i Kurogane Root FAT32;
-8. kopiowanie bootloadera, kernela, userspace i konfiguracji;
-9. verification + sync;
-10. ekran zakończenia instalacji.
+Pakiet z nazwą, której natywny writer FAT32 nie potrafi utworzyć, ma zostać
+odrzucony przed pierwszym zapisem GPT.
 
-W DEV BETA mechanizm hasła nadal używa `FNV1A64-DEV`. Nie jest to produkcyjny
-credential store ani password KDF. Nie używaj w instalacji testowej hasła,
-którego używasz gdzie indziej.
+## Potwierdzenie destrukcyjnej instalacji
 
-## Potwierdzenie `INSTALL`
-
-Potwierdzenie zostało poprawione tak, aby nie powodowało fałszywego fatal error.
-
-Akceptowane są między innymi:
+Installer akceptuje m.in.:
 
 ```text
 install
@@ -70,41 +65,127 @@ Install
 INSTALL
 ```
 
-Installer normalizuje litery do wielkich liter przed porównaniem.
+Wpis jest normalizowany do wielkich liter. Błędny tekst pozostawia formularz
+aktywny. `Esc` wraca do wyboru dysku.
 
-Błędny tekst nie zatrzymuje instalacji. Formularz wyświetla komunikat i pozwala
-poprawić wpis. `Esc` wraca bezpiecznie do wyboru dysku.
-
-Do momentu prawidłowego potwierdzenia **żaden GPT nie jest zapisywany**.
-Pierwszy destrukcyjny etap rozpoczyna się dopiero po:
+Dopiero prawidłowe potwierdzenie emituje:
 
 ```text
 [TEST] installer_confirmation: PASS
 ```
 
+i zezwala na zmianę zawartości wybranego dysku.
+
+## Pipeline instalacji 1/9 → 9/9
+
+Bieżący installer używa transakcyjnej kolejności inspirowanej ogólnymi
+praktykami dojrzałych installerów systemowych. Implementacja jest własna i nie
+kopiuje kodu Linux/GNU.
+
+```text
+1/9  PARTITIONING TARGET DISK
+     protective MBR + primary/backup GPT
+
+2/9  VALIDATING PARTITION TABLE
+     ponowny parse GPT + bounded partition devices
+
+3/9  FORMATTING ESP AND ROOT
+     ESP FAT32 + Kurogane Root FAT32
+
+4/9  MOUNTING NEW FILESYSTEMS
+     świeży mount obu filesystemów
+
+5/9  COPYING ROOT SYSTEM PAYLOAD
+     ROOT files + dynamiczne tworzenie katalogów nadrzędnych + sync ROOT
+
+6/9  WRITING USER AND FIRST-BOOT STATE
+     locale.cfg + user.cfg + first.run + sync ROOT
+
+7/9  ACTIVATING UEFI BOOT PAYLOAD
+     ESP files, w tym BOOTX64.EFI, dopiero po trwałym ROOT + sync ESP
+
+8/9  VERIFYING INSTALLED PAYLOAD
+     byte-for-byte readback wszystkich plików ROOT i ESP + final sync
+
+9/9  INSTALLATION COMPLETE
+     markery PASS + ekran zakończenia
+```
+
+Najważniejsza właściwość tej kolejności: system nie publikuje bootowalnego
+`BOOTX64.EFI` przed skopiowaniem i zsynchronizowaniem root payloadu.
+
+## Drzewo katalogów install.pkg
+
+Installer **nie używa już ręcznej, zamkniętej listy katalogów**. Dla każdego
+pliku tworzy wszystkie brakujące katalogi nadrzędne w kolejności od root.
+
+Przykład:
+
+```text
+/etc/ssl/certs.pem
+```
+
+powoduje automatyczne przygotowanie:
+
+```text
+/etc
+/etc/ssl
+```
+
+przed `create()` pliku `certs.pem`.
+
+To naprawia błąd starszego flow 3.3.3-dev, w którym `/etc` istniało, ale
+`/etc/ssl` nie było tworzone i kopiowanie kończyło się ogólnym:
+
+```text
+PACKAGE COPY FAILED
+```
+
+## Diagnostyka kopiowania
+
+Błąd kopiowania nie powinien już kończyć się wyłącznie ogólnym komunikatem.
+Serial log podaje indeks pliku, destination, ścieżkę, operację i status FAT32,
+np.:
+
+```text
+[INSTALL][COPY] file=17 destination=ROOT path=/etc/ssl/certs.pem operation=mkdir-parent status=...
+```
+
+Możliwe operacje obejmują:
+
+```text
+mkdir-parent
+remove-stale
+create
+write
+verify-read
+verify-stat
+```
+
+Ekran setup może nadal pokazać krótszy komunikat, ale szczegółowa przyczyna ma
+być dostępna w COM1/QEMU serial logu.
+
+## Retry po nieudanej instalacji
+
+Po zaakceptowaniu `INSTALL` wybrany dysk jest jawnie przeznaczony do skasowania.
+Dlatego właściwy installer używa `prepare_install_target()` i może odtworzyć
+GPT również na dysku zawierającym ślady poprzedniej, niedokończonej instalacji.
+
+Oznacza to, że po błędzie w stage 2-8 można:
+
+1. zrestartować VM;
+2. ponownie wybrać ten sam VDI;
+3. ponownie wpisać `INSTALL`;
+4. installer odtworzy layout i filesystemy od początku.
+
+Nie trzeba usuwać i tworzyć VDI ponownie tylko dlatego, że poprzednia próba
+zdążyła zapisać GPT.
+
+Konserwatywne `disk_layout::prepare_empty_disk()` nadal istnieje dla testów i
+narzędzi wymagających absolutnie pustego LBA0, ale nie jest używane przez
+potwierdzoną ścieżkę Red Flux Setup.
+
 ## VirtualBox — wymagany storage
-
-Instalator 3.3.3-dev korzysta z własnego sterownika PCI AHCI. Referencyjny układ:
-
-```text
-Controller: SATA / Intel AHCI
-└── KuroganeOS.vdi        (SATA Port 0)
-
-Controller: IDE / PIIX4
-└── KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
-```
-
-Jeżeli dysk VDI jest podpięty przez IDE, ISO może wystartować poprawnie, ale
-instalator zakończy się:
-
-```text
-[FATAL][INSTALL][CPU0][KERNEL] no PCI AHCI controller
-```
-
-To nie jest błąd ISO. Przenieś HDD na SATA / Intel AHCI albo użyj aktualnego
-`repair-virtualbox-boot.ps1`.
-
-## Referencyjna VM VirtualBox
 
 ```text
 Firmware:       EFI64 / UEFI
@@ -112,8 +193,11 @@ Secure Boot:    OFF
 I/O APIC:       ON
 RAM:            2048 MiB
 CPU:            1-2
-HDD:            SATA / Intel AHCI, pusty VDI >= 2 GiB
-DVD:            IDE / PIIX4, canonical VirtualBox ISO
+HDD controller: SATA / Intel AHCI
+SATA ports:     1 dla pojedynczego VDI
+HDD:            VDI >= 2 GiB, SATA 0:0
+DVD controller: IDE / PIIX4
+DVD:            canonical VirtualBox ISO
 Boot order:     DVD -> Disk
 Network:        NAT
 NIC:            Intel PRO/1000 MT Desktop (82540EM)
@@ -121,154 +205,105 @@ Audio:          Intel AC'97
 Input:          PS/2
 ```
 
-Automatyczne utworzenie VM na Windows:
+Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
+przez IDE nie jest wspieranym targetem instalacji.
 
-```powershell
-.\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -Name "KuroganeOS-3.3.3-VB"
-```
+## Oczekiwane markery pełnej instalacji
 
-Naprawa istniejącej VM:
-
-```powershell
-.\scripts\repair-virtualbox-boot.ps1 `
-    -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
-```
-
-Repair helper wymusza EFI64, sprawdza/zakłada IntelAHCI i potrafi bezpiecznie
-przenieść istniejący wirtualny HDD z IDE na SATA 0:0 z próbą rollbacku, jeżeli
-podpięcie pod AHCI nie powiedzie się.
-
-## Instalacja w VirtualBox krok po kroku
-
-1. VM musi być całkowicie wyłączona podczas zmian storage.
-2. Ustaw EFI64, I/O APIC i Secure Boot OFF.
-3. Podepnij pusty VDI jako SATA / Intel AHCI.
-4. Podepnij canonical VirtualBox ISO jako IDE DVD.
-5. Uruchom VM i wybierz `INSTALL KUROGANEOS`.
-6. Wybierz język, username i tryb hasła.
-7. Wybierz wyłącznie pusty dysk SATA/AHCI.
-8. Sprawdź model i rozmiar dysku.
-9. Wpisz `INSTALL` (wielkość liter nie ma znaczenia).
-10. Poczekaj na `[TEST] installer_complete: PASS`.
-11. Wyłącz VM.
-12. Odłącz ISO.
-13. Ustaw HDD jako pierwszy boot device.
-14. Uruchom VM ponownie i sprawdź Login.
-
-## Co instaluje system
-
-Między innymi:
+Na nowym buildzie spodziewaj się m.in.:
 
 ```text
-/EFI/BOOT/BOOTX64.EFI
-/boot/kernel.elf
-/system/init
-/apps/*
-/gui/*
-/etc/system.cfg
+[TEST] installer_package_preflight: PASS
+[TEST] installer_confirmation: PASS
+installer stage 1/9: target confirmed and GPT written
+installer stage 2/9: GPT validated and partition views ready
+installer stage 3/9: filesystems formatted
+installer stage 4/9: fresh filesystems mounted
+installer stage 5/9: root payload copied and synced
+installer stage 6/9: profile and first-boot state committed
+installer stage 7/9: UEFI payload activated and synced
+installer stage 8/9: installed payload verified
+[TEST] installer_gpt: PASS
+[TEST] installer_filesystems: PASS
+[TEST] installer_root_payload: PASS
+[TEST] installer_uefi_bootloader: PASS
+[TEST] installer_profile: PASS
+[TEST] installer_payload_verify: PASS
+[TEST] installer_complete: PASS
+installer stage 9/9: installation complete
+```
+
+## Co zostaje zainstalowane
+
+Pakiet zawiera m.in.:
+
+```text
+ESP:
+  /EFI/BOOT/BOOTX64.EFI
+  /kernel.elf
+  /EFI/BOOT/kernel.elf
+
+ROOT:
+  /boot/kernel.elf
+  /system/init
+  /apps/*
+  /gui/*
+  /etc/system.cfg
+  /etc/ssl/certs.pem
+  /etc/boot.cfg
+```
+
+Installer generuje dodatkowo:
+
+```text
 /etc/locale.cfg
 /etc/user.cfg
 /etc/first.run
 ```
 
-## Oczekiwane markery instalatora
+W DEV BETA credential verifier nadal używa `FNV1A64-DEV`; nie jest to
+produkcyjny password KDF.
 
-Po poprawnym potwierdzeniu i instalacji:
+## Budowanie Windows + WSL
 
-```text
-[TEST] installer_confirmation: PASS
-[TEST] installer_gpt: PASS
-[TEST] installer_filesystems: PASS
-[TEST] installer_uefi_bootloader: PASS
-[TEST] installer_profile: PASS
-[TEST] installer_complete: PASS
-```
-
-Jeżeli użytkownik naciska `Esc` na ekranie destrukcyjnego potwierdzenia:
-
-```text
-[TEST] installer_cancel_safe: PASS
-```
-
-i installer wraca do wyboru dysku bez zapisu GPT.
-
-## Budowanie na Windows 11 + WSL
-
-Standardowy pełny build:
+Po zmianach w kernelu/installerze wymagany jest pełny rebuild:
 
 ```powershell
 .\scripts\build-media.ps1 -Configuration release -Rebuild
 ```
 
-Na Windows realny Oracle VirtualBox smoke jest domyślną częścią
-`build-media.ps1`. Smoke można wyłączyć tylko jawnie:
+Canonical VirtualBox ISO:
 
-```powershell
-.\scripts\build-media.ps1 `
-    -Configuration release `
-    -Rebuild `
-    -SkipVirtualBoxSmoke
+```text
+dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 ```
 
-Build z `-SkipVirtualBoxSmoke` nie powinien być traktowany jako runtime-qualified
-VirtualBox release.
-
-## Realny smoke VirtualBox
-
-Można uruchomić osobno:
+## Realny Oracle VirtualBox qualification
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
     -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -TimeoutSeconds 90
+    -TimeoutSeconds 180
 ```
 
-Smoke tworzy tymczasową VM z:
+Smoke tworzy tymczasową prawdziwą VM z EFI64, jednoportowym IntelAHCI, VDI,
+IDE DVD, E1000 NAT i COM1 serial logiem.
+
+Bieżąca kwalifikacja **nie kończy się już na `kernel entry` ani na samym zapisie
+GPT**. PASS wymaga:
 
 ```text
-EFI64
-SATA / IntelAHCI HDD
-IDE / PIIX4 DVD
-E1000 / NAT
-COM1 serial log
+[TEST] installer_complete: PASS
 ```
 
-`VBoxManage.exe` jest wywoływany przez `System.Diagnostics.Process`, więc
-normalny progress `0%...100%` na stderr nie jest błędnie klasyfikowany jako
-PowerShell `NativeCommandError`.
+Dzięki temu regresje formatowania, nested directory creation, package copy,
+UEFI activation lub verification mają oblać release build.
 
-Smoke wymaga aktywnego AHCI i odrzuca log zawierający `[FATAL][INSTALL]`.
+## Po udanej instalacji
 
-## Statyczna walidacja ISO
+1. Wyłącz VM.
+2. Odłącz ISO albo ustaw HDD przed DVD w kolejności bootowania.
+3. Uruchom system z VDI.
+4. Sprawdź first-boot/Login i trwałość `/etc`.
 
-```bash
-bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso \
-  --passes 20
-```
-
-Verifier sprawdza m.in. El Torito EFI, GPT ESP, FAT, `BOOTX64.EFI`, PE32+
-AMD64 EFI Application, kernel, `install.pkg` oraz stabilny SHA-256.
-
-## Diagnostyka
-
-### `No bootable medium`
-
-Sprawdź EFI64, canonical ISO, DVD-first boot i Secure Boot OFF.
-
-### `no PCI AHCI controller`
-
-Przenieś HDD na `SATA / Intel AHCI`. ISO może być całkowicie poprawne mimo tego
-błędu.
-
-### Stary ekran `INSTALLATION CONFIRMATION DID NOT MATCH INSTALL`
-
-Uruchamiasz build sprzed poprawki confirmation flow. Wykonaj pełny rebuild i
-upewnij się, że VM używa nowego canonical VirtualBox ISO z aktualną datą/hash.
-
-### Po instalacji ponownie startuje Setup
-
-Odłącz ISO albo ustaw `Disk -> Optical` po udanej instalacji.
+Jeżeli po instalacji ponownie uruchamia się Setup, VM nadal bootuje z DVD.
