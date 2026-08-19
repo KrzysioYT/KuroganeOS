@@ -7,7 +7,8 @@ param(
     [ValidateRange(1024, 1048576)]
     [int]$DiskSizeMb = 2048,
     [ValidateSet('e1000', 'virtio', 'pcnet')]
-    [string]$Nic = 'e1000'
+    [string]$Nic = 'e1000',
+    [switch]$Start
 )
 
 Set-StrictMode -Version Latest
@@ -131,8 +132,11 @@ $Iso = Resolve-KuroganePath -Path $Iso
 if (-not (Test-Path -LiteralPath $Iso -PathType Leaf)) {
     throw "ISO not found: $Iso"
 }
-if ([System.IO.Path]::GetExtension($Iso) -ne '.iso') {
+if ([System.IO.Path]::GetExtension($Iso).ToLowerInvariant() -ne '.iso') {
     throw "VirtualBox optical boot requires the KuroganeOS .iso, not an .img: $Iso"
+}
+if ((Get-Item -LiteralPath $Iso).Length -le 0) {
+    throw "ISO is empty: $Iso"
 }
 
 $existing = Invoke-VBoxNative -Arguments @('showvminfo', $Name) -AllowFailure
@@ -140,14 +144,21 @@ if ($existing.ExitCode -eq 0) {
     throw "VirtualBox VM already exists: $Name"
 }
 
+$VmDirectory = Join-Path $HOME "VirtualBox VMs\$Name"
+[System.IO.Directory]::CreateDirectory($VmDirectory) | Out-Null
+$SerialLog = Join-Path $VmDirectory 'kurogane-serial.log'
+if (Test-Path -LiteralPath $SerialLog -PathType Leaf) {
+    Remove-Item -LiteralPath $SerialLog -Force
+}
+
 if ([string]::IsNullOrWhiteSpace($Disk)) {
-    $base = Join-Path $HOME "VirtualBox VMs\$Name"
-    [System.IO.Directory]::CreateDirectory($base) | Out-Null
-    $Disk = Join-Path $base 'KuroganeOS.vdi'
+    $Disk = Join-Path $VmDirectory 'KuroganeOS.vdi'
 } else {
     $Disk = Resolve-KuroganePath -Path $Disk
-    [System.IO.Directory]::CreateDirectory(
-        [System.IO.Path]::GetDirectoryName($Disk)) | Out-Null
+    $diskDirectory = [System.IO.Path]::GetDirectoryName($Disk)
+    if (-not [string]::IsNullOrWhiteSpace($diskDirectory)) {
+        [System.IO.Directory]::CreateDirectory($diskDirectory) | Out-Null
+    }
 }
 
 $nicType = switch ($Nic) {
@@ -157,14 +168,16 @@ $nicType = switch ($Nic) {
     default { throw "Unsupported NIC profile: $Nic" }
 }
 
-$null = Invoke-VBoxNative -Arguments @('createvm', '--name', $Name, '--ostype', 'Other_64', '--register')
+$null = Invoke-VBoxNative -Arguments @(
+    'createvm', '--name', $Name, '--ostype', 'Other_64', '--register'
+)
 $created = $true
 try {
     $null = Invoke-VBoxNative -Arguments @(
         'modifyvm', $Name,
         '--memory', '2048', '--cpus', '2', '--firmware', 'efi64', '--ioapic', 'on',
         '--boot1', 'dvd', '--boot2', 'disk', '--boot3', 'none', '--boot4', 'none',
-        '--graphicscontroller', 'vboxsvga', '--vram', '64',
+        '--graphicscontroller', 'vmsvga', '--vram', '128',
         '--keyboard', 'ps2', '--mouse', 'ps2'
     )
 
@@ -189,6 +202,16 @@ try {
         )
     }
 
+    # COM1 is always available for diagnosing a black GUI screen. The same
+    # kernel log used by qualification can therefore be inspected on a normal
+    # user-created VM without changing the guest image.
+    $null = Invoke-VBoxNative -Arguments @(
+        'modifyvm', $Name, '--uart1', '0x3F8', '4'
+    )
+    $null = Invoke-VBoxNative -Arguments @(
+        'modifyvm', $Name, '--uartmode1', 'file', $SerialLog
+    )
+
     if (-not (Test-Path -LiteralPath $Disk -PathType Leaf)) {
         $null = Invoke-VBoxNative -Arguments @(
             'createmedium', 'disk', '--filename', $Disk,
@@ -196,8 +219,6 @@ try {
         )
     }
 
-    # One VDI needs one implemented SATA port. Keeping portcount bounded avoids
-    # wasting KuroganeOS AHCI link-probe time on empty VirtualBox ports.
     $null = Invoke-VBoxNative -Arguments @(
         'storagectl', $Name, '--name', 'SATA', '--add', 'sata',
         '--controller', 'IntelAHCI', '--portcount', '1'
@@ -219,13 +240,20 @@ try {
         'setextradata', $Name, 'VBoxInternal2/EfiGraphicsResolution', '1280x800'
     )
 
-    $info = Invoke-VBoxNative -Arguments @('showvminfo', $Name, '--machinereadable')
+    $info = Invoke-VBoxNative -Arguments @(
+        'showvminfo', $Name, '--machinereadable'
+    )
     $machine = $info.StdOut
+    $isoLeaf = [System.IO.Path]::GetFileName($Iso)
     if ($machine -notmatch 'firmware="EFI64"' -or
+        $machine -notmatch 'boot1="dvd"' -or
+        $machine -notmatch 'boot2="disk"' -or
         $machine -notmatch 'storagecontrollername\d+="SATA"' -or
         $machine -notmatch 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"' -or
-        $machine -notmatch '"SATA-0-0"=.*\.vdi"') {
-        throw 'Created VM did not retain the required EFI64 + IntelAHCI/SATA disk contract.'
+        $machine -notmatch '"SATA-0-0"=.*\.vdi"' -or
+        $machine -notmatch 'storagecontrollername\d+="IDE"' -or
+        $machine -notmatch [regex]::Escape($isoLeaf)) {
+        throw 'Created VM did not retain the required EFI64 + DVD-first + IntelAHCI HDD + IDE ISO contract.'
     }
 
     $created = $false
@@ -238,7 +266,23 @@ try {
 Write-Host "Created VirtualBox VM: $Name"
 Write-Host "ISO: $Iso"
 Write-Host "Disk: $Disk"
+Write-Host "Serial log: $SerialLog"
 Write-Host "NIC: $Nic ($nicType), NAT"
+Write-Host 'Graphics: VMSVGA, 128 MiB VRAM'
 Write-Host 'Storage: IntelAHCI/SATA port 0 -> VDI; IDE/PIIX4 -> ISO DVD'
 Write-Host 'Firmware: EFI64; Boot order: DVD -> Disk'
-Write-Host "Start with: VBoxManage startvm `"$Name`""
+
+if ($Start) {
+    $startResult = Invoke-VBoxNative -Arguments @(
+        'startvm', $Name, '--type', 'gui'
+    ) -AllowFailure
+    if ($startResult.ExitCode -ne 0) {
+        $details = @($startResult.StdOut, $startResult.StdErr) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { $_.TrimEnd() }
+        throw "VM was created correctly but failed to start.`n$($details -join [Environment]::NewLine)"
+    }
+    Write-Host "Started VirtualBox GUI VM: $Name"
+} else {
+    Write-Host "Start with: & `"$VBox`" startvm `"$Name`" --type gui"
+}
