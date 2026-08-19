@@ -28,7 +28,7 @@ Optical controller: IDE / PIIX4
 DVD:                KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 Boot order:         DVD -> Disk
 Network:            NAT
-NIC:                Intel PRO/1000 MT Desktop (82540EM)
+NIC:                PCnet-FAST III (Am79C973)
 Audio:              Intel AC'97
 Keyboard/Mouse:     PS/2
 Serial:             COM1 0x3F8 IRQ4 -> file
@@ -58,12 +58,17 @@ Najprostszy pełny start:
 .\scripts\create-virtualbox-vm.ps1 `
     -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
     -Name "KuroganeOS-3.3.3-VB" `
-    -Nic e1000 `
     -Start
 ```
 
+Domyślny profil helpera to `pcnet`, czyli VirtualBox `PCnet-FAST III
+(Am79C973)` z NAT. `-Nic e1000` i `-Nic virtio` pozostają dostępne jako profile
+jawnie wybierane do dalszych testów, ale nie są canonical VirtualBox profile,
+dopóki nie przejdą realnego install + reboot + network smoke na Oracle
+VirtualBox.
+
 Helper tworzy EFI64, I/O APIC, `VMSVGA + 128 MiB`, jednoportowy IntelAHCI +
-VDI, IDE/PIIX4 + ISO, DVD-first boot, E1000/NAT oraz COM1 log.
+VDI, IDE/PIIX4 + ISO, DVD-first boot, PCnet/NAT oraz COM1 log.
 
 Bez `-Start` helper tylko tworzy i weryfikuje VM, a na końcu wypisuje dokładną
 komendę uruchomienia przez znaleziony `VBoxManage.exe`.
@@ -119,7 +124,7 @@ wypisywana przez helper. Można podać własną:
 7. IDE Controller / PIIX4.
 8. Canonical VirtualBox ISO -> IDE DVD.
 9. Boot order `Optical -> Hard Disk`.
-10. Network -> NAT, Intel PRO/1000 MT Desktop (82540EM), Cable Connected.
+10. Network -> NAT, PCnet-FAST III (Am79C973), Cable Connected.
 11. Audio -> Intel AC'97.
 12. Opcjonalnie COM1: `0x3F8`, IRQ4, file output.
 
@@ -249,11 +254,11 @@ installer stage 9/9: installation complete
     -TimeoutSeconds 180
 ```
 
-`TimeoutSeconds` jest teraz **limitem braku postępu**, a nie jednym zegarem od
-startu VM. Nowy serial output resetuje idle deadline. Jednocześnie smoke ma
-twardy całkowity limit, więc prawdziwy hang nadal kończy się FAIL.
+`TimeoutSeconds` jest **limitem braku postępu**, a nie jednym zegarem od startu
+VM. Nowy serial output resetuje idle deadline. Jednocześnie smoke ma twardy
+całkowity limit, więc prawdziwy hang nadal kończy się FAIL.
 
-Smoke tworzy prawdziwą tymczasową VM:
+Smoke tworzy prawdziwą, całkowicie tymczasową VM:
 
 ```text
 EFI64
@@ -261,15 +266,27 @@ VMSVGA / 128 MiB
 1 x SATA/IntelAHCI port
 2 GiB VDI @ SATA 0:0
 IDE/PIIX4 DVD
-E1000/NAT
+PCnet-FAST III (Am79C973) / NAT
 COM1 serial log
 ```
 
-Kwalifikacja **nie kończy się na `kernel entry` ani `GPT written`**. Finalny
-PASS wymaga:
+VM i VDI są usuwane przez `unregistervm --delete` po PASS i po FAIL. Smoke nie
+jest przeznaczony do zachowywania testowego dysku.
+
+Kwalifikacja nie kończy się już na `kernel entry`, `GPT written` ani nawet na
+samym `installer_complete`. Finalny PASS wymaga kolejno:
 
 ```text
 [TEST] installer_complete: PASS
+poweroff
+odłączenie ISO
+boot z zainstalowanego VDI
+persistent FAT32 root mounted read-write
+[TEST] dhcp_lease: PASS
+[TEST] network_gateway_icmp: PASS
+[TEST] dns_resolver: PASS
+[TEST] userspace_init_spawn: PASS
+/system/init: PID 1 online
 ```
 
 Oczekiwane zakończenie:
@@ -278,11 +295,16 @@ Oczekiwane zakończenie:
 [virtualbox-smoke] firmware EFI64: PASS
 [virtualbox-smoke] DVD-first optical attachment: PASS
 [virtualbox-smoke] Intel AHCI target disk configuration: PASS
+[virtualbox-smoke] PCnet-FAST III + NAT configuration: PASS
 [virtualbox-smoke] BOOTX64.EFI -> kernel: PASS
 [virtualbox-smoke] SATA/AHCI runtime proof: PASS (...)
 [virtualbox-smoke] full root + UEFI payload installation: PASS
 [virtualbox-smoke] installed payload verification: PASS
-[virtualbox-smoke] REAL ORACLE VIRTUALBOX FULL INSTALL: PASS
+[virtualbox-smoke] installed VDI UEFI boot: PASS
+[virtualbox-smoke] persistent Kurogane Root mount: PASS
+[virtualbox-smoke] /system/init PID 1 online: PASS
+[virtualbox-smoke] PCnet-FAST III NAT + DHCP + gateway + DNS: PASS
+[virtualbox-smoke] REAL ORACLE VIRTUALBOX INSTALL + REBOOT + NETWORK: PASS
 ```
 
 ## Statyczna walidacja ISO
@@ -377,12 +399,19 @@ jego FAT chain jest punktem dalszej diagnostyki.
 
 Po `[TEST] installer_complete: PASS` odłącz ISO lub ustaw HDD przed DVD.
 
-### Internet
+### `NIC OFFLINE` / Internet
+
+Canonical VirtualBox profile:
 
 ```text
 Attached to = NAT
-Adapter Type = Intel PRO/1000 MT Desktop (82540EM)
+Adapter Type = PCnet-FAST III (Am79C973)
 Cable Connected = ON
 ```
+
+`NIC OFFLINE` oznacza, że KuroganeOS nie ma aktywnego fizycznego interfejsu,
+więc nie jest to jeszcze problem TLS ani trust store. E1000 (`82540EM`) pozostaje
+opcją `-Nic e1000` do dalszej kwalifikacji, ale nie jest obecnie profilem
+referencyjnym Oracle VirtualBox.
 
 Szczegóły: [`NETWORKING.md`](NETWORKING.md).
