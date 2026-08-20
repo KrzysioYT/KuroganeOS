@@ -6,8 +6,8 @@
 
 namespace {
 
-constexpr size_t kInboundCapacity = 16U;
-constexpr size_t kSentCapacity = 32U;
+constexpr size_t kInboundCapacity = 24U;
+constexpr size_t kSentCapacity = 48U;
 
 struct SentSegment {
     uint32_t sequence;
@@ -26,6 +26,12 @@ uint64_t g_ticks = 0U;
 uint32_t g_server_sequence = UINT32_C(1000);
 bool g_ack_first_data_transmission = true;
 size_t g_data_transmissions = 0U;
+bool g_fail_first_data_transmission = false;
+bool g_failed_data_transmission = false;
+bool g_fail_next_pure_ack = false;
+bool g_tls_like_ack_payload = false;
+bool g_zero_window_syn_ack = false;
+bool g_rst_on_data = false;
 
 const net::IPv4Address kLocalIp = {{10, 0, 2, 15}};
 const net::IPv4Address kPeerIp = {{93, 184, 216, 34}};
@@ -47,6 +53,12 @@ void reset_wire() {
     g_server_sequence = UINT32_C(1000);
     g_ack_first_data_transmission = true;
     g_data_transmissions = 0U;
+    g_fail_first_data_transmission = false;
+    g_failed_data_transmission = false;
+    g_fail_next_pure_ack = false;
+    g_tls_like_ack_payload = false;
+    g_zero_window_syn_ack = false;
+    g_rst_on_data = false;
 }
 
 bool enqueue_inbound(const net::TcpSegment& segment) {
@@ -60,7 +72,8 @@ net::TcpSegment make_peer_segment(
     uint32_t acknowledgement,
     uint8_t flags,
     const uint8_t* payload,
-    size_t payload_length) {
+    size_t payload_length,
+    uint16_t window = UINT16_C(8192)) {
     net::TcpSegment segment{};
     segment.valid = true;
     segment.source = kPeerIp;
@@ -70,7 +83,7 @@ net::TcpSegment make_peer_segment(
     segment.sequence = sequence;
     segment.acknowledgement = acknowledgement;
     segment.flags = flags;
-    segment.window = UINT16_C(8192);
+    segment.window = window;
     segment.payload_length = payload_length;
     for (size_t index = 0U; index < payload_length; ++index) {
         segment.payload[index] = payload[index];
@@ -167,14 +180,54 @@ Status send_tcp(
             sequence + 1U,
             TcpSyn | TcpAck,
             nullptr,
-            0U);
+            0U,
+            g_zero_window_syn_ack ? 0U : UINT16_C(8192));
         if (!enqueue_inbound(syn_ack)) return Status::QueueFull;
         ++g_server_sequence;
         return Status::Ok;
     }
 
+    if (payload_length == 0U && (flags & TcpAck) != 0U &&
+        (flags & (TcpSyn | TcpFin)) == 0U) {
+        if (g_fail_next_pure_ack) {
+            g_fail_next_pure_ack = false;
+            return Status::InterfaceError;
+        }
+        return Status::Ok;
+    }
+
     if (payload_length != 0U) {
         ++g_data_transmissions;
+
+        if (g_fail_first_data_transmission && !g_failed_data_transmission) {
+            g_failed_data_transmission = true;
+            return Status::InterfaceError;
+        }
+
+        if (g_rst_on_data) {
+            const TcpSegment rst = make_peer_segment(
+                g_server_sequence,
+                sequence,
+                TcpRst | TcpAck,
+                nullptr,
+                0U);
+            if (!enqueue_inbound(rst)) return Status::QueueFull;
+            return Status::Ok;
+        }
+
+        if (g_tls_like_ack_payload) {
+            static const uint8_t server_hello[] = {'S', 'E', 'R', 'V', 'E', 'R'};
+            const TcpSegment reply = make_peer_segment(
+                g_server_sequence,
+                sequence + static_cast<uint32_t>(payload_length),
+                TcpAck | TcpPsh,
+                server_hello,
+                sizeof(server_hello));
+            if (!enqueue_inbound(reply)) return Status::QueueFull;
+            g_server_sequence += static_cast<uint32_t>(sizeof(server_hello));
+            return Status::Ok;
+        }
+
         if (g_ack_first_data_transmission || g_data_transmissions >= 2U) {
             const TcpSegment ack = make_peer_segment(
                 g_server_sequence,
@@ -264,6 +317,104 @@ int main() {
         reorder_client.receive_next != base + sizeof(expected) ||
         reorder_client.out_of_order_count != 0U) {
         return 8;
+    }
+
+    // Local NIC backpressure regression: an InterfaceError from the local TX
+    // boundary may represent a temporarily busy descriptor. Retry the exact
+    // same SEQ and payload instead of poisoning the connection immediately.
+    reset_wire();
+    net::NetworkStack tx_stall_stack{};
+    net::tcp_client::Client tx_stall_client{};
+    if (!connect_client(&tx_stall_client, &tx_stall_stack)) return 9;
+    g_fail_first_data_transmission = true;
+    const size_t stall_before = g_sent_count;
+    if (net::tcp_client::send(
+            &tx_stall_client,
+            request,
+            sizeof(request),
+            UINT64_C(1000)) != net::Status::Ok) {
+        return 10;
+    }
+    if (!g_failed_data_transmission || g_sent_count < stall_before + 2U) return 11;
+    const SentSegment& stalled = g_sent[stall_before];
+    const SentSegment& recovered = g_sent[stall_before + 1U];
+    if (stalled.sequence != recovered.sequence ||
+        stalled.payload_length != recovered.payload_length ||
+        !bytes_equal(stalled.payload, recovered.payload, stalled.payload_length)) {
+        return 12;
+    }
+
+    // TLS-like server flight regression: a server commonly ACKs ClientHello
+    // and sends ServerHello in the same segment. If our pure ACK transmission
+    // momentarily fails, the already-valid incoming payload must stay buffered
+    // and the connection must remain established.
+    reset_wire();
+    net::NetworkStack tls_stack{};
+    net::tcp_client::Client tls_client{};
+    if (!connect_client(&tls_client, &tls_stack)) return 13;
+    g_tls_like_ack_payload = true;
+    g_fail_next_pure_ack = true;
+    const uint8_t client_hello[] = {'C', 'L', 'I', 'E', 'N', 'T'};
+    if (net::tcp_client::send(
+            &tls_client,
+            client_hello,
+            sizeof(client_hello),
+            UINT64_C(1000)) != net::Status::Ok ||
+        !tls_client.connected ||
+        tls_client.state != net::tcp_client::State::Established) {
+        return 14;
+    }
+    uint8_t tls_output[16]{};
+    size_t tls_output_length = 0U;
+    if (net::tcp_client::receive(
+            &tls_client,
+            tls_output,
+            sizeof(tls_output),
+            &tls_output_length,
+            UINT64_C(1000)) != net::Status::Ok) {
+        return 15;
+    }
+    static const uint8_t expected_server_hello[] = {'S', 'E', 'R', 'V', 'E', 'R'};
+    if (tls_output_length != sizeof(expected_server_hello) ||
+        !bytes_equal(tls_output, expected_server_hello, sizeof(expected_server_hello))) {
+        return 16;
+    }
+
+    // RFC window regression: a zero peer window is not permission to transmit.
+    // Return WouldBlock without changing SND.NXT so a later window update can
+    // resume safely.
+    reset_wire();
+    g_zero_window_syn_ack = true;
+    net::NetworkStack zero_window_stack{};
+    net::tcp_client::Client zero_window_client{};
+    if (!connect_client(&zero_window_client, &zero_window_stack)) return 17;
+    const uint32_t zero_window_seq = zero_window_client.send_next;
+    const size_t zero_window_before = g_data_transmissions;
+    if (net::tcp_client::send(
+            &zero_window_client,
+            request,
+            sizeof(request),
+            UINT64_C(1000)) != net::Status::WouldBlock ||
+        zero_window_client.send_next != zero_window_seq ||
+        g_data_transmissions != zero_window_before) {
+        return 18;
+    }
+
+    // Peer reset remains fatal. The local-TX retry policy must never hide a RST
+    // received from the remote endpoint.
+    reset_wire();
+    net::NetworkStack rst_stack{};
+    net::tcp_client::Client rst_client{};
+    if (!connect_client(&rst_client, &rst_stack)) return 19;
+    g_rst_on_data = true;
+    if (net::tcp_client::send(
+            &rst_client,
+            request,
+            sizeof(request),
+            UINT64_C(1000)) != net::Status::InterfaceError ||
+        rst_client.state != net::tcp_client::State::Error ||
+        rst_client.connected) {
+        return 20;
     }
 
     return 0;
