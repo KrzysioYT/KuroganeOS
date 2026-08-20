@@ -2,66 +2,56 @@
 
 Status bazowy: **3.3.3-dev / DEV BETA**.
 
-Ten plik jest kanoniczną listą prac po aktualnej linii 3.3.x. Każdy punkt jest
-odznaczany dopiero wtedy, gdy kod, publiczne API (jeśli dotyczy), dokumentacja i
-właściwe testy są spójne. Sam stub albo samo skompilowanie pliku nie oznacza
-ukończenia funkcji.
+Ten plik jest kanoniczną listą prac dla bieżącej linii KuroganeOS. Punkt dostaje
+✅ dopiero wtedy, gdy kod, publiczne API (jeżeli dotyczy), dokumentacja oraz
+odpowiednia kwalifikacja runtime są ze sobą zgodne. Sam stub, host-test albo
+samo skompilowanie pliku nie oznacza ukończenia funkcji.
 
-## Zasady prowadzenia projektu
+## Stan po stabilizacji 2026-08-20
 
-- Rozwój odbywa się **bezpośrednio na `main`**. Nie tworzymy roboczych gałęzi ani
-  dodatkowych PR-ów, chyba że właściciel projektu jawnie zmieni tę zasadę.
-- Ten plik jest jedyną kanoniczną roadmapą. Status funkcji ma być aktualizowany
-  w tym samym cyklu zmian, w którym zmienia się jej rzeczywisty stan.
-- Nie oznaczamy jako gotowych atrap API. Browser, Direct3D, sieć i sterowniki
-  dostają ✅ dopiero po działającym kodzie oraz odpowiedniej kwalifikacji.
-- Priorytet produktu: **działający Web -> przenośna sieć -> stabilny graphics /
-  Direct3D compatibility -> pełniejszy Chromium runtime -> hardware enablement**.
+- PR #4 został scalony do `main` po dużym stabilization/audit pass.
+- QEMU kwalifikuje E1000, PCnet i VirtIO-net przez rzeczywisty user-NAT runtime.
+- Oracle VirtualBox potrafi uruchomić ISO, przejść instalator, zapisać VDI i
+  ponownie uruchomić z dysku do persistent ROOT, PID 1, DHCP, gateway i DNS.
+- Pełny release-smoke VirtualBox nie jest jeszcze zielony: pozostaje
+  `[TEST] fat32_persistence: FAIL` oraz trzeba domknąć deterministyczne
+  raportowanie post-install smoke.
+- Mbed TLS 3.6.7, X.509, entropy, SNI, RTC/trust validation i systemowy bundle
+  CA są podłączone do ścieżki HTTPS. Aktualny runtime dochodzi do handshake,
+  ale kończy się błędem TCP/BIO send (`net::Status::InterfaceError`).
+- Terminal został oddzielony od Red Flux GUI: aktywny shell core nie zawiera
+  komend `gui`, `home`, automatycznego `/gui/*` ani skrótów otwierających GUI.
 
-## Inwarianty stabilności i wydajności
+## Zasady
 
-Każdy nowy subsystem ma przestrzegać poniższych zasad:
-
-- bounded buffers, kolejki i command lists; brak nieograniczonego wzrostu RAM;
-- bounded work per tick/syscall/frame oraz jawne timeouty operacji I/O;
-- brak aktywnych spin-loopów przy bezczynności; użycie sleep/event/HLT, gdy CPU
-  nie ma użytecznej pracy;
-- ownership + cleanup zasobów per PID i generation-checked handles tam, gdzie
-  zasób przeżywa pojedyncze wywołanie;
-- brak wykonywalnych mapowań danych bez potrzeby, walidacja Ring-3 pointerów i
-  rozmiarów oraz fail-closed dla nieobsługiwanych stanów;
-- degradacja pojedynczego sterownika/usługi nie może bez potrzeby zatrzymywać
-  bootowania całego systemu;
-- test hostowy/ABI dla logiki możliwej do testowania bez VM oraz runtime smoke
-  dla ścieżek wymagających prawdziwego urządzenia/hypervisora;
-- `main` ma wracać do zielonego pełnego gate po każdej serii zmian.
+- Roadmapa ma opisywać rzeczywisty stan źródeł i testów, a nie planowany marketing.
+- Strategia branch/PR pozostaje decyzją właściciela projektu; niezależnie od niej
+  `main` ma wracać do zielonego pełnego gate po każdej serii zmian.
+- Nie oznaczamy jako ukończonych atrap Browser/Direct3D/network/hardware API.
+- Dla VM/hardware host-test nie zastępuje runtime smoke na właściwym urządzeniu.
+- Bounded buffers, jawne timeouty, cleanup per PID, NX/W^X i fail-closed pozostają
+  inwariantami nowych subsystemów.
 
 ## Legenda
 
-- ✅ ukończone i objęte bieżącą kwalifikacją repozytorium;
-- 🟡 działający fundament istnieje, ale brak pełnej warstwy publicznej albo
-  kwalifikacji runtime;
+- ✅ ukończone i objęte bieżącą kwalifikacją;
+- 🟡 działający fundament istnieje, ale brak pełnej kwalifikacji lub stabilności;
 - ⬜ do wykonania;
-- 🔒 wymaga testu na zewnętrznym hoście/sprzęcie i nie może zostać uczciwie
-  oznaczone jako PASS wyłącznie przez CI.
+- 🔒 wymaga zewnętrznego hosta/sprzętu i nie może zostać uczciwie zamknięte samym CI.
 
 ## R0 — build, repo i release qualification
 
 - [x] ✅ UEFI x86-64 bootloader + boot protocol v3.
-- [x] ✅ Powtarzalny build kernela w konfiguracji testowej.
-- [x] ✅ Hostowe testy ABI/SDK uruchamiane przez `make test`.
-- [x] ✅ Czysty checkout bez śledzonych `build/*.o`, `*.d`, `*.elf` i cache.
-- [x] ✅ Linux IMG + wspólne ISO.
-- [x] ✅ El Torito EFI + GPT ESP verifier 20/20.
-- [x] ✅ OVMF/QEMU optical UEFI smoke do markera kernela.
-- [x] ✅ Gate na `main`: kernel test build, host ABI/SDK, media build,
-  FAT32/VFS validation, verifier 20/20 i OVMF smoke.
-- [x] ✅ QEMU user-NAT network qualification dla E1000 i AMD PCnet: boot,
-  DHCP, gateway i DNS są wymagane przez CI.
-- [ ] 🔒 Oracle VirtualBox x86-64: realny ISO boot -> kernel marker.
-- [ ] 🔒 VirtualBox: Try -> Login -> Home.
-- [ ] 🔒 VirtualBox: Install -> SATA VDI -> reboot bez ISO -> Login.
-- [ ] 🔒 VirtualBox NAT/E1000: DHCP + gateway + DNS runtime smoke.
+- [x] ✅ Powtarzalny build kernela oraz pełny host regression gate.
+- [x] ✅ Linux IMG + UEFI ISO, El Torito EFI + GPT ESP verifier 20/20.
+- [x] ✅ OVMF/QEMU optical boot smoke.
+- [x] ✅ QEMU user-NAT qualification: E1000 + PCnet + VirtIO-net, DHCP + gateway + DNS.
+- [x] ✅ Oracle VirtualBox x86-64: realny UEFI ISO boot do kernela.
+- [ ] 🟡 VirtualBox Install -> SATA VDI -> reboot bez ISO działa do persistent ROOT,
+  PID 1 i sieci, ale release-smoke blokuje `fat32_persistence: FAIL`.
+- [x] ✅ VirtualBox NAT/PCnet: DHCP + gateway + DNS po bootowaniu z zainstalowanego VDI.
+- [ ] 🔒 VirtualBox: osobny manualny Try -> Login -> Home qualification.
+- [ ] 🔒 VirtualBox VirtIO-net: DHCP + gateway + DNS runtime smoke.
 - [ ] 🔒 VirtualBox AC'97: słyszalny PCM runtime smoke.
 
 ## R1 — kernel, procesy i pamięć
@@ -70,9 +60,9 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 - [x] ✅ ELF64 ET_EXEC, prywatny CR3, NX/W^X i izolacja wyjątków userspace.
 - [x] ✅ PID/TID, spawn/wait/exit, sleep/yield i PIT round-robin preemption.
 - [ ] ⬜ Publiczne tworzenie wielu wątków w jednym procesie Ring 3.
-- [ ] ⬜ Synchronizacja userspace: mutex/condvar/waitable event/futex-like wait.
-- [ ] 🟡 Publiczny monotoniczny zegar 100 Hz (`ticks` + bezpieczna konwersja do
-  ms) jest gotowy; high-resolution timer source i waitable timer objects pozostają TODO.
+- [ ] ⬜ Mutex/condvar/futex-like wait oraz pełne waitable synchronization primitives.
+- [ ] 🟡 Publiczny monotoniczny zegar 100 Hz działa; brak high-resolution timer source
+  i waitable timer objects.
 - [ ] ⬜ Demand paging.
 - [ ] ⬜ Copy-on-write.
 - [ ] ⬜ File-backed mmap.
@@ -82,79 +72,70 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 ## R2 — filesystem i persistent application state
 
 - [x] ✅ Writable FAT32/VFS persistent root.
-- [x] ✅ Ring-3 open/read/write/append/close.
-- [x] ✅ Ring-3 stat/readdir.
-- [x] ✅ Ring-3 create/unlink/rename/mkdir/rmdir/sync.
+- [x] ✅ Ring-3 open/read/write/append/close/stat/readdir.
+- [x] ✅ Ring-3 create/unlink/rename/mkdir/rmdir/sync/seek.
+- [x] ✅ Process-local cwd/chdir/getcwd i dziedziczenie cwd przy spawn.
 - [x] ✅ Read-only live-package root odrzucający mutacje.
-- [x] ✅ Publiczne `seek`/pozycjonowanie pliku z `BEGIN/CURRENT/END` i
-  overflow-checked VFS offsets.
-- [x] ✅ Process-local cwd/chdir/getcwd, relative path resolution oraz
-  dziedziczenie cwd przez dziecko przy `spawn`.
-- [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
+- [x] ✅ Instalator tworzy kanoniczne bazowe katalogi:
+  `/bin`, `/boot`, `/dev`, `/etc`, `/home`, `/proc`, `/system`, `/system/bin`,
+  `/tmp`, `/var`, `/var/log`.
 - [x] ✅ ABI v1 świadomie nie implementuje symlinków/hard linków na FAT32;
-  polityka i warunki przyszłego rozszerzenia są zapisane w
-  `docs/DEVELOPERS/FILESYSTEM_POLICY.md`.
+  polityka jest zapisana w `docs/DEVELOPERS/FILESYSTEM_POLICY.md`.
+- [ ] 🟡 Domknąć test trwałości pierwszego bootu: obecnie `fat32_persistence: FAIL`.
+- [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
 - [ ] ⬜ Model owner/group/permissions/ACL.
 - [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia aplikacji i profilu.
 - [ ] ⬜ Recovery + transakcyjne aktualizacje systemu.
 
 ## R3 — IPC i sandbox
 
-- [x] ✅ Generation-checked IPC endpoint/channel handles z nazwanym
-  `bind/connect/accept` i ownership per PID.
-- [x] ✅ Bounded 256-byte message send/receive, queue backpressure,
-  stale-handle checks, peer-close semantics i cleanup po PID.
-- [x] ✅ Shared-memory objects: PMM-backed zero-filled pages, generation-checked
-  handles, owner/grant per PID, writable+NX Ring-3 map/unmap i refcount cleanup.
-- [ ] 🟡 Waitable event objects: generation-checked owner/grant handles,
-  auto/manual reset, signal/reset/poll/close i sleeping `ku_event_wait`; bezpośrednie
-  wake-up z `Blocked` i automatyczne readiness z IPC/async I/O pozostają do spięcia.
+- [x] ✅ Generation-checked IPC endpoint/channel handles z `bind/connect/accept`.
+- [x] ✅ Bounded message queues, backpressure, peer-close i cleanup per PID.
+- [x] ✅ Shared-memory objects z owner/grant, NX mapping i refcount cleanup.
+- [ ] 🟡 Waitable event objects działają jako fundament; nadal trzeba spiąć
+  bezpośrednie wake-up z `Blocked` oraz readiness z IPC/async I/O.
 - [ ] ⬜ Capability/permission model dla usług systemowych.
-- [ ] ⬜ Sandbox primitives potrzebne przez model browser/renderer.
+- [ ] ⬜ Sandbox primitives potrzebne przez browser/renderer model.
 
 ## R4 — networking
 
 - [x] ✅ E1000 82540EM + Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS.
-- [x] ✅ AMD PCnet jako drugi runtime-selectable NIC backend; physical network
-  layer wybiera E1000 albo PCnet zależnie od wykrytego urządzenia.
-- [x] ✅ QEMU Windows/WSL i QEMU macOS używają user-NAT; E1000 jest wspólnym
-  profilem przenośnym, a Linux CI kwalifikuje także PCnet.
-- [x] ✅ QEMU E1000 i PCnet user-NAT runtime smoke w CI z wymaganym DHCP,
-  gateway i DNS.
-- [x] ✅ Minimalny TCP backend i bounded HTTP/80 transport.
-- [x] ✅ Ring-3 network status snapshot.
-- [x] ✅ Ring-3 bounded HTTP GET dla bootstrap Kurogane Web.
-- [ ] ⬜ VirtIO-net backend dla nowoczesnego QEMU/KVM.
-- [ ] ⬜ Dalsze fizyczne NIC backends (co najmniej popularny Intel/Realtek) dla
-  realnego sprzętu; „wszystkie maszyny” oznacza rozszerzaną macierz driverów,
-  nie pojedynczy uniwersalny sterownik.
+- [x] ✅ AMD PCnet jako runtime-selectable backend i kanoniczny profil VirtualBox.
+- [x] ✅ VirtIO-net PCI backend zakwalifikowany runtime pod QEMU.
+- [x] ✅ QEMU E1000/PCnet/VirtIO user-NAT smoke z DHCP + gateway + DNS.
+- [x] ✅ Ring-3 network status snapshot i bounded HTTP GET.
+- [ ] 🟡 TCP ma SND.UNA/SND.NXT/RCV.NXT, retransmisję tego samego sequence,
+  bounded out-of-order reassembly, advertised window i większy stream receive buffer;
+  nadal nie jest wystarczająco stabilny dla pełnej ścieżki TLS/public Web.
+- [ ] 🟡 Mbed TLS 3.6.7: freestanding TLS 1.2/X.509, entropy, SNI, TCP BIO,
+  RTC/time validation i trust-store parse są zintegrowane; handshake runtime nadal
+  kończy się błędem BIO send/TCP.
+- [ ] 🟡 Systemowy CA bundle jest dołączany do media z hostowego Web PKI i parsowany;
+  brakuje natywnego lifecycle/update policy wewnątrz KuroganeOS.
+- [ ] 🟡 Publiczne Ring-3 `ku_https_get()` istnieje, ale HTTPS nie jest jeszcze
+  release-qualified end-to-end.
 - [ ] ⬜ Publiczne async socket handles.
 - [ ] ⬜ Connect/send/recv/close bez długiego blocking syscall.
 - [ ] ⬜ DNS resolver jako async/public service.
 - [ ] ⬜ Poll/event integration z IPC/thread wait primitives.
-- [ ] 🟡 Mbed TLS 3.6.7 jest przypięty jako submodule, istnieje freestanding
-  TLS 1.2/X.509 client config i compile-probe; brakuje jeszcze platform glue,
-  TCP BIO, entropy, trust store i runtime handshake.
-- [ ] ⬜ Aktualizowalny systemowy CA trust store + hostname/time validation.
-- [ ] ⬜ HTTPS transport dostępny przez publiczne Ring-3 API.
-- [ ] ⬜ Stabilniejszy TCP: retransmission, ordering, timeout i większe transfery.
+- [ ] ⬜ Dalsze fizyczne NIC backends, przede wszystkim popularny Realtek/Intel.
 
 ## R5 — audio
 
-- [x] ✅ Intel ICH AC'97 `8086:2415` kernel PCM S16LE/stereo/48 kHz backend.
-- [x] ✅ Ring-3 audio status.
-- [x] ✅ Ring-3 master volume/mute.
-- [x] ✅ Bezpieczny bounded Ring-3 PCM playback foundation: 48 kHz S16LE stereo,
-  max 1024 frames, kernel DMA copy, per-PID ownership, poll i stop.
+- [x] ✅ Intel ICH AC'97 `8086:2415` kernel PCM S16LE/stereo/48 kHz.
+- [x] ✅ Ring-3 audio status, master volume/mute i bounded PCM playback.
 - [ ] ⬜ Per-process audio stream handles i mixer.
 - [ ] ⬜ Buffer scheduling / underrun handling dla ciągłego streamingu.
 - [ ] ⬜ Format conversion/resampling.
 - [ ] ⬜ Capture/microphone.
 - [ ] ⬜ Intel HDA backend.
 
-## R6 — shell i POSIX/libc compatibility
+## R6 — terminal, shell i POSIX/libc compatibility
 
 - [x] ✅ Podstawowy shell i uruchamianie ELF64.
+- [x] ✅ Wspólny terminal shell core używany przez recovery console i GUI Terminal.
+- [x] ✅ Shell core jest niezależny od Red Flux GUI; stary Flux-aware core został usunięty.
+- [x] ✅ Historia, cwd, cat/read, run/open aplikacji, jobs/wait i podstawowe utility.
 - [ ] ⬜ Pipes.
 - [ ] ⬜ stdin/stdout redirection.
 - [ ] ⬜ Environment variables.
@@ -168,8 +149,7 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 - [x] ✅ WindowManager, Red Flux Desktop, Dock i aplikacje GUI Ring 3.
 - [x] ✅ Software backbuffer, clipping i damage-style GOP scanout.
 - [x] ✅ Bounded Ring-3 UI event queue i cleanup zasobów procesu.
-- [x] ✅ Piny desktopu są zapisywane przez Ring 3 do `/home/desktop.cfg`,
-  odtwarzane przy starcie Home i synchronizowane przez publiczne writable FS ABI.
+- [x] ✅ Piny desktopu są zapisywane do `/home/desktop.cfg`.
 - [ ] ⬜ Szerszy settings/profile service dla ustawień desktopu i aplikacji.
 - [ ] ⬜ Clipboard.
 - [ ] ⬜ Unicode/text shaping/font discovery.
@@ -182,26 +162,29 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 
 - [x] ✅ PCI display-class discovery i driver-manager binding.
 - [x] ✅ GOP/software compositor capability reporting bez fałszywego 3D support.
-- [ ] 🟡 Publiczny bounded software surface runtime istnieje w SDK: XRGB8888,
-  clear, clipped rect/line i integer filled-triangle rasterizer bez FPU/SSE.
-- [ ] 🟡 Wspólny source-level Direct3D compatibility foundation dla frontendów
-  9/11/12 istnieje nad software surface; ma frame/draw budgets oraz bounded
-  D3D12-style command listę. Nie jest to jeszcze Windows COM ABI.
-- [ ] ⬜ Natywne surface/image/buffer/texture handles zarządzane przez kernel/runtime.
-- [ ] ⬜ Per-window command buffer present + viewport/scissor + render/depth/blend state.
+- [ ] 🟡 Publiczny bounded software surface runtime: XRGB8888, clear, clipped
+  rect/line i integer triangle rasterizer.
+- [ ] 🟡 Source-level Direct3D compatibility foundation dla 9/11/12 istnieje,
+  ale nie jest Windows COM ABI ani pełnym DirectX.
+- [ ] ⬜ Natywne surface/image/buffer/texture handles.
+- [ ] ⬜ Per-window command buffer present + viewport/scissor/state.
 - [ ] ⬜ Present/swap + synchronization/fences do WindowManagera.
-- [ ] ⬜ Software 3D: depth buffer, textures i shader IR ponad gotowym triangle rasterizerem.
+- [ ] ⬜ Software 3D: depth buffer, textures i shader IR.
 - [ ] ⬜ Pierwszy realny GPU command-submission backend.
-- [ ] ⬜ D3D9 pełniejsza semantyka device/resources/state + compatibility frontend.
-- [ ] ⬜ D3D11 device/context/resources/shaders + compatibility frontend.
-- [ ] ⬜ D3D12 queues/lists/barriers/descriptors + compatibility frontend.
-- [ ] ⬜ Dopiero po powyższych warstwach ocena osobnego Windows-compatible COM ABI;
-  samo podobieństwo nazw API nie może być raportowane jako pełny DirectX.
+- [ ] ⬜ D3D9 pełniejsza semantyka device/resources/state.
+- [ ] ⬜ D3D11 device/context/resources/shaders.
+- [ ] ⬜ D3D12 queues/lists/barriers/descriptors.
+- [ ] ⬜ Dopiero później ocena Windows-compatible COM ABI.
 
 ## R9 — installer, security i accounts
 
 - [x] ✅ Kernelowy GPT/FAT32 installer i Try/Install media.
+- [x] ✅ Transakcyjny install flow: ROOT najpierw, UEFI boot payload publikowany później,
+  sync + byte-for-byte installed payload verification.
 - [x] ✅ Lokalny profil instalacji + DEV password verifier.
+- [x] ✅ Bazowy katalogowy filesystem contract tworzony podczas instalacji.
+- [ ] 🟡 Naprawić trwałość/marker pierwszego bootu raportowany przez
+  `fat32_persistence: FAIL`.
 - [ ] ⬜ Bezpieczny password KDF zamiast `FNV1A64-DEV`.
 - [ ] ⬜ Account service + credential store.
 - [ ] ⬜ Lock screen/session authentication.
@@ -215,32 +198,28 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 - [x] ✅ PS/2 keyboard/mouse.
 - [x] ✅ E1000 82540EM.
 - [x] ✅ AMD PCnet.
+- [x] ✅ VirtIO-net pod QEMU.
 - [x] ✅ AC'97.
 - [x] ✅ PCI + ACPI MADT/APIC discovery.
 - [ ] ⬜ Stabilizacja xHCI/USB HID na większej liczbie konfiguracji.
 - [ ] ⬜ NVMe jako równorzędny storage backend.
 - [ ] ⬜ Intel HDA.
-- [ ] ⬜ VirtIO-net.
-- [ ] ⬜ SMP/APIC interrupt routing jako aktywna ścieżka zamiast PIC-only profile.
+- [ ] ⬜ SMP/APIC interrupt routing jako aktywna ścieżka zamiast PIC fallback.
 - [ ] 🔒 Szersza kwalifikacja na realnym sprzęcie UEFI.
 
 ## R11 — Chromium / Kurogane Web
 
 - [x] ✅ BrowserContext / NavigationController / PlatformDelegate bootstrap.
 - [x] ✅ Plain HTTP navigation + bounded redirects + bootstrap text renderer.
-- [x] ✅ Edytowalny omnibox: pełny URL, sama domena i zwykły tekst zapytania;
-  Backspace edytuje, Escape czyści, Enter uruchamia nawigację.
-- [x] ✅ Search-capable parser: tekst zapytania jest percent-encoded i zamieniany
-  na HTTPS search target zamiast traktowania go jak nazwę domeny.
+- [x] ✅ Edytowalny omnibox i search-capable URL resolver.
 - [x] ✅ Writable filesystem foundation dla przyszłego profile/cache.
-- [ ] ⬜ Faktyczne wykonanie wyszukiwania przez HTTPS — obecnie prawidłowo
-  zatrzymuje się na braku TLS zamiast wykonywać niebezpieczny downgrade.
-- [ ] ⬜ HTTPS dla zwykłych współczesnych stron oraz bezpieczne redirecty HTTP->HTTPS.
-- [ ] ⬜ Async socket ABI.
-- [ ] 🟡 Monotonic time foundation jest publiczny; nadal brakuje userspace threads,
-  bezpośrednich wait primitives i timer objects potrzebnych przez Chromium task model.
-- [ ] 🟡 Bounded message IPC, shared memory i waitable-event foundation istnieją;
-  nadal brakuje bezpośredniego wake/event readiness i docelowego sandbox model.
+- [ ] 🟡 HTTPS request path jest podpięty do browsera i Ring-3 API; runtime dochodzi
+  do TLS handshake, lecz obecnie kończy się na TCP/BIO send failure.
+- [ ] 🟡 Wyszukiwanie przez HTTPS ma poprawny target i nie robi downgrade do HTTP,
+  ale nie jest jeszcze funkcjonalne end-to-end.
+- [ ] ⬜ Async socket ABI + event readiness.
+- [ ] 🟡 Monotonic time i IPC/shared-memory/event foundations istnieją; brak
+  userspace threads, pełnych wait primitives i timer objects dla Chromium task model.
 - [ ] ⬜ libc++/Chromium `base` platform layer.
 - [ ] ⬜ GN `target_os = "kurogane"` toolchain definition.
 - [ ] ⬜ Build/run Chromium `base` + `url` smoke target.
@@ -249,21 +228,24 @@ Każdy nowy subsystem ma przestrzegać poniższych zasad:
 - [ ] ⬜ V8/JavaScript.
 - [ ] ⬜ GPU compositing.
 
-## Najbliższa kolejność implementacji
+## Najbliższe TODO — priorytet
 
-Kolejność jest zależnościowa i podporządkowana działającej przeglądarce,
-przenośnej sieci oraz stabilności:
-
-1. Mbed TLS platform glue + bezpieczne entropy + TCP BIO;
-2. aktualizowalny CA trust store + certificate/hostname/time validation;
-3. publiczny HTTPS GET i podpięcie go do omnibox/search w Kurogane Web;
-4. wzmocnienie TCP oraz async sockets/DNS + event readiness;
-5. VirtIO-net, potem popularne fizyczne NIC i dalsza macierz VM/hardware;
-6. native graphics command-buffer/present path do WindowManagera;
-7. depth/textures/shader IR i rozszerzanie D3D9 -> D3D11 -> D3D12;
-8. direct blocked-thread wake + userspace threads/timery;
-9. Chromium platform layer / `content_shell` / Blink / V8;
-10. settings/account credential services, SMP/NVMe/HDA i recovery.
+1. Naprawić `fat32_persistence: FAIL` i doprowadzić pełny VirtualBox
+   install -> detach ISO -> VDI reboot smoke do jednoznacznego PASS.
+2. Naprawić TCP/BIO send failure podczas Mbed TLS handshake; dodać regresję,
+   która odtwarza realny handshake zamiast tylko hostowego TCP unit testu.
+3. Zakwalifikować HTTPS end-to-end: DNS -> TCP -> TLS -> cert/hostname/time ->
+   HTTP response, najpierw na stabilnym kontrolowanym endpointcie, potem public Web.
+4. Wykonać realny VirtualBox VirtIO-net NAT smoke i zdecydować, czy PCnet pozostaje
+   profilem domyślnym.
+5. Zaprojektować async socket handles + async DNS + poll/event readiness bez
+   długich blocking syscalls.
+6. Domknąć userspace threads, mutex/condvar/futex-like wait i direct event wake-up.
+7. Rozwinąć terminal/POSIX layer: pipes, redirection, environment, glob i errno/fd adapters.
+8. Zbudować docelowy native surface/present/synchronization model dla WindowManagera.
+9. Rozszerzyć hardware: xHCI/USB HID, NVMe, Intel HDA i popularne fizyczne NIC.
+10. Dopiero na stabilnej sieci/threading/graphics rozwijać Chromium `base`,
+    `content_shell`, Blink i V8.
 
 Po każdym ukończonym etapie ten plik ma zostać zaktualizowany w tym samym
 cyklu zmian, a kwalifikacja `main` musi pozostać zielona.
