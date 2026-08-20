@@ -6,7 +6,7 @@
 #define TERMINAL_OUTPUT_CAPACITY 64U
 #define TERMINAL_VISIBLE_INPUT 46U
 
-static flux_shell_state g_shell;
+static ku_shell_state g_shell;
 static char g_output[TERMINAL_OUTPUT_LINES][TERMINAL_OUTPUT_CAPACITY];
 
 static void terminal_emit(void* context, const char* line) {
@@ -21,7 +21,7 @@ static void terminal_emit(void* context, const char* line) {
         TERMINAL_OUTPUT_CAPACITY);
 }
 
-static const flux_shell_io g_io = {
+static const ku_shell_io g_io = {
     terminal_emit,
     NULL,
 };
@@ -135,9 +135,9 @@ int main(void) {
     const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 155, 760, 430);
     if (window == KU_INVALID_WINDOW) return 1;
 
-    flux_shell_initialize(&g_shell);
+    ku_shell_initialize(&g_shell);
     clear_output();
-    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / terminal shell");
+    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / system shell");
     terminal_emit(NULL, "Type help. Desktop surfaces are not shell commands.");
 
     puts("[TEST] desktop_terminal_ring3: PASS");
@@ -155,26 +155,26 @@ int main(void) {
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_activate(&event)) {
-            flux_shell_action action;
+            ku_shell_action action;
             input[length] = '\0';
-            action = terminal_shell_execute(&g_shell, &g_io, input);
+            action = ku_shell_execute(&g_shell, &g_io, input);
             length = 0U;
             cursor = 0U;
             input[0] = '\0';
-            if (action == FLUX_SHELL_ACTION_CLEAR) {
+            if (action == KU_SHELL_ACTION_CLEAR) {
                 clear_output();
-                terminal_emit(NULL, "Red Flux Terminal cleared.");
-            } else if (action == FLUX_SHELL_ACTION_EXIT) {
+                terminal_emit(NULL, "Terminal cleared.");
+            } else if (action == KU_SHELL_ACTION_EXIT) {
                 break;
             }
         } else if (gui_key_up(&event)) {
-            if (flux_shell_history_previous(
+            if (ku_shell_history_previous(
                     &g_shell, input, sizeof(input))) {
                 length = strlen(input);
                 cursor = length;
             }
         } else if (gui_key_down(&event)) {
-            if (flux_shell_history_next(
+            if (ku_shell_history_next(
                     &g_shell, input, sizeof(input))) {
                 length = strlen(input);
                 cursor = length;
@@ -204,7 +204,7 @@ int main(void) {
             continue;
         }
 
-        flux_shell_reap_jobs(&g_shell, &g_io, 1);
+        ku_shell_reap_jobs(&g_shell, &g_io, 1);
         render(window, input, length, cursor);
     }
 
