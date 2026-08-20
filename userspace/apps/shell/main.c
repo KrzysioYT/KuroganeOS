@@ -1,6 +1,6 @@
 #include "../../common/terminal_shell.h"
 
-static flux_shell_state g_shell;
+static ku_shell_state g_shell;
 
 static void console_emit(void* context, const char* line) {
     (void)context;
@@ -8,19 +8,19 @@ static void console_emit(void* context, const char* line) {
     (void)u_puts("\n");
 }
 
-static const flux_shell_io g_io = {
+static const ku_shell_io g_io = {
     console_emit,
     (void*)0,
 };
 
 static void banner(void) {
     (void)u_puts("\n");
-    (void)u_puts("KUROGANEOS " KUROGANE_VERSION_STRING " / RED FLUX CONSOLE\n");
+    (void)u_puts("KUROGANEOS " KUROGANE_VERSION_STRING " / SYSTEM SHELL\n");
     (void)u_puts("Ring 3 recovery workspace. Type 'help' for commands.\n");
 }
 
 static void prompt(void) {
-    flux_shell_reap_jobs(&g_shell, &g_io, 1);
+    ku_shell_reap_jobs(&g_shell, &g_io, 1);
     (void)u_puts("KRG:");
     (void)u_puts(g_shell.cwd);
     (void)u_puts(" > ");
@@ -32,10 +32,10 @@ static void clear_console(void) {
 }
 
 __attribute__((noreturn)) void _start(void) {
-    char line[FLUX_SHELL_LINE_CAPACITY];
+    char line[KU_SHELL_LINE_CAPACITY];
     size_t length = 0U;
 
-    flux_shell_initialize(&g_shell);
+    ku_shell_initialize(&g_shell);
     banner();
     prompt();
 
@@ -52,16 +52,16 @@ __attribute__((noreturn)) void _start(void) {
         }
 
         if (character == '\r' || character == '\n') {
-            flux_shell_action action;
+            ku_shell_action action;
             (void)u_puts("\n");
             line[length] = '\0';
-            action = terminal_shell_execute(&g_shell, &g_io, line);
+            action = ku_shell_execute(&g_shell, &g_io, line);
             length = 0U;
             line[0] = '\0';
-            if (action == FLUX_SHELL_ACTION_CLEAR) {
+            if (action == KU_SHELL_ACTION_CLEAR) {
                 clear_console();
-            } else if (action == FLUX_SHELL_ACTION_EXIT) {
-                (void)u_puts("Red Flux console session ended\n");
+            } else if (action == KU_SHELL_ACTION_EXIT) {
+                (void)u_puts("System shell session ended\n");
                 ku_exit(g_shell.last_status);
             }
             prompt();
