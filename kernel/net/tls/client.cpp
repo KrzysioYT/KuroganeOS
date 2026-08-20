@@ -29,10 +29,16 @@ struct Session {
     mbedtls_ctr_drbg_context drbg;
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config config;
-    mbedtls_x509_crt trust;
     mbedtls_x509_crt_profile certificate_profile;
     tcp_client::Client tcp;
 };
+
+mbedtls_x509_crt g_cached_trust{};
+bool g_cached_trust_initialized = false;
+bool g_cached_trust_ready = false;
+bool g_cached_trust_loading = false;
+const uint8_t* g_cached_trust_source = nullptr;
+size_t g_cached_trust_source_size = 0U;
 
 void log_mbedtls_error(const char* stage, int result) {
     log::write_hex(
@@ -278,20 +284,102 @@ bool peer_certificate_times_valid(const mbedtls_x509_crt* peer) {
     return true;
 }
 
+Status ensure_cached_trust_store(
+    const uint8_t* trust_pem,
+    size_t trust_pem_size) {
+    if (trust_pem == nullptr || trust_pem_size < 2U ||
+        trust_pem[trust_pem_size - 1U] != '\0') {
+        log::write(log::Level::Error, "TLS", "trust PEM is empty or not NUL terminated");
+        return Status::TrustStoreInvalid;
+    }
+
+    if (g_cached_trust_ready &&
+        g_cached_trust_source == trust_pem &&
+        g_cached_trust_source_size == trust_pem_size) {
+        return Status::Ok;
+    }
+    if (g_cached_trust_loading) {
+        log::write(log::Level::Error, "TLS", "trust store parse already in progress");
+        return Status::SetupFailure;
+    }
+
+    g_cached_trust_loading = true;
+    if (g_cached_trust_initialized) {
+        mbedtls_x509_crt_free(&g_cached_trust);
+    }
+    zero_bytes(&g_cached_trust, sizeof(g_cached_trust));
+    mbedtls_x509_crt_init(&g_cached_trust);
+    g_cached_trust_initialized = true;
+    g_cached_trust_ready = false;
+    g_cached_trust_source = nullptr;
+    g_cached_trust_source_size = 0U;
+
+    log::write_u64(
+        log::Level::Info,
+        "TLS",
+        "trust parse begin bytes=",
+        static_cast<uint64_t>(trust_pem_size - 1U));
+    log::write_u64(
+        log::Level::Info,
+        "TLS",
+        "heap free before trust parse=",
+        static_cast<uint64_t>(memory::free_bytes()));
+
+    const int result = mbedtls_x509_crt_parse(
+        &g_cached_trust,
+        trust_pem,
+        trust_pem_size);
+    if (result < 0) {
+        log_mbedtls_error("x509_crt_parse error=", result);
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "heap free after failed trust parse=",
+            static_cast<uint64_t>(memory::free_bytes()));
+        mbedtls_x509_crt_free(&g_cached_trust);
+        zero_bytes(&g_cached_trust, sizeof(g_cached_trust));
+        mbedtls_x509_crt_init(&g_cached_trust);
+        g_cached_trust_loading = false;
+        return Status::TrustStoreInvalid;
+    }
+
+    g_cached_trust_source = trust_pem;
+    g_cached_trust_source_size = trust_pem_size;
+    g_cached_trust_ready = true;
+    g_cached_trust_loading = false;
+
+    log::write_u64(
+        log::Level::Info,
+        "TLS",
+        "trust certificates accepted=",
+        static_cast<uint64_t>(count_certificates(&g_cached_trust)));
+    if (result > 0) {
+        log::write_u64(
+            log::Level::Warn,
+            "TLS",
+            "trust certificates skipped during parse=",
+            static_cast<uint64_t>(result));
+    }
+    log::write_u64(
+        log::Level::Info,
+        "TLS",
+        "heap free after trust parse=",
+        static_cast<uint64_t>(memory::free_bytes()));
+    return Status::Ok;
+}
+
 void initialize_session(Session* session) {
     zero_bytes(session, sizeof(*session));
     mbedtls_entropy_init(&session->entropy);
     mbedtls_ctr_drbg_init(&session->drbg);
     mbedtls_ssl_init(&session->ssl);
     mbedtls_ssl_config_init(&session->config);
-    mbedtls_x509_crt_init(&session->trust);
     tcp_client::initialize(&session->tcp);
 }
 
 void free_session(Session* session) {
     if (session == nullptr) return;
     static_cast<void>(tcp_client::close(&session->tcp));
-    mbedtls_x509_crt_free(&session->trust);
     mbedtls_ssl_free(&session->ssl);
     mbedtls_ssl_config_free(&session->config);
     mbedtls_ctr_drbg_free(&session->drbg);
@@ -305,6 +393,9 @@ Status setup_tls(
     const char* host_name,
     const uint8_t* trust_pem,
     size_t trust_pem_size) {
+    const Status trust_status = ensure_cached_trust_store(trust_pem, trust_pem_size);
+    if (trust_status != Status::Ok) return trust_status;
+
     if (ku_tls_hardware_entropy_available() == 0) {
         log::write(log::Level::Error, "TLS", "RDRAND/RDSEED entropy unavailable");
         return Status::EntropyUnavailable;
@@ -333,31 +424,6 @@ Status setup_tls(
         return Status::EntropyUnavailable;
     }
 
-    if (trust_pem_size < 2U || trust_pem[trust_pem_size - 1U] != '\0') {
-        log::write(log::Level::Error, "TLS", "trust PEM is empty or not NUL terminated");
-        return Status::TrustStoreInvalid;
-    }
-    result = mbedtls_x509_crt_parse(
-        &session->trust,
-        trust_pem,
-        trust_pem_size);
-    if (result < 0) {
-        log_mbedtls_error("x509_crt_parse error=", result);
-        return Status::TrustStoreInvalid;
-    }
-    log::write_u64(
-        log::Level::Info,
-        "TLS",
-        "trust certificates accepted=",
-        static_cast<uint64_t>(count_certificates(&session->trust)));
-    if (result > 0) {
-        log::write_u64(
-            log::Level::Warn,
-            "TLS",
-            "trust certificates skipped during parse=",
-            static_cast<uint64_t>(result));
-    }
-
     result = mbedtls_ssl_config_defaults(
         &session->config,
         MBEDTLS_SSL_IS_CLIENT,
@@ -383,7 +449,7 @@ Status setup_tls(
         web_pki_verify_callback,
         nullptr);
     mbedtls_ssl_conf_authmode(&session->config, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&session->config, &session->trust, nullptr);
+    mbedtls_ssl_conf_ca_chain(&session->config, &g_cached_trust, nullptr);
     mbedtls_ssl_conf_rng(
         &session->config,
         mbedtls_ctr_drbg_random,

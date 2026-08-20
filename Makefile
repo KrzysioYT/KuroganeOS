@@ -30,9 +30,9 @@ LD      := $(TARGET_PREFIX)ld$(EXEEXT)
 READELF := $(TARGET_PREFIX)readelf$(EXEEXT)
 
 # Freestanding code can still make use of compiler-emitted arithmetic/runtime
-# helpers. In particular, Mbed TLS bignum division on x86-64 may lower 128-bit
-# division to __udivti3. Link the matching compiler runtime archive explicitly
-# because KuroganeOS invokes ld directly instead of the GCC linker driver.
+# helpers. Keep the matching compiler runtime available because KuroganeOS
+# invokes ld directly instead of the GCC linker driver. The Mbed TLS profile
+# itself avoids double-width division so it does not depend on __udivti3.
 LIBGCC := $(shell $(CC) -print-libgcc-file-name)
 
 BUILD_DIR := build
@@ -55,7 +55,7 @@ MBEDTLS_MODULES := \
 	aes asn1parse asn1write base64 bignum bignum_core bignum_mod \
 	bignum_mod_raw block_cipher cipher cipher_wrap constant_time ctr_drbg \
 	ecdh ecdsa ecp ecp_curves entropy entropy_poll gcm md oid pem pk pk_ecc \
-	pk_wrap pkparse platform platform_util rsa rsa_alt_helpers sha1 sha256 sha512 \
+	pk_wrap pkparse platform platform_util rsa rsa_alt_helpers sha256 sha512 \
 	x509 x509_crt ssl_ciphersuites ssl_client ssl_msg ssl_tls ssl_tls12_client
 MBEDTLS_SOURCES := $(addprefix $(MBEDTLS_LIBRARY_DIR)/,$(addsuffix .c,$(MBEDTLS_MODULES)))
 MBEDTLS_OBJECTS := $(addprefix $(OBJ_DIR)/third_party/mbedtls/,$(addsuffix .o,$(MBEDTLS_MODULES)))
@@ -68,7 +68,7 @@ CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include 
 	-Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
 	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
-	-Werror=return-type
+	-Werror=undef -Werror=return-type
 ifeq ($(CONFIG),release)
 OPTFLAGS := -O2 -g1 -DNDEBUG -DKUROGANE_DEBUG=0 -DKUROGANE_TEST=0
 else ifeq ($(CONFIG),test)
@@ -85,9 +85,12 @@ FREESTANDING_FLAGS := \
 KERNEL_CXXFLAGS := -std=c++17 $(OPTFLAGS) $(WARNFLAGS) $(FREESTANDING_FLAGS) -fvisibility=hidden
 KERNEL_ASFLAGS  := -ffreestanding -fno-stack-protector -fPIE -fno-plt \
 	-Wa,--noexecstack -m64 -mno-red-zone -mno-mmx -mno-sse -msoft-float
-# Mbed TLS is part of the freestanding kernel, so point it at KuroganeOS's
-# libc-compatible SDK headers instead of expecting a hosted target libc from
-# the x86_64-elf cross-toolchain.
+# Mbed TLS is third-party code compiled as part of the freestanding kernel.
+# Keep strong warnings for KuroganeOS sources, but do not impose -Wundef on
+# upstream Mbed TLS 3.6.7: when DTLS is disabled its config-adjust layer
+# intentionally undefines a CID selector that ssl.h later evaluates without a
+# defined() guard. KuroganeOS isolates that upstream diagnostic at its include
+# boundary instead of changing third-party source or enabling DTLS.
 MBEDTLS_CPPFLAGS := -Isdk/include -Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
 	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
 MBEDTLS_CFLAGS := -std=c11 $(OPTFLAGS) -Wall -Wextra -Wpedantic \

@@ -29,28 +29,53 @@ bool add_valid(uint64_t left, uint64_t right, uint64_t* result) {
     return true;
 }
 
+bool valid_short_character(uint8_t value) {
+    if (value >= 'a' && value <= 'z') {
+        value = static_cast<uint8_t>(value - ('a' - 'A'));
+    }
+    return (value >= 'A' && value <= 'Z') ||
+        (value >= '0' && value <= '9') || value == '_';
+}
+
+bool valid_component(const uint8_t* bytes, size_t length) {
+    if (bytes == nullptr || length == 0U || length > 12U) return false;
+    size_t dot = SIZE_MAX;
+    for (size_t index = 0U; index < length; ++index) {
+        if (bytes[index] == '.') {
+            if (dot != SIZE_MAX) return false;
+            dot = index;
+            continue;
+        }
+        if (!valid_short_character(bytes[index])) return false;
+    }
+    const size_t base_length = dot == SIZE_MAX ? length : dot;
+    const size_t extension_length =
+        dot == SIZE_MAX ? 0U : length - dot - 1U;
+    return base_length >= 1U && base_length <= 8U &&
+        (dot == SIZE_MAX || (extension_length >= 1U && extension_length <= 3U));
+}
+
 bool valid_path(const uint8_t* path, char* output) {
     if (path == nullptr || output == nullptr || path[0U] != '/') return false;
     size_t length = 0U;
-    bool component_has_character = false;
-    size_t component_length = 0U;
+    size_t component_start = 1U;
     while (length < PATH_FIELD_SIZE && path[length] != 0U) {
         const uint8_t value = path[length];
         if (value < 0x20U || value > 0x7EU || value == '\\') return false;
-        if (value == '/') {
-            if (length != 0U && !component_has_character) return false;
-            component_has_character = false;
-            component_length = 0U;
-        } else {
-            component_has_character = true;
-            ++component_length;
-            if (component_length > 12U) return false;
+        if (value == '/' && length != 0U) {
+            if (!valid_component(path + component_start, length - component_start)) {
+                return false;
+            }
+            component_start = length + 1U;
         }
         output[length] = static_cast<char>(value);
         ++length;
     }
     if (length == 0U || length >= PATH_FIELD_SIZE ||
-        !component_has_character) return false;
+        component_start >= length ||
+        !valid_component(path + component_start, length - component_start)) {
+        return false;
+    }
     output[length] = '\0';
     for (size_t index = length + 1U; index < PATH_FIELD_SIZE; ++index) {
         if (path[index] != 0U) return false;
@@ -165,7 +190,7 @@ const char* status_message(Status status) {
         case Status::InvalidLayout: return "invalid package layout";
         case Status::TooManyFiles: return "too many package files";
         case Status::InvalidManifestChecksum: return "manifest checksum mismatch";
-        case Status::InvalidPath: return "invalid or duplicate package path";
+        case Status::InvalidPath: return "invalid, duplicate, or non-FAT83 package path";
         case Status::InvalidDestination: return "invalid package destination";
         case Status::InvalidFileRange: return "invalid package file range";
         case Status::InvalidFileChecksum: return "package file checksum mismatch";

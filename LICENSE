@@ -1,9 +1,9 @@
-KuroganeOS Source-Available License 1.0 (KSAL-1.0)
+KuroganeOS Source-Available License 2.0 (KSAL-2.0)
 
 Copyright (c) 2026 KrzysioYT
 All rights reserved except as expressly granted by this License.
 
-IMPORTANT: KSAL-1.0 is a source-available license. It is not an OSI-approved
+IMPORTANT: KSAL-2.0 is a source-available license. It is not an OSI-approved
 Open Source license and must not be represented as such.
 
 1. Definitions
@@ -18,8 +18,9 @@ the Software.
 "You" means an individual or legal entity exercising permissions granted by
 this License.
 
-"Modified Work" means any modification, adaptation, derivative work, or other
-work based on all or any substantial portion of the Software.
+"Modified Work" means any modification, adaptation, translation, derivative
+work, or other work that reproduces, adapts, ports, or is based on
+copyright-protected expression from the Software.
 
 "Distribution" means providing, publishing, transmitting, sublicensing,
 selling, transferring, making available for download, or otherwise supplying
@@ -31,48 +32,83 @@ advantage, business operations, revenue generation, monetary compensation, a
 paid product or service, internal use by or on behalf of a for-profit entity,
 or development of a product or service intended for commercial use.
 
-"Non-Commercial Use" means use that is not Commercial Use.
+"Non-Commercial Use" means use that is not Commercial Use, including personal
+study, education, academic research, charitable work, testing, and internal
+evaluation by a non-profit organization.
+
+"Independent Implementation" means a work independently created without
+copying, adapting, translating, porting, or otherwise reproducing
+copyright-protected expression from the Software, except to the extent an act
+is expressly permitted by this License or cannot lawfully be restricted.
+An Independent Implementation may implement compatible functionality,
+interfaces, APIs, ABIs, system-call conventions, protocol behavior, data
+formats, or other functional characteristics.
+
+"Media and Commentary Use" means reviews, news reporting, criticism,
+commentary, tutorials, demonstrations, benchmarks, screenshots, videos,
+livestreams, conference presentations, or similar informational or expressive
+coverage about the Software.
 
 2. Limited License Grant
 
-Subject to your continuous compliance with this License, the Licensor grants
-You a limited, non-exclusive, worldwide, royalty-free, non-transferable and
-non-sublicensable license to:
+Subject to continuous compliance with this License, the Licensor grants You,
+for the duration of copyright protection applicable to the Software unless
+terminated earlier under Section 12, a limited, non-exclusive, worldwide,
+royalty-free, non-transferable and non-sublicensable license to:
 
 a. view and study the source code;
 
 b. download or clone the Software for permitted use;
 
-c. run the Software privately for personal, educational, research, testing,
-   evaluation, or other Non-Commercial Use;
+c. run the Software privately for Non-Commercial Use;
 
-d. create and use Modified Works privately for the purposes listed above; and
+d. create and use Modified Works privately for Non-Commercial Use;
 
 e. create a fork through functionality provided by the public source-hosting
    platform on which the official repository is hosted, and submit changes back
    to the official KuroganeOS project, provided that such fork is not marketed,
-   distributed, or presented as an independent KuroganeOS-based product.
+   distributed outside that platform workflow, or presented as an independent
+   KuroganeOS-based product;
 
-No rights are granted except those expressly stated in this Section.
+f. create, use, distribute, license, and commercialize Independent
+   Implementations under terms of Your choosing, subject to applicable law and
+   without receiving any license to KuroganeOS trademarks or patents except as
+   expressly stated in this License;
+
+g. quote short portions of source code for commentary, criticism, research,
+   security discussion, or teaching, provided that the amount quoted is no
+   greater than reasonably necessary for that purpose and the source is clearly
+   attributed; and
+
+h. engage in Media and Commentary Use, including monetized coverage, provided
+   that You do not distribute the Software or a Modified Work except for
+   incidental excerpts reasonably necessary for the coverage, You preserve
+   required attribution, and You do not imply official endorsement or status.
+
+No rights are granted except those expressly stated in this Section or rights
+that cannot lawfully be restricted.
 
 3. Restrictions
 
 Without the Licensor's prior written permission, You may not:
 
-a. use the Software or a Modified Work for Commercial Use;
+a. use the Software or a Modified Work for Commercial Use, except for the
+   specific Media and Commentary Use permitted by Section 2(h);
 
 b. sell, rent, lease, license, sublicense, monetize, or commercially exploit
    the Software or a Modified Work;
 
 c. Distribute the Software or a Modified Work, except for the limited
-   source-hosting fork permission in Section 2(e);
+   source-hosting fork permission in Section 2(e) and incidental excerpts
+   permitted by Sections 2(g) and 2(h);
 
 d. publish or distribute unofficial binary builds, installation media,
    packaged releases, or modified releases of KuroganeOS;
 
-e. incorporate, copy, port, or reuse the Software or a substantial portion of
-   it in another operating system, application, library, firmware, commercial
-   project, product, or service;
+e. incorporate, copy, adapt, translate, port, or reuse copyright-protected
+   expression from the Software in another operating system, application,
+   library, firmware, project, product, or service except as expressly
+   permitted by this License or applicable law;
 
 f. offer the Software or a Modified Work as a hosted, managed, cloud, SaaS,
    PaaS, appliance, or similar service;
@@ -88,36 +124,51 @@ i. represent the Software as being licensed under MIT, GPL, Apache, an
    OSI-approved Open Source license, or any license other than the license
    actually applicable to that copy or revision.
 
+Nothing in this Section prohibits an Independent Implementation as defined in
+Section 1 or conduct that applicable law does not permit the Licensor to
+restrict.
+
 4. Separate Permission and Commercial Licensing
 
 The Licensor may grant additional permissions, including Distribution,
-commercial use, integration, rebranding, or other rights, under a separate
-written agreement.
+Commercial Use, integration, rebranding, hosted use, or other rights, under a
+separate written agreement.
 
 A separate permission applies only to the person or entity, Software version,
 scope, purpose, and duration stated in that written agreement.
 
 No permission granted to one person or entity automatically applies to another.
 
-5. Contributions
+A separate commercial agreement concerning the Software does not convert an
+Independent Implementation into a Modified Work merely because it implements
+compatible functionality. This sentence does not grant patent, trademark, or
+branding rights and does not override the terms of a separately signed
+agreement.
+
+5. Contributions and CLA
 
 Submitting a patch, pull request, or other contribution does not by itself
 transfer copyright ownership to the Licensor.
 
-Contributions intended for inclusion in the official KuroganeOS repository may
-be subject to a separate Contributor License Agreement ("CLA"). The Licensor
-may require acceptance of the CLA before merging a contribution.
+A Contribution will not be incorporated into the official KuroganeOS
+repository unless the Contributor has accepted the applicable KuroganeOS
+Contributor License Agreement ("CLA") or has entered into another written
+agreement accepted by the Licensor.
 
-Where a valid CLA applies, the CLA governs the rights granted by the
-Contributor to the Licensor for that Contribution.
+Where a valid CLA or separate contribution agreement applies, that agreement
+governs the rights granted by the Contributor to the Licensor for the
+Contribution.
+
+The Licensor is not obligated to accept, merge, publish, or continue using any
+Contribution.
 
 6. Ownership and Reservation of Rights
 
 The Software is licensed, not sold.
 
 The Licensor retains all right, title, and interest in and to the Software,
-including all copyright and other intellectual-property rights owned by the
-Licensor.
+including all copyright and other intellectual-property rights owned or
+controlled by the Licensor.
 
 All rights not expressly granted by this License are reserved.
 
@@ -127,53 +178,81 @@ The Software may contain or reference files, specifications, headers,
 libraries, tools, firmware, assets, or other materials owned by third parties.
 
 Third-Party Materials remain subject to their respective copyright notices,
-licenses, and terms. KSAL-1.0 does not replace, restrict, expand, or override
+licenses, and terms. KSAL-2.0 does not replace, restrict, expand, or override
 rights granted by third-party licensors.
 
 Where a file or component contains a different license notice, that notice
 controls for that file or component.
 
-8. Public Repository Hosting
+8. Interfaces, Interoperability, and Independent Implementation
+
+Nothing in this License claims copyright ownership over ideas, principles,
+functionality, interfaces, APIs, ABIs, system-call numbers, protocol constants,
+data formats, or other elements to the extent that applicable law does not
+protect them by copyright.
+
+You may observe, study, or test the Software, and may create an Independent
+Implementation, to the extent permitted by Section 2 and applicable law.
+
+Nothing in this License limits any mandatory right to observe, study, test,
+decompile, reproduce, or translate code for interoperability where applicable
+law provides that such right cannot be waived or restricted by contract.
+
+An Independent Implementation must not reproduce copyright-protected
+expression from the Software except to the extent expressly permitted by this
+License or applicable law. Keeping contemporaneous development records can help
+demonstrate independent creation but is not a condition of this License.
+
+9. Public Repository Hosting
 
 Nothing in this License is intended to limit rights that You or the hosting
-provider receive independently under the mandatory terms of the source-hosting
-service solely for operating that service, including viewing or platform-level
+provider receive independently under mandatory terms of the source-hosting
+service solely for operating that service, including viewing and platform-level
 fork functionality.
 
 Such platform rights do not grant additional rights to commercially exploit,
 redistribute outside the permitted scope, sublicense, or relicense the
 Software.
 
-9. No Trademark License
+10. No Trademark License
 
 This License does not grant any trademark, service-mark, trade-name, logo, or
 branding rights.
 
 Nominative use solely to truthfully identify the KuroganeOS project is allowed
 to the extent permitted by applicable law, provided that it does not imply
-endorsement or official status.
+endorsement, affiliation, or official status.
 
-10. Compliance With Law
+11. Compliance With Law
 
 You are responsible for complying with all laws and regulations applicable to
-your use of the Software.
+Your use of the Software.
 
-Nothing in this License authorizes conduct prohibited by applicable law.
+Nothing in this License authorizes conduct prohibited by applicable law or
+purports to waive rights that applicable law makes non-waivable.
 
-11. Termination
+12. Termination and Cure
 
-Your rights under this License terminate automatically if You materially breach
-this License.
+Your rights under this License terminate automatically upon a material breach,
+except that, for Your first breach that is both unintentional and capable of
+cure, termination will not take effect unless the Licensor gives written notice
+describing the breach and You fail to cure it within 30 days after receiving
+that notice.
 
-For a first unintentional breach that is capable of cure, the Licensor may
-provide written notice and allow a reasonable cure period. Reinstatement after
-termination is at the Licensor's discretion unless mandatory law provides
-otherwise.
+If You cure such a first breach within the 30-day period, Your rights continue
+without interruption. Intentional, repeated, fraudulent, or non-curable
+material breaches may terminate rights immediately to the extent permitted by
+law.
 
 Termination does not affect rights or remedies that accrued before
 termination.
 
-12. Disclaimer of Warranty
+After termination, You must cease exercising rights granted only by this
+License and cease use of the affected Software and Modified Works, except to
+the extent possession, retention, backup, evidence preservation, or another act
+is required or permitted by applicable law or a separate valid agreement.
+
+13. Disclaimer of Warranty
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
 "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
@@ -184,7 +263,7 @@ AVAILABILITY.
 THE SOFTWARE IS EXPERIMENTAL SYSTEM SOFTWARE AND MAY CAUSE DATA LOSS, SYSTEM
 FAILURE, SECURITY ISSUES, OR OTHER DAMAGE. USE IT AT YOUR OWN RISK.
 
-13. Limitation of Liability
+14. Limitation of Liability
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE
 LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR
@@ -195,7 +274,24 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 NOTHING IN THIS LICENSE EXCLUDES OR LIMITS LIABILITY THAT CANNOT LAWFULLY BE
 EXCLUDED OR LIMITED.
 
-14. Governing Law
+15. Patent License
+
+To the extent the Licensor owns or controls patent claims that would
+necessarily be infringed solely by exercising permissions expressly granted in
+Section 2 with respect to the Software itself, the Licensor grants You a
+limited, non-exclusive, worldwide, royalty-free, non-transferable patent
+license solely to exercise those permissions for the duration of this License.
+
+This patent license terminates automatically if You initiate or maintain a
+patent claim alleging that the Software infringes a patent, except to the extent
+such termination is prohibited by applicable law.
+
+Nothing in this License grants patent rights for Commercial Use, Distribution
+not otherwise permitted by Section 2, or an Independent Implementation. An
+Independent Implementation may therefore require separate patent analysis even
+where no KuroganeOS copyright permission is required.
+
+16. Governing Law and Jurisdiction
 
 Subject to mandatory applicable law, this License is governed by the laws of
 the Republic of Poland, without regard to conflict-of-law principles.
@@ -204,25 +300,40 @@ To the extent legally permitted, disputes arising from this License shall be
 submitted to the courts having jurisdiction over the Licensor's domicile in
 Poland.
 
-15. Severability
+Nothing in this Section deprives a consumer or other protected party of any
+mandatory choice-of-law, jurisdiction, or procedural protection that cannot
+lawfully be waived.
+
+17. Severability
 
 If any provision of this License is held unenforceable, that provision shall be
-interpreted or limited to the minimum extent necessary to make it enforceable,
-and the remaining provisions shall remain in effect.
+interpreted, limited, or severed only to the minimum extent necessary to make
+the remainder enforceable, and the remaining provisions shall remain in
+effect.
 
-16. Entire License
+18. Entire License
 
 This License states the permissions granted for the Software unless the
 Licensor and You enter into a separate written agreement.
 
-No oral statement or informal project discussion expands the rights granted by
-this License.
+No oral statement, informal project discussion, issue comment, pull-request
+comment, or other informal communication expands the rights granted by this
+License.
 
-17. Legacy MIT-Licensed Revisions
+19. License Versioning
 
-This License does not retroactively revoke rights validly granted under the MIT
-License for copies or revisions of KuroganeOS that were previously made
-available under MIT.
+The Licensor may publish revised versions of KSAL.
+
+A later version does not automatically replace the version attached to a copy
+or revision of the Software. Unless the Licensor expressly offers a later
+version for that copy or revision, You may continue relying on the license
+version validly attached to the copy You received, subject to its terms.
+
+20. Earlier Revisions and Legacy MIT-Licensed Revisions
+
+This License applies to copies and revisions of KuroganeOS distributed with
+KSAL-2.0. It does not retroactively revoke, replace, or narrow rights validly
+granted under a license attached to an earlier copy or revision.
 
 For project-history clarity, KuroganeOS revisions at or before commit:
 
@@ -230,7 +341,8 @@ For project-history clarity, KuroganeOS revisions at or before commit:
 
 were published under the MIT License.
 
-The archival file LICENSE-MIT-LEGACY records those historical terms. Its
-presence does not license later KSAL-covered revisions under MIT.
+The archival file LICENSE-MIT-LEGACY records those historical MIT terms. Its
+presence does not grant MIT rights to later revisions unless a later revision
+expressly states otherwise.
 
-End of KSAL-1.0
+End of KSAL-2.0

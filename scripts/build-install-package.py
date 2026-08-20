@@ -22,7 +22,7 @@ def is_short_component(component: str) -> bool:
     pieces = component.split(".")
     if len(pieces) > 2 or not (1 <= len(pieces[0]) <= 8):
         return False
-    if len(pieces) == 2 and len(pieces[1]) > 3:
+    if len(pieces) == 2 and not (1 <= len(pieces[1]) <= 3):
         return False
     allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
     return all(character in allowed for piece in pieces for character in piece.upper())
@@ -71,7 +71,7 @@ def main() -> int:
     add(DEST_ROOT, "/boot/kernel.elf", kernel.read_bytes())
 
     # Build the root payload as a real overlay: files from --overlay replace
-    # files at the same path from --rootfs.  The final merged paths are then
+    # files at the same path from --rootfs. The final merged paths are then
     # added through add(), so collisions with protected installer-generated
     # records (for example /boot/kernel.elf) still fail closed.
     root_records: dict[str, bytes] = {}

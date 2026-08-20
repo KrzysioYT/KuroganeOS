@@ -14,6 +14,7 @@ if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
     throw "Missing Windows/WSL path bridge: $WslBridge"
 }
 . $WslBridge
+Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
 
 $BuildDir = Join-Path $RootDir 'build'
 $StageDir = Join-Path $BuildDir 'installer-staging'
@@ -37,8 +38,13 @@ if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
     throw "Cannot read KuroganeOS version from $VersionHeader"
 }
 $Version = $Matches[1]
-$ReleaseName = "KuroganeOS-$Version-x86_64.iso"
+
+# Canonical optical release is explicitly VirtualBox-targeted. Do not publish a
+# generic x86_64 ISO name: it was too easy to confuse stale experimental media
+# with the image qualified against Oracle VirtualBox EFI64.
+$ReleaseName = "KuroganeOS-$Version-virtualbox-x86_64.iso"
 $ReleaseIso = Join-Path $DistDir $ReleaseName
+$LegacyReleaseIso = Join-Path $DistDir "KuroganeOS-$Version-x86_64.iso"
 $ChecksumFile = Join-Path $DistDir 'SHA256SUMS.txt'
 $CompatibilityIso = Join-Path $RootDir 'kurogane.iso'
 
@@ -80,9 +86,9 @@ Copy-Item -LiteralPath $Kernel -Destination (Join-Path $StageDir 'kernel.elf')
 Copy-Item -LiteralPath $Kernel -Destination (Join-Path $BootDir 'kernel.elf')
 Copy-Item -LiteralPath $Package -Destination (Join-Path $StageDir 'install.pkg')
 
-# Build the same 30 MiB FAT16 El Torito image used on Linux/macOS. The shared
-# bridge also handles repositories located on secondary/removable drives such
-# as D: or I: by mounting that Windows drive through WSL DrvFs when needed.
+# Build a bounded FAT EFI System Partition. The VirtualBox ISO builder appends
+# this filesystem as GPT ESP #2 and points its EFI El Torito catalog entry at
+# that exact partition.
 $espScript = Convert-ToKuroganeWslPath (Join-Path $PSScriptRoot 'build-installer-esp.sh')
 & wsl.exe bash $espScript `
     (Convert-ToKuroganeWslPath $StageDir) `
@@ -94,9 +100,14 @@ $isoScript = Convert-ToKuroganeWslPath (Join-Path $PSScriptRoot 'build-installer
     (Convert-ToKuroganeWslPath $StageDir) `
     (Convert-ToKuroganeWslPath $EspImage) `
     (Convert-ToKuroganeWslPath $IsoImage)
-if ($LASTEXITCODE -ne 0) { throw 'Installer ISO construction/verification failed.' }
+if ($LASTEXITCODE -ne 0) { throw 'VirtualBox installer ISO construction/verification failed.' }
 
 Copy-Item -LiteralPath $IsoImage -Destination $ReleaseIso -Force
+# Keep only a root-level compatibility alias. Remove the old generic versioned
+# name so wildcard selection cannot accidentally choose obsolete media.
+if (Test-Path -LiteralPath $LegacyReleaseIso -PathType Leaf) {
+    Remove-Item -LiteralPath $LegacyReleaseIso -Force
+}
 Copy-Item -LiteralPath $IsoImage -Destination $CompatibilityIso -Force
 
 $hash = (Get-FileHash -LiteralPath $ReleaseIso -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -108,8 +119,8 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
     $utf8NoBom)
 
 Write-Host "[installer-internal] $IsoImage"
-Write-Host "[release] $ReleaseIso"
-Write-Host "[compatibility] $CompatibilityIso"
+Write-Host "[virtualbox-release] $ReleaseIso"
+Write-Host "[virtualbox-compatibility-alias] $CompatibilityIso"
 Write-Host "[sha256] $hash"
 Write-Host "[checksums] $ChecksumFile"
-Write-Host '[virtualbox] ISO passed mandatory 20-pass UEFI/El Torito verification'
+Write-Host '[virtualbox] static qualification: GPT ESP #2 + EFI El Torito + AMD64 BOOTX64.EFI PASS'

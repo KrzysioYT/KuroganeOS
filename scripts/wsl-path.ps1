@@ -57,3 +57,47 @@ function Convert-ToKuroganeWslPath {
 
     throw "Unable to convert Windows path for WSL: $resolved"
 }
+
+function Repair-KuroganeShellLineEndings {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Directory
+    )
+
+    $resolvedDirectory = [System.IO.Path]::GetFullPath($Directory)
+    if (-not (Test-Path -LiteralPath $resolvedDirectory -PathType Container)) {
+        throw "Shell-script directory does not exist: $resolvedDirectory"
+    }
+
+    $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    $normalizedCount = 0
+
+    foreach ($file in Get-ChildItem -LiteralPath $resolvedDirectory -Filter '*.sh' -File -Recurse) {
+        $bytes = [System.IO.File]::ReadAllBytes($file.FullName)
+        if ([System.Array]::IndexOf($bytes, [byte]13) -lt 0) {
+            continue
+        }
+
+        try {
+            $text = $utf8Strict.GetString($bytes)
+        }
+        catch {
+            throw "Shell script is not valid UTF-8 and cannot be normalized safely: $($file.FullName)"
+        }
+
+        $normalized = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+        if ($normalized -eq $text) {
+            continue
+        }
+
+        [System.IO.File]::WriteAllText($file.FullName, $normalized, $utf8NoBom)
+        ++$normalizedCount
+        Write-Host "[wsl] normalized LF: $($file.FullName)"
+    }
+
+    if ($normalizedCount -gt 0) {
+        Write-Host "[wsl] normalized $normalizedCount shell script(s) before Bash execution"
+    }
+}

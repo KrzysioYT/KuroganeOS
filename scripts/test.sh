@@ -10,6 +10,7 @@ exec > >(tee "$log") 2>&1
 
 cxx="${CXX:-g++}"
 flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic)
+metrics_stub="$root/tests/host_system_metrics_stub.cpp"
 
 run_test() {
     local name="$1"
@@ -42,6 +43,7 @@ run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
 run_test install-disk-layout "$root/tests/test_install_disk_layout.cpp" \
+    "$metrics_stub" \
     "$root/kernel/install/disk_layout.cpp" \
     "$root/kernel/storage/gpt.cpp" \
     "$root/kernel/storage/partition_device.cpp" \
@@ -64,12 +66,16 @@ run_test elf-loader "$root/tests/test_elf_loader.cpp" \
     "$root/kernel/memory/virtual_memory.cpp" \
     "$root/kernel/memory/physical_memory.cpp"
 run_test gpt "$root/tests/test_gpt.cpp" \
+    "$metrics_stub" \
     "$root/kernel/storage/gpt.cpp"
 run_test partition-device "$root/tests/test_partition_device.cpp" \
+    "$metrics_stub" \
     "$root/kernel/storage/partition_device.cpp"
 run_test storage-scratch "$root/tests/test_storage_scratch.cpp" \
+    "$metrics_stub" \
     "$root/kernel/storage/scratch_test.cpp"
 run_test ahci "$root/tests/test_ahci.cpp" \
+    "$metrics_stub" \
     "$root/kernel/storage/ahci_protocol.cpp" \
     "$root/kernel/storage/dma.cpp" \
     "$root/kernel/memory/physical_memory.cpp"
@@ -79,6 +85,7 @@ run_test ramfs "$root/tests/test_ramfs.cpp" \
 run_test vfs "$root/tests/test_vfs.cpp" \
     "$root/kernel/fs/vfs.cpp"
 run_test fat32 "$root/tests/test_fat32.cpp" \
+    "$metrics_stub" \
     "$root/kernel/fs/fat32.cpp" \
     "$root/kernel/fs/fat32_vfs.cpp" \
     "$root/kernel/fs/vfs.cpp"
@@ -86,10 +93,15 @@ if [[ -f "$root/build/images/KuroganeOS-base.img" ]]; then
     echo "[build] root-volume-image"
     "$cxx" "${flags[@]}" \
         "$root/tests/test_root_volume_image.cpp" \
+        "$metrics_stub" \
+        "$root/tests/host_process_path_stub.cpp" \
         "$root/kernel/fs/root_volume.cpp" \
         "$root/kernel/fs/fat32.cpp" \
         "$root/kernel/fs/fat32_vfs.cpp" \
         "$root/kernel/fs/vfs.cpp" \
+        "$root/kernel/install/package.cpp" \
+        "$root/kernel/install/package_vfs.cpp" \
+        "$root/kernel/libk/crc.cpp" \
         "$root/kernel/storage/gpt.cpp" \
         "$root/kernel/storage/partition_device.cpp" \
         -o "$out/root-volume-image"
@@ -131,13 +143,11 @@ run_test network-protocols "$root/tests/test_network_protocols.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
 run_test profiler -DKUROGANE_HOST_TEST "$root/tests/test_profiler.cpp" \
+    "$root/tests/host_network_service_stub.cpp" \
     "$root/kernel/diagnostics/profiler.cpp" \
     "$root/kernel/apps/framework.cpp" \
     "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/memory/physical_memory.cpp" \
-    "$root/kernel/net/network.cpp" \
-    "$root/kernel/net/protocols.cpp" \
-    "$root/kernel/net/service.cpp" \
     "$root/kernel/task/scheduler.cpp" \
     "$root/kernel/core/string.cpp"
 run_test sdk-abi -I"$root/sdk/include" \

@@ -1,4 +1,4 @@
-#include "../../common/flux_shell.h"
+#include "../../common/terminal_shell.h"
 
 static flux_shell_state g_shell;
 
@@ -55,7 +55,7 @@ __attribute__((noreturn)) void _start(void) {
             flux_shell_action action;
             (void)u_puts("\n");
             line[length] = '\0';
-            action = flux_shell_execute(&g_shell, &g_io, line);
+            action = terminal_shell_execute(&g_shell, &g_io, line);
             length = 0U;
             line[0] = '\0';
             if (action == FLUX_SHELL_ACTION_CLEAR) {

@@ -14,6 +14,23 @@
 #define MBEDTLS_PLATFORM_SNPRINTF_MACRO ku_tls_snprintf
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 
+/*
+ * Hosted build machines expose AF_INET/AF_INET6 through system headers, which
+ * makes x509_crt.c select the platform inet_pton(). KuroganeOS deliberately
+ * links the kernel without a hosted libc, so that symbol does not exist in the
+ * final kernel. Force Mbed TLS' self-contained IPv4/IPv6 parser instead.
+ */
+#define MBEDTLS_TEST_SW_INET_PTON
+
+/*
+ * KuroganeOS links a freestanding kernel directly instead of relying on a
+ * hosted compiler driver to inject compiler-runtime helpers. Prevent Mbed TLS
+ * bignum code from lowering 128-bit division to helpers such as __udivti3.
+ * The portable division path is slower but deterministic on every supported
+ * build host and does not change cryptographic results.
+ */
+#define MBEDTLS_NO_UDBL_DIVISION
+
 /* TLS client protocol surface. TLS 1.3 is added after the 1.2 transport works. */
 #define MBEDTLS_SSL_PROTO_TLS1_2
 #define MBEDTLS_SSL_CLI_C
@@ -22,10 +39,14 @@
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_RSA_ENABLED
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
-/* ssl.h evaluates this compatibility selector even when DTLS CID is disabled.
- * Define the standards-based value explicitly so freestanding -Wundef builds
- * remain warning-clean without enabling DTLS itself. */
-#define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT 0
+/*
+ * Do not define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT here. Mbed TLS 3.6.7
+ * config_adjust_ssl.h deliberately undefines every DTLS CID selector when
+ * MBEDTLS_SSL_PROTO_DTLS is disabled. Its public ssl.h later evaluates that
+ * selector numerically without a defined() guard. KuroganeOS keeps DTLS
+ * disabled and isolates that upstream -Wundef diagnostic at the third-party
+ * include boundary rather than enabling an unused protocol feature.
+ */
 
 /* Mbed TLS debug.h includes <inttypes.h> solely to obtain PRId64 for its
  * millisecond timestamp formatter. KuroganeOS does not expose a hosted libc
@@ -56,20 +77,20 @@
 #define MBEDTLS_PEM_PARSE_C
 
 /*
- * Public root stores still contain trusted anchors whose *self-signature* uses
- * SHA-1.  Mbed TLS needs the SHA-1 implementation enabled merely to recognize
- * and parse those certificates.  This does NOT re-enable SHA-1 for Web-PKI
- * certificate-chain acceptance: mbedtls_x509_crt_profile_default continues to
- * allow only SHA-256/384/512 for verified chain signatures.
+ * Public Web PKI roots and intermediates commonly use SHA-384 signatures.
+ * In Mbed TLS 3.6.x SHA-384 is a distinct capability flag: MBEDTLS_SHA512_C
+ * does not imply MBEDTLS_SHA384_C even though both algorithms share sha512.c.
+ * Without this flag GTS Root R1/R4 fail during x509_crt_parse() with
+ * MBEDTLS_ERR_X509_UNKNOWN_SIG_ALG + MBEDTLS_ERR_OID_NOT_FOUND (-0x262E).
  */
-#define MBEDTLS_SHA1_C
 
-/* TLS 1.2 AEAD and DRBG. */
+/* TLS 1.2 AEAD, digest algorithms and DRBG. */
 #define MBEDTLS_AES_C
 #define MBEDTLS_GCM_C
 #define MBEDTLS_CIPHER_C
 #define MBEDTLS_MD_C
 #define MBEDTLS_SHA256_C
+#define MBEDTLS_SHA384_C
 #define MBEDTLS_SHA512_C
 #define MBEDTLS_CTR_DRBG_C
 #define MBEDTLS_ENTROPY_C
@@ -91,6 +112,6 @@
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, \
     MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
 
-/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, debug/error text. */
+/* Deliberately absent: NET_C, FS_IO, server TLS, DTLS, SHA-1, debug/error text. */
 
 #endif

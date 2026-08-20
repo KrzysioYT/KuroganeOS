@@ -1,8 +1,20 @@
-#ifndef KUROGANE_FLUX_SHELL_CORE_H
-#define KUROGANE_FLUX_SHELL_CORE_H
+#ifndef KUROGANE_SHELL_CORE_H
+#define KUROGANE_SHELL_CORE_H
 
 #include "../runtime/user.h"
 #include "../../common/version.h"
+
+/*
+ * Generic Ring-3 command shell core.
+ *
+ * This layer intentionally knows nothing about Red Flux windows, launchers,
+ * desktop surfaces or diagnostic GUI applications.  It owns only command
+ * parsing, history, cwd bookkeeping, child jobs and generic program/file
+ * operations exposed by the userspace ABI.
+ *
+ * The flux_shell_* names are kept temporarily as ABI/source compatibility for
+ * the two existing frontends.  New desktop policy must not be added here.
+ */
 
 #define FLUX_SHELL_LINE_CAPACITY 192U
 #define FLUX_SHELL_HISTORY_CAPACITY 12U
@@ -72,11 +84,10 @@ static inline int flux_shell_copy(
 
 static inline int flux_shell_append(
     char* destination, size_t capacity, const char* source) {
-    size_t used;
+    const size_t used = flux_shell_strlen(destination);
     size_t index = 0U;
-    if (destination == (char*)0 || source == (const char*)0 || capacity == 0U) return 0;
-    used = flux_shell_strlen(destination);
-    if (used >= capacity) return 0;
+    if (destination == (char*)0 || source == (const char*)0 ||
+        capacity == 0U || used >= capacity) return 0;
     while (source[index] != '\0') {
         if (used + index + 1U >= capacity) return 0;
         destination[used + index] = source[index];
@@ -416,7 +427,7 @@ static inline void flux_shell_cat(
             return;
         }
         for (size_t index = 0U; index < (size_t)count; ++index) {
-            unsigned char character = (unsigned char)input[index];
+            const unsigned char character = (unsigned char)input[index];
             if (character == '\r') continue;
             if (character == '\n' || line_length + 1U >= sizeof(line)) {
                 line[line_length] = '\0';
@@ -470,15 +481,13 @@ static inline void flux_shell_cd(flux_shell_state* state, const char* path) {
 
 static inline void flux_shell_help(const flux_shell_io* io) {
     flux_shell_emit(io, "workspace: help clear version uname pid whoami status");
-    flux_shell_emit(io, "history jobs wait pwd cd cat read which apps home");
-    flux_shell_emit(io, "execute: run <app> open <app|path> gui <surface>");
+    flux_shell_emit(io, "history jobs wait pwd cd cat read which apps");
+    flux_shell_emit(io, "execute: run <app|/path> open <app|/path>");
     flux_shell_emit(io, "utility: echo calc sleep yield true false exit");
-    flux_shell_emit(io, "diag: mem free tasks pci device driver diskinfo");
 }
 
 static inline void flux_shell_apps(const flux_shell_io* io) {
     flux_shell_emit(io, "apps: shell hello external files monitor about");
-    flux_shell_emit(io, "gui: launcher terminal files sysmon settings about");
 }
 
 static inline void flux_shell_which(
@@ -487,7 +496,7 @@ static inline void flux_shell_which(
     const char* name) {
     char path[FLUX_SHELL_PATH_CAPACITY];
     if (name == (const char*)0 || name[0] == '\0') {
-        flux_shell_emit(io, "usage: which <name>");
+        flux_shell_emit(io, "usage: which <app|/path>");
         state->last_status = 2;
         return;
     }
@@ -502,12 +511,6 @@ static inline void flux_shell_which(
         return;
     }
     if (flux_shell_root_path("/apps/", name, path, sizeof(path)) &&
-        flux_shell_file_exists(path)) {
-        flux_shell_emit(io, path);
-        state->last_status = 0;
-        return;
-    }
-    if (flux_shell_root_path("/gui/", name, path, sizeof(path)) &&
         flux_shell_file_exists(path)) {
         flux_shell_emit(io, path);
         state->last_status = 0;
@@ -596,7 +599,7 @@ usage:
     state->last_status = 2;
 }
 
-static inline int flux_shell_unavailable(const char* command) {
+static inline int flux_shell_requires_capability(const char* command) {
     return flux_shell_streq(command, "net") || flux_shell_streq(command, "ip") ||
         flux_shell_streq(command, "ifconfig") || flux_shell_streq(command, "route") ||
         flux_shell_streq(command, "arp") || flux_shell_streq(command, "ping") ||
@@ -607,7 +610,10 @@ static inline int flux_shell_unavailable(const char* command) {
         flux_shell_streq(command, "write") || flux_shell_streq(command, "cp") ||
         flux_shell_streq(command, "mv") || flux_shell_streq(command, "rm") ||
         flux_shell_streq(command, "reboot") || flux_shell_streq(command, "poweroff") ||
-        flux_shell_streq(command, "shutdown");
+        flux_shell_streq(command, "shutdown") || flux_shell_streq(command, "mem") ||
+        flux_shell_streq(command, "free") || flux_shell_streq(command, "tasks") ||
+        flux_shell_streq(command, "pci") || flux_shell_streq(command, "device") ||
+        flux_shell_streq(command, "driver") || flux_shell_streq(command, "diskinfo");
 }
 
 static inline flux_shell_action flux_shell_execute(
@@ -619,6 +625,7 @@ static inline flux_shell_action flux_shell_execute(
     char* command;
     char* arguments;
     char* separator;
+
     if (state == (flux_shell_state*)0 || input_line == (const char*)0) {
         return FLUX_SHELL_ACTION_NONE;
     }
@@ -629,7 +636,7 @@ static inline flux_shell_action flux_shell_execute(
     }
     line = flux_shell_trim_left(storage);
     if (line[0] == '\0') return FLUX_SHELL_ACTION_NONE;
-    flux_shell_remember_history(state, line);
+    flux_shell_remember_history(state, input_line);
 
     command = line;
     separator = command;
@@ -707,7 +714,7 @@ static inline flux_shell_action flux_shell_execute(
     } else if (flux_shell_streq(command, "run")) {
         char path[FLUX_SHELL_PATH_CAPACITY];
         if (!flux_shell_root_path("/apps/", arguments, path, sizeof(path))) {
-            flux_shell_emit(io, "usage: run <name|/path>");
+            flux_shell_emit(io, "usage: run <app|/path>");
             state->last_status = 2;
         } else {
             (void)flux_shell_run_wait(state, io, path);
@@ -715,26 +722,13 @@ static inline flux_shell_action flux_shell_execute(
     } else if (flux_shell_streq(command, "open")) {
         char path[FLUX_SHELL_PATH_CAPACITY];
         if (arguments[0] == '\0') {
-            flux_shell_emit(io, "usage: open <name|/path>");
+            flux_shell_emit(io, "usage: open <app|/path>");
             state->last_status = 2;
         } else if (arguments[0] == '/') {
             (void)flux_shell_run_background(state, io, arguments);
-        } else if (flux_shell_root_path("/gui/", arguments, path, sizeof(path)) &&
-                   flux_shell_file_exists(path)) {
-            (void)flux_shell_run_background(state, io, path);
         } else if (flux_shell_root_path("/apps/", arguments, path, sizeof(path))) {
             (void)flux_shell_run_background(state, io, path);
         }
-    } else if (flux_shell_streq(command, "gui")) {
-        char path[FLUX_SHELL_PATH_CAPACITY];
-        if (!flux_shell_root_path("/gui/", arguments, path, sizeof(path))) {
-            flux_shell_emit(io, "usage: gui <surface>");
-            state->last_status = 2;
-        } else {
-            (void)flux_shell_run_background(state, io, path);
-        }
-    } else if (flux_shell_streq(command, "home")) {
-        (void)flux_shell_run_background(state, io, "/gui/launcher");
     } else if (flux_shell_streq(command, "hello") || flux_shell_streq(command, "external") ||
                flux_shell_streq(command, "files") || flux_shell_streq(command, "monitor") ||
                flux_shell_streq(command, "about")) {
@@ -742,12 +736,6 @@ static inline flux_shell_action flux_shell_execute(
         if (flux_shell_root_path("/apps/", command, path, sizeof(path))) {
             (void)flux_shell_run_wait(state, io, path);
         }
-    } else if (flux_shell_streq(command, "mem") || flux_shell_streq(command, "free") ||
-               flux_shell_streq(command, "tasks") || flux_shell_streq(command, "pci") ||
-               flux_shell_streq(command, "device") || flux_shell_streq(command, "driver") ||
-               flux_shell_streq(command, "diskinfo")) {
-        flux_shell_emit(io, "diag: opening Ring-3 system monitor");
-        (void)flux_shell_run_background(state, io, "/gui/sysmon");
     } else if (flux_shell_streq(command, "echo")) {
         flux_shell_emit(io, arguments);
         state->last_status = 0;
@@ -769,7 +757,7 @@ static inline flux_shell_action flux_shell_execute(
         state->last_status = 1;
     } else if (flux_shell_streq(command, "exit")) {
         return FLUX_SHELL_ACTION_EXIT;
-    } else if (flux_shell_unavailable(command)) {
+    } else if (flux_shell_requires_capability(command)) {
         flux_shell_emit(io, "command requires a dedicated Ring-3 capability syscall");
         flux_shell_emit(io, "privileged kernel-console backdoors are intentionally disabled");
         state->last_status = 126;

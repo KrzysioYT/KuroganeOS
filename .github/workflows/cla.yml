@@ -1,0 +1,44 @@
+name: KuroganeOS CLA check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  cla:
+    name: Verify contributor CLA acceptance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Accept project-owner pull request
+        if: github.event.pull_request.user.login == 'KrzysioYT'
+        run: |
+          echo "PASS: pull request author is the KuroganeOS Licensor/project owner."
+
+      - name: Verify external contributor acceptance
+        if: github.event.pull_request.user.login != 'KrzysioYT'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          body = os.environ.get("PR_BODY", "")
+          pattern = re.compile(
+              r"^\s*-\s*\[[xX]\]\s*I have read and agree to the "
+              r"KuroganeOS Contributor License Agreement \(CLA\)\.\s*$",
+              re.MULTILINE,
+          )
+
+          if not pattern.search(body):
+              print("FAIL: CLA acceptance is required before merge.")
+              print("Check this exact box in the pull request description:")
+              print("- [x] I have read and agree to the KuroganeOS Contributor License Agreement (CLA).")
+              sys.exit(1)
+
+          print("PASS: contributor explicitly accepted the KuroganeOS CLA.")
+          PY

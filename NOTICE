@@ -4,18 +4,29 @@ Copyright (c) 2026 KrzysioYT.
 All rights reserved except as expressly licensed.
 
 Current revisions:
-  KuroganeOS Source-Available License 1.0 (KSAL-1.0)
+  KuroganeOS Source-Available License 2.0 (KSAL-2.0)
   See LICENSE.
 
-Legacy revisions:
+Earlier revisions:
+  A copy or revision remains subject to the license validly attached to it at
+  the time it was distributed. KSAL-2.0 does not retroactively revoke or narrow
+  rights previously granted for earlier copies or revisions.
+
+Legacy MIT revisions:
   Revisions at or before commit 69c8afb0c85690fa954c9915e8b4446d3eaf2d99
   were published under the MIT License.
   See LICENSE-MIT-LEGACY.
 
 Third-party components:
   Files or components carrying separate copyright or license notices remain
-  governed by those notices.
+  governed by those notices. See the applicable file-level notices and
+  third-party license materials.
 
 KuroganeOS name/logo:
-  No trademark or branding rights are granted by KSAL-1.0.
+  No trademark or branding rights are granted by KSAL-2.0.
   See TRADEMARKS.md.
+
+Contributions:
+  Contributions incorporated into the official repository require acceptance
+  of CLA.md or another written contribution agreement approved by the
+  Licensor.

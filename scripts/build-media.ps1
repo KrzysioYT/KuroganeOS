@@ -3,7 +3,7 @@ param(
     [ValidateSet('debug', 'release', 'test')]
     [string]$Configuration = 'release',
     [switch]$Rebuild,
-    [switch]$VirtualBoxSmoke
+    [switch]$SkipVirtualBoxSmoke
 )
 
 Set-StrictMode -Version Latest
@@ -12,6 +12,10 @@ $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $WindowsBuildFilesUrl = 'https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing'
 $Toolchain = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe'
 $WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
+$TrustExporter = Join-Path $PSScriptRoot 'export-windows-trust-store.ps1'
+$TrustOutput = Join-Path $RootDir 'build\userspace\rootfs\etc\ssl\certs.pem'
+$FoundationBuilder = Join-Path $PSScriptRoot 'build-foundation-image.ps1'
+$InstallerBuilder = Join-Path $PSScriptRoot 'build-installer.ps1'
 
 if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
     throw "Windows build toolchain is missing.`nRequired files: $WindowsBuildFilesUrl`nDownload and copy/extract them into the KuroganeOS repository root."
@@ -19,10 +23,13 @@ if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
 if ($null -eq (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is required by the current Windows image/ISO tooling.'
 }
-if (-not (Test-Path -LiteralPath $WslBridge -PathType Leaf)) {
-    throw "Missing Windows/WSL path bridge: $WslBridge"
+foreach ($requiredScript in @($WslBridge, $TrustExporter, $FoundationBuilder, $InstallerBuilder)) {
+    if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
+        throw "Missing Windows media helper: $requiredScript"
+    }
 }
 . $WslBridge
+Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
 
 $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 if ($Rebuild) {
@@ -32,6 +39,19 @@ if ($Rebuild) {
 }
 if (-not $?) { throw 'KuroganeOS Windows build failed.' }
 
+# build.ps1 creates the userspace overlay first. Replace the two-repository-root
+# bootstrap bundle with the Windows machine's trusted LocalMachine Root store,
+# then rebuild only the filesystem/package/media layers that consume that
+# overlay. This mirrors build-macos.sh, which exports the macOS system roots.
+& $TrustExporter -OutputPath $TrustOutput
+if (-not $?) { throw 'Windows Web PKI trust-store export failed.' }
+
+& $FoundationBuilder -NoWorkingImage
+if (-not $?) { throw 'Foundation image rebuild with Windows trust roots failed.' }
+
+& $InstallerBuilder -Configuration $Configuration -NoBuild
+if (-not $?) { throw 'Installer ISO/package rebuild with Windows trust roots failed.' }
+
 $VersionHeader = Join-Path $RootDir 'common\version.h'
 $versionText = Get-Content -LiteralPath $VersionHeader -Raw
 if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
@@ -40,56 +60,77 @@ if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
 $Version = $Matches[1]
 $BaseImage = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 $Package = Join-Path $RootDir 'build\install.pkg'
-$Iso = Join-Path $RootDir "dist\KuroganeOS-$Version-x86_64.iso"
 $Dist = Join-Path $RootDir 'dist'
-$Image = Join-Path $Dist "KuroganeOS-$Version-windows-qemu.img"
+
+# Canonical media are intentionally hypervisor-specific. Never infer one from
+# the other and never publish a generic filename that hides the boot contract.
+$VirtualBoxIso = Join-Path $Dist "KuroganeOS-$Version-virtualbox-x86_64.iso"
+$QemuImage = Join-Path $Dist "KuroganeOS-$Version-qemu-x86_64.img"
+$LegacyQemuImage = Join-Path $Dist "KuroganeOS-$Version-windows-qemu.img"
+$LegacyGenericIso = Join-Path $Dist "KuroganeOS-$Version-x86_64.iso"
 $Checksums = Join-Path $Dist 'SHA256SUMS.txt'
 $InjectScript = Join-Path $PSScriptRoot 'inject-install-package.sh'
 
-foreach ($required in @($BaseImage, $Package, $Iso, $InjectScript)) {
+foreach ($required in @($BaseImage, $Package, $VirtualBoxIso, $InjectScript, $TrustOutput)) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Missing media input: $required"
     }
 }
 
 [System.IO.Directory]::CreateDirectory($Dist) | Out-Null
-Copy-Item -LiteralPath $BaseImage -Destination $Image -Force
+Copy-Item -LiteralPath $BaseImage -Destination $QemuImage -Force
 & wsl.exe bash `
     (Convert-ToKuroganeWslPath $InjectScript) `
-    (Convert-ToKuroganeWslPath $Image) `
+    (Convert-ToKuroganeWslPath $QemuImage) `
     (Convert-ToKuroganeWslPath $Package)
 if ($LASTEXITCODE -ne 0) {
-    throw 'Failed to inject install.pkg into the Windows QEMU IMG.'
+    throw 'Failed to inject install.pkg into the canonical QEMU IMG.'
 }
 
-# The installer ISO builder already runs the mandatory 20-pass structural UEFI
-# verifier. For release qualification on an x86-64 Windows host, this optional
-# switch adds a second, independent gate: Oracle VirtualBox must actually boot
-# the optical media and emit a KuroganeOS kernel marker on COM1.
-if ($VirtualBoxSmoke) {
-    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $Iso
-    if (-not $?) { throw 'Real VirtualBox ISO smoke boot failed.' }
+# Delete old ambiguous names from the current version. They caused repeated
+# accidental tests of stale media and make it impossible to tell which
+# hypervisor contract an artifact was built for.
+foreach ($stale in @($LegacyQemuImage, $LegacyGenericIso)) {
+    if (Test-Path -LiteralPath $stale -PathType Leaf) {
+        Remove-Item -LiteralPath $stale -Force
+        Write-Host "[media-windows] removed stale ambiguous artifact: $stale"
+    }
 }
 
-$imageHash = (Get-FileHash -LiteralPath $Image -Algorithm SHA256).Hash.ToLowerInvariant()
-$isoHash = (Get-FileHash -LiteralPath $Iso -Algorithm SHA256).Hash.ToLowerInvariant()
+# Full-install qualification intentionally waits beyond the old boot-only
+# budget. Stage 8 performs byte-for-byte readback through the production FAT32
+# and AHCI paths, so a real VirtualBox run may legitimately need more than 90s.
+if (-not $SkipVirtualBoxSmoke) {
+    & (Join-Path $PSScriptRoot 'smoke-virtualbox-iso.ps1') -Iso $VirtualBoxIso -TimeoutSeconds 180
+    if (-not $?) { throw 'Real Oracle VirtualBox full-install qualification failed.' }
+} else {
+    Write-Warning 'VirtualBox real-boot qualification was explicitly skipped. ISO is NOT release-qualified.'
+}
+
+$qemuHash = (Get-FileHash -LiteralPath $QemuImage -Algorithm SHA256).Hash.ToLowerInvariant()
+$isoHash = (Get-FileHash -LiteralPath $VirtualBoxIso -Algorithm SHA256).Hash.ToLowerInvariant()
 $lines = @(
-    "$imageHash  $([System.IO.Path]::GetFileName($Image))",
-    "$isoHash  $([System.IO.Path]::GetFileName($Iso))"
+    "$qemuHash  $([System.IO.Path]::GetFileName($QemuImage))",
+    "$isoHash  $([System.IO.Path]::GetFileName($VirtualBoxIso))"
 )
 [System.IO.File]::WriteAllLines(
     $Checksums, $lines, (New-Object System.Text.UTF8Encoding($false)))
 [System.IO.File]::WriteAllText(
-    "$Image.sha256",
+    "$QemuImage.sha256",
     $lines[0] + [Environment]::NewLine,
+    (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText(
+    "$VirtualBoxIso.sha256",
+    $lines[1] + [Environment]::NewLine,
     (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "[media-windows] KuroganeOS $Version"
-Write-Host "[media-windows] live/setup IMG: $Image"
-Write-Host "[media-windows] live/setup ISO: $Iso"
-Write-Host '[media-windows] ISO structural UEFI verification: 20/20 required'
-if ($VirtualBoxSmoke) {
-    Write-Host '[media-windows] real VirtualBox EFI optical boot: PASS'
+Write-Host "[media-windows] QEMU-only IMG:       $QemuImage"
+Write-Host "[media-windows] VirtualBox-only ISO: $VirtualBoxIso"
+Write-Host "[media-windows] Windows Web PKI roots: $TrustOutput"
+Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
+if (-not $SkipVirtualBoxSmoke) {
+    Write-Host '[media-windows] ISO real Oracle VirtualBox full install: PASS'
 }
-Write-Host '[media-windows] both media enter Try / Install setup'
+Write-Host '[media-windows] no generic versioned .iso/.img aliases are published'
 Write-Host "[media-windows] checksums: $Checksums"

@@ -1,85 +1,281 @@
 # KuroganeOS Networking
 
-## Status 3.3.1-dev
+## Status 3.3.x
 
-KuroganeOS posiada własny kernelowy stos sieciowy. Referencyjnym urządzeniem dla
-QEMU/VirtualBox jest Intel E1000 **82540EM (`8086:100E`)**.
+Bieżący development target to **3.3.3-dev**. KuroganeOS posiada własny
+kernelowy stos sieciowy i kilka backendów wirtualnych kart PCI.
 
-Warstwy dostępne w kernelu:
+Warstwa `kernel/net/physical.cpp` próbuje urządzenia w kolejności:
 
 ```text
-PCI
- -> E1000 82540EM
- -> Ethernet
- -> ARP
- -> IPv4
- -> ICMP
- -> UDP
- -> DHCP
- -> DNS A resolver
- -> podstawowy TCP connect/probe
+VirtIO-net
+  -> Intel E1000 / 82540EM
+  -> AMD PCnet
 ```
 
-Bieżący rozwój 3.3.1 rozszerza publiczne API Ring-3, żeby zwykłe aplikacje nie
-musiały korzystać z kernela bezpośrednio.
-
-## VirtualBox
-
-Ustaw:
+Dalsza ścieżka protokołów jest wspólna:
 
 ```text
-Network Adapter: Enabled
+PCI NIC
+ -> Ethernet II
+ -> ARP
+ -> IPv4
+    -> ICMP
+    -> UDP -> DHCP / DNS A
+    -> TCP client
+    -> HTTP
+    -> HTTPS / TLS 1.2 / X.509
+```
+
+Referencyjnym profilem **Oracle VirtualBox** jest obecnie AMD PCnet-FAST III
+**Am79C973 (`1022:2000`)**. E1000 pozostaje wspieranym backendem i profilem
+QEMU, ale realny VBox smoke 3.3.3-dev wykazał `NIC OFFLINE` dla `82540EM`, więc
+nie jest obecnie canonical profile dla Oracle VirtualBox.
+
+## Referencyjny VirtualBox NIC
+
+```text
 Attached to: NAT
-Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
+Adapter Type: PCnet-FAST III (Am79C973)
 Cable Connected: ON
 ```
 
-To jest profil referencyjny. Domyślny PCNet VirtualBox nie jest obecnie
-referencyjnym urządzeniem KuroganeOS.
-
-## QEMU
-
-Referencyjny model urządzenia:
+Pełna kwalifikacja VBox po instalacji wymaga nie tylko aktywnego desktopu, ale
+również:
 
 ```text
--device e1000
+[TEST] dhcp_lease: PASS
+[TEST] network_gateway_icmp: PASS
+[TEST] dns_resolver: PASS
+[TEST] userspace_init_spawn: PASS
+/system/init: PID 1 online
 ```
 
-oraz typowa sieć userspace/NAT:
+VirtualBox media i QEMU media są rozdzielone:
+
+```text
+VirtualBox: KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+QEMU:       KuroganeOS-3.3.3-dev-qemu-x86_64.img
+```
+
+## Backendy NIC
+
+### VirtIO-net
+
+Kernel zawiera własny backend VirtIO-net PCI z obsługą split virtqueues RX/TX,
+DMA-backed buffers i negocjacją wymaganych feature bits.
+
+### Intel E1000
+
+Model:
+
+```text
+Intel 82540EM / PCI 8086:100E
+```
+
+QEMU:
 
 ```text
 -netdev user,id=net0
 -device e1000,netdev=net0
 ```
 
-## Co oznacza `internet READY`
+VirtualBox może nadal użyć E1000 jawnie przez:
 
-Samo wykrycie karty nie oznacza internetu. Pełny pozytywny stan wymaga:
+```powershell
+.\scripts\create-virtualbox-vm.ps1 ... -Nic e1000
+```
 
-1. wykrycia PCI `8086:100E`;
-2. poprawnej inicjalizacji E1000;
-3. aktywnego linku;
-4. uzyskania dzierżawy DHCP;
-5. ustawienia gateway;
-6. ustawienia DNS;
-7. poprawnego ARP do gateway;
-8. testu ICMP gateway;
-9. opcjonalnie rozwiązania nazwy DNS i TCP probe.
+Jest to obecnie profil testowy, nie referencyjny. Do powrotu jako canonical
+wymaga realnego Oracle VirtualBox install + reboot + DHCP + gateway + DNS smoke.
 
-Kernel wypisuje markery diagnostyczne na serial.
+### AMD PCnet
 
-## Bezpieczeństwo
+Canonical Oracle VirtualBox model:
 
-Nie dodawaj syscalla typu `execute_kernel_network_command`. Publiczne API Ring-3
-ma być wąskie i walidowane: status interfejsu, rozwiązywanie DNS, ping oraz
-późniejsze socket handles.
+```text
+PCnet-FAST III / Am79C973 / PCI 1022:2000
+```
 
-## Dla programistów
+VirtualBox:
 
-Zobacz:
+```text
+NAT + PCnet-FAST III (Am79C973)
+```
+
+Helper `create-virtualbox-vm.ps1` używa `pcnet` domyślnie. Można go też wybrać
+jawnie przez `-Nic pcnet`.
+
+## DHCP i konfiguracja IPv4
+
+Pozytywny stan sieci wymaga kolejno:
+
+1. wykrycia backendu NIC;
+2. aktywnego linku;
+3. dzierżawy DHCP;
+4. IPv4 + maska + gateway + DNS;
+5. ARP do gateway;
+6. ICMP gateway;
+7. DNS/TCP/TLS dla wyższych warstw.
+
+Klient DHCP zachowuje brakujące parametry z zaakceptowanego `DHCPOFFER`, jeżeli
+poprawny `DHCPACK` nie powtarza wszystkich opcji.
+
+## Jak czytać boot log
+
+Przykład zdrowej sieci:
+
+```text
+[TEST] dhcp_lease: PASS
+[TEST] udp_transport: PASS
+gateway ICMP: PASS
+[TEST] network_gateway_icmp: PASS
+DNS A example.com: PASS
+[TEST] dns_resolver: PASS
+[TEST] tcp_http_optional: PASS
+[TEST] network_online_icmp: PASS
+```
+
+Na QEMU E1000 powinien dodatkowo pojawić się:
+
+```text
+[TEST] e1000_link: PASS
+```
+
+Jeżeli DHCP, gateway i DNS są PASS, problem z HTTPS nie powinien być opisywany
+jako "brak internetu". Trzeba wtedy diagnozować TLS/X.509 osobno.
+
+Jeżeli GUI pokazuje `NIC OFFLINE`, aplikacja nie widzi aktywnego fizycznego
+interfejsu. To wcześniejsza warstwa niż DHCP, DNS czy TLS.
+
+## TLS / HTTPS
+
+Klient TLS jest freestanding i używa przypiętego **Mbed TLS 3.6.7**.
+Konfiguracja znajduje się w:
+
+```text
+kernel/net/tls/kurogane_mbedtls_config.h
+```
+
+Bieżący profil zawiera między innymi:
+
+```text
+TLS 1.2 client
+SNI
+ECDHE_RSA
+ECDHE_ECDSA
+AES-GCM
+SHA-256
+SHA-384
+SHA-512
+X.509 certificate parsing
+RSA / ECDSA
+```
+
+Trust store jest ładowany z:
+
+```text
+/etc/ssl/certs.pem
+```
+
+Repozytorium zawiera rooty GTS używane przez pierwszy profil Web PKI.
+
+### `x509_crt_parse error=...D9D2`
+
+Wartość odpowiada `-0x262E`, czyli kombinacji:
+
+```text
+MBEDTLS_ERR_X509_UNKNOWN_SIG_ALG
++
+MBEDTLS_ERR_OID_NOT_FOUND
+```
+
+W Mbed TLS 3.6.x SHA-384 jest osobną capability flag. Samo
+`MBEDTLS_SHA512_C` nie wystarcza do zbudowania tabeli OID dla podpisów SHA-384.
+Dlatego konfiguracja KuroganeOS jawnie wymaga:
+
+```c
+#define MBEDTLS_SHA384_C
+```
+
+CI probe wymaga również finalnego:
+
+```text
+MBEDTLS_MD_CAN_SHA384
+```
+
+Jeżeli po aktualizacji kodu nadal widzisz `D9D2`, najpierw wyklucz stare media.
+Na Windows zbuduj ponownie:
+
+```powershell
+.\scripts\build-media.ps1 -Configuration release -Rebuild
+```
+
+Następnie uruchamiaj wyłącznie canonical artifact:
+
+```text
+QEMU:       dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+VirtualBox: dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+```
+
+Stare nazwy `*-windows-qemu.img` i generic `*-x86_64.iso` nie są canonical
+artefaktami bieżącego Windows builda.
+
+### Oczekiwany log poprawnego trust store
+
+Po poprawnym parsowaniu powinien pojawić się log w rodzaju:
+
+```text
+[INFO][TLS][CPU0][KERNEL] trust store loaded bytes=...
+[INFO][TLS][CPU0][KERNEL] trust certificates accepted=...
+```
+
+Nie powinno wystąpić:
+
+```text
+CA trust store invalid
+x509_crt_parse error=...D9D2
+```
+
+## TCP
+
+Klient TCP posiada m.in. SND.UNA/SND.NXT/RCV.NXT, retransmisję z zachowaniem
+sequence number, bounded out-of-order buffering i scalanie segmentów
+kontynuujących strumień.
+
+To nadal nie jest pełny desktopowy socket stack. Publiczna asynchroniczna
+warstwa socket handles/event waits pozostaje dalszym etapem.
+
+## QEMU user NAT
+
+Referencyjny Windows runner:
+
+```powershell
+.\scripts\run-qemu-desktop.ps1 -MemoryMiB 2048
+```
+
+Runner wybiera canonical `KuroganeOS-*-qemu-x86_64.img` i używa:
+
+```text
+E1000
+QEMU user NAT
+AC97
+x86-64 UEFI
+```
+
+## Publiczne API
+
+Aplikacje Ring-3 powinny korzystać z publicznego SDK/usługi sieciowej, nie z
+prywatnych nagłówków `kernel/net/*`.
+
+Dokumentacja deweloperska:
 
 - [`DEVELOPERS/API_REFERENCE.md`](DEVELOPERS/API_REFERENCE.md)
 - [`DEVELOPERS/APP_DEVELOPMENT.md`](DEVELOPERS/APP_DEVELOPMENT.md)
+- [`VIRTUALBOX.md`](VIRTUALBOX.md)
 
-Publiczne API sieciowe w SDK powinno być używane zamiast prywatnych nagłówków
-`kernel/net/*`.
+## Ograniczenia
+
+Wirtualne E1000/PCnet/VirtIO-net nie zastępują sterowników fizycznych kart
+Ethernet/Wi-Fi. IPv6, Wi-Fi, pełne socket API, firewall oraz kompletna
+browser-grade kwalifikacja TCP/TLS pozostają osobnymi etapami rozwoju.

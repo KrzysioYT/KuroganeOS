@@ -1,5 +1,5 @@
 #include "../common.h"
-#include "../../common/flux_shell.h"
+#include "../../common/terminal_shell.h"
 
 #define TERMINAL_INPUT_CAPACITY 160U
 #define TERMINAL_OUTPUT_LINES 8U
@@ -137,11 +137,11 @@ int main(void) {
 
     flux_shell_initialize(&g_shell);
     clear_output();
-    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / shared shell core");
-    terminal_emit(NULL, "Type help. Up/Down recalls history.");
+    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / terminal shell");
+    terminal_emit(NULL, "Type help. Desktop surfaces are not shell commands.");
 
     puts("[TEST] desktop_terminal_ring3: PASS");
-    puts("[TEST] desktop_terminal_3_1_shared_shell: PASS");
+    puts("[TEST] desktop_terminal_policy_shell: PASS");
 
     char input[TERMINAL_INPUT_CAPACITY] = {0};
     size_t length = 0U;
@@ -157,7 +157,7 @@ int main(void) {
         if (gui_key_activate(&event)) {
             flux_shell_action action;
             input[length] = '\0';
-            action = flux_shell_execute(&g_shell, &g_io, input);
+            action = terminal_shell_execute(&g_shell, &g_io, input);
             length = 0U;
             cursor = 0U;
             input[0] = '\0';

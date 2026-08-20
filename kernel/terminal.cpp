@@ -15,6 +15,7 @@ constexpr uint32_t kDefaultBackground = graphics::rgb(7, 8, 10);
 bool g_initialized = false;
 bool g_framebuffer_output = true;
 bool g_required_success_deferred = false;
+bool g_required_failure_deferred = false;
 uint32_t g_foreground = kDefaultForeground;
 uint32_t g_background = kDefaultBackground;
 uint32_t g_scale = 1;
@@ -120,6 +121,23 @@ void update_boot_splash(const char* text) {
         ui::boot_splash("STARTING RED FLUX SESSION", 96U);
     }
 }
+
+void resume_graphical_boot_after_degraded_tests() {
+    if (!g_required_failure_deferred) return;
+    g_required_failure_deferred = false;
+    if (!g_initialized || !graphics::available()) return;
+
+    // A recoverable runtime/first-boot probe may report the aggregate FAIL
+    // marker while the kernel intentionally continues toward PID 1. Keep the
+    // failure visible until userspace init is proven, then hand framebuffer
+    // ownership back to the normal Red Flux boot splash. True boot_failure()
+    // paths never reach this point because the caller halts immediately after
+    // emitting the same aggregate marker.
+    g_framebuffer_output = false;
+    g_column = 0U;
+    g_row = 0U;
+    ui::boot_splash("STARTING RED FLUX SESSION", 96U);
+}
 } // namespace
 
 bool configure(const KuroganeFramebuffer& framebuffer) {
@@ -136,6 +154,8 @@ bool configure(const KuroganeFramebuffer& framebuffer) {
     }
     g_initialized = true;
     g_framebuffer_output = false;
+    g_required_success_deferred = false;
+    g_required_failure_deferred = false;
     g_column = 0U;
     g_row = 0U;
     ui::boot_splash("INITIALIZING KERNEL", 18U);
@@ -246,18 +266,24 @@ void println(const char* text) {
         return;
     }
 
-    // A required-test failure is never hidden behind the graphical splash.
+    // The aggregate FAIL marker is not itself a fatal control-flow primitive.
+    // main.cpp also emits it for recoverable installed-root/first-boot probes
+    // and then intentionally continues to /system/init. True fatal paths call
+    // boot_failure(), which emits this marker and halts immediately afterwards.
     if (text && kstd::streq(text, kRequiredFailure)) {
         g_required_success_deferred = false;
-        if (!g_framebuffer_output) enable_service_console("BOOT FAILURE");
+        g_required_failure_deferred = true;
+        if (!g_framebuffer_output) enable_service_console("BOOT CHECK DEGRADED");
         write_line_unfiltered(text);
-        arch::x86_64::interrupts::halt();
+        return;
     }
 
     write_line_unfiltered(text);
 
-    if (text && (kstd::streq(text, kUserspaceInitSuccess) ||
-                 kstd::streq(text, kSafeModeReady))) {
+    if (text && kstd::streq(text, kUserspaceInitSuccess)) {
+        resume_graphical_boot_after_degraded_tests();
+        flush_required_success();
+    } else if (text && kstd::streq(text, kSafeModeReady)) {
         flush_required_success();
     }
 }

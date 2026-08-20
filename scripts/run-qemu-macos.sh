@@ -14,11 +14,11 @@ usage() {
 usage: ./scripts/run-qemu-macos.sh [options]
   --image FILE        raw GPT image (default: newest dist/*-macos-qemu.img)
   --build-if-missing  explicitly build a debug image when none exists
-  --timeout SECONDS   smoke-test timeout (default: 45)
+  --timeout SECONDS   smoke-test timeout (default: 45; headless mode only)
   --display           show a large Cocoa QEMU window; fullscreen + zoom-to-fit
   --windowed          show a resizable Cocoa window with zoom-to-fit
   --fullscreen        explicitly use fullscreen Cocoa display
-  --keep              leave QEMU running after successful smoke markers
+  --keep              leave headless QEMU running after successful smoke markers
 EOF
     exit 2
 }
@@ -103,7 +103,7 @@ args=(
     -drive "if=none,id=kurogane_system,format=raw,file=$image,snapshot=on,cache=writeback"
     -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
     -serial "file:$serial"
-    -netdev user,id=kurogane_net
+    -netdev "user,id=kurogane_net,ipv4=on,ipv6=off,net=10.0.2.0/24,host=10.0.2.2,dhcpstart=10.0.2.15,dns=10.0.2.3"
     -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01
     -audiodev coreaudio,id=kurogane_audio
     -device AC97,audiodev=kurogane_audio
@@ -112,8 +112,9 @@ args=(
 if $display; then
     # Cocoa's zoom-to-fit scales the guest framebuffer with the host window.
     # Do not force the host cursor: KuroganeOS renders its own software cursor.
-    # The visual development path defaults to fullscreen; use --windowed when
-    # a normal resizable host window is preferred.
+    # Interactive display sessions deliberately do not use the smoke timeout:
+    # forcibly terminating Cocoa while an NSEvent is being delivered can race
+    # QEMU display/input teardown on macOS.
     args+=( -display "cocoa,zoom-to-fit=on" )
     if $fullscreen; then
         args+=( -full-screen )
@@ -136,12 +137,24 @@ echo "[qemu-macos] PID $pid"
 echo "[qemu-macos] image: $image"
 echo "[qemu-macos] serial: $serial"
 echo "[qemu-macos] audio: Intel AC97 -> CoreAudio"
+echo "[qemu-macos] network: E1000 -> QEMU user IPv4 NAT (10.0.2.0/24)"
 if $display; then
     if $fullscreen; then
         echo "[qemu-macos] display: Cocoa fullscreen + zoom-to-fit"
     else
         echo "[qemu-macos] display: Cocoa windowed + zoom-to-fit"
     fi
+    echo "[qemu-macos] interactive mode: smoke timeout disabled; close QEMU to stop"
+    set +e
+    wait "$pid"
+    qemu_status=$?
+    set -e
+    trap - EXIT INT TERM
+    if ((qemu_status != 0)); then
+        echo "[qemu-macos] QEMU exited with status $qemu_status" >&2
+        tail -n 80 "$stderr_log" >&2 || true
+    fi
+    exit "$qemu_status"
 fi
 
 success=false

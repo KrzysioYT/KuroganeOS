@@ -19,7 +19,8 @@ storage::partition::Device g_esp_partition{};
 storage::partition::Device g_root_partition{};
 fs::fat32::FileSystem g_esp{};
 fs::fat32::FileSystem g_root{};
-uint8_t g_verify_buffer[4096]{};
+constexpr size_t kVerifyBufferBytes = 1024U * 1024U;
+alignas(64) uint8_t g_verify_buffer[kVerifyBufferBytes]{};
 
 constexpr graphics::Color kBackground = UINT32_C(0x050608);
 constexpr graphics::Color kPanel = UINT32_C(0x111317);
@@ -88,6 +89,13 @@ bool strings_equal(const char* left, const char* right) {
     return left[index] == right[index];
 }
 
+char ascii_upper(char value) {
+    if (value >= 'a' && value <= 'z') {
+        return static_cast<char>(value - 'a' + 'A');
+    }
+    return value;
+}
+
 void u64_to_decimal(uint64_t value, char* output, size_t capacity) {
     if (output == nullptr || capacity < 2U) return;
     char reversed[32]{};
@@ -113,9 +121,6 @@ void u64_to_hex(uint64_t value, char output[17]) {
 }
 
 uint64_t credential_hash(const char* username, const char* password) {
-    // Dev-release credential verifier. This is deliberately identified as a
-    // non-cryptographic compatibility hash until the account service gains a
-    // real KDF/credential store in a later release.
     uint64_t hash = UINT64_C(1469598103934665603);
     static constexpr char domain[] = "KuroganeOS-3.3-dev:";
     for (char value : domain) {
@@ -243,7 +248,7 @@ void draw_input_page(
     char display[64]{};
     if (masked) {
         const size_t length = text_length(value);
-        size_t count = length < sizeof(display) - 1U
+        const size_t count = length < sizeof(display) - 1U
             ? length : sizeof(display) - 1U;
         for (size_t index = 0U; index < count; ++index) display[index] = '*';
         display[count] = '\0';
@@ -256,7 +261,7 @@ void draw_input_page(
     if (error != nullptr) {
         graphics::draw_text(x, 320, error, kDanger, kPanel, 1U, true);
     }
-    draw_footer("TYPE VALUE   BACKSPACE: ERASE   ENTER: CONTINUE");
+    draw_footer("TYPE VALUE   BACKSPACE: ERASE   ENTER: CONTINUE   ESC: BACK");
 }
 
 bool valid_username(const char* value) {
@@ -321,7 +326,7 @@ void show_error(const char* reason) {
     graphics::draw_text(width / 2 - 260, 270, reason,
                         kText, kPanel, 1U, true);
     graphics::draw_text(width / 2 - 260, 330,
-                        "POWER OFF OR REBOOT TO RETRY",
+                        "REBOOT AND RETRY ON THE SAME DISK",
                         kMuted, kPanel, 1U, true);
 }
 
@@ -333,71 +338,210 @@ void show_error(const char* reason) {
     halt_forever();
 }
 
-bool make_directory(fs::fat32::FileSystem* filesystem, const char* path) {
-    const fs::fat32::Status status = fs::fat32::mkdir(filesystem, path);
-    return status == fs::fat32::Status::Ok ||
-        status == fs::fat32::Status::AlreadyExists;
+void report_fs_failure(
+    size_t package_index,
+    const package::File& file,
+    const char* operation,
+    fs::fat32::Status status) {
+    terminal::write("[INSTALL][COPY] file=");
+    terminal::write_u64(package_index + 1U);
+    terminal::write(" destination=");
+    terminal::write(
+        file.destination == package::DESTINATION_ESP ? "ESP" : "ROOT");
+    terminal::write(" path=");
+    terminal::write(file.path);
+    terminal::write(" operation=");
+    terminal::write(operation);
+    terminal::write(" status=");
+    terminal::println(fs::fat32::status_message(status));
 }
 
-bool prepare_directories() {
-    static const char* const esp_directories[] = {"/EFI", "/EFI/BOOT"};
-    static const char* const root_directories[] = {
-        "/boot", "/etc", "/apps", "/gui", "/system", "/var", "/home"
-    };
-    for (const char* path : esp_directories) {
-        if (!make_directory(&g_esp, path)) return false;
+fs::fat32::Status ensure_parent_directories(
+    fs::fat32::FileSystem* filesystem,
+    const char* path) {
+    if (filesystem == nullptr || path == nullptr || path[0] != '/') {
+        return fs::fat32::Status::InvalidPath;
     }
-    for (const char* path : root_directories) {
-        if (!make_directory(&g_root, path)) return false;
+    const size_t length = text_length(path);
+    if (length == 0U || length > fs::fat32::MAX_PATH_LENGTH) {
+        return fs::fat32::Status::PathTooLong;
+    }
+
+    char prefix[fs::fat32::MAX_PATH_LENGTH + 1U]{};
+    for (size_t index = 0U; index < length; ++index) {
+        prefix[index] = path[index];
+        if (path[index] != '/' || index == 0U) continue;
+        prefix[index] = '\0';
+        const fs::fat32::Status status = fs::fat32::mkdir(filesystem, prefix);
+        if (status != fs::fat32::Status::Ok &&
+            status != fs::fat32::Status::AlreadyExists) {
+            return status;
+        }
+        prefix[index] = '/';
+    }
+    return fs::fat32::Status::Ok;
+}
+
+bool ensure_root_layout() {
+    // Empty directories are part of the installed filesystem contract and
+    // cannot be inferred from a file-only install package. Keep that contract
+    // explicit here; package-specific parent directories remain data-driven.
+    static constexpr const char* kDirectories[] = {
+        "/bin",
+        "/boot",
+        "/dev",
+        "/etc",
+        "/home",
+        "/proc",
+        "/system",
+        "/system/bin",
+        "/tmp",
+        "/var",
+        "/var/log",
+    };
+
+    for (const char* directory : kDirectories) {
+        const fs::fat32::Status status = fs::fat32::mkdir(&g_root, directory);
+        if (status == fs::fat32::Status::Ok ||
+            status == fs::fat32::Status::AlreadyExists) {
+            continue;
+        }
+        terminal::write("[INSTALL][LAYOUT] mkdir path=");
+        terminal::write(directory);
+        terminal::write(" status=");
+        terminal::println(fs::fat32::status_message(status));
+        return false;
     }
     return true;
 }
 
-bool copy_file(const package::File& file) {
+bool deploy_file(const package::File& file, size_t package_index) {
     fs::fat32::FileSystem* filesystem =
         file.destination == package::DESTINATION_ESP ? &g_esp : &g_root;
-    if (fs::fat32::create(filesystem, file.path) != fs::fat32::Status::Ok) {
+
+    fs::fat32::Status status = ensure_parent_directories(filesystem, file.path);
+    if (status != fs::fat32::Status::Ok) {
+        report_fs_failure(package_index, file, "mkdir-parent", status);
         return false;
     }
-    if (file.size != 0U &&
-        fs::fat32::write(
-            filesystem, file.path, 0U, file.data, file.size) !=
-            fs::fat32::Status::Ok) {
+
+    status = fs::fat32::unlink(filesystem, file.path);
+    if (status != fs::fat32::Status::Ok &&
+        status != fs::fat32::Status::NotFound) {
+        report_fs_failure(package_index, file, "remove-stale", status);
         return false;
+    }
+
+    status = fs::fat32::create(filesystem, file.path);
+    if (status != fs::fat32::Status::Ok) {
+        report_fs_failure(package_index, file, "create", status);
+        return false;
+    }
+    if (file.size != 0U) {
+        status = fs::fat32::write(
+            filesystem, file.path, 0U, file.data, file.size);
+        if (status != fs::fat32::Status::Ok) {
+            report_fs_failure(package_index, file, "write", status);
+            return false;
+        }
     }
     return true;
 }
 
-bool verify_file(const package::File& file) {
+bool deploy_destination(const package::View& payload, uint32_t destination) {
+    for (size_t index = 0U; index < payload.file_count; ++index) {
+        package::File file{};
+        const package::Status package_status =
+            package::file_at(payload, index, &file);
+        if (package_status != package::Status::Ok) {
+            terminal::write("[INSTALL][PACKAGE] file=");
+            terminal::write_u64(index + 1U);
+            terminal::write(" status=");
+            terminal::println(package::status_message(package_status));
+            return false;
+        }
+        if (file.destination == destination && !deploy_file(file, index)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool verify_file(const package::File& file, size_t package_index) {
     fs::fat32::FileSystem* filesystem =
         file.destination == package::DESTINATION_ESP ? &g_esp : &g_root;
     size_t offset = 0U;
     while (offset < file.size) {
         const size_t remaining = file.size - offset;
         const size_t chunk = remaining < sizeof(g_verify_buffer)
-            ? remaining
-            : sizeof(g_verify_buffer);
+            ? remaining : sizeof(g_verify_buffer);
         size_t bytes_read = 0U;
-        if (fs::fat32::read(
-                filesystem, file.path, offset, g_verify_buffer, chunk,
-                &bytes_read) != fs::fat32::Status::Ok ||
-            bytes_read != chunk) {
+        const fs::fat32::Status status = fs::fat32::read(
+            filesystem, file.path, offset, g_verify_buffer, chunk, &bytes_read);
+        if (status != fs::fat32::Status::Ok || bytes_read != chunk) {
+            report_fs_failure(package_index, file, "verify-read", status);
             return false;
         }
         for (size_t index = 0U; index < chunk; ++index) {
             if (g_verify_buffer[index] != file.data[offset + index]) {
+                terminal::write("[INSTALL][VERIFY] byte mismatch path=");
+                terminal::println(file.path);
                 return false;
             }
         }
         offset += chunk;
     }
     fs::fat32::Stat info{};
-    return fs::fat32::stat(filesystem, file.path, &info) ==
-               fs::fat32::Status::Ok &&
-        info.type == fs::fat32::EntryType::File && info.size == file.size;
+    const fs::fat32::Status stat_status =
+        fs::fat32::stat(filesystem, file.path, &info);
+    if (stat_status != fs::fat32::Status::Ok ||
+        info.type != fs::fat32::EntryType::File || info.size != file.size) {
+        report_fs_failure(package_index, file, "verify-stat", stat_status);
+        return false;
+    }
+    return true;
+}
+
+bool verify_destination(const package::View& payload, uint32_t destination) {
+    for (size_t index = 0U; index < payload.file_count; ++index) {
+        package::File file{};
+        const package::Status package_status =
+            package::file_at(payload, index, &file);
+        if (package_status != package::Status::Ok) {
+            terminal::write("[INSTALL][VERIFY] package file=");
+            terminal::write_u64(index + 1U);
+            terminal::write(" status=");
+            terminal::println(package::status_message(package_status));
+            return false;
+        }
+        if (file.destination != destination) continue;
+
+        terminal::write("[INSTALL][VERIFY] file=");
+        terminal::write_u64(index + 1U);
+        terminal::write("/");
+        terminal::write_u64(payload.file_count);
+        terminal::write(" destination=");
+        terminal::write(
+            destination == package::DESTINATION_ESP ? "ESP" : "ROOT");
+        terminal::write(" path=");
+        terminal::write(file.path);
+        terminal::write(" bytes=");
+        terminal::write_u64(file.size);
+        terminal::println();
+
+        if (!verify_file(file, index)) {
+            return false;
+        }
+        terminal::write("[INSTALL][VERIFY] PASS path=");
+        terminal::println(file.path);
+    }
+    return true;
 }
 
 bool replace_root_file(const char* path, const char* data) {
+    if (ensure_parent_directories(&g_root, path) != fs::fat32::Status::Ok) {
+        return false;
+    }
     const fs::fat32::Status removed = fs::fat32::unlink(&g_root, path);
     if (removed != fs::fat32::Status::Ok &&
         removed != fs::fat32::Status::NotFound) {
@@ -504,11 +648,32 @@ size_t choose_disk() {
 
 bool confirm_erase() {
     char confirmation[16]{};
-    return read_input(
-        "CONFIRM INSTALLATION",
-        "TYPE INSTALL TO ERASE THE SELECTED DISK",
-        confirmation, sizeof(confirmation), false, false) &&
-        strings_equal(confirmation, "INSTALL");
+    size_t length = 0U;
+    const char* error = nullptr;
+    for (;;) {
+        draw_input_page(
+            "CONFIRM INSTALLATION",
+            "TYPE INSTALL TO ERASE THE SELECTED DISK",
+            confirmation, false, error);
+        const auto event = wait_key();
+        error = nullptr;
+        if (event.key == drivers::keyboard::KeyCode::Escape) return false;
+        if (event.key == drivers::keyboard::KeyCode::Backspace) {
+            if (length != 0U) confirmation[--length] = '\0';
+            continue;
+        }
+        if (event.key == drivers::keyboard::KeyCode::Enter ||
+            event.key == drivers::keyboard::KeyCode::KeypadEnter) {
+            if (strings_equal(confirmation, "INSTALL")) return true;
+            error = "TYPE INSTALL EXACTLY OR ESC TO GO BACK";
+            continue;
+        }
+        const char ch = ascii_upper(event.character);
+        if (ch >= 0x20 && ch <= 0x7E && length + 1U < sizeof(confirmation)) {
+            confirmation[length++] = ch;
+            confirmation[length] = '\0';
+        }
+    }
 }
 
 void draw_complete(const InstallProfile& profile) {
@@ -550,6 +715,7 @@ void run_interactive(
     terminal::write("[SETUP] package files: ");
     terminal::write_u64(payload.file_count);
     terminal::println();
+    terminal::println("[TEST] installer_package_preflight: PASS");
 
     const size_t mode = choose_two(
         "WELCOME TO KUROGANEOS",
@@ -574,10 +740,8 @@ void run_interactive(
     const size_t language = choose_two(
         "CHOOSE LANGUAGE / WYBIERZ JEZYK",
         "INSTALLER AND LOGIN PROFILE",
-        "ENGLISH",
-        "EN-US SYSTEM PROFILE",
-        "POLSKI",
-        "PL-PL PROFIL SYSTEMU");
+        "ENGLISH", "EN-US SYSTEM PROFILE",
+        "POLSKI", "PL-PL PROFIL SYSTEMU");
     profile.language = language == 1U ? Language::Polish : Language::English;
 
     copy_text(profile.username, sizeof(profile.username), "user");
@@ -594,12 +758,10 @@ void run_interactive(
         profile.language == Language::Polish
             ? "ZABEZPIECZENIE KONTA" : "ACCOUNT SECURITY",
         profile.username,
-        profile.language == Language::Polish
-            ? "BEZ HASLA" : "NO PASSWORD",
+        profile.language == Language::Polish ? "BEZ HASLA" : "NO PASSWORD",
         profile.language == Language::Polish
             ? "ENTER OD RAZU OTWIERA SESJE" : "ENTER OPENS THE SESSION DIRECTLY",
-        profile.language == Language::Polish
-            ? "USTAW HASLO" : "USE PASSWORD",
+        profile.language == Language::Polish ? "USTAW HASLO" : "USE PASSWORD",
         profile.language == Language::Polish
             ? "LOGIN BEDZIE WYMAGAL HASLA" : "LOGIN WILL REQUIRE A PASSWORD");
     profile.password_required = password_mode == 1U;
@@ -612,20 +774,22 @@ void run_interactive(
         fail("PASSWORD SETUP CANCELLED");
     }
 
-    const size_t target_index = choose_disk();
-    const storage::block::Device* target =
-        storage::ahci::device_at(target_index);
-    if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
-
-    if (!confirm_erase()) {
+    const storage::block::Device* target = nullptr;
+    for (;;) {
+        const size_t target_index = choose_disk();
+        target = storage::ahci::device_at(target_index);
+        if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
+        if (confirm_erase()) {
+            terminal::println("[TEST] installer_confirmation: PASS");
+            break;
+        }
         terminal::println("[TEST] installer_cancel_safe: PASS");
-        fail("INSTALLATION CONFIRMATION DID NOT MATCH INSTALL");
     }
 
-    draw_progress(1U, "TARGET CONFIRMED");
+    draw_progress(1U, "PARTITIONING TARGET DISK");
     disk_layout::Layout layout{};
     const disk_layout::Status layout_status =
-        disk_layout::prepare_empty_disk(target, &layout);
+        disk_layout::prepare_install_target(target, &layout);
     if (layout_status != disk_layout::Status::Ok) {
         fail(disk_layout::status_message(layout_status));
     }
@@ -645,73 +809,101 @@ void run_interactive(
             layout.root_sector_count) != storage::block::Status::Ok) {
         fail("PARTITION VIEWS COULD NOT BE CREATED");
     }
+    terminal::println("installer stage 2/9: GPT validated and partition views ready");
 
     draw_progress(3U, "FORMATTING ESP AND ROOT");
-    if (fs::fat32::format(
-            storage::partition::as_block_device(&g_esp_partition),
-            "KURO_ESP", 1U, static_cast<uint32_t>(layout.esp_first_lba)) !=
-            fs::fat32::Status::Ok ||
-        fs::fat32::format(
-            storage::partition::as_block_device(&g_root_partition),
-            "KURO_ROOT", 8U, static_cast<uint32_t>(layout.root_first_lba)) !=
-            fs::fat32::Status::Ok) {
-        fail("FAT32 FORMATTING FAILED");
+    const fs::fat32::Status esp_format = fs::fat32::format(
+        storage::partition::as_block_device(&g_esp_partition),
+        "KURO_ESP", 1U, static_cast<uint32_t>(layout.esp_first_lba));
+    if (esp_format != fs::fat32::Status::Ok) {
+        terminal::write("[INSTALL][FORMAT] ESP status=");
+        terminal::println(fs::fat32::status_message(esp_format));
+        fail("ESP FAT32 FORMATTING FAILED");
     }
+    const fs::fat32::Status root_format = fs::fat32::format(
+        storage::partition::as_block_device(&g_root_partition),
+        "KURO_ROOT", 8U, static_cast<uint32_t>(layout.root_first_lba));
+    if (root_format != fs::fat32::Status::Ok) {
+        terminal::write("[INSTALL][FORMAT] ROOT status=");
+        terminal::println(fs::fat32::status_message(root_format));
+        fail("ROOT FAT32 FORMATTING FAILED");
+    }
+    terminal::println("installer stage 3/9: filesystems formatted");
 
     draw_progress(4U, "MOUNTING NEW FILESYSTEMS");
-    if (fs::fat32::mount(
-            &g_esp, storage::partition::as_block_device(&g_esp_partition)) !=
-            fs::fat32::Status::Ok ||
-        fs::fat32::mount(
-            &g_root, storage::partition::as_block_device(&g_root_partition)) !=
-            fs::fat32::Status::Ok || !prepare_directories()) {
-        fail("FILESYSTEM MOUNT OR DIRECTORY CREATION FAILED");
+    const fs::fat32::Status esp_mount = fs::fat32::mount(
+        &g_esp, storage::partition::as_block_device(&g_esp_partition));
+    if (esp_mount != fs::fat32::Status::Ok) {
+        terminal::write("[INSTALL][MOUNT] ESP status=");
+        terminal::println(fs::fat32::status_message(esp_mount));
+        fail("ESP MOUNT FAILED");
     }
-
-    draw_progress(5U, "COPYING SYSTEM FILES");
-    for (size_t index = 0U; index < payload.file_count; ++index) {
-        package::File file{};
-        if (package::file_at(payload, index, &file) != package::Status::Ok ||
-            !copy_file(file)) {
-            fail("PACKAGE COPY FAILED");
-        }
+    const fs::fat32::Status root_mount = fs::fat32::mount(
+        &g_root, storage::partition::as_block_device(&g_root_partition));
+    if (root_mount != fs::fat32::Status::Ok) {
+        terminal::write("[INSTALL][MOUNT] ROOT status=");
+        terminal::println(fs::fat32::status_message(root_mount));
+        fail("ROOT MOUNT FAILED");
     }
-
-    draw_progress(6U, "WRITING LANGUAGE AND ACCOUNT PROFILE");
-    if (!write_profile(profile)) {
-        fail("ACCOUNT OR LOCALE CONFIGURATION FAILED");
+    if (!ensure_root_layout()) {
+        fail("ROOT DIRECTORY LAYOUT CREATION FAILED");
     }
+    terminal::println("installer stage 4/9: fresh filesystems mounted and base layout created");
 
-    draw_progress(7U, "COMMITTING FIRST BOOT STATE");
-    static constexpr char kFirstRun[] = "pending\n";
-    const fs::fat32::Status first_run_existing =
-        fs::fat32::unlink(&g_root, "/etc/first.run");
-    if ((first_run_existing != fs::fat32::Status::Ok &&
-         first_run_existing != fs::fat32::Status::NotFound) ||
-        fs::fat32::create(&g_root, "/etc/first.run") != fs::fat32::Status::Ok ||
-        fs::fat32::write(
-            &g_root, "/etc/first.run", 0U, kFirstRun,
-            sizeof(kFirstRun) - 1U) != fs::fat32::Status::Ok ||
-        fs::fat32::sync(&g_esp) != fs::fat32::Status::Ok ||
+    // The base filesystem contract above owns intentionally empty directories.
+    // Package-specific parents stay data-driven so nested payload paths such as
+    // /etc/ssl/certs.pem do not require installer changes.
+    draw_progress(5U, "COPYING ROOT SYSTEM PAYLOAD");
+    if (!deploy_destination(payload, package::DESTINATION_ROOT)) {
+        fail("ROOT PAYLOAD COPY FAILED - SEE SERIAL LOG");
+    }
+    if (fs::fat32::sync(&g_root) != fs::fat32::Status::Ok) {
+        fail("ROOT PAYLOAD SYNC FAILED");
+    }
+    terminal::println("installer stage 5/9: root payload copied and synced");
+
+    // Installer-generated state is committed only after the immutable root
+    // payload is durable. The same VDI remains retryable after any later error.
+    draw_progress(6U, "WRITING USER AND FIRST-BOOT STATE");
+    if (!write_profile(profile) ||
+        !replace_root_file("/etc/first.run", "pending\n") ||
         fs::fat32::sync(&g_root) != fs::fat32::Status::Ok) {
-        fail("BOOT CONFIGURATION SYNC FAILED");
+        fail("PROFILE OR FIRST-BOOT COMMIT FAILED");
     }
+    terminal::println("installer stage 6/9: profile and first-boot state committed");
+
+    // Activate UEFI boot only after the root volume is complete and durable.
+    // This mirrors the transactional shape used by mature OS installers:
+    // prepare root first, publish bootability last.
+    draw_progress(7U, "ACTIVATING UEFI BOOT PAYLOAD");
+    if (!deploy_destination(payload, package::DESTINATION_ESP)) {
+        fail("UEFI PAYLOAD COPY FAILED - SEE SERIAL LOG");
+    }
+    if (fs::fat32::sync(&g_esp) != fs::fat32::Status::Ok) {
+        fail("UEFI PAYLOAD SYNC FAILED");
+    }
+    terminal::println("installer stage 7/9: UEFI payload activated and synced");
 
     draw_progress(8U, "VERIFYING INSTALLED PAYLOAD");
-    for (size_t index = 0U; index < payload.file_count; ++index) {
-        package::File file{};
-        if (package::file_at(payload, index, &file) != package::Status::Ok ||
-            !verify_file(file)) {
-            fail("INSTALLED FILE VERIFICATION FAILED");
-        }
+    if (!verify_destination(payload, package::DESTINATION_ROOT) ||
+        !verify_destination(payload, package::DESTINATION_ESP)) {
+        fail("INSTALLED FILE VERIFICATION FAILED - SEE SERIAL LOG");
     }
+    if (fs::fat32::sync(&g_root) != fs::fat32::Status::Ok ||
+        fs::fat32::sync(&g_esp) != fs::fat32::Status::Ok) {
+        fail("FINAL FILESYSTEM SYNC FAILED");
+    }
+    terminal::println("installer stage 8/9: installed payload verified");
 
     draw_progress(9U, "INSTALLATION COMPLETE");
     terminal::println("[TEST] installer_gpt: PASS");
     terminal::println("[TEST] installer_filesystems: PASS");
+    terminal::println("[TEST] installer_root_payload: PASS");
     terminal::println("[TEST] installer_uefi_bootloader: PASS");
     terminal::println("[TEST] installer_profile: PASS");
+    terminal::println("[TEST] installer_payload_verify: PASS");
     terminal::println("[TEST] installer_complete: PASS");
+    terminal::println("installer stage 9/9: installation complete");
     draw_complete(profile);
     halt_forever();
 }

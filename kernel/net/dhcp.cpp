@@ -25,6 +25,31 @@ uint32_t transaction_for(const MacAddress& mac) {
     return value == 0U ? UINT32_C(0x4b55524f) : value;
 }
 
+void inherit_offer_configuration(
+    const DhcpMessageView& offer,
+    DhcpMessageView* acknowledgement) {
+    if (acknowledgement == nullptr) return;
+    if (!acknowledgement->has_netmask && offer.has_netmask) {
+        acknowledgement->netmask = offer.netmask;
+        acknowledgement->has_netmask = true;
+    }
+    if (!acknowledgement->has_gateway && offer.has_gateway) {
+        acknowledgement->gateway = offer.gateway;
+        acknowledgement->has_gateway = true;
+    }
+    if (!acknowledgement->has_dns_server && offer.has_dns_server) {
+        acknowledgement->dns_server = offer.dns_server;
+        acknowledgement->has_dns_server = true;
+    }
+    if (!acknowledgement->has_server_identifier && offer.has_server_identifier) {
+        acknowledgement->server_identifier = offer.server_identifier;
+        acknowledgement->has_server_identifier = true;
+    }
+    if (acknowledgement->lease_seconds == 0U && offer.lease_seconds != 0U) {
+        acknowledgement->lease_seconds = offer.lease_seconds;
+    }
+}
+
 Status transmit_message(
     NetworkInterface* interface,
     const uint8_t* message,
@@ -147,6 +172,11 @@ Status acquire(NetworkInterface* interface, Lease* out_lease) {
         if (!acknowledged && status != Status::WouldBlock) return status;
     }
     if (!acknowledged) return Status::WouldBlock;
+
+    // Some DHCP servers put configuration options in DHCPOFFER and omit one
+    // or more of them from DHCPACK. Preserve the selected server's offered
+    // values instead of incorrectly dropping a valid lease to loopback.
+    inherit_offer_configuration(offer, &acknowledgement);
     if (!acknowledgement.has_netmask || !acknowledgement.has_gateway ||
         !acknowledgement.has_dns_server) return Status::InvalidConfiguration;
     Lease lease{};

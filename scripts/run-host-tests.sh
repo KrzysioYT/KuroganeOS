@@ -62,6 +62,18 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_event"
 
+# Exercise the production TCP client with a deterministic fake wire. This
+# protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
+# without relying on host sockets or libc networking.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -DKUROGANE_HOST_TEST \
+  tests/test_tcp_client.cpp \
+  kernel/net/tcp_client.cpp \
+  -o "$OUT_DIR/test_tcp_client"
+
+"$OUT_DIR/test_tcp_client"
+
 # Keep the pinned TLS client source set freestanding and host-libc independent.
 # This is compile-only by design; runtime HTTPS qualification happens after the
 # Kurogane TCP BIO, entropy and trust-store pieces are wired together.
