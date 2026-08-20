@@ -92,17 +92,23 @@ function Invoke-PersistenceBoot {
             }
             if (Test-Path -LiteralPath $SerialLog -PathType Leaf) {
                 $serial = Get-Content -LiteralPath $SerialLog -Raw -ErrorAction SilentlyContinue
-                if ($serial.Contains($Marker)) {
-                    $passed = $true
-                    break
-                }
-                if ($serial -match '(?m)^\[TEST\] fat32_persistence_(prepare|verify): FAIL\r?$') {
-                    $failureReason = "KuroganeOS reported a FAT32 persistence failure during $Stage boot."
-                    break
-                }
-                if ($serial -match 'KERNEL (EXCEPTION|PANIC)|fatal:') {
-                    $failureReason = "KuroganeOS reported a fatal kernel error during $Stage boot."
-                    break
+                # QEMU creates the serial file before the guest necessarily
+                # writes its first byte. PowerShell returns $null for that
+                # transient empty-file state, so treat it as "no progress yet"
+                # instead of dereferencing it with .Contains().
+                if (-not [string]::IsNullOrEmpty($serial)) {
+                    if ($serial.Contains($Marker)) {
+                        $passed = $true
+                        break
+                    }
+                    if ($serial -match '(?m)^\[TEST\] fat32_persistence_(prepare|verify): FAIL\r?$') {
+                        $failureReason = "KuroganeOS reported a FAT32 persistence failure during $Stage boot."
+                        break
+                    }
+                    if ($serial -match 'KERNEL (EXCEPTION|PANIC)|fatal:') {
+                        $failureReason = "KuroganeOS reported a fatal kernel error during $Stage boot."
+                        break
+                    }
                 }
             }
             Start-Sleep -Milliseconds 100
