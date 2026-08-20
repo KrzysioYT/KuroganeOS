@@ -127,10 +127,10 @@ $lines = @(
     (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "[media-windows] KuroganeOS $Version"
-Write-Host "[media-windows] QEMU setup/install IMG: $QemuImage"
-Write-Host "[media-windows] QEMU live/test IMG:    $BaseImage"
+Write-Host "[media-windows] QEMU setup/install IMG:  $QemuImage"
+Write-Host "[media-windows] QEMU live/test IMG:     $BaseImage"
 Write-Host "[media-windows] VirtualBox install ISO: $VirtualBoxIso"
-Write-Host "[media-windows] Windows Web PKI roots: $TrustOutput"
+Write-Host "[media-windows] Windows Web PKI roots:  $TrustOutput"
 Write-Host '[media-windows] network smoke must use the package-free QEMU live/test IMG'
 Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
 if (-not $SkipVirtualBoxSmoke) {
