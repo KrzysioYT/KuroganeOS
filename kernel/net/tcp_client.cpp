@@ -3,6 +3,9 @@
 #include "protocols.hpp"
 #include "../arch/x86_64/io.hpp"
 #include "../drivers/pit.hpp"
+#if !defined(KUROGANE_HOST_TEST)
+#include "../core/log.hpp"
+#endif
 
 namespace net::tcp_client {
 namespace {
@@ -366,6 +369,13 @@ Status process_incoming(Client* client, const TcpSegment& segment) {
 
     client->peer_window = segment.window;
     if ((segment.flags & TcpRst) != 0U) {
+#if !defined(KUROGANE_HOST_TEST)
+        log::write_u64(log::Level::Error, "TCP", "peer RST sequence=", segment.sequence);
+        log::write_u64(log::Level::Error, "TCP", "peer RST acknowledgement=", segment.acknowledgement);
+        log::write_u64(log::Level::Error, "TCP", "SND.UNA=", client->send_unacknowledged);
+        log::write_u64(log::Level::Error, "TCP", "SND.NXT=", client->send_next);
+        log::write_u64(log::Level::Error, "TCP", "RCV.NXT=", client->receive_next);
+#endif
         client->connected = false;
         client->state = State::Reset;
         return Status::InterfaceError;
@@ -574,6 +584,10 @@ Status connect(
                 return poll_status;
             }
             if ((segment.flags & TcpRst) != 0U) {
+#if !defined(KUROGANE_HOST_TEST)
+                log::write_u64(log::Level::Error, "TCP", "peer RST during connect sequence=", segment.sequence);
+                log::write_u64(log::Level::Error, "TCP", "peer RST during connect acknowledgement=", segment.acknowledgement);
+#endif
                 client->state = State::Reset;
                 return Status::InterfaceError;
             }
@@ -612,6 +626,18 @@ Status send(
         return Status::InvalidArgument;
     }
     if (client->state != State::Established || client->peer_closed) {
+#if !defined(KUROGANE_HOST_TEST)
+        log::write_u64(
+            log::Level::Error,
+            "TCP",
+            "send rejected state=",
+            static_cast<uint64_t>(client->state));
+        log::write_u64(
+            log::Level::Error,
+            "TCP",
+            "send rejected peer_closed=",
+            client->peer_closed ? 1U : 0U);
+#endif
         return Status::InterfaceError;
     }
     if (length == 0U) return Status::Ok;
@@ -689,10 +715,29 @@ Status send(
             return Status::WouldBlock;
         }
         if (!acknowledged) {
-            // Once SND.NXT moved, returning WANT_WRITE would let the TLS caller
-            // submit the same plaintext at a different sequence number. Keep
-            // retransmissions on the original SEQ and fail the connection only
-            // after the bounded retransmission budget is exhausted.
+#if !defined(KUROGANE_HOST_TEST)
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline sequence=", sequence);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline expected=", expected_ack);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline SND.UNA=", client->send_unacknowledged);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline SND.NXT=", client->send_next);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline RCV.NXT=", client->receive_next);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline peer window=", client->peer_window);
+#endif
+            // No byte from this TCP segment was acknowledged. Rewind SND.NXT
+            // to the original sequence and report WouldBlock so a nonblocking
+            // caller (Mbed TLS BIO) can retry the identical plaintext at the
+            // identical TCP sequence. This is safe even if the original wire
+            // packet arrived but its ACK was lost: TCP duplicate suppression
+            // prevents duplicate application bytes at the peer.
+            if (client->send_unacknowledged == sequence) {
+                client->send_next = sequence;
+                return Status::WouldBlock;
+            }
+
+            // A partial ACK means some bytes are already committed in the peer
+            // stream. Rewinding the whole application buffer would duplicate
+            // data, so keep this rare case fatal until residual-byte tracking
+            // is implemented explicitly.
             client->connected = false;
             client->state = State::Error;
             return Status::InterfaceError;
