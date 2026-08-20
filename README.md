@@ -1,423 +1,225 @@
 # KuroganeOS 3.3.3-dev — DEV BETA
 
-KuroganeOS to eksperymentalny, 64-bitowy system operacyjny rozwijany od zera
-dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
+KuroganeOS to eksperymentalny, 64-bitowy system operacyjny rozwijany od zera dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
 
 > [!IMPORTANT]
-> ## Pierwszy raz tutaj?
-> **Nie musisz wiedzieć czym jest UEFI, GPT, AHCI ani cross-compiler.**
->
-> Otwórz: **[docs/START_HERE.md](docs/START_HERE.md)**
->
-> Ten poradnik prowadzi krok po kroku przez uruchomienie, VirtualBox, instalację,
-> Windows, macOS, Linux i pierwszą aplikację.
+> Pierwszy raz tutaj? Zacznij od **[`docs/START_HERE.md`](docs/START_HERE.md)**. Pełna mapa dokumentacji znajduje się w **[`docs/README.md`](docs/README.md)**.
 
-`3.3.3-dev` jest wydaniem **DEV BETA**. Używaj go przede wszystkim w QEMU albo
-VirtualBox i na pustych dyskach testowych.
+`3.3.3-dev` jest wydaniem **DEV BETA**. Używaj go przede wszystkim w QEMU albo Oracle VirtualBox i na pustych dyskach testowych.
 
----
+## Szybki start
 
-## Chcę tylko uruchomić KuroganeOS
+### Oracle VirtualBox — host Intel/AMD x86-64
 
-### VirtualBox — komputer Intel/AMD x86-64
-
-Użyj:
+Użyj canonical ISO:
 
 ```text
-KuroganeOS-3.3.3-dev-x86_64.iso
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 ```
 
-Najważniejsze ustawienia VM:
+Referencyjna konfiguracja:
 
 ```text
-Firmware:       EFI / UEFI
+Firmware:       EFI64 / UEFI
 Secure Boot:    OFF
-RAM:            1024 MiB
+I/O APIC:       ON
+RAM:            2048 MiB
 CPU:            1-2
+Graphics:       VMSVGA / 128 MiB / 3D OFF
 System disk:    SATA / Intel AHCI
-Boot medium:    KuroganeOS ISO jako DVD
+Boot medium:    ISO jako IDE/PIIX4 DVD
 Boot order:     DVD -> Hard Disk
 Network:        NAT
-NIC:            Intel PRO/1000 MT Desktop (82540EM)
+NIC:            PCnet-FAST III (Am79C973)
 Audio:          Intel AC'97
-Keyboard:       PS/2
-Mouse:          PS/2
+Keyboard/Mouse: PS/2
 ```
 
-Pełna instrukcja: **[docs/VIRTUALBOX.md](docs/VIRTUALBOX.md)**.
+Pełna instrukcja: [`docs/VIRTUALBOX.md`](docs/VIRTUALBOX.md).
 
-Możesz też utworzyć referencyjną VM automatycznie:
-
-Linux/macOS na obsługiwanym hoście x86-64:
-
-```bash
-bash ./scripts/create-virtualbox-vm.sh \
-  --iso ./dist/KuroganeOS-3.3.3-dev-x86_64.iso
-```
-
-Windows:
+Windows helper:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\create-virtualbox-vm.ps1 `
-  -Iso .\dist\KuroganeOS-3.3.3-dev-x86_64.iso
+.\scripts\create-virtualbox-vm.ps1 `
+    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Name "KuroganeOS-3.3.3-VB"
 ```
 
-### Mac z Apple Silicon
+### QEMU
 
-KuroganeOS jest obecnie gościem x86-64, więc do developmentu na Apple Silicon
-używaj **QEMU/TCG**.
+Canonical QEMU image:
 
-Zobacz: [docs/MACOS_DEVELOPMENT.md](docs/MACOS_DEVELOPMENT.md).
+```text
+dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+```
 
----
+Na Macach Apple Silicon KuroganeOS pozostaje gościem x86-64, dlatego do developmentu używaj QEMU/TCG.
 
-## Co zobaczę po starcie ISO/IMG?
+## Try / Install
 
-Nośnik 3.3.3-dev uruchamia Red Flux Setup:
+Red Flux Setup udostępnia dwa główne tryby:
 
 ```text
 UEFI
-  -> BOOTX64.EFI
-  -> KuroganeOS kernel
-  -> Red Flux Setup
-       |
-       +-- Try KuroganeOS
-       |     -> read-only live root
-       |     -> Login
-       |     -> Red Flux Desktop
-       |
-       +-- Install KuroganeOS
-             -> English / Polski
-             -> username
-             -> hasło / bez hasła
-             -> wybór dysku
-             -> wpisz INSTALL
-             -> GPT + ESP + Kurogane Root
-             -> verification
+ -> BOOTX64.EFI
+ -> KuroganeOS kernel
+ -> Red Flux Setup
+      |-- TRY KUROGANEOS
+      |    -> read-only live root
+      |    -> Login
+      |    -> Red Flux Desktop
+      |
+      `-- INSTALL KUROGANEOS
+           -> język / konto
+           -> wybór dysku SATA/AHCI
+           -> potwierdzenie INSTALL
+           -> GPT + ESP + Kurogane Root
+           -> verification
 ```
 
-Po zalogowaniu Home działa jako **trwały root sesji**, ale nie zasłania pulpitu.
-Dostęp do Home jest zawsze przez przypięty przycisk `HOME` w Docku oraz ikonę
-`HOME` na pulpicie. Zamknięcie okna Home nie wylogowuje użytkownika — tylko je
-chowa/minimalizuje.
+Instalator jest destrukcyjny dla wybranego targetu. Używaj pustego VDI/obrazu/dysku testowego.
 
-3.3.3 dodaje również automatycznie uruchamianą aplikację **Performance**, która
-jest przypięta do pulpitu i ustawiana po prawej stronie workspace.
+Pełna instrukcja: [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
-> [!WARNING]
-> Instalator kasuje wybrany dysk dopiero po wpisaniu dokładnego słowa
-> `INSTALL`. Nadal używaj wyłącznie pustego VDI/obrazu/dysku testowego.
-
----
-
-## VirtualBox ISO — ochrona przed `No bootable medium`
-
-3.3.x używa czystego x86-64 UEFI ISO:
-
-- dedykowany El Torito EFI entry;
-- `EFI/BOOT/BOOTX64.EFI` — standardowa removable-media path;
-- dedykowany obraz FAT16 30 MiB;
-- `kernel.elf` i `install.pkg` wewnątrz obrazu EFI;
-- prawidłowa GPT EFI System Partition;
-- 20 niezależnych passów weryfikacji przed publikacją ISO;
-- opcjonalny realny smoke boot przez Oracle VirtualBox;
-- CI wykonujący dodatkowy boot optyczny przez OVMF/QEMU.
-
-Builder **nie kopiuje ISO do `dist/`**, jeżeli obowiązkowy verifier zgłosi błąd.
-
-Ręczna weryfikacja:
-
-```bash
-bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-x86_64.iso \
-  --passes 20
-```
-
-Na Windows/x86-64 z zainstalowanym VirtualBox możesz wymusić realny smoke boot:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild `
-  -VirtualBoxSmoke
-```
-
----
-
-## Budowanie KuroganeOS
+## Budowanie
 
 ### Windows 11 + WSL
 
-> [!IMPORTANT]
-> Windows wymaga dodatkowych plików toolchainu, których nie ma w Git.
->
-> Pobierz:
-> **[KuroganeOS — wymagane pliki build dla Windows](https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing)**
->
-> Wypakuj zawartość do **głównego katalogu repozytorium**. Musi istnieć m.in.:
->
-> ```text
-> tools/compiler/x86_64-elf/bin/
-> ```
-
-Pełny IMG + ISO:
+Windows wymaga dodatkowego toolchainu opisanego w dokumentacji builda.
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild
+.\scripts\build-media.ps1 -Configuration release -Rebuild
 ```
 
 ### macOS
 
-Pierwszy raz:
-
 ```bash
-chmod +x scripts/*.sh
 bash ./scripts/setup-macos.sh --install
-```
-
-Build IMG + ISO:
-
-```bash
-bash ./scripts/build-media-macos.sh \
-  --configuration release \
-  --rebuild
+bash ./scripts/build-media-macos.sh --configuration release --rebuild
 ```
 
 ### Linux x86-64
 
-Pierwszy raz:
-
 ```bash
-chmod +x scripts/*.sh
 bash ./scripts/setup-linux.sh --install
+bash ./scripts/build-media-linux.sh --configuration release --rebuild
 ```
 
-Build IMG + ISO:
+Szczegóły: [`docs/BUILDING.md`](docs/BUILDING.md).
 
-```bash
-bash ./scripts/build-media-linux.sh \
-  --configuration release \
-  --rebuild
-```
+## Aktualny stan systemu
 
-### Wyniki
+KuroganeOS ma już m.in.:
+
+- własny UEFI bootloader i kernel x86-64;
+- VMM, GDT/TSS/IST, IDT;
+- Ring 3, ELF64, PID/TID, spawn/wait/exit i preempcję;
+- `/system/init` jako PID 1;
+- AHCI, GPT, FAT32/VFS i persistent root;
+- WindowManager oraz Red Flux Desktop;
+- PS/2, PCI, ACPI/APIC discovery;
+- E1000, PCnet i VirtIO-net dla środowisk VM;
+- Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS;
+- rozwijany klient TCP;
+- Mbed TLS 3.6.7, TLS 1.2/X.509, SNI i trust store;
+- Intel ICH AC'97;
+- SDK i aplikacje Ring-3.
+
+Aktualny, techniczny status: [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md).  
+Aktywne TODO: [`docs/ROADMAP.md`](docs/ROADMAP.md).  
+Ograniczenia: [`docs/CURRENT_LIMITATIONS.md`](docs/CURRENT_LIMITATIONS.md).
+
+## Sieć i HTTPS
+
+Referencyjny VirtualBox networking:
 
 ```text
-dist/KuroganeOS-3.3.3-dev-windows-qemu.img
-dist/KuroganeOS-3.3.3-dev-macos-qemu.img
-dist/KuroganeOS-3.3.3-dev-linux-qemu.img
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
-dist/SHA256SUMS.txt
+NAT + PCnet-FAST III (Am79C973)
 ```
 
-Host tworzy tylko swój wariant IMG. ISO ma wspólną nazwę.
+QEMU kwalifikuje E1000, PCnet i VirtIO-net przez rzeczywisty user-NAT runtime.
 
----
-
-## Internet i Kurogane Web
-
-Referencyjna karta sieciowa VM to:
-
-```text
-Intel PRO/1000 MT Desktop / 82540EM / PCI 8086:100E
-```
-
-KuroganeOS ma własny sterownik E1000 i stos:
+KuroganeOS ma już ścieżkę:
 
 ```text
 Ethernet
-ARP
-IPv4
-ICMP
-UDP
-DHCP
-DNS A
-TCP
-HTTP/1.0 GET
+ -> ARP
+ -> IPv4
+ -> DHCP / DNS
+ -> TCP
+ -> HTTP
+ -> TLS 1.2 / X.509
+ -> HTTPS
 ```
 
-3.3.3 dodaje pierwszą aplikację **Kurogane Web** połączoną z tym stosem przez
-publiczny, ograniczony Ring-3 HTTP ABI. Przykład:
+HTTPS jest **zaimplementowane częściowo, ale nie jest jeszcze release-qualified end-to-end**. Bieżący blocker na `main` znajduje się w ścieżce TCP/BIO podczas Mbed TLS handshake i może kończyć się `net::Status::InterfaceError`.
+
+Nie oznacza to braku całego TLS ani braku Internetu. Jeżeli DHCP, gateway i DNS są PASS, TLS/TCP należy diagnozować jako osobną warstwę.
+
+Szczegóły: [`docs/NETWORKING.md`](docs/NETWORKING.md).
+
+## VirtualBox qualification
+
+Aktualny flow potrafi przejść UEFI boot, instalację na SATA/AHCI VDI, reboot z zainstalowanego dysku, persistent root, PID 1 oraz DHCP/gateway/DNS przez PCnet/NAT.
+
+Pełny release-smoke pozostaje jednak otwarty z aktywnym blockerem:
 
 ```text
-http://example.com/
+[TEST] fat32_persistence: FAIL
 ```
 
-Kurogane Web potrafi pobrać odpowiedź z Internetu i wyświetlić prosty tekst z
-HTML. W DEV BETA obowiązują ograniczenia: tylko HTTP/port 80, maks. 4096 B na
-żądanie, prosty renderer i brak TLS/HTTPS.
-
-**To nie jest jeszcze Chromium.** Port Chromium wymaga m.in. asynchronicznych
-socketów, TLS, szerszego libc/POSIX, wątków, timerów, filesystem/process API i
-integracji sandboxa. Nie oznaczamy takiego backendu jako gotowego zanim realnie
-nie istnieje.
-
-W VirtualBox ustaw:
-
-```text
-Attached to: NAT
-Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
-Cable Connected: ON
-```
-
-Jeżeli DHCP/NAT jest chwilowo niedostępne, system przechodzi do loopback zamiast
-przerywać start.
-
-Więcej: [docs/NETWORKING.md](docs/NETWORKING.md).
-
----
-
-## Dźwięk
-
-3.3.x zawiera bazowy kernelowy driver:
-
-```text
-Intel ICH AC'97 / PCI 8086:2415
-```
-
-Referencyjny format PCM:
-
-```text
-48000 Hz
-stereo
-signed 16-bit little-endian
-```
-
-W VirtualBox ustaw `Audio: ON`, `Controller: Intel AC'97`, `Audio Output: ON`.
-Publiczny userspace streaming API pozostaje przyszłą warstwą.
-
-Więcej: [docs/AUDIO.md](docs/AUDIO.md).
-
----
-
-## GPU i DirectX 9/11/12 — status
-
-3.3.3 dodaje driver capabilities dla urządzeń klasy PCI Display. Kernel
-rozróżnia teraz:
-
-```text
-PCI display adapter
-UEFI GOP scanout
-Red Flux software compositor
-hardware accelerated 3D
-```
-
-Na obecnym backendzie `hardware accelerated 3D` pozostaje wyłączone. Aktualna
-wartość GPU/GFX w Performance mierzy aktywność compositora/GOP, a nie fizyczne
-rdzenie GPU.
-
-KuroganeOS **nie oznacza jeszcze Direct3D 9, 11 ani 12 jako gotowych**. Pełna
-zgodność wymaga zasobów GPU, shaderów, command submission, synchronizacji,
-presentation oraz rzeczywistego software/hardware backendu. Nie dodajemy atrap
-`D3D12CreateDevice()` zwracających sukces bez implementacji.
-
-Dokładny plan: **[docs/GRAPHICS_COMPATIBILITY.md](docs/GRAPHICS_COMPATIBILITY.md)**.
-
----
-
-## Chcę napisać program dla KuroganeOS
-
-Start: **[docs/DEVELOPERS/README.md](docs/DEVELOPERS/README.md)**
-
-- [APP_DEVELOPMENT.md](docs/DEVELOPERS/APP_DEVELOPMENT.md) — pierwszy program;
-- [GUI_APPLICATIONS.md](docs/DEVELOPERS/GUI_APPLICATIONS.md) — okna i libui;
-- [API_REFERENCE.md](docs/DEVELOPERS/API_REFERENCE.md) — publiczne API;
-- [KERNEL_CONTRIBUTION.md](docs/DEVELOPERS/KERNEL_CONTRIBUTION.md) — kernel i sterowniki.
-
-Aplikacje są ELF64 x86-64 Ring-3, freestanding/static i używają KuroganeOS
-syscall ABI. Nie są to programy Windows `.exe` ani binaria Linux.
-
----
+Nie opisujemy więc całej ścieżki jako końcowego PASS, dopóki runtime gate nie będzie zielony.
 
 ## Red Flux Desktop
 
-Aktualny desktop zawiera m.in.:
+Desktop zawiera m.in.:
 
-- boot splash i Try/Install Setup;
-- Login;
-- trwały Red Flux Home jako session root;
-- przypięty przycisk Home w Docku;
-- skróty aplikacji na pulpicie;
-- przypinanie/odpinanie aplikacji przez Home (`P`);
-- Performance autostart z live CPU/GPU-GFX/RAM/disk;
+- Try/Install Setup i Login;
+- Red Flux Home;
+- Dock i skróty aplikacji;
+- Performance;
 - Kurogane Web;
 - Terminal, Files, System Monitor, Settings i About;
 - focus/z-order, drag, resize, minimize/maximize/restore/close;
 - software backbuffer i damage-style GOP scanout.
 
-Sterowanie:
+GPU acceleration i pełny Direct3D/DirectX 9/10/11/12 nie są jeszcze gotowe. Zobacz [`docs/GRAPHICS_COMPATIBILITY.md`](docs/GRAPHICS_COMPATIBILITY.md).
 
-```text
-Mouse             focus / drag / resize / Dock / desktop shortcuts
-Arrow keys        nawigacja
-Enter             zatwierdzenie
-P w Home          pin/unpin zaznaczonej aplikacji
-Escape            anulowanie
-Tab               następny element
-Alt+Tab           zmiana okna
-Alt+F4            zamknięcie zwykłego okna; Home jest tylko chowane
-```
+## Development
 
----
+Aplikacje KuroganeOS są ELF64 x86-64 Ring-3, freestanding/static i używają KuroganeOS syscall ABI.
 
-## Dokumentacja — mapa
+Start dla programisty:
 
-### Zwykły użytkownik
+- [`docs/DEVELOPERS/README.md`](docs/DEVELOPERS/README.md)
+- [`docs/DEVELOPERS/APP_DEVELOPMENT.md`](docs/DEVELOPERS/APP_DEVELOPMENT.md)
+- [`docs/DEVELOPERS/GUI_APPLICATIONS.md`](docs/DEVELOPERS/GUI_APPLICATIONS.md)
+- [`docs/DEVELOPERS/API_REFERENCE.md`](docs/DEVELOPERS/API_REFERENCE.md)
+- [`docs/DEVELOPERS/KERNEL_CONTRIBUTION.md`](docs/DEVELOPERS/KERNEL_CONTRIBUTION.md)
 
-- **[START_HERE.md](docs/START_HERE.md)**
-- [RUNNING.md](docs/RUNNING.md)
-- [VIRTUALBOX.md](docs/VIRTUALBOX.md)
-- [INSTALLATION.md](docs/INSTALLATION.md)
-- [NETWORKING.md](docs/NETWORKING.md)
-- [AUDIO.md](docs/AUDIO.md)
+## Dokumentacja
 
-### Programista aplikacji
+Kanoniczny indeks: **[`docs/README.md`](docs/README.md)**.
 
-- **[DEVELOPERS/README.md](docs/DEVELOPERS/README.md)**
-- [DEVELOPERS/APP_DEVELOPMENT.md](docs/DEVELOPERS/APP_DEVELOPMENT.md)
-- [DEVELOPERS/GUI_APPLICATIONS.md](docs/DEVELOPERS/GUI_APPLICATIONS.md)
-- [DEVELOPERS/API_REFERENCE.md](docs/DEVELOPERS/API_REFERENCE.md)
+Najważniejsze źródła prawdy:
 
-### Programista systemu
+- [`docs/START_HERE.md`](docs/START_HERE.md) — pierwszy start;
+- [`docs/VIRTUALBOX.md`](docs/VIRTUALBOX.md) — Oracle VirtualBox;
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) — instalacja;
+- [`docs/NETWORKING.md`](docs/NETWORKING.md) — sieć/TCP/TLS;
+- [`docs/BUILD_STATUS.md`](docs/BUILD_STATUS.md) — bieżący snapshot;
+- [`docs/CURRENT_LIMITATIONS.md`](docs/CURRENT_LIMITATIONS.md) — ograniczenia;
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — aktywny plan i status implementacji.
 
-- [DEVELOPERS/KERNEL_CONTRIBUTION.md](docs/DEVELOPERS/KERNEL_CONTRIBUTION.md)
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [DRIVERS.md](docs/DRIVERS.md)
-- [FILESYSTEM.md](docs/FILESYSTEM.md)
-- [GUI.md](docs/GUI.md)
-- [BOOT_PROCESS.md](docs/BOOT_PROCESS.md)
-- [GRAPHICS_COMPATIBILITY.md](docs/GRAPHICS_COMPATIBILITY.md)
-
-### Status projektu
-
-- [BUILD_STATUS.md](docs/BUILD_STATUS.md)
-- [CURRENT_LIMITATIONS.md](docs/CURRENT_LIMITATIONS.md)
-- [roadmap/DESKTOP_ROADMAP.md](docs/roadmap/DESKTOP_ROADMAP.md)
-- [releases/3.3.3-dev.md](docs/releases/3.3.3-dev.md)
-
----
+Pliki `docs/releases/*`, datowane audyty oraz legacy compatibility paths są historyczne i nie powinny nadpisywać aktualnego stanu `main`.
 
 ## Licencja
 
-Aktualne rewizje KuroganeOS są udostępniane na warunkach
-**KuroganeOS Source-Available License 2.0 (KSAL-2.0)**.
+Aktualne rewizje KuroganeOS są udostępniane na warunkach **KuroganeOS Source-Available License 2.0 (KSAL-2.0)**.
 
-Jest to licencja **source-available**, a nie licencja Open Source zatwierdzona
-przez OSI. Domyślnie pozwala m.in. na prywatne użycie niekomercyjne, naukę,
-prywatne modyfikacje, wkład przez fork/PR, niezależne kompatybilne implementacje
-bez kopiowania chronionej formy kodu oraz recenzje, filmy i streamy w zakresie
-opisanym w licencji. Komercyjne użycie samego KuroganeOS, redystrybucja
-nieoficjalnych buildów/ISO i wykorzystanie chronionego kodu w innych produktach
-wymagają osobnej pisemnej zgody.
-
-- [LICENSE](LICENSE)
-- [docs/LICENSING.md](docs/LICENSING.md)
-- [CLA.md](CLA.md)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [TRADEMARKS.md](TRADEMARKS.md)
-- [LICENSE-MIT-LEGACY](LICENSE-MIT-LEGACY) — wyłącznie historyczne rewizje MIT
+- [`LICENSE`](LICENSE)
+- [`docs/LICENSING.md`](docs/LICENSING.md)
+- [`CLA.md`](CLA.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- [`TRADEMARKS.md`](TRADEMARKS.md)
+- [`LICENSE-MIT-LEGACY`](LICENSE-MIT-LEGACY) — historyczne rewizje MIT
