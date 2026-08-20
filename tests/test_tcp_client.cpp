@@ -404,7 +404,8 @@ int main() {
     }
 
     // Peer reset remains fatal. The local-TX retry policy must never hide a RST
-    // received from the remote endpoint.
+    // received from the remote endpoint, and the explicit Reset state must be
+    // preserved for diagnostics instead of being collapsed to generic Error.
     reset_wire();
     net::NetworkStack rst_stack{};
     net::tcp_client::Client rst_client{};
@@ -415,7 +416,7 @@ int main() {
             request,
             sizeof(request),
             UINT64_C(1000)) != net::Status::InterfaceError ||
-        rst_client.state != net::tcp_client::State::Error ||
+        rst_client.state != net::tcp_client::State::Reset ||
         rst_client.connected) {
         return 20;
     }
