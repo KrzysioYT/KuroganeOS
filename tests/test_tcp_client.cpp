@@ -32,6 +32,7 @@ bool g_fail_next_pure_ack = false;
 bool g_tls_like_ack_payload = false;
 bool g_zero_window_syn_ack = false;
 bool g_rst_on_data = false;
+bool g_never_ack_data = false;
 
 const net::IPv4Address kLocalIp = {{10, 0, 2, 15}};
 const net::IPv4Address kPeerIp = {{93, 184, 216, 34}};
@@ -59,6 +60,7 @@ void reset_wire() {
     g_tls_like_ack_payload = false;
     g_zero_window_syn_ack = false;
     g_rst_on_data = false;
+    g_never_ack_data = false;
 }
 
 bool enqueue_inbound(const net::TcpSegment& segment) {
@@ -228,7 +230,8 @@ Status send_tcp(
             return Status::Ok;
         }
 
-        if (g_ack_first_data_transmission || g_data_transmissions >= 2U) {
+        if (!g_never_ack_data &&
+            (g_ack_first_data_transmission || g_data_transmissions >= 2U)) {
             const TcpSegment ack = make_peer_segment(
                 g_server_sequence,
                 sequence + static_cast<uint32_t>(payload_length),
@@ -415,6 +418,63 @@ int main() {
         rst_client.state != net::tcp_client::State::Error ||
         rst_client.connected) {
         return 20;
+    }
+
+    // ACK-deadline regression: if no ACK arrives for an entire queued segment,
+    // preserve the established connection, rewind SND.NXT to the segment's
+    // original sequence, and return WouldBlock. A subsequent nonblocking BIO
+    // retry must submit the identical plaintext at the identical sequence and
+    // complete normally once the ACK path recovers.
+    reset_wire();
+    net::NetworkStack ack_timeout_stack{};
+    net::tcp_client::Client ack_timeout_client{};
+    if (!connect_client(&ack_timeout_client, &ack_timeout_stack)) return 21;
+    g_never_ack_data = true;
+    const uint32_t retry_sequence = ack_timeout_client.send_next;
+    const size_t timeout_sent_before = g_sent_count;
+    if (net::tcp_client::send(
+            &ack_timeout_client,
+            request,
+            sizeof(request),
+            UINT64_C(1000)) != net::Status::WouldBlock ||
+        !ack_timeout_client.connected ||
+        ack_timeout_client.state != net::tcp_client::State::Established ||
+        ack_timeout_client.send_next != retry_sequence ||
+        ack_timeout_client.send_unacknowledged != retry_sequence) {
+        return 22;
+    }
+    if (g_sent_count <= timeout_sent_before) return 23;
+    for (size_t index = timeout_sent_before; index < g_sent_count; ++index) {
+        if (g_sent[index].payload_length != sizeof(request) ||
+            g_sent[index].sequence != retry_sequence ||
+            !bytes_equal(g_sent[index].payload, request, sizeof(request))) {
+            return 24;
+        }
+    }
+
+    g_never_ack_data = false;
+    const size_t recovered_retry_index = g_sent_count;
+    if (net::tcp_client::send(
+            &ack_timeout_client,
+            request,
+            sizeof(request),
+            UINT64_C(1000)) != net::Status::Ok ||
+        !ack_timeout_client.connected ||
+        ack_timeout_client.state != net::tcp_client::State::Established ||
+        ack_timeout_client.send_next !=
+            retry_sequence + static_cast<uint32_t>(sizeof(request)) ||
+        ack_timeout_client.send_unacknowledged !=
+            retry_sequence + static_cast<uint32_t>(sizeof(request))) {
+        return 25;
+    }
+    if (recovered_retry_index >= g_sent_count ||
+        g_sent[recovered_retry_index].sequence != retry_sequence ||
+        g_sent[recovered_retry_index].payload_length != sizeof(request) ||
+        !bytes_equal(
+            g_sent[recovered_retry_index].payload,
+            request,
+            sizeof(request))) {
+        return 26;
     }
 
     return 0;
