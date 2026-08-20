@@ -138,10 +138,10 @@ int main(void) {
     flux_shell_initialize(&g_shell);
     clear_output();
     terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / terminal shell");
-    terminal_emit(NULL, "Type help. Flux windows are desktop-managed.");
+    terminal_emit(NULL, "Type help. Desktop surfaces are not shell commands.");
 
     puts("[TEST] desktop_terminal_ring3: PASS");
-    puts("[TEST] desktop_terminal_3_1_shared_shell: PASS");
+    puts("[TEST] desktop_terminal_policy_shell: PASS");
 
     char input[TERMINAL_INPUT_CAPACITY] = {0};
     size_t length = 0U;
