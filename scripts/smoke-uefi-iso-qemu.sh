@@ -128,9 +128,8 @@ fi
 
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
-    # The Foundation image is intentionally attached as a protected snapshot.
-    # It contains the runnable system but no install.pkg, so qualification
-    # exercises the live OS instead of accidentally entering the installer.
+    # Network qualification requires a Foundation/live image without install.pkg.
+    # Setup images intentionally enter the installer before normal networking.
     media_args=(
         -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
         -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
@@ -161,6 +160,13 @@ deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
         if $require_network; then
+            if grep -Fq '[TEST] installer_package_preflight: PASS' "$serial"; then
+                echo "QEMU network qualification received installer/setup media instead of a Foundation/live image." >&2
+                echo "The guest entered INSTALLER MODE before the normal network runtime could start." >&2
+                echo "Use a disk image without install.pkg (Windows: build/images/KuroganeOS-base.img; Linux: build/images/KuroganeOS-linux.img)." >&2
+                tail -n 80 "$serial" >&2 || true
+                exit 2
+            fi
             if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
                grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
                grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then

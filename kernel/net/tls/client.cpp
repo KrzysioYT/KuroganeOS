@@ -194,26 +194,83 @@ bool handshake_window_open(uint64_t started, size_t iteration) {
 
 int bio_send(void* context, const unsigned char* buffer, size_t length) {
     auto* client = static_cast<tcp_client::Client*>(context);
-    if (client == nullptr || (length != 0U && buffer == nullptr)) {
+    if (client == nullptr || (length != 0U && buffer == nullptr) ||
+        length > static_cast<size_t>(INT32_MAX)) {
         return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
     }
-    const net::Status status = tcp_client::send(
-        client,
-        reinterpret_cast<const uint8_t*>(buffer),
-        length,
-        kBioTimeoutMs);
-    if (status == net::Status::Ok) {
-        return length > static_cast<size_t>(INT32_MAX)
-            ? MBEDTLS_ERR_SSL_BAD_INPUT_DATA
-            : static_cast<int>(length);
+    if (length == 0U) return 0;
+
+    // A TLS BIO has socket-like partial-write semantics. Keep each call into
+    // tcp_client::send() to one bounded TCP segment so a later stall can never
+    // force already accepted TLS plaintext to be submitted again at a new SEQ.
+    size_t offset = 0U;
+    while (offset < length) {
+        const size_t remaining = length - offset;
+        const size_t chunk = remaining < tcp_client::MAX_SEGMENT_PAYLOAD
+            ? remaining
+            : tcp_client::MAX_SEGMENT_PAYLOAD;
+        const net::Status status = tcp_client::send(
+            client,
+            reinterpret_cast<const uint8_t*>(buffer) + offset,
+            chunk,
+            kBioTimeoutMs);
+        if (status == net::Status::Ok) {
+            offset += chunk;
+            continue;
+        }
+        if (status == net::Status::WouldBlock) {
+            // If earlier chunks were accepted, report those bytes to Mbed TLS;
+            // its next BIO call will start at the remaining plaintext. If no
+            // byte was accepted, WANT_WRITE asks it to retry the same buffer.
+            return offset != 0U
+                ? static_cast<int>(offset)
+                : MBEDTLS_ERR_SSL_WANT_WRITE;
+        }
+
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send requested bytes=",
+            static_cast<uint64_t>(length));
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send accepted bytes=",
+            static_cast<uint64_t>(offset));
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send network status=",
+            static_cast<uint64_t>(status));
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send TCP state=",
+            static_cast<uint64_t>(client->state));
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send SND.UNA=",
+            client->send_unacknowledged);
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send SND.NXT=",
+            client->send_next);
+        log::write_u64(
+            log::Level::Error,
+            "TLS",
+            "BIO send RCV.NXT=",
+            client->receive_next);
+
+        // POSIX-like write behavior: if a prefix was already accepted, expose
+        // that partial progress first. The next call will surface the terminal
+        // transport state before consuming additional TLS plaintext.
+        return offset != 0U
+            ? static_cast<int>(offset)
+            : MBEDTLS_ERR_SSL_INTERNAL_ERROR;
     }
-    if (status == net::Status::WouldBlock) return MBEDTLS_ERR_SSL_WANT_WRITE;
-    log::write_u64(
-        log::Level::Error,
-        "TLS",
-        "BIO send network status=",
-        static_cast<uint64_t>(status));
-    return MBEDTLS_ERR_SSL_INTERNAL_ERROR;
+    return static_cast<int>(offset);
 }
 
 int bio_receive(void* context, unsigned char* buffer, size_t length) {

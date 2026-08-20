@@ -25,7 +25,6 @@ constexpr uint16_t DESC_ERR = UINT16_C(0x4000);
 constexpr uint16_t DESC_STP = UINT16_C(0x0200);
 constexpr uint16_t DESC_ENP = UINT16_C(0x0100);
 constexpr uint32_t INIT_BUDGET = UINT32_C(1000000);
-constexpr uint32_t TX_BUDGET = UINT32_C(1000000);
 
 struct __attribute__((packed)) InitBlock {
     uint16_t mode;
@@ -186,32 +185,35 @@ net::Status transmit_callback(
     Descriptor& descriptor = tx_ring(*device)[device->next_tx];
     barrier();
     if ((descriptor.status & DESC_OWN) != 0U) {
-        ++device->drops;
-        return net::Status::WouldBlock;
+        // Hardware still owns this slot. Report normal ring backpressure; the
+        // transport layer will retry the same TCP sequence after polling.
+        return net::Status::QueueFull;
     }
+
+    // If this slot was used before, ownership returning to the driver means
+    // the previous transmission completed. Account its result before reuse.
+    if (descriptor.buffer_length != 0) {
+        if ((descriptor.status & DESC_ERR) != 0U) {
+            ++device->drops;
+        } else {
+            ++device->tx_frames;
+        }
+    }
+
     copy_bytes(device->tx_buffers[device->next_tx].virtual_address, frame, frame_length);
     descriptor.buffer_length = static_cast<int16_t>(-static_cast<int32_t>(frame_length));
     descriptor.message_length = 0U;
     descriptor.reserved = 0U;
     descriptor.status = DESC_OWN | DESC_STP | DESC_ENP;
     barrier();
-    write_csr(*device, 0U, static_cast<uint16_t>(CSR0_STRT | CSR0_TDMD));
 
-    for (uint32_t attempt = 0U; attempt < TX_BUDGET; ++attempt) {
-        barrier();
-        if ((descriptor.status & DESC_OWN) == 0U) {
-            if ((descriptor.status & DESC_ERR) != 0U) {
-                ++device->drops;
-                return net::Status::InterfaceError;
-            }
-            ++device->tx_frames;
-            device->next_tx = (device->next_tx + 1U) % DESCRIPTOR_COUNT;
-            return net::Status::Ok;
-        }
-        relax();
-    }
-    ++device->drops;
-    return net::Status::WouldBlock;
+    // Advance the software producer as soon as ownership is handed to PCnet.
+    // Every descriptor has its own DMA buffer, so there is no need to spin for
+    // completion here. This prevents TLS bursts from blocking the browser on
+    // VirtualBox device scheduling latency.
+    device->next_tx = (device->next_tx + 1U) % DESCRIPTOR_COUNT;
+    write_csr(*device, 0U, static_cast<uint16_t>(CSR0_STRT | CSR0_TDMD));
+    return net::Status::Ok;
 }
 
 net::Status receive_callback(

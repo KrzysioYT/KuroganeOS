@@ -3,13 +3,16 @@
 #include "protocols.hpp"
 #include "../arch/x86_64/io.hpp"
 #include "../drivers/pit.hpp"
+#if !defined(KUROGANE_HOST_TEST)
+#include "../core/log.hpp"
+#endif
 
 namespace net::tcp_client {
 namespace {
 
 constexpr uint16_t kMaximumAdvertisedWindow = UINT16_C(32768);
 constexpr size_t kFallbackPollBudget = 800000U;
-constexpr size_t kDataTransmissionLimit = 3U;
+constexpr size_t kDataTransmissionLimit = 4U;
 
 uint64_t timeout_ticks(uint64_t milliseconds) {
     if (!drivers::pit::initialized()) return 0U;
@@ -60,6 +63,23 @@ bool segment_for_client(const Client& client, const TcpSegment& segment) {
     return segment.valid && ipv4_equal(segment.source, client.peer) &&
         segment.source_port == client.remote_port &&
         segment.destination_port == client.local_port;
+}
+
+bool retryable_transmit_status(Status status) {
+    // The physical drivers use WouldBlock/QueueFull for a busy descriptor ring.
+    // interface_transmit historically collapsed some driver backpressure into
+    // InterfaceError, so keep InterfaceError retryable only at the local TX
+    // boundary. A received RST is still handled separately and remains fatal.
+    return status == Status::NeighborResolutionPending ||
+        status == Status::WouldBlock ||
+        status == Status::QueueFull ||
+        status == Status::InterfaceError;
+}
+
+bool acceptable_poll_status(Status status) {
+    return status == Status::Ok || status == Status::NotForUs ||
+        status == Status::UnsupportedProtocol || status == Status::WouldBlock ||
+        status == Status::InterfaceError;
 }
 
 size_t buffered_out_of_order_bytes(const Client& client) {
@@ -142,7 +162,11 @@ Status acknowledge(Client* client) {
 
 Status acknowledge_or_defer(Client* client) {
     const Status status = acknowledge(client);
-    return status == Status::NeighborResolutionPending ? Status::Ok : status;
+    // A pure ACK is safe to defer. If the local NIC is momentarily busy, the
+    // peer will retransmit and a later ACK will advertise the same RCV.NXT.
+    // Do not tear down a valid TCP/TLS session because one ACK descriptor was
+    // temporarily unavailable.
+    return retryable_transmit_status(status) ? Status::Ok : status;
 }
 
 void record_ack(Client* client, const TcpSegment& segment) {
@@ -345,6 +369,13 @@ Status process_incoming(Client* client, const TcpSegment& segment) {
 
     client->peer_window = segment.window;
     if ((segment.flags & TcpRst) != 0U) {
+#if !defined(KUROGANE_HOST_TEST)
+        log::write_u64(log::Level::Error, "TCP", "peer RST sequence=", segment.sequence);
+        log::write_u64(log::Level::Error, "TCP", "peer RST acknowledgement=", segment.acknowledgement);
+        log::write_u64(log::Level::Error, "TCP", "SND.UNA=", client->send_unacknowledged);
+        log::write_u64(log::Level::Error, "TCP", "SND.NXT=", client->send_next);
+        log::write_u64(log::Level::Error, "TCP", "RCV.NXT=", client->receive_next);
+#endif
         client->connected = false;
         client->state = State::Reset;
         return Status::InterfaceError;
@@ -401,9 +432,9 @@ Status take_or_poll_one(Client* client, TcpSegment* out_segment) {
     // frame per poll so no later frame can overwrite the TCP segment before it
     // enters this client's stream/reassembly queues.
     const Status poll_status = net::poll(client->stack, 1U, &processed);
-    if (poll_status != Status::Ok && poll_status != Status::NotForUs &&
-        poll_status != Status::UnsupportedProtocol) {
-        return poll_status;
+    if (!acceptable_poll_status(poll_status)) return poll_status;
+    if (poll_status == Status::InterfaceError || poll_status == Status::WouldBlock) {
+        return Status::WouldBlock;
     }
     if (take_tcp_segment(client->stack, &segment) != Status::Ok) {
         return Status::WouldBlock;
@@ -441,6 +472,49 @@ uint64_t transmission_slice_ms(uint64_t timeout_ms) {
     return slice == 0U ? 1U : slice;
 }
 
+Status poll_transmit_progress(Client* client) {
+    if (client == nullptr || client->stack == nullptr) return Status::InvalidArgument;
+    size_t processed = 0U;
+    const Status status = net::poll(client->stack, 1U, &processed);
+    return acceptable_poll_status(status) ? Status::Ok : status;
+}
+
+Status queue_segment_with_backpressure(
+    Client* client,
+    uint32_t sequence,
+    uint32_t acknowledgement,
+    uint8_t flags,
+    const uint8_t* payload,
+    size_t payload_length,
+    uint64_t timeout_ms) {
+    if (client == nullptr || client->stack == nullptr || timeout_ms == 0U) {
+        return Status::InvalidArgument;
+    }
+    const uint64_t started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         window_open(started, timeout_ms, attempt);
+         ++attempt) {
+        const Status status = send_tcp(
+            client->stack,
+            client->peer,
+            client->local_port,
+            client->remote_port,
+            sequence,
+            acknowledgement,
+            flags,
+            advertised_window(*client),
+            payload,
+            payload_length);
+        if (status == Status::Ok) return Status::Ok;
+        if (!retryable_transmit_status(status)) return status;
+
+        const Status poll_status = poll_transmit_progress(client);
+        if (poll_status != Status::Ok) return poll_status;
+        wait_for_progress();
+    }
+    return Status::WouldBlock;
+}
+
 } // namespace
 
 void initialize(Client* client) {
@@ -475,79 +549,66 @@ Status connect(
     TcpSegment stale{};
     while (take_tcp_segment(stack, &stale) == Status::Ok) {}
 
-    bool syn_sent = false;
-    const uint64_t send_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         window_open(send_started, timeout_ms, attempt);
-         ++attempt) {
-        const Status status = send_tcp(
-            stack,
-            peer,
-            local_port,
-            remote_port,
+    const uint64_t slice_ms = transmission_slice_ms(timeout_ms);
+    for (size_t transmission = 0U;
+         transmission < kDataTransmissionLimit;
+         ++transmission) {
+        const Status send_status = queue_segment_with_backpressure(
+            client,
             initial_sequence,
             0U,
             TcpSyn,
-            advertised_window(*client),
             nullptr,
-            0U);
-        if (status == Status::Ok) {
-            syn_sent = true;
+            0U,
+            slice_ms);
+        if (send_status != Status::Ok && send_status != Status::WouldBlock) {
+            client->state = State::Error;
+            return send_status;
+        }
+        if (send_status == Status::Ok) {
             client->send_next = initial_sequence + 1U;
-            break;
         }
-        if (status != Status::NeighborResolutionPending) {
-            client->state = State::Error;
-            return status;
-        }
-        size_t processed = 0U;
-        const Status poll_status = net::poll(stack, 1U, &processed);
-        if (poll_status != Status::Ok && poll_status != Status::NotForUs &&
-            poll_status != Status::UnsupportedProtocol) {
-            client->state = State::Error;
-            return poll_status;
-        }
-        wait_for_progress();
-    }
-    if (!syn_sent) {
-        client->state = State::Error;
-        return Status::WouldBlock;
-    }
 
-    const uint64_t handshake_started = drivers::pit::ticks();
-    for (size_t attempt = 0U;
-         window_open(handshake_started, timeout_ms, attempt);
-         ++attempt) {
-        TcpSegment segment{};
-        const Status poll_status = take_or_poll_one(client, &segment);
-        if (poll_status == Status::WouldBlock || poll_status == Status::NotForUs) {
-            wait_for_progress();
-            continue;
-        }
-        if (poll_status != Status::Ok) {
-            client->state = State::Error;
-            return poll_status;
-        }
-        if ((segment.flags & TcpRst) != 0U) {
-            client->state = State::Reset;
-            return Status::InterfaceError;
-        }
-        if ((segment.flags & (TcpSyn | TcpAck)) == (TcpSyn | TcpAck) &&
-            segment.acknowledgement == client->send_next) {
-            client->receive_next = segment.sequence + 1U;
-            client->send_unacknowledged = segment.acknowledgement;
-            client->peer_window = segment.window;
-            client->connected = true;
-            client->state = State::Established;
-            const Status ack_status = acknowledge_or_defer(client);
-            if (ack_status != Status::Ok) {
-                client->connected = false;
-                client->state = State::Error;
-                return ack_status;
+        const uint64_t handshake_started = drivers::pit::ticks();
+        for (size_t attempt = 0U;
+             window_open(handshake_started, slice_ms, attempt);
+             ++attempt) {
+            TcpSegment segment{};
+            const Status poll_status = take_or_poll_one(client, &segment);
+            if (poll_status == Status::WouldBlock || poll_status == Status::NotForUs) {
+                wait_for_progress();
+                continue;
             }
-            return Status::Ok;
+            if (poll_status != Status::Ok) {
+                client->state = State::Error;
+                return poll_status;
+            }
+            if ((segment.flags & TcpRst) != 0U) {
+#if !defined(KUROGANE_HOST_TEST)
+                log::write_u64(log::Level::Error, "TCP", "peer RST during connect sequence=", segment.sequence);
+                log::write_u64(log::Level::Error, "TCP", "peer RST during connect acknowledgement=", segment.acknowledgement);
+#endif
+                client->state = State::Reset;
+                return Status::InterfaceError;
+            }
+            if ((segment.flags & (TcpSyn | TcpAck)) == (TcpSyn | TcpAck) &&
+                segment.acknowledgement == initial_sequence + 1U) {
+                client->send_next = initial_sequence + 1U;
+                client->receive_next = segment.sequence + 1U;
+                client->send_unacknowledged = segment.acknowledgement;
+                client->peer_window = segment.window;
+                client->connected = true;
+                client->state = State::Established;
+                const Status ack_status = acknowledge_or_defer(client);
+                if (ack_status != Status::Ok) {
+                    client->connected = false;
+                    client->state = State::Error;
+                    return ack_status;
+                }
+                return Status::Ok;
+            }
+            wait_for_progress();
         }
-        wait_for_progress();
     }
 
     client->connected = false;
@@ -565,18 +626,30 @@ Status send(
         return Status::InvalidArgument;
     }
     if (client->state != State::Established || client->peer_closed) {
+#if !defined(KUROGANE_HOST_TEST)
+        log::write_u64(
+            log::Level::Error,
+            "TCP",
+            "send rejected state=",
+            static_cast<uint64_t>(client->state));
+        log::write_u64(
+            log::Level::Error,
+            "TCP",
+            "send rejected peer_closed=",
+            client->peer_closed ? 1U : 0U);
+#endif
         return Status::InterfaceError;
     }
     if (length == 0U) return Status::Ok;
 
     size_t offset = 0U;
     while (offset < length) {
+        if (client->peer_window == 0U) return Status::WouldBlock;
+
         const size_t remaining = length - offset;
         size_t chunk = remaining < MAX_SEGMENT_PAYLOAD
             ? remaining : MAX_SEGMENT_PAYLOAD;
-        if (client->peer_window != 0U && chunk > client->peer_window) {
-            chunk = client->peer_window;
-        }
+        if (chunk > client->peer_window) chunk = client->peer_window;
         if (chunk == 0U) return Status::WouldBlock;
 
         const uint32_t sequence = client->send_next;
@@ -588,22 +661,15 @@ Status send(
         for (size_t transmission = 0U;
              transmission < kDataTransmissionLimit && !acknowledged;
              ++transmission) {
-            Status status = send_tcp(
-                client->stack,
-                client->peer,
-                client->local_port,
-                client->remote_port,
+            Status status = queue_segment_with_backpressure(
+                client,
                 sequence,
                 client->receive_next,
                 TcpPsh | TcpAck,
-                advertised_window(*client),
                 data + offset,
-                chunk);
-            if (status == Status::NeighborResolutionPending) {
-                wait_for_progress();
-                --transmission;
-                continue;
-            }
+                chunk,
+                slice_ms);
+            if (status == Status::WouldBlock) continue;
             if (status != Status::Ok) {
                 client->connected = false;
                 client->state = State::Error;
@@ -632,7 +698,9 @@ Status send(
                 status = process_incoming(client, segment);
                 if (status != Status::Ok && status != Status::NotForUs) {
                     client->connected = false;
-                    client->state = State::Error;
+                    if (client->state != State::Reset) {
+                        client->state = State::Error;
+                    }
                     return status;
                 }
                 if (!sequence_before(client->send_unacknowledged, expected_ack)) {
@@ -643,11 +711,35 @@ Status send(
             }
         }
 
+        if (!sequence_committed) {
+            // Nothing was confirmed queued by the local NIC, so Mbed TLS may
+            // safely retry the same plaintext at the unchanged SND.NXT.
+            return Status::WouldBlock;
+        }
         if (!acknowledged) {
-            // Returning WANT_WRITE after advancing SND.NXT would allow the TLS
-            // caller to resend the same plaintext at a new sequence number.
-            // Treat an exhausted retransmission budget as a broken connection
-            // instead; retries above always reused the original sequence.
+#if !defined(KUROGANE_HOST_TEST)
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline sequence=", sequence);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline expected=", expected_ack);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline SND.UNA=", client->send_unacknowledged);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline SND.NXT=", client->send_next);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline RCV.NXT=", client->receive_next);
+            log::write_u64(log::Level::Warn, "TCP", "ACK deadline peer window=", client->peer_window);
+#endif
+            // No byte from this TCP segment was acknowledged. Rewind SND.NXT
+            // to the original sequence and report WouldBlock so a nonblocking
+            // caller (Mbed TLS BIO) can retry the identical plaintext at the
+            // identical TCP sequence. This is safe even if the original wire
+            // packet arrived but its ACK was lost: TCP duplicate suppression
+            // prevents duplicate application bytes at the peer.
+            if (client->send_unacknowledged == sequence) {
+                client->send_next = sequence;
+                return Status::WouldBlock;
+            }
+
+            // A partial ACK means some bytes are already committed in the peer
+            // stream. Rewinding the whole application buffer would duplicate
+            // data, so keep this rare case fatal until residual-byte tracking
+            // is implemented explicitly.
             client->connected = false;
             client->state = State::Error;
             return Status::InterfaceError;
@@ -727,7 +819,7 @@ Status close(Client* client) {
         0U);
     if (status == Status::Ok) ++client->send_next;
     initialize(client);
-    return status == Status::NeighborResolutionPending ? Status::Ok : status;
+    return retryable_transmit_status(status) ? Status::Ok : status;
 }
 
 } // namespace net::tcp_client
