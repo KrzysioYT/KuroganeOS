@@ -698,7 +698,9 @@ Status send(
                 status = process_incoming(client, segment);
                 if (status != Status::Ok && status != Status::NotForUs) {
                     client->connected = false;
-                    client->state = State::Error;
+                    if (client->state != State::Reset) {
+                        client->state = State::Error;
+                    }
                     return status;
                 }
                 if (!sequence_before(client->send_unacknowledged, expected_ack)) {
