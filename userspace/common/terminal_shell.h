@@ -168,7 +168,7 @@ static inline flux_shell_action terminal_shell_execute(
         flux_shell_streq(command, "gui") ||
         flux_shell_streq(command, "home") ||
         terminal_shell_diag_command(command)) {
-        flux_shell_remember_history(state, line);
+        flux_shell_remember_history(state, input_line);
 
         if (flux_shell_streq(command, "help")) {
             terminal_shell_help(io);
