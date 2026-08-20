@@ -62,8 +62,10 @@ $BaseImage = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 $Package = Join-Path $RootDir 'build\install.pkg'
 $Dist = Join-Path $RootDir 'dist'
 
-# Canonical media are intentionally hypervisor-specific. Never infer one from
-# the other and never publish a generic filename that hides the boot contract.
+# Canonical release media are intentionally hypervisor-specific. The QEMU
+# artifact below is setup/install media because install.pkg is injected into it.
+# The Foundation image remains package-free and is the correct live image for
+# QEMU NIC/runtime qualification.
 $VirtualBoxIso = Join-Path $Dist "KuroganeOS-$Version-virtualbox-x86_64.iso"
 $QemuImage = Join-Path $Dist "KuroganeOS-$Version-qemu-x86_64.img"
 $LegacyQemuImage = Join-Path $Dist "KuroganeOS-$Version-windows-qemu.img"
@@ -125,9 +127,11 @@ $lines = @(
     (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host "[media-windows] KuroganeOS $Version"
-Write-Host "[media-windows] QEMU-only IMG:       $QemuImage"
-Write-Host "[media-windows] VirtualBox-only ISO: $VirtualBoxIso"
+Write-Host "[media-windows] QEMU setup/install IMG: $QemuImage"
+Write-Host "[media-windows] QEMU live/test IMG:    $BaseImage"
+Write-Host "[media-windows] VirtualBox install ISO: $VirtualBoxIso"
 Write-Host "[media-windows] Windows Web PKI roots: $TrustOutput"
+Write-Host '[media-windows] network smoke must use the package-free QEMU live/test IMG'
 Write-Host '[media-windows] ISO static verification: GPT ESP #2 + EFI El Torito + PE32+ AMD64'
 if (-not $SkipVirtualBoxSmoke) {
     Write-Host '[media-windows] ISO real Oracle VirtualBox full install: PASS'
