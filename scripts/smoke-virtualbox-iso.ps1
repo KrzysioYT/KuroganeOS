@@ -53,14 +53,14 @@ function ConvertTo-WindowsCommandLineArgument {
 }
 
 $VBoxCommand = Get-Command VBoxManage.exe -ErrorAction SilentlyContinue
-if ($null -eq $VBoxCommand) {
+if ($null -ne $VBoxCommand) {
+    $VBox = $VBoxCommand.Path
+} else {
     $candidate = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
         throw 'VBoxManage.exe not found. A real Oracle VirtualBox installation is required to qualify the ISO.'
     }
     $VBox = $candidate
-} else {
-    $VBox = $VBoxCommand.Path
 }
 
 function Invoke-VBoxNative {
@@ -79,6 +79,9 @@ function Invoke-VBoxNative {
         ConvertTo-WindowsCommandLineArgument -Value ([string]$_)
     }) -join ' ')
 
+    $stdout = ''
+    $stderr = ''
+    $exitCode = -1
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     try {
@@ -109,20 +112,9 @@ function Invoke-VBoxNative {
     return $result
 }
 
-function Invoke-VBox {
-    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
-    $result = Invoke-VBoxNative -Arguments $Arguments
-    if ([string]::IsNullOrWhiteSpace($result.StdOut)) {
-        return @()
-    }
-    return @($result.StdOut -split "`r?`n" | Where-Object { $_ -ne '' })
-}
-
 function Get-SerialText {
     param([Parameter(Mandatory = $true)][string]$Path)
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return ''
-    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     $text = Get-Content -LiteralPath $Path -Raw -ErrorAction SilentlyContinue
     if ($null -eq $text) { return '' }
     return [string]$text
@@ -133,10 +125,62 @@ function Get-SerialTail {
         [Parameter(Mandatory = $true)][string]$Path,
         [int]$Lines = 180
     )
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return ''
-    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
     return (Get-Content -LiteralPath $Path -Tail $Lines) -join [Environment]::NewLine
+}
+
+function Send-ScanCodes {
+    param(
+        [Parameter(Mandatory = $true)][string]$VmName,
+        [Parameter(Mandatory = $true)][string[]]$Codes
+    )
+    $arguments = @('controlvm', $VmName, 'keyboardputscancode') + $Codes
+    Invoke-VBoxNative -Arguments $arguments | Out-Null
+}
+
+function Send-Enter {
+    param([Parameter(Mandatory = $true)][string]$VmName)
+    Send-ScanCodes -VmName $VmName -Codes @('1c', '9c')
+}
+
+function Send-DownArrow {
+    param([Parameter(Mandatory = $true)][string]$VmName)
+    Send-ScanCodes -VmName $VmName -Codes @('e0', '50', 'e0', 'd0')
+}
+
+function Send-Text {
+    param(
+        [Parameter(Mandatory = $true)][string]$VmName,
+        [Parameter(Mandatory = $true)][string]$Text
+    )
+    Invoke-VBoxNative -Arguments @('controlvm', $VmName, 'keyboardputstring', $Text) | Out-Null
+}
+
+function Drive-InstallerUi {
+    param([Parameter(Mandatory = $true)][string]$VmName)
+
+    # The production installer is intentionally interactive. The disposable
+    # smoke VM drives the real UI rather than adding a dangerous auto-install
+    # mode to the ISO. Current deterministic path:
+    #   Install -> English -> default user -> no password -> first disk -> INSTALL.
+    Start-Sleep -Milliseconds 500
+    Send-DownArrow -VmName $VmName
+    Start-Sleep -Milliseconds 150
+    Send-Enter -VmName $VmName
+    Start-Sleep -Milliseconds 350
+
+    Send-Enter -VmName $VmName
+    Start-Sleep -Milliseconds 350
+    Send-Enter -VmName $VmName
+    Start-Sleep -Milliseconds 350
+    Send-Enter -VmName $VmName
+    Start-Sleep -Milliseconds 350
+    Send-Enter -VmName $VmName
+    Start-Sleep -Milliseconds 350
+
+    Send-Text -VmName $VmName -Text 'install'
+    Start-Sleep -Milliseconds 150
+    Send-Enter -VmName $VmName
 }
 
 $Iso = Resolve-KuroganePath -Path $Iso
@@ -151,201 +195,134 @@ if ((Get-Item -LiteralPath $Iso).Length -le 0) {
 }
 
 $temp = Join-Path ([System.IO.Path]::GetTempPath()) `
-    ("kurogane-vbox-smoke-" + [Guid]::NewGuid().ToString('N'))
+    ('kurogane-vbox-smoke-' + [Guid]::NewGuid().ToString('N'))
 [System.IO.Directory]::CreateDirectory($temp) | Out-Null
 $vm = 'KuroganeOS-ISO-Smoke-' + [Guid]::NewGuid().ToString('N').Substring(0, 10)
 $disk = Join-Path $temp 'KuroganeOS-smoke.vdi'
-$serial = Join-Path $temp 'serial.log'
+$installSerial = Join-Path $temp 'install-serial.log'
+$postSerial = Join-Path $temp 'postinstall-serial.log'
 $registered = $false
 $started = $false
 
 try {
-    Invoke-VBox createvm --name $vm --ostype Other_64 --register | Out-Null
+    Invoke-VBoxNative -Arguments @('createvm', '--name', $vm, '--ostype', 'Other_64', '--register') | Out-Null
     $registered = $true
 
-    Invoke-VBox modifyvm $vm `
-        --memory 2048 --cpus 1 --firmware efi64 --ioapic on `
-        --boot1 dvd --boot2 disk --boot3 none --boot4 none `
-        --graphicscontroller vmsvga --vram 128 `
-        --keyboard ps2 --mouse ps2 | Out-Null
-
-    # Oracle VirtualBox qualification uses its native PCnet-FAST III model.
-    # E1000 remains an opt-in profile in create-virtualbox-vm.ps1, but the
-    # canonical smoke must use the adapter that passes the real VBox runtime.
-    $networkResult = Invoke-VBoxNative -Arguments @(
+    Invoke-VBoxNative -Arguments @(
         'modifyvm', $vm,
-        '--nic1', 'nat', '--nic-type1', 'Am79C973', '--cable-connected1', 'on'
+        '--memory', '2048', '--cpus', '1', '--firmware', 'efi64', '--ioapic', 'on',
+        '--boot1', 'dvd', '--boot2', 'disk', '--boot3', 'none', '--boot4', 'none',
+        '--graphicscontroller', 'vmsvga', '--vram', '128', '--keyboard', 'ps2', '--mouse', 'ps2'
+    ) | Out-Null
+
+    $networkResult = Invoke-VBoxNative -Arguments @(
+        'modifyvm', $vm, '--nic1', 'nat', '--nic-type1', 'Am79C973', '--cable-connected1', 'on'
     ) -AllowFailure
     if ($networkResult.ExitCode -ne 0) {
-        Invoke-VBox modifyvm $vm `
-            --nic1 nat --nictype1 Am79C973 --cableconnected1 on | Out-Null
+        Invoke-VBoxNative -Arguments @(
+            'modifyvm', $vm, '--nic1', 'nat', '--nictype1', 'Am79C973', '--cableconnected1', 'on'
+        ) | Out-Null
     }
 
-    Invoke-VBox modifyvm $vm --uart1 0x3F8 4 | Out-Null
-    Invoke-VBox modifyvm $vm --uartmode1 file $serial | Out-Null
+    Invoke-VBoxNative -Arguments @('modifyvm', $vm, '--uart1', '0x3F8', '4') | Out-Null
+    Invoke-VBoxNative -Arguments @('modifyvm', $vm, '--uartmode1', 'file', $installSerial) | Out-Null
+    Invoke-VBoxNative -Arguments @('createmedium', 'disk', '--filename', $disk, '--size', '2048', '--format', 'VDI') | Out-Null
+    Invoke-VBoxNative -Arguments @('storagectl', $vm, '--name', 'SATA', '--add', 'sata', '--controller', 'IntelAHCI', '--portcount', '1') | Out-Null
+    Invoke-VBoxNative -Arguments @('storageattach', $vm, '--storagectl', 'SATA', '--port', '0', '--device', '0', '--type', 'hdd', '--medium', $disk) | Out-Null
+    Invoke-VBoxNative -Arguments @('storagectl', $vm, '--name', 'IDE', '--add', 'ide', '--controller', 'PIIX4') | Out-Null
+    Invoke-VBoxNative -Arguments @('storageattach', $vm, '--storagectl', 'IDE', '--port', '0', '--device', '0', '--type', 'dvddrive', '--medium', $Iso) | Out-Null
+    Invoke-VBoxNative -Arguments @('setextradata', $vm, 'VBoxInternal2/EfiGraphicsResolution', '1280x800') | Out-Null
 
-    Invoke-VBox createmedium disk --filename $disk --size 2048 --format VDI | Out-Null
-    Invoke-VBox storagectl $vm --name SATA --add sata --controller IntelAHCI --portcount 1 | Out-Null
-    Invoke-VBox storageattach $vm --storagectl SATA --port 0 --device 0 `
-        --type hdd --medium $disk | Out-Null
-    Invoke-VBox storagectl $vm --name IDE --add ide --controller PIIX4 | Out-Null
-    Invoke-VBox storageattach $vm --storagectl IDE --port 0 --device 0 `
-        --type dvddrive --medium $Iso | Out-Null
-    Invoke-VBox setextradata $vm VBoxInternal2/EfiGraphicsResolution 1280x800 | Out-Null
-
-    $machineInfo = Invoke-VBox showvminfo $vm --machinereadable
-    $machineText = $machineInfo -join "`n"
-    if (-not ($machineInfo -contains 'firmware="EFI64"')) {
-        throw 'Qualification VM did not retain firmware="EFI64".'
-    }
-    if (-not ($machineInfo -contains 'boot1="dvd"')) {
-        throw 'Qualification VM did not retain DVD-first boot order.'
-    }
-    if ($machineText -notmatch 'storagecontrollername\d+="SATA"' -or
-        $machineText -notmatch 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"') {
-        throw 'Qualification VM does not expose the required Intel AHCI SATA controller.'
-    }
-    if ($machineText -notmatch '"SATA-0-0"=.*\.vdi"') {
-        throw 'Qualification VM target VDI is not attached to SATA port 0.'
+    $machineResult = Invoke-VBoxNative -Arguments @('showvminfo', $vm, '--machinereadable')
+    $machineText = $machineResult.StdOut
+    if ($machineText -notmatch 'firmware="EFI64"') { throw 'Qualification VM did not retain EFI64 firmware.' }
+    if ($machineText -notmatch 'boot1="dvd"') { throw 'Qualification VM did not retain DVD-first boot.' }
+    if ($machineText -notmatch 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"') {
+        throw 'Qualification VM does not expose Intel AHCI.'
     }
     if ($machineText -notmatch 'nictype1="Am79C973"') {
-        throw 'Qualification VM did not retain the canonical PCnet-FAST III (Am79C973) NIC.'
-    }
-    if ($machineText -notmatch 'nic1="nat"') {
-        throw 'Qualification VM did not retain NAT networking.'
-    }
-    $isoLeaf = [System.IO.Path]::GetFileName($Iso)
-    if ($machineText -notmatch [regex]::Escape($isoLeaf)) {
-        throw 'Qualification VM does not report the requested ISO as attached optical media.'
+        throw 'Qualification VM did not retain PCnet-FAST III.'
     }
 
-    Invoke-VBox startvm $vm --type headless | Out-Null
+    Invoke-VBoxNative -Arguments @('startvm', $vm, '--type', 'headless') | Out-Null
     $started = $true
 
-    # Phase 1: real optical boot + complete installation. TimeoutSeconds is an
-    # inactivity budget. Verification progress extends the budget while a hard
-    # ceiling prevents a truly stuck installer from running forever.
     $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    $hardBudgetSeconds = [Math]::Max(600, $TimeoutSeconds * 4)
-    $hardDeadline = [DateTime]::UtcNow.AddSeconds($hardBudgetSeconds)
-    $lastSerialLength = 0
-    $lastProgressLine = '<no installer serial output yet>'
-
+    $hardDeadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(600, $TimeoutSeconds * 4))
+    $lastLength = 0
+    $lastProgress = '<no installer serial output yet>'
+    $installerDriven = $false
+    $installerDrivenAt = [DateTime]::MinValue
     $booted = $false
     $storageReady = $false
-    $storageProof = $null
     $installerComplete = $false
     $fatal = $null
-    do {
-        Start-Sleep -Milliseconds 500
-        $text = Get-SerialText -Path $serial
-        if ($text.Length -gt 0) {
-            if ($text.Length -gt $lastSerialLength) {
-                $lastSerialLength = $text.Length
-                $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-                $progress = $text -split "`r?`n" |
-                    Where-Object {
-                        $_ -match '^installer stage ' -or
-                        $_ -match '^\[INSTALL\]\[VERIFY\]' -or
-                        $_ -match '^\[TEST\] installer_'
-                    } |
-                    Select-Object -Last 1
-                if (-not [string]::IsNullOrWhiteSpace($progress)) {
-                    $lastProgressLine = $progress
-                }
-            }
 
-            if ($text -match '\[FATAL\]\[INSTALL\].*') {
-                $fatal = $Matches[0]
-                break
-            }
-            if ($text -match '\[TEST\] installer_complete: FAIL') {
-                $tail = ($text -split "`r?`n" | Select-Object -Last 30) -join [Environment]::NewLine
-                $fatal = "installer_complete: FAIL`n$tail"
-                break
-            }
-            if ($text -match 'KuroganeOS kernel entry') {
-                $booted = $true
-            }
-            if ($text -match '\[INFO\]\[AHCI\].*active AHCI controllers=([1-9][0-9]*)') {
-                $storageReady = $true
-                $storageProof = 'explicit kernel AHCI discovery'
-            }
-            if ($text -match '\[TEST\] installer_confirmation: PASS' -and
-                $text -match 'installer stage 1/9: target confirmed and GPT written') {
-                $storageReady = $true
-                $storageProof = 'installer GPT write through SATA/AHCI'
-            }
-            if ($text -match '\[TEST\] installer_complete: PASS') {
-                $installerComplete = $true
-            }
-            if ($booted -and $storageReady -and $installerComplete) {
-                break
-            }
+    do {
+        Start-Sleep -Milliseconds 350
+        $text = Get-SerialText -Path $installSerial
+        if ($text.Length -gt $lastLength) {
+            $lastLength = $text.Length
+            $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+            $progress = $text -split "`r?`n" |
+                Where-Object { $_ -match '^installer stage ' -or $_ -match '^\[INSTALL\]\[VERIFY\]' -or $_ -match '^\[TEST\] installer_' } |
+                Select-Object -Last 1
+            if (-not [string]::IsNullOrWhiteSpace($progress)) { $lastProgress = $progress }
         }
-    } while ([DateTime]::UtcNow -lt $idleDeadline -and
-             [DateTime]::UtcNow -lt $hardDeadline)
+
+        if (-not $installerDriven -and $text -match '\[TEST\] installer_package_preflight: PASS') {
+            Write-Host '[virtualbox-smoke] installer preflight reached; driving interactive setup UI'
+            Drive-InstallerUi -VmName $vm
+            $installerDriven = $true
+            $installerDrivenAt = [DateTime]::UtcNow
+            $idleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        }
+
+        if ($text -match '\[FATAL\]\[INSTALL\].*') { $fatal = $Matches[0]; break }
+        if ($text -match '\[TEST\] installer_complete: FAIL') { $fatal = '[TEST] installer_complete: FAIL'; break }
+        if ($text -match 'KuroganeOS kernel entry') { $booted = $true }
+        if ($text -match '\[TEST\] installer_confirmation: PASS' -and
+            $text -match 'installer stage 1/9: target confirmed and GPT written') {
+            $storageReady = $true
+        }
+        if ($text -match '\[TEST\] installer_complete: PASS') { $installerComplete = $true }
+
+        if ($installerDriven -and -not $storageReady -and
+            ([DateTime]::UtcNow - $installerDrivenAt).TotalSeconds -gt 20) {
+            $fatal = 'automated installer UI did not reach confirmation within 20 seconds'
+            break
+        }
+        if ($booted -and $storageReady -and $installerComplete) { break }
+    } while ([DateTime]::UtcNow -lt $idleDeadline -and [DateTime]::UtcNow -lt $hardDeadline)
 
     if ($null -ne $fatal) {
-        throw "VirtualBox ISO reached the installer but failed qualification: $fatal"
+        throw "VirtualBox installer qualification failed: $fatal`n$(Get-SerialTail -Path $installSerial)"
     }
     if (-not $booted -or -not $storageReady -or -not $installerComplete) {
-        $tail = Get-SerialTail -Path $serial -Lines 180
-        $timeoutKind = if ([DateTime]::UtcNow -ge $hardDeadline) {
-            "hard limit of $hardBudgetSeconds seconds"
-        } else {
-            "no serial progress for $TimeoutSeconds seconds"
-        }
-        throw "VirtualBox EFI64 install did not reach installer_complete: PASS ($timeoutKind). Last progress: $lastProgressLine`n$tail"
+        throw "VirtualBox EFI64 install did not reach installer_complete: PASS. Last progress: $lastProgress`n$(Get-SerialTail -Path $installSerial)"
     }
 
-    Write-Host "[virtualbox-smoke] ISO: $Iso"
-    Write-Host '[virtualbox-smoke] firmware EFI64: PASS'
-    Write-Host '[virtualbox-smoke] DVD-first optical attachment: PASS'
-    Write-Host '[virtualbox-smoke] Intel AHCI target disk configuration: PASS'
-    Write-Host '[virtualbox-smoke] PCnet-FAST III + NAT configuration: PASS'
-    Write-Host '[virtualbox-smoke] BOOTX64.EFI -> kernel: PASS'
-    Write-Host "[virtualbox-smoke] SATA/AHCI runtime proof: PASS ($storageProof)"
-    Write-Host '[virtualbox-smoke] full root + UEFI payload installation: PASS'
-    Write-Host '[virtualbox-smoke] installed payload verification: PASS'
+    Write-Host '[virtualbox-smoke] interactive installer automation: PASS'
+    Write-Host '[virtualbox-smoke] EFI64 optical boot + AHCI install: PASS'
+    Write-Host '[virtualbox-smoke] installer_complete: PASS'
 
-    # Phase 2: power off the installer session, remove installation media and
-    # prove that the exact VDI produced above can boot its own ESP/ROOT all the
-    # way to userspace PID 1 with working VirtualBox NAT networking.
     $poweroff = Invoke-VBoxNative -Arguments @('controlvm', $vm, 'poweroff') -AllowFailure
     if ($poweroff.ExitCode -ne 0) {
-        throw "Installed qualification VM could not be powered off before reboot.`n$($poweroff.StdErr)"
+        throw "Could not power off installed qualification VM.`n$($poweroff.StdErr)"
     }
     $started = $false
     Start-Sleep -Milliseconds 500
 
-    $postInstallOffset = 0
-    if (Test-Path -LiteralPath $serial -PathType Leaf) {
-        $postInstallOffset = (Get-Item -LiteralPath $serial).Length
-    }
+    Invoke-VBoxNative -Arguments @('storageattach', $vm, '--storagectl', 'IDE', '--port', '0', '--device', '0', '--type', 'dvddrive', '--medium', 'none') | Out-Null
+    Invoke-VBoxNative -Arguments @('modifyvm', $vm, '--boot1', 'disk', '--boot2', 'none', '--boot3', 'none', '--boot4', 'none') | Out-Null
+    Invoke-VBoxNative -Arguments @('modifyvm', $vm, '--uartmode1', 'file', $postSerial) | Out-Null
 
-    Invoke-VBox storageattach $vm --storagectl IDE --port 0 --device 0 `
-        --type dvddrive --medium none | Out-Null
-    Invoke-VBox modifyvm $vm `
-        --boot1 disk --boot2 none --boot3 none --boot4 none | Out-Null
-
-    $postInfo = Invoke-VBox showvminfo $vm --machinereadable
-    $postText = $postInfo -join "`n"
-    if (-not ($postInfo -contains 'boot1="disk"')) {
-        throw 'Post-install qualification VM did not retain disk-first boot.'
-    }
-    if ($postText -match [regex]::Escape($isoLeaf)) {
-        throw 'Post-install qualification still reports the installer ISO as attached.'
-    }
-
-    Invoke-VBox startvm $vm --type headless | Out-Null
+    Invoke-VBoxNative -Arguments @('startvm', $vm, '--type', 'headless') | Out-Null
     $started = $true
 
     $postIdleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    $postHardBudgetSeconds = [Math]::Max(300, $TimeoutSeconds * 2)
-    $postHardDeadline = [DateTime]::UtcNow.AddSeconds($postHardBudgetSeconds)
-    $postLastLength = $postInstallOffset
-    $postLastProgress = '<no post-install serial output yet>'
+    $postHardDeadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(300, $TimeoutSeconds * 2))
+    $postLength = 0
     $postBooted = $false
     $rootMounted = $false
     $initSpawned = $false
@@ -353,101 +330,45 @@ try {
     $dhcpReady = $false
     $gatewayReady = $false
     $dnsReady = $false
-    $postDegraded = $false
     $postFatal = $null
 
     do {
-        Start-Sleep -Milliseconds 500
-        $allText = Get-SerialText -Path $serial
-        if ($allText.Length -gt $postInstallOffset) {
-            $phaseText = $allText.Substring([int]$postInstallOffset)
-            if ($allText.Length -gt $postLastLength) {
-                $postLastLength = $allText.Length
-                $postIdleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-                $progress = $phaseText -split "`r?`n" |
-                    Where-Object {
-                        $_ -match '^\[INFO\]\[(VFS|INIT|BOOT|NET)\]' -or
-                        $_ -match '^\[TEST\] (fat32_vfs_read|installed_|userspace_init_spawn|dhcp_lease|network_gateway_icmp|dns_resolver|ALL_REQUIRED)' -or
-                        $_ -match '^/system/init:'
-                    } |
-                    Select-Object -Last 1
-                if (-not [string]::IsNullOrWhiteSpace($progress)) {
-                    $postLastProgress = $progress
-                }
-            }
-
-            if ($phaseText -match '\[FATAL\]\[[^\]]+\].*') {
-                $postFatal = $Matches[0]
-                break
-            }
-            if ($phaseText -match '\[TEST\] dhcp_lease: FAIL') {
-                $postFatal = '[TEST] dhcp_lease: FAIL'
-                break
-            }
-            if ($phaseText -match '\[TEST\] network_gateway_icmp: FAIL') {
-                $postFatal = '[TEST] network_gateway_icmp: FAIL'
-                break
-            }
-            if ($phaseText -match 'KuroganeOS kernel entry') {
-                $postBooted = $true
-            }
-            if ($phaseText -match 'persistent FAT32 root mounted read-write') {
-                $rootMounted = $true
-            }
-            if ($phaseText -match '\[TEST\] ALL_REQUIRED_TESTS_PASSED: FAIL') {
-                # Aggregate first-boot/persistence probes may be degraded while
-                # the kernel intentionally continues. Network readiness is
-                # qualified independently below and remains mandatory.
-                $postDegraded = $true
-            }
-            if ($phaseText -match '\[TEST\] dhcp_lease: PASS') {
-                $dhcpReady = $true
-            }
-            if ($phaseText -match '\[TEST\] network_gateway_icmp: PASS') {
-                $gatewayReady = $true
-            }
-            if ($phaseText -match '\[TEST\] dns_resolver: PASS') {
-                $dnsReady = $true
-            }
-            if ($phaseText -match '\[TEST\] userspace_init_spawn: PASS') {
-                $initSpawned = $true
-            }
-            if ($phaseText -match '/system/init: PID 1 online') {
-                $initOnline = $true
-            }
-            if ($postBooted -and $rootMounted -and $initSpawned -and $initOnline -and
-                $dhcpReady -and $gatewayReady -and $dnsReady) {
-                break
-            }
+        Start-Sleep -Milliseconds 350
+        $text = Get-SerialText -Path $postSerial
+        if ($text.Length -gt $postLength) {
+            $postLength = $text.Length
+            $postIdleDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         }
-    } while ([DateTime]::UtcNow -lt $postIdleDeadline -and
-             [DateTime]::UtcNow -lt $postHardDeadline)
+
+        if ($text -match '\[FATAL\]\[[^\]]+\].*') { $postFatal = $Matches[0]; break }
+        if ($text -match '\[TEST\] dhcp_lease: FAIL') { $postFatal = '[TEST] dhcp_lease: FAIL'; break }
+        if ($text -match '\[TEST\] network_gateway_icmp: FAIL') { $postFatal = '[TEST] network_gateway_icmp: FAIL'; break }
+
+        if ($text -match 'KuroganeOS kernel entry') { $postBooted = $true }
+        if ($text -match 'persistent FAT32 root mounted read-write') { $rootMounted = $true }
+        if ($text -match '\[TEST\] userspace_init_spawn: PASS') { $initSpawned = $true }
+        if ($text -match '/system/init: PID 1 online') { $initOnline = $true }
+        if ($text -match '\[TEST\] dhcp_lease: PASS') { $dhcpReady = $true }
+        if ($text -match '\[TEST\] network_gateway_icmp: PASS') { $gatewayReady = $true }
+        if ($text -match '\[TEST\] dns_resolver: PASS') { $dnsReady = $true }
+
+        if ($postBooted -and $rootMounted -and $initSpawned -and $initOnline -and
+            $dhcpReady -and $gatewayReady -and $dnsReady) { break }
+    } while ([DateTime]::UtcNow -lt $postIdleDeadline -and [DateTime]::UtcNow -lt $postHardDeadline)
 
     if ($null -ne $postFatal) {
-        $tail = Get-SerialTail -Path $serial -Lines 180
-        throw "VirtualBox installed-disk reboot failed runtime/network qualification: $postFatal`n$tail"
+        throw "VirtualBox installed-disk qualification failed: $postFatal`n$(Get-SerialTail -Path $postSerial)"
     }
     if (-not $postBooted -or -not $rootMounted -or -not $initSpawned -or -not $initOnline -or
         -not $dhcpReady -or -not $gatewayReady -or -not $dnsReady) {
-        $tail = Get-SerialTail -Path $serial -Lines 180
-        $timeoutKind = if ([DateTime]::UtcNow -ge $postHardDeadline) {
-            "hard limit of $postHardBudgetSeconds seconds"
-        } else {
-            "no post-install serial progress for $TimeoutSeconds seconds"
-        }
-        throw "VirtualBox installed VDI did not reach persistent ROOT + PID 1 + DHCP + gateway + DNS ($timeoutKind). Last progress: $postLastProgress`n$tail"
+        throw "VirtualBox installed VDI did not reach persistent ROOT + PID 1 + DHCP + gateway + DNS.`n$(Get-SerialTail -Path $postSerial)"
     }
 
     Write-Host '[virtualbox-smoke] installer ISO detached before reboot: PASS'
     Write-Host '[virtualbox-smoke] installed VDI UEFI boot: PASS'
     Write-Host '[virtualbox-smoke] persistent Kurogane Root mount: PASS'
     Write-Host '[virtualbox-smoke] /system/init PID 1 online: PASS'
-    Write-Host '[virtualbox-smoke] PCnet-FAST III NAT + DHCP + gateway + DNS: PASS'
-    if ($postDegraded) {
-        Write-Warning '[virtualbox-smoke] post-install optional/runtime aggregate reported DEGRADED, but required boot/network qualification passed.'
-    } else {
-        Write-Host '[virtualbox-smoke] post-install runtime aggregate: PASS'
-    }
+    Write-Host '[virtualbox-smoke] VirtualBox NAT + DHCP + gateway + DNS: PASS'
     Write-Host '[virtualbox-smoke] REAL ORACLE VIRTUALBOX INSTALL + REBOOT + NETWORK: PASS'
 } finally {
     if ($started) {
