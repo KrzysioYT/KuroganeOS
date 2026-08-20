@@ -308,6 +308,21 @@ try {
         if ($booted -and $storageReady -and $installerComplete) { break }
     } while ([DateTime]::UtcNow -lt $idleDeadline -and [DateTime]::UtcNow -lt $hardDeadline)
 
+    # Serial-file writes and the polling loop are not atomic. The VM can append
+    # the final PASS marker in the few milliseconds between the final loop read
+    # and the failure branch below. Refresh once after a short settle period so
+    # a valid install is not reported as a timeout while Get-SerialTail already
+    # shows installer_complete: PASS.
+    if ($null -eq $fatal -and (-not $booted -or -not $storageReady -or -not $installerComplete)) {
+        Start-Sleep -Milliseconds 500
+        $text = Get-SerialText -Path $installSerial
+        if ($text -match '\[FATAL\]\[INSTALL\].*') { $fatal = $Matches[0] }
+        if ($text -match '\[TEST\] installer_complete: FAIL') { $fatal = '[TEST] installer_complete: FAIL' }
+        if ($text -match 'KuroganeOS kernel entry') { $booted = $true }
+        if ($text -match '\[TEST\] installer_confirmation: PASS') { $storageReady = $true }
+        if ($text -match '\[TEST\] installer_complete: PASS') { $installerComplete = $true }
+    }
+
     if ($null -ne $fatal) {
         throw "VirtualBox installer qualification failed: $fatal`n$(Get-SerialTail -Path $installSerial)"
     }
@@ -368,6 +383,23 @@ try {
         if ($postBooted -and $rootMounted -and $initSpawned -and $initOnline -and
             $dhcpReady -and $gatewayReady -and $dnsReady) { break }
     } while ([DateTime]::UtcNow -lt $postIdleDeadline -and [DateTime]::UtcNow -lt $postHardDeadline)
+
+    if ($null -eq $postFatal -and
+        (-not $postBooted -or -not $rootMounted -or -not $initSpawned -or -not $initOnline -or
+         -not $dhcpReady -or -not $gatewayReady -or -not $dnsReady)) {
+        Start-Sleep -Milliseconds 500
+        $text = Get-SerialText -Path $postSerial
+        if ($text -match '\[FATAL\]\[[^\]]+\].*') { $postFatal = $Matches[0] }
+        if ($text -match '\[TEST\] dhcp_lease: FAIL') { $postFatal = '[TEST] dhcp_lease: FAIL' }
+        if ($text -match '\[TEST\] network_gateway_icmp: FAIL') { $postFatal = '[TEST] network_gateway_icmp: FAIL' }
+        if ($text -match 'KuroganeOS kernel entry') { $postBooted = $true }
+        if ($text -match 'persistent FAT32 root mounted read-write') { $rootMounted = $true }
+        if ($text -match '\[TEST\] userspace_init_spawn: PASS') { $initSpawned = $true }
+        if ($text -match '/system/init: PID 1 online') { $initOnline = $true }
+        if ($text -match '\[TEST\] dhcp_lease: PASS') { $dhcpReady = $true }
+        if ($text -match '\[TEST\] network_gateway_icmp: PASS') { $gatewayReady = $true }
+        if ($text -match '\[TEST\] dns_resolver: PASS') { $dnsReady = $true }
+    }
 
     if ($null -ne $postFatal) {
         throw "VirtualBox installed-disk qualification failed: $postFatal`n$(Get-SerialTail -Path $postSerial)"
