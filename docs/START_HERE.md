@@ -1,12 +1,10 @@
 # KuroganeOS — START HERE
 
-KuroganeOS **3.3.3-dev DEV BETA** jest systemem x86-64 rozwijanym od zera.
-Najbezpieczniej uruchamiać go w maszynie wirtualnej. Nie instaluj DEV BETA na
-fizycznym dysku zawierającym ważne dane.
+KuroganeOS **3.3.3-dev / DEV BETA** jest eksperymentalnym systemem x86-64 rozwijanym od zera. Najbezpieczniej uruchamiać go w maszynie wirtualnej i na pustych dyskach testowych.
+
+Pełna mapa dokumentacji: [`README.md`](README.md).
 
 ## Wybierz właściwy artefakt
-
-Na Windows canonical media są rozdzielone według hypervisora:
 
 ```text
 Oracle VirtualBox:
@@ -16,11 +14,9 @@ QEMU:
   dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
 ```
 
-Nie używaj `.img` jako VirtualBox DVD.
+Nie używaj QEMU `.img` jako napędu DVD VirtualBox i nie zakładaj, że stare nazwy artefaktów są równoważne z bieżącym buildem.
 
-## Chcę uruchomić KuroganeOS w VirtualBox
-
-Referencyjna konfiguracja:
+## Referencyjny Oracle VirtualBox
 
 ```text
 Firmware:       EFI64 / UEFI
@@ -28,13 +24,14 @@ Secure Boot:    OFF
 I/O APIC:       ON
 RAM:            2048 MiB
 CPU:            1-2
+Graphics:       VMSVGA / 128 MiB / 3D OFF
 HDD:            pusty VDI >= 2 GiB
 HDD controller: SATA / Intel AHCI
 DVD controller: IDE / PIIX4
 DVD:            KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 Boot order:     DVD -> Disk
 Network:        NAT
-NIC:            Intel PRO/1000 MT Desktop (82540EM)
+NIC:            PCnet-FAST III (Am79C973)
 Audio:          Intel AC'97
 Input:          PS/2
 ```
@@ -46,8 +43,7 @@ SATA / IntelAHCI -> KuroganeOS.vdi
 IDE / PIIX4      -> KuroganeOS VirtualBox ISO
 ```
 
-Jeżeli VDI jest na IDE, ISO może się uruchomić, ale instalator nie zobaczy
-wymaganego PCI AHCI.
+Canonical VirtualBox NIC to obecnie **PCnet-FAST III**. E1000 i VirtIO-net pozostają obsługiwanymi/testowymi profilami, ale nie są aktualnym domyślnym profilem Oracle VirtualBox.
 
 Szczegóły: [`VIRTUALBOX.md`](VIRTUALBOX.md).
 
@@ -67,14 +63,13 @@ Na Macach Apple Silicon używaj QEMU/TCG dla gościa x86-64.
 4. Wybierz język, username i tryb hasła.
 5. Wybierz pusty wirtualny dysk.
 6. Na ekranie destrukcyjnego potwierdzenia wpisz `INSTALL`.
-7. Wielkość liter nie ma znaczenia — `install`, `Install` i `INSTALL` są
-   akceptowane.
-8. Błędny tekst można poprawić bez restartu instalatora.
-9. `Esc` wraca do wyboru dysku i nie zapisuje GPT.
-10. Poczekaj na `[TEST] installer_complete: PASS`.
-11. Wyłącz VM, odłącz ISO i uruchom z HDD.
+7. Poczekaj na `[TEST] installer_complete: PASS`.
+8. Wyłącz VM i odłącz ISO.
+9. Uruchom z VDI.
 
 Pełna instrukcja: [`INSTALLATION.md`](INSTALLATION.md).
+
+> Pełny release-smoke instalacji nie jest jeszcze całkowicie zielony: aktywny roadmap raportuje `fat32_persistence: FAIL`. Samo `installer_complete: PASS` nie oznacza jeszcze pełnej kwalifikacji reboot/persistence.
 
 ## Windows — zbuduj media
 
@@ -82,19 +77,7 @@ Pełna instrukcja: [`INSTALLATION.md`](INSTALLATION.md).
 .\scripts\build-media.ps1 -Configuration release -Rebuild
 ```
 
-Windows build domyślnie uruchamia realny Oracle VirtualBox smoke dla canonical
-ISO. Jeżeli świadomie budujesz na hoście bez VirtualBox:
-
-```powershell
-.\scripts\build-media.ps1 `
-    -Configuration release `
-    -Rebuild `
-    -SkipVirtualBoxSmoke
-```
-
-Taki build nie jest runtime-qualified jako VirtualBox PASS.
-
-## Windows — utwórz poprawną VM automatycznie
+## Windows — utwórz poprawną VM
 
 ```powershell
 .\scripts\create-virtualbox-vm.ps1 `
@@ -112,8 +95,46 @@ VM musi być całkowicie wyłączona:
     -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
 ```
 
-Repair helper ustawia EFI64, DVD -> Disk, IntelAHCI i potrafi przenieść
-wirtualny HDD z IDE na SATA 0:0 bez tworzenia nowego dysku.
+Repair helper ustawia EFI64, DVD -> Disk, IntelAHCI i potrafi przenieść istniejący HDD na SATA 0:0 bez tworzenia nowego dysku.
+
+## Internet w VirtualBox
+
+```text
+Attached to: NAT
+Adapter Type: PCnet-FAST III (Am79C973)
+Cable Connected: ON
+```
+
+Zdrowa bazowa ścieżka sieciowa powinna dojść co najmniej do:
+
+```text
+[TEST] dhcp_lease: PASS
+[TEST] network_gateway_icmp: PASS
+[TEST] dns_resolver: PASS
+```
+
+Jeżeli te testy przechodzą, a HTTPS nie działa, problem należy diagnozować w TCP/TLS, nie jako „brak internetu”.
+
+## TLS / HTTPS — aktualny stan
+
+KuroganeOS ma już Mbed TLS 3.6.7, TLS 1.2, X.509, SNI, trust store i walidację czasu. HTTPS jest podłączone do Ring-3/Kurogane Web, ale **nie jest jeszcze release-qualified end-to-end**.
+
+Aktualny blocker na `main` znajduje się w ścieżce TCP/BIO podczas handshake: `tcp_client::send()` może doprowadzić do `net::Status::InterfaceError`, który BIO mapuje na błąd Mbed TLS.
+
+Najważniejsze pliki:
+
+```text
+kernel/net/tls/client.cpp
+kernel/net/tcp_client.cpp
+kernel/net/network.cpp
+kernel/net/service.cpp
+```
+
+### `x509_crt_parse ... D9D2`
+
+To wcześniejszy problem parsowania algorytmu podpisu/OID (`SHA-384`). Bieżący profil wymaga `MBEDTLS_SHA384_C`. Jeżeli świeży build nadal zatrzymuje się dokładnie na `D9D2`, najpierw sprawdź, czy na pewno uruchamiasz nowo przebudowany canonical artifact, a nie starszy ISO/IMG.
+
+Szczegóły: [`NETWORKING.md`](NETWORKING.md) i [`BUILD_STATUS.md`](BUILD_STATUS.md).
 
 ## Najczęstsze błędy
 
@@ -123,31 +144,27 @@ Sprawdź EFI64, Secure Boot OFF, canonical `.iso` i boot order DVD -> Disk.
 
 ### `[FATAL][INSTALL] no PCI AHCI controller`
 
-ISO już wystartowało. Przenieś VDI na SATA / Intel AHCI.
+ISO już wystartowało. Problemem jest storage. Przenieś VDI na SATA / Intel AHCI.
 
-### `INSTALLATION CONFIRMATION DID NOT MATCH INSTALL`
+### `NIC OFFLINE`
 
-To stary build instalatora. Bieżący flow nie zatrzymuje instalacji przy złym
-wpisie i nie rozróżnia wielkości liter. Zbuduj nowe media i sprawdź hash/datę
-ISO.
+Sprawdź NAT, Cable Connected oraz PCnet-FAST III. Jeżeli celowo testujesz E1000/VirtIO, traktuj to jako profil testowy, nie canonical VBox.
 
-### TLS `x509_crt_parse ... D9D2`
+### HTTPS: `BIO send network status=...` / `InterfaceError`
 
-Kod `-0x262E` oznacza brak obsługi algorytmu podpisu/OID podczas parsowania
-trust store. Bieżący profil Mbed TLS 3.6.7 włącza `MBEDTLS_SHA384_C`, wymagane
-przez dołączone rooty GTS. Jeżeli widzisz ten błąd po aktualizacji brancha,
-upewnij się, że uruchamiasz świeżo przebudowany canonical QEMU IMG/VirtualBox ISO,
-a nie starszy artefakt.
-
-Szczegóły sieci: [`NETWORKING.md`](NETWORKING.md).
-
-## Internet w VirtualBox
+Zapisz cały serial log od TCP connect do błędu. Potrzebne są co najmniej wartości:
 
 ```text
-Attached to: NAT
-Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
-Cable Connected: ON
+TCP state
+SND.UNA
+SND.NXT
+RCV.NXT
+peer window
+BIO requested bytes
+BIO accepted bytes
 ```
+
+Nie obchodź problemu downgrade'em HTTPS -> HTTP i nie wyłączaj weryfikacji certyfikatów.
 
 ## Rozwój aplikacji i kernela
 
@@ -161,7 +178,7 @@ Kernel/system:
 
 - [`DEVELOPERS/KERNEL_CONTRIBUTION.md`](DEVELOPERS/KERNEL_CONTRIBUTION.md)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`GUI.md`](GUI.md)
+- [`ROADMAP.md`](ROADMAP.md)
 
 ## Zgłaszanie błędu
 
