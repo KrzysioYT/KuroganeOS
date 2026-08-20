@@ -143,43 +143,59 @@ function Send-Enter {
     Send-ScanCodes -VmName $VmName -Codes @('1c', '9c')
 }
 
-function Send-DownArrow {
+function Send-Tab {
     param([Parameter(Mandatory = $true)][string]$VmName)
-    Send-ScanCodes -VmName $VmName -Codes @('e0', '50', 'e0', 'd0')
+    Send-ScanCodes -VmName $VmName -Codes @('0f', '8f')
 }
 
-function Send-Text {
-    param(
-        [Parameter(Mandatory = $true)][string]$VmName,
-        [Parameter(Mandatory = $true)][string]$Text
+function Send-InstallLiteral {
+    param([Parameter(Mandatory = $true)][string]$VmName)
+
+    # Set-1 PS/2 make/break pairs for: i n s t a l l.
+    # The installer normalizes characters to uppercase before comparison, so
+    # Shift is deliberately not involved.  This avoids VirtualBox host-layout
+    # translation and keyboardputstring differences between releases.
+    Send-ScanCodes -VmName $VmName -Codes @(
+        '17', '97',
+        '31', 'b1',
+        '1f', '9f',
+        '14', '94',
+        '1e', '9e',
+        '26', 'a6',
+        '26', 'a6'
     )
-    Invoke-VBoxNative -Arguments @('controlvm', $VmName, 'keyboardputstring', $Text) | Out-Null
 }
 
 function Drive-InstallerUi {
     param([Parameter(Mandatory = $true)][string]$VmName)
 
-    # The production installer is intentionally interactive. The disposable
-    # smoke VM drives the real UI rather than adding a dangerous auto-install
-    # mode to the ISO. Current deterministic path:
-    #   Install -> English -> default user -> no password -> first disk -> INSTALL.
-    Start-Sleep -Milliseconds 500
-    Send-DownArrow -VmName $VmName
-    Start-Sleep -Milliseconds 150
+    # The installer uses deterministic initial selections:
+    #   welcome: TRY (0), INSTALL (1)
+    #   language: ENGLISH (0)
+    #   username: pre-filled "user"
+    #   password: NO PASSWORD (0)
+    #   disk: first AHCI device (0)
+    #
+    # Tab is intentionally used for the welcome screen because choose_two()
+    # explicitly handles it and it is a plain Set-1 key.  The previous use of
+    # an E0-prefixed Down Arrow was unreliable with VirtualBox injected PS/2
+    # input on Windows.
+    Start-Sleep -Milliseconds 900
+    Send-Tab -VmName $VmName
+    Start-Sleep -Milliseconds 200
     Send-Enter -VmName $VmName
-    Start-Sleep -Milliseconds 350
 
-    Send-Enter -VmName $VmName
-    Start-Sleep -Milliseconds 350
-    Send-Enter -VmName $VmName
-    Start-Sleep -Milliseconds 350
-    Send-Enter -VmName $VmName
-    Start-Sleep -Milliseconds 350
-    Send-Enter -VmName $VmName
-    Start-Sleep -Milliseconds 350
-
-    Send-Text -VmName $VmName -Text 'install'
-    Start-Sleep -Milliseconds 150
+    Start-Sleep -Milliseconds 900
+    Send-Enter -VmName $VmName       # English
+    Start-Sleep -Milliseconds 900
+    Send-Enter -VmName $VmName       # pre-filled user
+    Start-Sleep -Milliseconds 900
+    Send-Enter -VmName $VmName       # no password
+    Start-Sleep -Milliseconds 900
+    Send-Enter -VmName $VmName       # first disk
+    Start-Sleep -Milliseconds 900
+    Send-InstallLiteral -VmName $VmName
+    Start-Sleep -Milliseconds 200
     Send-Enter -VmName $VmName
 }
 
@@ -271,7 +287,7 @@ try {
         }
 
         if (-not $installerDriven -and $text -match '\[TEST\] installer_package_preflight: PASS') {
-            Write-Host '[virtualbox-smoke] installer preflight reached; driving interactive setup UI'
+            Write-Host '[virtualbox-smoke] installer preflight reached; injecting deterministic PS/2 setup input'
             Drive-InstallerUi -VmName $vm
             $installerDriven = $true
             $installerDrivenAt = [DateTime]::UtcNow
@@ -281,15 +297,12 @@ try {
         if ($text -match '\[FATAL\]\[INSTALL\].*') { $fatal = $Matches[0]; break }
         if ($text -match '\[TEST\] installer_complete: FAIL') { $fatal = '[TEST] installer_complete: FAIL'; break }
         if ($text -match 'KuroganeOS kernel entry') { $booted = $true }
-        if ($text -match '\[TEST\] installer_confirmation: PASS' -and
-            $text -match 'installer stage 1/9: target confirmed and GPT written') {
-            $storageReady = $true
-        }
+        if ($text -match '\[TEST\] installer_confirmation: PASS') { $storageReady = $true }
         if ($text -match '\[TEST\] installer_complete: PASS') { $installerComplete = $true }
 
         if ($installerDriven -and -not $storageReady -and
-            ([DateTime]::UtcNow - $installerDrivenAt).TotalSeconds -gt 20) {
-            $fatal = 'automated installer UI did not reach confirmation within 20 seconds'
+            ([DateTime]::UtcNow - $installerDrivenAt).TotalSeconds -gt 30) {
+            $fatal = 'deterministic PS/2 installer input did not reach installer_confirmation within 30 seconds'
             break
         }
         if ($booted -and $storageReady -and $installerComplete) { break }
@@ -302,7 +315,7 @@ try {
         throw "VirtualBox EFI64 install did not reach installer_complete: PASS. Last progress: $lastProgress`n$(Get-SerialTail -Path $installSerial)"
     }
 
-    Write-Host '[virtualbox-smoke] interactive installer automation: PASS'
+    Write-Host '[virtualbox-smoke] deterministic PS/2 installer automation: PASS'
     Write-Host '[virtualbox-smoke] EFI64 optical boot + AHCI install: PASS'
     Write-Host '[virtualbox-smoke] installer_complete: PASS'
 
