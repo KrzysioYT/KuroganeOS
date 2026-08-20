@@ -7,7 +7,7 @@
 namespace {
 
 constexpr size_t kInboundCapacity = 24U;
-constexpr size_t kSentCapacity = 48U;
+constexpr size_t kSentCapacity = 64U;
 
 struct SentSegment {
     uint32_t sequence;
