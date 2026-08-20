@@ -14,7 +14,6 @@ constexpr size_t MMIO_BYTES = 128U * 1024U;
 constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB10000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
 constexpr uint32_t RESET_BUDGET = 1000000U;
-constexpr uint32_t TX_BUDGET = 1000000U;
 
 constexpr size_t REG_CTRL = 0x0000U;
 constexpr size_t REG_STATUS = 0x0008U;
@@ -239,12 +238,17 @@ net::Status transmit_callback(
             ? net::Status::FrameTooLarge
             : net::Status::InvalidArgument;
     }
+
     TransmitDescriptor& descriptor = tx_ring(*device)[device->next_tx];
     read_barrier();
     if ((descriptor.status & TX_DD) == 0U) {
-        ++device->drops;
-        return net::Status::WouldBlock;
+        // All DMA pages are owned per descriptor. If the producer catches the
+        // hardware, report normal ring backpressure instead of converting a
+        // busy descriptor into a fatal interface failure. The TCP layer can
+        // then retry the exact same sequence number after making progress.
+        return net::Status::QueueFull;
     }
+
     copy_bytes(
         device->tx_buffers[device->next_tx].virtual_address,
         frame,
@@ -256,19 +260,16 @@ net::Status transmit_callback(
     descriptor.checksum_start = 0U;
     descriptor.special = 0U;
     write_barrier();
-    const size_t submitted = device->next_tx;
+
     device->next_tx = (device->next_tx + 1U) % DESCRIPTOR_COUNT;
     write_register(*device, REG_TDT, static_cast<uint32_t>(device->next_tx));
-    for (uint32_t attempt = 0U; attempt < TX_BUDGET; ++attempt) {
-        read_barrier();
-        if ((tx_ring(*device)[submitted].status & TX_DD) != 0U) {
-            ++device->tx_frames;
-            return net::Status::Ok;
-        }
-        relax();
-    }
-    ++device->drops;
-    return net::Status::InterfaceError;
+
+    // Do not synchronously spin for TX_DD here. The descriptor owns a dedicated
+    // DMA page until hardware sets DD, and reuse is already guarded above.
+    // Returning immediately lets TLS enqueue a normal burst without stalling
+    // the whole browser process on VirtualBox device scheduling latency.
+    ++device->tx_frames;
+    return net::Status::Ok;
 }
 
 net::Status receive_callback(
