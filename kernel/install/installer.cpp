@@ -382,6 +382,39 @@ fs::fat32::Status ensure_parent_directories(
     return fs::fat32::Status::Ok;
 }
 
+bool ensure_root_layout() {
+    // Empty directories are part of the installed filesystem contract and
+    // cannot be inferred from a file-only install package. Keep that contract
+    // explicit here; package-specific parent directories remain data-driven.
+    static constexpr const char* kDirectories[] = {
+        "/bin",
+        "/boot",
+        "/dev",
+        "/etc",
+        "/home",
+        "/proc",
+        "/system",
+        "/system/bin",
+        "/tmp",
+        "/var",
+        "/var/log",
+    };
+
+    for (const char* directory : kDirectories) {
+        const fs::fat32::Status status = fs::fat32::mkdir(&g_root, directory);
+        if (status == fs::fat32::Status::Ok ||
+            status == fs::fat32::Status::AlreadyExists) {
+            continue;
+        }
+        terminal::write("[INSTALL][LAYOUT] mkdir path=");
+        terminal::write(directory);
+        terminal::write(" status=");
+        terminal::println(fs::fat32::status_message(status));
+        return false;
+    }
+    return true;
+}
+
 bool deploy_file(const package::File& file, size_t package_index) {
     fs::fat32::FileSystem* filesystem =
         file.destination == package::DESTINATION_ESP ? &g_esp : &g_root;
@@ -812,11 +845,14 @@ void run_interactive(
         terminal::println(fs::fat32::status_message(root_mount));
         fail("ROOT MOUNT FAILED");
     }
-    terminal::println("installer stage 4/9: fresh filesystems mounted");
+    if (!ensure_root_layout()) {
+        fail("ROOT DIRECTORY LAYOUT CREATION FAILED");
+    }
+    terminal::println("installer stage 4/9: fresh filesystems mounted and base layout created");
 
-    // Root payload first. Parent directories are derived from package paths,
-    // not a hard-coded list, so nested files such as /etc/ssl/certs.pem are
-    // deployable and future package trees do not require installer edits.
+    // The base filesystem contract above owns intentionally empty directories.
+    // Package-specific parents stay data-driven so nested payload paths such as
+    // /etc/ssl/certs.pem do not require installer changes.
     draw_progress(5U, "COPYING ROOT SYSTEM PAYLOAD");
     if (!deploy_destination(payload, package::DESTINATION_ROOT)) {
         fail("ROOT PAYLOAD COPY FAILED - SEE SERIAL LOG");
