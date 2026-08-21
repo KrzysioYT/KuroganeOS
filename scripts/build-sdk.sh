@@ -98,9 +98,6 @@ done
 
 cp "$root/userspace/linker.ld" "$lib/kurogane-user.ld"
 
-# Anvil is intentionally repository-driven. The package catalog and payloads
-# live in a separate GitHub repository instead of being baked into the OS tree.
-# Override either value in CI/local builds without changing source.
 anvil_repo_host="${ANVIL_REPO_HOST:-raw.githubusercontent.com}"
 anvil_repo_base="${ANVIL_REPO_BASE:-/KrzysioYT/KuroganeOS-Packages/main}"
 cat > "$overlay_etc/anvil.repo" <<EOF
@@ -161,6 +158,7 @@ declare -a gui_specs=(
     terminal:terminal
     files:files
     anvil:anvil
+    pulse:pulse
     sysmon:sysmon
     performance:perf
     browser:browser
