@@ -94,6 +94,22 @@ struct Context {
     bool active;
 };
 
+bool ui_line_style_valid(const ku_ui_line_style& style) {
+    constexpr uint32_t known_flags =
+        KU_UI_LINE_STYLE_INHERIT_COLORS |
+        KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND |
+        KU_UI_LINE_STYLE_DOCUMENT_CONTENT;
+    return ku_text_style_valid(&style.text) &&
+        style.reserved == 0U &&
+        (style.flags & ~known_flags) == 0U;
+}
+
+uint32_t compatibility_text_scale(const ku_text_style& text) {
+    if (text.size_px <= 9U) return 1U;
+    if (text.size_px <= 18U) return 2U;
+    return 3U;
+}
+
 void draw_user_window(
     windowing::WindowId,
     const ui::Rect& content,
@@ -107,16 +123,52 @@ void draw_user_window(
     const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
     graphics::fill_rect(
         content.x, content.y, content.width, content.height, background);
+
     int32_t y = content.y + 12;
     for (uint32_t index = 0U;
          index < frame.line_count && index < KU_UI_MAX_LINES;
          ++index) {
+        const ku_ui_line_style& style = frame.line_styles[index];
+        const bool valid_style = ui_line_style_valid(style);
+        const bool inherit = !valid_style ||
+            (style.flags & KU_UI_LINE_STYLE_INHERIT_COLORS) != 0U;
+        const bool transparent = !valid_style ||
+            (style.flags & KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND) != 0U;
+        const graphics::Color line_background =
+            inherit || style.background_rgb == 0U
+                ? background
+                : style.background_rgb & UINT32_C(0xFFFFFF);
+        graphics::Color line_foreground =
+            inherit || style.foreground_rgb == 0U
+                ? foreground
+                : style.foreground_rgb & UINT32_C(0xFFFFFF);
+        if (index == 0U && focused && inherit) line_foreground = accent;
+
+        const uint32_t scale = valid_style
+            ? compatibility_text_scale(style.text)
+            : 2U;
+        uint32_t requested_height = valid_style && style.text.line_height_px != 0U
+            ? style.text.line_height_px
+            : scale * 8U + 6U;
+        const uint32_t minimum_height = scale * 8U + 2U;
+        if (requested_height < minimum_height) requested_height = minimum_height;
+        if (requested_height > 48U) requested_height = 48U;
+        const int32_t line_height = static_cast<int32_t>(requested_height);
+
+        if (!transparent) {
+            graphics::fill_rect(
+                content.x + 6, y - 4,
+                content.width > 12 ? content.width - 12 : content.width,
+                line_height,
+                line_background);
+        }
         graphics::draw_text(
             content.x + 12, y, frame.lines[index],
-            index == 0U && focused ? accent : foreground,
-            background, 2U, true);
-        y += 22;
-        if (y + 20 >= content.y + content.height) break;
+            line_foreground, line_background, scale, true);
+
+        y += line_height;
+        if (y + static_cast<int32_t>(minimum_height) >=
+            content.y + content.height) break;
     }
     if (frame.progress_maximum != 0U && content.height >= 70) {
         ui::progress(
@@ -1049,7 +1101,7 @@ void syscall_handler(
                         break;
                     }
                 }
-                if (!terminated) {
+                if (!terminated || !ui_line_style_valid(user_frame->line_styles[line])) {
                     frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
                     return;
                 }
