@@ -260,6 +260,8 @@ int main(void) {
     }
 
     puts("[TEST] desktop_files_real_vfs: PASS");
+    puts("[TEST] flux_scene_files: PASS");
+    puts("[TEST] desktop_files_3_1_navigation: PASS");
     puts("[TEST] desktop_files_readdir_navigation: PASS");
     puts("[TEST] desktop_files_elf_launch: PASS");
     puts("[TEST] kurogane5_obsidian_files: PASS");
