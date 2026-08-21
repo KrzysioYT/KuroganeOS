@@ -39,16 +39,6 @@ static const char* page_name(settings_page page) {
     }
 }
 
-static ku_icon_id_t page_icon(settings_page page) {
-    switch (page) {
-        case SETTINGS_NETWORK: return KU_ICON_SPECIAL_NETWORK;
-        case SETTINGS_APPEARANCE: return KU_ICON_STATUS_BRIGHTNESS;
-        case SETTINGS_AUDIO: return KU_ICON_STATUS_VOLUME;
-        case SETTINGS_SYSTEM: return KU_ICON_BRANDING_SYSTEM_MARK;
-        default: return KU_ICON_KUROGANE_APP_FORGE_CONTROL;
-    }
-}
-
 static uint32_t first_selectable(settings_page page) {
     switch (page) {
         case SETTINGS_NETWORK: return 40U;
