@@ -219,7 +219,7 @@ static void build_scene(kui_scene* scene) {
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
     gui_apply_forged_theme(scene, 0);
-    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
@@ -229,7 +229,7 @@ static void build_scene(kui_scene* scene) {
         &root, 2U, KUROGANE_PRODUCT_STRING " / " KU_GUI_BRAND_TAGLINE,
         KU_ICON_BRANDING_LOGO_MAIN);
     (void)kui_flow_label_icon(
-        &root, 3U, "ARROWS SELECT   ENTER OPEN   P PIN",
+        &root, 3U, "CLICK OR ENTER TO OPEN   P TO PIN",
         KU_ICON_ACTION_OPEN);
 
     kui_flow_begin(&apps, scene, 1U);
@@ -287,6 +287,17 @@ int main(void) {
         ku_ui_event event;
         reap_children();
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
+            if (hit >= 10U && hit < 10U + APP_COUNT) {
+                g_selected = (size_t)(hit - 10U);
+                launch_selected();
+                build_scene(&scene);
+                (void)kui_scene_present(window, &scene);
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
