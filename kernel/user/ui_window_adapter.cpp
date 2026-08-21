@@ -1,34 +1,25 @@
 #include "ui_window_adapter.hpp"
 
-namespace user::runtime::ui_adapter {
+namespace windowing {
 namespace {
 
 struct AdapterSlot {
-    windowing::WindowId window;
-    windowing::DrawCallback draw;
-    windowing::InputCallback input;
+    WindowId window;
+    DrawCallback draw;
+    InputCallback input;
     void* context;
     ui::Rect content;
     bool has_content;
     bool active;
 };
 
-AdapterSlot g_slots[windowing::MAX_WINDOWS]{};
-
-AdapterSlot* find_slot(windowing::WindowId window) {
-    for (AdapterSlot& slot : g_slots) {
-        if (slot.active && slot.window == window) return &slot;
-    }
-    return nullptr;
-}
+AdapterSlot g_slots[MAX_WINDOWS]{};
 
 void reap_closed_slots() {
     for (AdapterSlot& slot : g_slots) {
         if (!slot.active) continue;
-        windowing::WindowInfo info{};
-        if (windowing::query(slot.window, &info) != windowing::Status::Ok) {
-            slot = {};
-        }
+        WindowInfo info{};
+        if (query(slot.window, &info) != Status::Ok) slot = {};
     }
 }
 
@@ -41,7 +32,7 @@ AdapterSlot* reserve_slot() {
 }
 
 void draw_adapter(
-    windowing::WindowId id,
+    WindowId id,
     const ui::Rect& content,
     bool focused,
     void* opaque) {
@@ -53,7 +44,7 @@ void draw_adapter(
 }
 
 void input_adapter(
-    windowing::WindowId id,
+    WindowId id,
     const input::Event& event,
     void* opaque) {
     auto* slot = static_cast<AdapterSlot*>(opaque);
@@ -73,17 +64,17 @@ void input_adapter(
 
 } // namespace
 
-windowing::Status create_window(
+Status create_ring3_window(
     const char* title,
     uint64_t owner_pid,
     const ui::Rect& bounds,
-    windowing::DrawCallback draw,
-    windowing::InputCallback input_callback,
+    DrawCallback draw,
+    InputCallback input_callback,
     void* context,
-    windowing::WindowId* out_id) {
-    if (out_id == nullptr) return windowing::Status::InvalidArgument;
+    WindowId* out_id) {
+    if (out_id == nullptr) return Status::InvalidArgument;
     AdapterSlot* slot = reserve_slot();
-    if (slot == nullptr) return windowing::Status::CapacityReached;
+    if (slot == nullptr) return Status::CapacityReached;
 
     *slot = {};
     slot->draw = draw;
@@ -91,8 +82,8 @@ windowing::Status create_window(
     slot->context = context;
     slot->active = true;
 
-    windowing::WindowId window = windowing::INVALID_WINDOW;
-    const windowing::Status status = windowing::create_window(
+    WindowId window = INVALID_WINDOW;
+    const Status status = windowing::create_window(
         title,
         owner_pid,
         bounds,
@@ -100,14 +91,14 @@ windowing::Status create_window(
         input_adapter,
         slot,
         &window);
-    if (status != windowing::Status::Ok) {
+    if (status != Status::Ok) {
         *slot = {};
         return status;
     }
 
     slot->window = window;
     *out_id = window;
-    return windowing::Status::Ok;
+    return Status::Ok;
 }
 
-} // namespace user::runtime::ui_adapter
+} // namespace windowing
