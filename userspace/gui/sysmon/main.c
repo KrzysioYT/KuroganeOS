@@ -36,12 +36,18 @@ int main(void) {
     puts("[TEST] kurogane5_obsidian_sysmon: PASS");
 
     uint32_t heartbeat = 0U;
+    int scene_reported = 0;
     kui_scene scene;
     for (;;) {
         build_scene(&scene, heartbeat);
         if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
             (void)ku_ui_close(window);
             return 2;
+        }
+        if (!scene_reported) {
+            puts("[TEST] flux_scene_sysmon: PASS");
+            puts("[TEST] red_flux_sysmon: PASS");
+            scene_reported = 1;
         }
 
         ku_ui_event event;
