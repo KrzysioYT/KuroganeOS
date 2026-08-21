@@ -26,10 +26,6 @@ else
     exit 1
 fi
 
-# Generic CC/CXX environment variables are useful on native x86-64 Linux, but
-# are dangerous on macOS/Apple Silicon: CC=clang and CXX=clang++ build Mach-O
-# arm64 host objects instead of x86-64 ELF KuroganeOS binaries. On Darwin only
-# Kurogane-specific overrides are accepted.
 if [[ "$host_os" == Darwin ]]; then
     cc="${KUROGANE_CC:-$default_cc}"
     cxx="${KUROGANE_CXX:-$default_cxx}"
@@ -75,16 +71,14 @@ obj="$build/obj"
 lib="$sysroot/usr/lib"
 include="$sysroot/usr/include"
 examples="$build/examples"
-overlay_apps="$root/build/userspace/rootfs/apps"
-overlay_gui="$root/build/userspace/rootfs/gui"
+overlay_root="$root/build/userspace/rootfs"
+overlay_apps="$overlay_root/apps"
+overlay_gui="$overlay_root/gui"
+overlay_etc="$overlay_root/etc"
 
 rm -rf -- "$sysroot" "$obj" "$examples"
-mkdir -p "$include" "$lib" "$obj" "$examples" "$overlay_apps" "$overlay_gui"
+mkdir -p "$include" "$lib" "$obj" "$examples" "$overlay_apps" "$overlay_gui" "$overlay_etc"
 
-# Stage the public headers explicitly instead of relying on cp -R source/.
-# The latter has produced intermittent partial nested-directory copies on macOS
-# during repeated development builds. Creating every destination directory
-# first makes the sysroot deterministic and gives us a useful integrity check.
 header_source="$root/sdk/include"
 while IFS= read -r -d '' directory; do
     relative="${directory#"$header_source"}"
@@ -103,6 +97,16 @@ for required_header in \
 done
 
 cp "$root/userspace/linker.ld" "$lib/kurogane-user.ld"
+
+# Anvil is intentionally repository-driven. The package catalog and payloads
+# live in a separate GitHub repository instead of being baked into the OS tree.
+# Override either value in CI/local builds without changing source.
+anvil_repo_host="${ANVIL_REPO_HOST:-raw.githubusercontent.com}"
+anvil_repo_base="${ANVIL_REPO_BASE:-/KrzysioYT/KuroganeOS-Packages/main}"
+cat > "$overlay_etc/anvil.repo" <<EOF
+HOST=$anvil_repo_host
+BASE=$anvil_repo_base
+EOF
 
 common=(
     -ffreestanding -fno-stack-protector -m64 -mno-red-zone
@@ -151,13 +155,12 @@ example_elf="$examples/hello"
 validate_elf "$example_elf" "external SDK example"
 cp "$example_elf" "$overlay_apps/external"
 
-# source-directory:installed-name. Installed names stay FAT 8.3 compatible
-# because the current installation package intentionally uses short names.
 declare -a gui_specs=(
     login:login
     launcher:launcher
     terminal:terminal
     files:files
+    anvil:anvil
     sysmon:sysmon
     performance:perf
     browser:browser
@@ -181,6 +184,7 @@ for spec in "${gui_specs[@]}"; do
     echo "[sdk] /gui/$install_name"
 done
 
+echo "[sdk] Anvil repo: https://$anvil_repo_host$anvil_repo_base/index.kuro"
 echo "[sdk] sysroot: $sysroot"
 echo "[sdk] external ELF: $example_elf"
 echo "[sdk] crt0 + libc + libkurogane + libui + desktop apps: PASS"
