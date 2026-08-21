@@ -33,6 +33,7 @@ typedef struct kui_view {
     uint32_t flags;
     uint32_t value;
     uint32_t maximum;
+    ku_ui_line_style style;
     char text[KUI_VIEW_TEXT_CAPACITY];
 } kui_view;
 
@@ -45,6 +46,7 @@ typedef struct kui_scene {
     uint32_t visible_rows;
     uint32_t selected_id;
     uint32_t reserved;
+    ku_ui_line_style default_style;
     kui_view views[KUI_MAX_VIEWS];
 } kui_scene;
 
@@ -53,9 +55,12 @@ typedef struct kui_flow {
     uint32_t parent_id;
 } kui_flow;
 
+void kui_line_style_initialize(ku_ui_line_style* style, uint32_t text_context);
 void kui_frame_initialize(ku_ui_frame* frame);
 ku_status_t kui_frame_set_line(
     ku_ui_frame* frame, uint32_t line, const char* text);
+ku_status_t kui_frame_set_line_style(
+    ku_ui_frame* frame, uint32_t line, const ku_ui_line_style* style);
 ku_status_t kui_present(ku_window_t window, const ku_ui_frame* frame);
 int kui_next_event(ku_window_t window, ku_ui_event* event);
 
@@ -65,6 +70,8 @@ void kui_scene_set_palette(
     uint32_t background_rgb,
     uint32_t foreground_rgb,
     uint32_t accent_rgb);
+ku_status_t kui_scene_set_default_style(
+    kui_scene* scene, const ku_ui_line_style* style);
 ku_status_t kui_scene_add(
     kui_scene* scene,
     uint32_t id,
@@ -80,6 +87,8 @@ ku_status_t kui_scene_add_progress(
     uint32_t maximum);
 ku_status_t kui_scene_set_text(
     kui_scene* scene, uint32_t id, const char* text);
+ku_status_t kui_scene_set_style(
+    kui_scene* scene, uint32_t id, const ku_ui_line_style* style);
 ku_status_t kui_scene_set_flags(
     kui_scene* scene, uint32_t id, uint32_t flags);
 ku_status_t kui_scene_set_value(
