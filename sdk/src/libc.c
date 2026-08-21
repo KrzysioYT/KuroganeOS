@@ -42,6 +42,16 @@ int memcmp(const void* left, const void* right, size_t size) {
     return 0;
 }
 
+void* memchr(const void* memory, int character, size_t size) {
+    const unsigned char* bytes = (const unsigned char*)memory;
+    const unsigned char target = (unsigned char)character;
+    if (memory == (const void*)0) return (void*)0;
+    for (size_t index = 0; index < size; ++index) {
+        if (bytes[index] == target) return (void*)(bytes + index);
+    }
+    return (void*)0;
+}
+
 size_t strlen(const char* text) {
     size_t length = 0;
     if (text != (const char*)0) while (text[length] != '\0') ++length;
@@ -72,6 +82,18 @@ char* strchr(const char* text, int character) {
         if (*text == '\0') return (char*)0;
         ++text;
     }
+}
+
+char* strrchr(const char* text, int character) {
+    const char target = (char)character;
+    const char* found = (const char*)0;
+    if (text == (const char*)0) return (char*)0;
+    for (;;) {
+        if (*text == target) found = text;
+        if (*text == '\0') break;
+        ++text;
+    }
+    return (char*)found;
 }
 
 char* strstr(const char* haystack, const char* needle) {
