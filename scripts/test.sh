@@ -8,6 +8,9 @@ mkdir -p "$out" "$logs"
 log="$logs/host-tests.log"
 exec > >(tee "$log") 2>&1
 
+echo "[check] generated GUI icon registry"
+"${PYTHON:-python3}" "$root/scripts/generate-gui-assets.py" --check
+
 cxx="${CXX:-g++}"
 flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic)
 metrics_stub="$root/tests/host_system_metrics_stub.cpp"
@@ -59,6 +62,9 @@ run_test user-console "$root/tests/test_user_console.cpp" \
 run_test window-manager -DKUROGANE_HOST_TEST \
     "$root/tests/test_window_manager.cpp" \
     "$root/kernel/ui/window_manager.cpp"
+run_test icon-registry -I"$root/sdk/include" \
+    "$root/tests/test_icon_registry.cpp" \
+    "$root/kernel/ui/icon_registry.cpp"
 run_test virtual-memory "$root/tests/test_virtual_memory.cpp" \
     "$root/kernel/memory/virtual_memory.cpp"
 run_test elf-loader "$root/tests/test_elf_loader.cpp" \

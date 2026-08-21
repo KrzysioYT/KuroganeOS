@@ -145,6 +145,15 @@ uint32_t native_color(Color color) {
     return color;
 }
 
+Color logical_color(uint32_t color) {
+    if (g_framebuffer.pixel_format == KUROGANE_PIXEL_RGBX8) {
+        return ((color & UINT32_C(0x0000FF)) << 16U) |
+               (color & UINT32_C(0x00FF00)) |
+               ((color & UINT32_C(0xFF0000)) >> 16U);
+    }
+    return color & UINT32_C(0x00FFFFFF);
+}
+
 const uint8_t* glyph_rows(char character) {
     for (const auto& glyph : kGlyphs) {
         if (glyph.character == character) return glyph.rows;
@@ -455,6 +464,32 @@ void put_pixel(int32_t x, int32_t y, Color color) {
     auto* row = reinterpret_cast<uint32_t*>(
         draw_base() + static_cast<size_t>(y) * draw_pitch());
     row[x] = native_color(color);
+}
+
+Color get_pixel(int32_t x, int32_t y) {
+    if (!g_available || x < 0 || y < 0 ||
+        x >= static_cast<int32_t>(g_framebuffer.width) ||
+        y >= static_cast<int32_t>(g_framebuffer.height)) return 0U;
+    const auto* row = reinterpret_cast<const uint32_t*>(
+        draw_base() + static_cast<size_t>(y) * draw_pitch());
+    return logical_color(row[x]);
+}
+
+void blend_pixel(int32_t x, int32_t y, Color color, uint8_t alpha) {
+    if (alpha == 0U) return;
+    if (alpha == UINT8_MAX) {
+        put_pixel(x, y, color);
+        return;
+    }
+    const Color background = get_pixel(x, y);
+    const uint32_t inverse = UINT32_C(255) - alpha;
+    const uint32_t red = (((color >> 16U) & UINT32_C(0xFF)) * alpha +
+                          ((background >> 16U) & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    const uint32_t green = (((color >> 8U) & UINT32_C(0xFF)) * alpha +
+                            ((background >> 8U) & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    const uint32_t blue = ((color & UINT32_C(0xFF)) * alpha +
+                           (background & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    put_pixel(x, y, (red << 16U) | (green << 8U) | blue);
 }
 
 void clear(Color color) {

@@ -67,6 +67,8 @@ for tool in "$cc" "$cxx" "$ld" "$ar" "$objcopy" "$readelf" python3 make; do
     }
 done
 
+python3 scripts/generate-gui-assets.py --check
+
 verify_x86_64_toolchain() {
     local probe_dir probe_src probe_obj
     probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-x86_64-probe.XXXXXX")"

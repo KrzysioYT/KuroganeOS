@@ -45,6 +45,7 @@ $UserspaceRootFs = Join-Path $UserspaceBuildDir 'rootfs'
 $ToolchainDir = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin'
 $StateDir = Join-Path $RootDir 'state'
 $BuildLockPath = Join-Path $StateDir '.build.lock'
+$GuiAssetGenerator = Join-Path $RootDir 'scripts\generate-gui-assets.py'
 $tools = @{
     CC      = Join-Path $ToolchainDir 'x86_64-elf-gcc.exe'
     CXX     = Join-Path $ToolchainDir 'x86_64-elf-g++.exe'
@@ -552,6 +553,14 @@ try {
     }
 
     if (-not $StageOnly) {
+        $Python = Get-Command python -ErrorAction SilentlyContinue
+        if ($null -eq $Python) {
+            throw 'Python is required to verify the generated KuroganeOS GUI asset registry.'
+        }
+        & $Python.Source $GuiAssetGenerator --check
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Generated KuroganeOS GUI assets are stale or invalid.'
+        }
         foreach ($tool in $tools.Values) {
             Assert-Tool -Path $tool
         }
