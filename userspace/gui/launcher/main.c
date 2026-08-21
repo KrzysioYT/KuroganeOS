@@ -14,25 +14,19 @@ typedef struct launcher_app {
 } launcher_app;
 
 static const launcher_app g_apps[APP_COUNT] = {
-    {"TERMINAL", "shared shell / development", "/gui/terminal", KU_DESKTOP_APP_TERMINAL},
-    {"FILES", "persistent root / applications", "/gui/files", KU_DESKTOP_APP_FILES},
-    {"PERFORMANCE", "live CPU/GFX/RAM/disk", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE},
-    {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER},
-    {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR},
-    {"SETTINGS", "appearance / sound", "/gui/settings", KU_DESKTOP_APP_SETTINGS},
-    {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT},
+    {"TERMINAL", "shell + developer tools", "/gui/terminal", KU_DESKTOP_APP_TERMINAL},
+    {"FILES", "browse files and applications", "/gui/files", KU_DESKTOP_APP_FILES},
+    {"PERFORMANCE", "live CPU / graphics / memory", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE},
+    {"KUROGANE WEB", "native browser + HTTPS", "/gui/browser", KU_DESKTOP_APP_BROWSER},
+    {"SYSTEM MONITOR", "process and runtime health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR},
+    {"SETTINGS", "network / appearance / audio / system", "/gui/settings", KU_DESKTOP_APP_SETTINGS},
+    {"ABOUT", "KuroganeOS platform information", "/gui/about", KU_DESKTOP_APP_ABOUT},
 };
 
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "APPS MENU / PERFORMANCE AUTOSTART";
-
-static void append_text(char* destination, size_t capacity, const char* source) {
-    const size_t used = strlen(destination);
-    if (used >= capacity) return;
-    (void)strlcpy(destination + used, source, capacity - used);
-}
+static char g_status[64] = "HOME / READY";
 
 static void reap_children(void) {
     size_t index;
@@ -79,22 +73,22 @@ static int launch_app(size_t index, int quiet_if_running) {
     app = &g_apps[index];
     if (app_is_running(app->desktop_id)) {
         if (!quiet_if_running) {
-            (void)strlcpy(g_status, "ALREADY RUNNING / USE DOCK TO FOCUS", sizeof(g_status));
+            (void)strlcpy(g_status, "RUNNING / USE DOCK TO FOCUS", sizeof(g_status));
         }
         return 1;
     }
 
     result = ku_process_spawn(app->path, strlen(app->path));
     if (result <= 0) {
-        (void)strlcpy(g_status, "APP LAUNCH FAILED", sizeof(g_status));
+        (void)strlcpy(g_status, "APP / LAUNCH FAILED", sizeof(g_status));
         return 0;
     }
     (void)remember_child((uint64_t)result, app->desktop_id);
     gui_u64(number, sizeof(number), (uint64_t)result);
-    (void)strlcpy(g_status, "OPENED ", sizeof(g_status));
-    append_text(g_status, sizeof(g_status), app->label);
-    append_text(g_status, sizeof(g_status), " / PID ");
-    append_text(g_status, sizeof(g_status), number);
+    (void)strlcpy(g_status, "OPENED / ", sizeof(g_status));
+    gui_append_text(g_status, sizeof(g_status), app->label);
+    gui_append_text(g_status, sizeof(g_status), " / PID ");
+    gui_append_text(g_status, sizeof(g_status), number);
     return 1;
 }
 
@@ -183,17 +177,16 @@ static void toggle_selected_pin(void) {
     request.app_id = app->desktop_id;
     request.action = KU_DESKTOP_PIN_TOGGLE;
     if (ku_desktop_pin(&request) != KU_STATUS_OK) {
-        (void)strlcpy(g_status, "DESKTOP PIN OPERATION FAILED", sizeof(g_status));
+        (void)strlcpy(g_status, "DOCK / PIN OPERATION FAILED", sizeof(g_status));
         return;
     }
-    (void)strlcpy(g_status, request.pinned != 0U ? "PINNED " : "UNPINNED ",
+    (void)strlcpy(g_status, request.pinned != 0U ? "PINNED / " : "UNPINNED / ",
                   sizeof(g_status));
-    append_text(g_status, sizeof(g_status), app->label);
-    if (save_pin_state()) {
-        append_text(g_status, sizeof(g_status), " / SAVED");
-    } else {
-        append_text(g_status, sizeof(g_status), " / SESSION ONLY");
-    }
+    gui_append_text(g_status, sizeof(g_status), app->label);
+    gui_append_text(
+        g_status,
+        sizeof(g_status),
+        save_pin_state() ? " / SAVED" : " / SESSION ONLY");
 }
 
 static void build_scene(kui_scene* scene) {
@@ -201,26 +194,21 @@ static void build_scene(kui_scene* scene) {
     kui_flow apps;
     size_t index;
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    scene->visible_rows = KU_UI_MAX_LINES;
+    gui_apply_obsidian_theme(scene, 0);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "RED FLUX APPS / START");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / APPLICATIONS");
-    (void)kui_flow_label(&root, 3U,
-        "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN DESKTOP");
+    (void)kui_flow_panel(&root, 1U, "KUROGANE HOME / APPLICATIONS");
+    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / OBSIDIAN DESKTOP");
+    (void)kui_flow_label(&root, 3U, "ARROWS SELECT   ENTER OPEN   P PIN TO DOCK");
 
     kui_flow_begin(&apps, scene, 1U);
     for (index = 0U; index < APP_COUNT; ++index) {
         char label[64] = "";
-        append_text(label, sizeof(label), pin_state(g_apps[index].desktop_id) ? "[PIN] " : "[   ] ");
-        append_text(label, sizeof(label), g_apps[index].label);
-        append_text(label, sizeof(label), " / ");
-        append_text(label, sizeof(label), g_apps[index].subtitle);
+        gui_append_text(label, sizeof(label), pin_state(g_apps[index].desktop_id) ? "PIN  " : "     ");
+        gui_append_text(label, sizeof(label), g_apps[index].label);
+        gui_append_text(label, sizeof(label), " / ");
+        gui_append_text(label, sizeof(label), g_apps[index].subtitle);
         (void)kui_flow_list_item(&apps, 10U + (uint32_t)index, label);
     }
     (void)kui_flow_separator(&root, 30U);
@@ -229,8 +217,8 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
-    /* Keep the window title stable: WindowManager treats it as session root. */
-    const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
+    /* Keep Home as the stable session root expected by WindowManager/PID1. */
+    const ku_window_t window = gui_open("KUROGANE HOME", 230, 120, 720, 520);
     kui_scene scene;
     size_t index;
     if (window == KU_INVALID_WINDOW) return 1;
@@ -241,7 +229,7 @@ int main(void) {
     }
 
     if (load_pin_state()) {
-        (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
+        (void)strlcpy(g_status, "HOME / DOCK STATE RESTORED", sizeof(g_status));
         puts("[TEST] desktop_pin_persistence_load: PASS");
     } else {
         puts("[TEST] desktop_pin_persistence_load: DEFAULT");
@@ -251,9 +239,8 @@ int main(void) {
     puts("[TEST] desktop_clean_session: PASS");
     puts("[TEST] desktop_arrow_navigation: PASS");
     puts("[TEST] red_flux_dock_controller: PASS");
-    puts("[TEST] red_flux_home_pinned: PASS");
     puts("[TEST] desktop_app_pinning: PASS");
-    puts("[TEST] red_flux_apps_menu: PASS");
+    puts("[TEST] kurogane5_obsidian_home: PASS");
 
     if (launch_app(2U, 1)) {
         puts("[TEST] desktop_performance_autostart: PASS");
@@ -298,7 +285,7 @@ int main(void) {
         } else if (event.character == 'a' || event.character == 'A') {
             select_and_launch(6U);
         } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_status, "APPS / START / DOCK ACTIVE", sizeof(g_status));
+            (void)strlcpy(g_status, "HOME / DOCK ACTIVE", sizeof(g_status));
         } else {
             continue;
         }
