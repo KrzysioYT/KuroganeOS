@@ -204,11 +204,11 @@ function Invoke-WslBash {
         [string]$Script
     )
 
-    # Windows PowerShell 5.1 re-quotes native arguments, which can corrupt a
-    # multiline `bash -lc` program.  Encode the complete script so the only
-    # dynamic shell token uses the restricted Base64 alphabet, then decode it
-    # inside WSL and let Bash read the original UTF-8 bytes from stdin.
-    $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+    # Windows PowerShell here-strings follow the host newline convention. Normalize
+    # every Bash payload to LF before Base64 encoding so WSL never receives CRLF,
+    # regardless of Git checkout settings or the source file's line endings.
+    $normalizedScript = $Script.Replace("`r`n", "`n").Replace("`r", "`n")
+    $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($normalizedScript))
     $bootstrap = "set -o pipefail;printf %s $encodedScript|base64 -d|bash -s --"
     & $WslExecutable --exec bash -c $bootstrap
 }
