@@ -49,6 +49,12 @@ static chromium_browser_context g_browser;
  * Blink/V8 can replace only the bootstrap renderer when the required platform
  * APIs exist. No Chromium source is copied into this file and the current
  * renderer is intentionally labelled as a bootstrap fallback.
+ *
+ * Browser chrome and document text also have separate text contexts.  The
+ * desktop may resolve SYSTEM_UI to Kurogane Sans, but document content uses the
+ * document generic family until Blink/CSS supplies the requested family.  This
+ * prevents the operating-system theme from becoming an implicit page-wide
+ * font override.
  */
 
 static void append_text(char* destination, size_t capacity, const char* source) {
@@ -608,6 +614,8 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
 
 static void build_scene(kui_scene* scene) {
     kui_flow root;
+    ku_ui_line_style system_style;
+    ku_ui_line_style document_style;
     size_t index;
     char address[BROWSER_URL_CAPACITY + 18U] = "SEARCH / ADDRESS  ";
     char engine[96] = "ENGINE  CHROMIUM CONTENT_SHELL PORT / UPSTREAM ";
@@ -626,6 +634,11 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0xECEEF1),
         UINT32_C(0xDE192D));
 
+    kui_line_style_initialize(&system_style, KU_TEXT_CONTEXT_SYSTEM_UI);
+    system_style.text.size_px = UINT32_C(14);
+    system_style.text.line_height_px = UINT32_C(18);
+    (void)kui_scene_set_default_style(scene, &system_style);
+
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
@@ -635,6 +648,24 @@ static void build_scene(kui_scene* scene) {
     (void)kui_flow_label(&root, 6U, stage);
     (void)kui_flow_label(&root, 7U, g_browser.status);
     (void)kui_flow_separator(&root, 8U);
+
+    /*
+     * Bootstrap document text is deliberately not SYSTEM_UI.  Blink will later
+     * replace this fallback and supply CSS font-family/weight/style directly.
+     * Until then, the document context resolves to generic sans-serif and is
+     * explicitly tagged as document content so desktop theming cannot become a
+     * page-wide implicit font rule.
+     */
+    kui_line_style_initialize(&document_style, KU_TEXT_CONTEXT_DOCUMENT);
+    document_style.text.size_px = UINT32_C(14);
+    document_style.text.line_height_px = UINT32_C(20);
+    document_style.foreground_rgb = UINT32_C(0xE5E7EB);
+    document_style.background_rgb = UINT32_C(0x111318);
+    document_style.flags =
+        KU_UI_LINE_STYLE_DOCUMENT_CONTENT |
+        KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND;
+    (void)kui_scene_set_default_style(scene, &document_style);
+
     for (index = 0U; index < BROWSER_RENDER_LINES; ++index) {
         (void)kui_flow_label(
             &root,
@@ -642,10 +673,12 @@ static void build_scene(kui_scene* scene) {
             g_browser.render_lines[index][0] != '\0'
                 ? g_browser.render_lines[index] : " ");
     }
+
+    (void)kui_scene_set_default_style(scene, &system_style);
     (void)kui_flow_separator(&root, 30U);
     (void)kui_flow_label(
         &root, 31U,
-        "BOUNDED RENDERER / NETWORK WORK SLEEPS BETWEEN POLLS TO LIMIT CPU LOAD");
+        "BOOTSTRAP DOCUMENT CONTEXT / BLINK CSS WILL REPLACE TEXT FALLBACK");
 }
 
 int main(void) {
@@ -661,6 +694,7 @@ int main(void) {
     puts("[TEST] chromium_port_omnibox_search: PASS");
     puts("[TEST] chromium_port_https_path: PASS");
     puts("[TEST] chromium_port_bounded_partial_response: PASS");
+    puts("[TEST] chromium_port_document_font_context: PASS");
 
     for (;;) {
         ku_ui_event event;
