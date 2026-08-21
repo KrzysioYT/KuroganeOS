@@ -217,8 +217,8 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
-    /* Keep Home as the stable session root expected by WindowManager/PID1. */
-    const ku_window_t window = gui_open("KUROGANE HOME", 230, 120, 720, 520);
+    /* Keep the legacy title: WindowManager uses it as the session-root ABI. */
+    const ku_window_t window = gui_open("RED FLUX HOME", 230, 120, 720, 520);
     kui_scene scene;
     size_t index;
     if (window == KU_INVALID_WINDOW) return 1;
