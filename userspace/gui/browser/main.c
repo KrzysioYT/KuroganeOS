@@ -379,6 +379,11 @@ static void render_view_commit(chromium_browser_context* context, const char* bo
     render_clear(context);
     while (body[index] != '\0' && line < BROWSER_RENDER_LINES) {
         const char ch = body[index];
+        uint32_t codepoint = 0U;
+        size_t consumed = 1U;
+        size_t available = 1U;
+        size_t token_bytes;
+
         if (ch == '<') {
             const char* tag = body + index + 1U;
             inside_tag = 1;
@@ -401,8 +406,15 @@ static void render_view_commit(chromium_browser_context* context, const char* bo
             ++index;
             continue;
         }
-        if ((unsigned char)ch < 0x20U || (unsigned char)ch > 0x7EU) {
-            ++index;
+
+        while (available < 4U && body[index + available] != '\0') ++available;
+        if (!ku_utf8_decode_one(body + index, available, &codepoint, &consumed)) {
+            codepoint = UINT32_C(0xFFFD);
+            consumed = 1U;
+        }
+        if (codepoint < UINT32_C(0x20) ||
+            (codepoint >= UINT32_C(0x7F) && codepoint <= UINT32_C(0x9F))) {
+            index += consumed;
             continue;
         }
 
@@ -422,14 +434,23 @@ static void render_view_commit(chromium_browser_context* context, const char* bo
             }
         }
         pending_space = 0;
-        if (column + 1U >= BROWSER_RENDER_LINE_CAPACITY) {
+
+        token_bytes = codepoint == KU_UNICODE_REPLACEMENT_CHARACTER
+            ? 1U : consumed;
+        if (column + token_bytes >= BROWSER_RENDER_LINE_CAPACITY) {
             ++line;
             column = 0U;
             if (line >= BROWSER_RENDER_LINES) break;
         }
-        context->render_lines[line][column++] = ch;
+
+        if (codepoint == KU_UNICODE_REPLACEMENT_CHARACTER) {
+            context->render_lines[line][column++] = '?';
+        } else {
+            memcpy(context->render_lines[line] + column, body + index, token_bytes);
+            column += token_bytes;
+        }
         context->render_lines[line][column] = '\0';
-        ++index;
+        index += consumed;
     }
 
     if (context->render_lines[0][0] == '\0') {
@@ -695,6 +716,7 @@ int main(void) {
     puts("[TEST] chromium_port_https_path: PASS");
     puts("[TEST] chromium_port_bounded_partial_response: PASS");
     puts("[TEST] chromium_port_document_font_context: PASS");
+    puts("[TEST] chromium_port_utf8_document_text: PASS");
 
     for (;;) {
         ku_ui_event event;
