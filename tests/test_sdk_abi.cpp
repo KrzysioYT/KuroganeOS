@@ -6,6 +6,7 @@
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
+#include <kurogane/text.h>
 #include <kurogane/ui.h>
 
 #include <cassert>
@@ -108,11 +109,33 @@ int main() {
     static_assert(offsetof(ku_ipc_message, sender_pid) == 8);
     static_assert(offsetof(ku_ipc_message, data) == 16);
 
+    static_assert(KU_TEXT_ABI_VERSION == 1U);
+    static_assert(KU_UI_ABI_VERSION == 2U);
+    static_assert(sizeof(ku_text_style) == 32);
     static_assert(sizeof(ku_ui_window_options) == 20);
-    static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_line_style) == 48);
+    static_assert(sizeof(ku_ui_frame) == 1376);
     static_assert(sizeof(ku_ui_event) == 32);
+    static_assert(offsetof(ku_ui_frame, line_styles) == 800);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
+
+    const ku_text_style system_style =
+        ku_text_default_style(KU_TEXT_CONTEXT_SYSTEM_UI);
+    const ku_text_style document_style =
+        ku_text_default_style(KU_TEXT_CONTEXT_DOCUMENT);
+    assert(ku_text_style_valid(&system_style));
+    assert(ku_text_style_valid(&document_style));
+    assert(system_style.family == KU_FONT_FAMILY_SYSTEM_UI);
+    assert(document_style.family == KU_FONT_FAMILY_SANS_SERIF);
+    assert(document_style.family != system_style.family);
+
+    ku_text_style invalid_style = document_style;
+    invalid_style.weight = 450U;
+    assert(!ku_text_style_valid(&invalid_style));
+    invalid_style = document_style;
+    invalid_style.size_px = KU_TEXT_MAX_SIZE_PX + 1U;
+    assert(!ku_text_style_valid(&invalid_style));
 
     assert(ku_system_ticks_to_milliseconds(0U) == 0U);
     assert(ku_system_ticks_to_milliseconds(1U) == 10U);
