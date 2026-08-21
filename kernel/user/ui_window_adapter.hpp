@@ -2,15 +2,15 @@
 
 #include "../ui/window_manager.hpp"
 
-namespace user::runtime::ui_adapter {
+namespace windowing {
 
-windowing::Status create_window(
+Status create_ring3_window(
     const char* title,
     uint64_t owner_pid,
     const ui::Rect& bounds,
-    windowing::DrawCallback draw,
-    windowing::InputCallback input_callback,
+    DrawCallback draw,
+    InputCallback input_callback,
     void* context,
-    windowing::WindowId* out_id);
+    WindowId* out_id);
 
-} // namespace user::runtime::ui_adapter
+} // namespace windowing
