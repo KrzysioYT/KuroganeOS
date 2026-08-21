@@ -1,0 +1,1235 @@
+{
+  "name": "KuroganeOS 5.0 GUI Icon Pack",
+  "source": "AI-generated KuroganeOS 5.0 concept sheet supplied in this conversation",
+  "format": "PNG RGBA",
+  "sizes": [
+    64,
+    128,
+    256
+  ],
+  "icon_count": 150,
+  "categories": {
+    "applications": [
+      {
+        "name": "terminal",
+        "files": {
+          "64": "applications/64/terminal.png",
+          "128": "applications/128/terminal.png",
+          "256": "applications/256/terminal.png"
+        }
+      },
+      {
+        "name": "browser",
+        "files": {
+          "64": "applications/64/browser.png",
+          "128": "applications/128/browser.png",
+          "256": "applications/256/browser.png"
+        }
+      },
+      {
+        "name": "file_manager",
+        "files": {
+          "64": "applications/64/file_manager.png",
+          "128": "applications/128/file_manager.png",
+          "256": "applications/256/file_manager.png"
+        }
+      },
+      {
+        "name": "settings",
+        "files": {
+          "64": "applications/64/settings.png",
+          "128": "applications/128/settings.png",
+          "256": "applications/256/settings.png"
+        }
+      },
+      {
+        "name": "control_panel",
+        "files": {
+          "64": "applications/64/control_panel.png",
+          "128": "applications/128/control_panel.png",
+          "256": "applications/256/control_panel.png"
+        }
+      },
+      {
+        "name": "system_monitor",
+        "files": {
+          "64": "applications/64/system_monitor.png",
+          "128": "applications/128/system_monitor.png",
+          "256": "applications/256/system_monitor.png"
+        }
+      },
+      {
+        "name": "package_manager",
+        "files": {
+          "64": "applications/64/package_manager.png",
+          "128": "applications/128/package_manager.png",
+          "256": "applications/256/package_manager.png"
+        }
+      },
+      {
+        "name": "text_editor",
+        "files": {
+          "64": "applications/64/text_editor.png",
+          "128": "applications/128/text_editor.png",
+          "256": "applications/256/text_editor.png"
+        }
+      },
+      {
+        "name": "ide_dev",
+        "files": {
+          "64": "applications/64/ide_dev.png",
+          "128": "applications/128/ide_dev.png",
+          "256": "applications/256/ide_dev.png"
+        }
+      },
+      {
+        "name": "media_player",
+        "files": {
+          "64": "applications/64/media_player.png",
+          "128": "applications/128/media_player.png",
+          "256": "applications/256/media_player.png"
+        }
+      },
+      {
+        "name": "image_viewer",
+        "files": {
+          "64": "applications/64/image_viewer.png",
+          "128": "applications/128/image_viewer.png",
+          "256": "applications/256/image_viewer.png"
+        }
+      },
+      {
+        "name": "pdf_viewer",
+        "files": {
+          "64": "applications/64/pdf_viewer.png",
+          "128": "applications/128/pdf_viewer.png",
+          "256": "applications/256/pdf_viewer.png"
+        }
+      },
+      {
+        "name": "archive",
+        "files": {
+          "64": "applications/64/archive.png",
+          "128": "applications/128/archive.png",
+          "256": "applications/256/archive.png"
+        }
+      },
+      {
+        "name": "calculator",
+        "files": {
+          "64": "applications/64/calculator.png",
+          "128": "applications/128/calculator.png",
+          "256": "applications/256/calculator.png"
+        }
+      },
+      {
+        "name": "mail",
+        "files": {
+          "64": "applications/64/mail.png",
+          "128": "applications/128/mail.png",
+          "256": "applications/256/mail.png"
+        }
+      },
+      {
+        "name": "calendar",
+        "files": {
+          "64": "applications/64/calendar.png",
+          "128": "applications/128/calendar.png",
+          "256": "applications/256/calendar.png"
+        }
+      },
+      {
+        "name": "clock",
+        "files": {
+          "64": "applications/64/clock.png",
+          "128": "applications/128/clock.png",
+          "256": "applications/256/clock.png"
+        }
+      },
+      {
+        "name": "task_manager",
+        "files": {
+          "64": "applications/64/task_manager.png",
+          "128": "applications/128/task_manager.png",
+          "256": "applications/256/task_manager.png"
+        }
+      },
+      {
+        "name": "screenshot",
+        "files": {
+          "64": "applications/64/screenshot.png",
+          "128": "applications/128/screenshot.png",
+          "256": "applications/256/screenshot.png"
+        }
+      },
+      {
+        "name": "camera",
+        "files": {
+          "64": "applications/64/camera.png",
+          "128": "applications/128/camera.png",
+          "256": "applications/256/camera.png"
+        }
+      },
+      {
+        "name": "screenshot_tool",
+        "files": {
+          "64": "applications/64/screenshot_tool.png",
+          "128": "applications/128/screenshot_tool.png",
+          "256": "applications/256/screenshot_tool.png"
+        }
+      }
+    ],
+    "folders": [
+      {
+        "name": "home",
+        "files": {
+          "64": "folders/64/home.png",
+          "128": "folders/128/home.png",
+          "256": "folders/256/home.png"
+        }
+      },
+      {
+        "name": "desktop",
+        "files": {
+          "64": "folders/64/desktop.png",
+          "128": "folders/128/desktop.png",
+          "256": "folders/256/desktop.png"
+        }
+      },
+      {
+        "name": "documents",
+        "files": {
+          "64": "folders/64/documents.png",
+          "128": "folders/128/documents.png",
+          "256": "folders/256/documents.png"
+        }
+      },
+      {
+        "name": "downloads",
+        "files": {
+          "64": "folders/64/downloads.png",
+          "128": "folders/128/downloads.png",
+          "256": "folders/256/downloads.png"
+        }
+      },
+      {
+        "name": "pictures",
+        "files": {
+          "64": "folders/64/pictures.png",
+          "128": "folders/128/pictures.png",
+          "256": "folders/256/pictures.png"
+        }
+      },
+      {
+        "name": "music",
+        "files": {
+          "64": "folders/64/music.png",
+          "128": "folders/128/music.png",
+          "256": "folders/256/music.png"
+        }
+      },
+      {
+        "name": "videos",
+        "files": {
+          "64": "folders/64/videos.png",
+          "128": "folders/128/videos.png",
+          "256": "folders/256/videos.png"
+        }
+      },
+      {
+        "name": "projects",
+        "files": {
+          "64": "folders/64/projects.png",
+          "128": "folders/128/projects.png",
+          "256": "folders/256/projects.png"
+        }
+      },
+      {
+        "name": "code",
+        "files": {
+          "64": "folders/64/code.png",
+          "128": "folders/128/code.png",
+          "256": "folders/256/code.png"
+        }
+      },
+      {
+        "name": "games",
+        "files": {
+          "64": "folders/64/games.png",
+          "128": "folders/128/games.png",
+          "256": "folders/256/games.png"
+        }
+      },
+      {
+        "name": "system",
+        "files": {
+          "64": "folders/64/system.png",
+          "128": "folders/128/system.png",
+          "256": "folders/256/system.png"
+        }
+      },
+      {
+        "name": "config",
+        "files": {
+          "64": "folders/64/config.png",
+          "128": "folders/128/config.png",
+          "256": "folders/256/config.png"
+        }
+      },
+      {
+        "name": "temp",
+        "files": {
+          "64": "folders/64/temp.png",
+          "128": "folders/128/temp.png",
+          "256": "folders/256/temp.png"
+        }
+      },
+      {
+        "name": "backup",
+        "files": {
+          "64": "folders/64/backup.png",
+          "128": "folders/128/backup.png",
+          "256": "folders/256/backup.png"
+        }
+      },
+      {
+        "name": "cloud",
+        "files": {
+          "64": "folders/64/cloud.png",
+          "128": "folders/128/cloud.png",
+          "256": "folders/256/cloud.png"
+        }
+      }
+    ],
+    "file_types": [
+      {
+        "name": "txt",
+        "files": {
+          "64": "file_types/64/txt.png",
+          "128": "file_types/128/txt.png",
+          "256": "file_types/256/txt.png"
+        }
+      },
+      {
+        "name": "md",
+        "files": {
+          "64": "file_types/64/md.png",
+          "128": "file_types/128/md.png",
+          "256": "file_types/256/md.png"
+        }
+      },
+      {
+        "name": "log",
+        "files": {
+          "64": "file_types/64/log.png",
+          "128": "file_types/128/log.png",
+          "256": "file_types/256/log.png"
+        }
+      },
+      {
+        "name": "conf",
+        "files": {
+          "64": "file_types/64/conf.png",
+          "128": "file_types/128/conf.png",
+          "256": "file_types/256/conf.png"
+        }
+      },
+      {
+        "name": "json",
+        "files": {
+          "64": "file_types/64/json.png",
+          "128": "file_types/128/json.png",
+          "256": "file_types/256/json.png"
+        }
+      },
+      {
+        "name": "cpp_c",
+        "files": {
+          "64": "file_types/64/cpp_c.png",
+          "128": "file_types/128/cpp_c.png",
+          "256": "file_types/256/cpp_c.png"
+        }
+      },
+      {
+        "name": "h",
+        "files": {
+          "64": "file_types/64/h.png",
+          "128": "file_types/128/h.png",
+          "256": "file_types/256/h.png"
+        }
+      },
+      {
+        "name": "py",
+        "files": {
+          "64": "file_types/64/py.png",
+          "128": "file_types/128/py.png",
+          "256": "file_types/256/py.png"
+        }
+      },
+      {
+        "name": "js",
+        "files": {
+          "64": "file_types/64/js.png",
+          "128": "file_types/128/js.png",
+          "256": "file_types/256/js.png"
+        }
+      },
+      {
+        "name": "html",
+        "files": {
+          "64": "file_types/64/html.png",
+          "128": "file_types/128/html.png",
+          "256": "file_types/256/html.png"
+        }
+      },
+      {
+        "name": "css",
+        "files": {
+          "64": "file_types/64/css.png",
+          "128": "file_types/128/css.png",
+          "256": "file_types/256/css.png"
+        }
+      },
+      {
+        "name": "sql",
+        "files": {
+          "64": "file_types/64/sql.png",
+          "128": "file_types/128/sql.png",
+          "256": "file_types/256/sql.png"
+        }
+      },
+      {
+        "name": "sh",
+        "files": {
+          "64": "file_types/64/sh.png",
+          "128": "file_types/128/sh.png",
+          "256": "file_types/256/sh.png"
+        }
+      },
+      {
+        "name": "iso",
+        "files": {
+          "64": "file_types/64/iso.png",
+          "128": "file_types/128/iso.png",
+          "256": "file_types/256/iso.png"
+        }
+      },
+      {
+        "name": "img",
+        "files": {
+          "64": "file_types/64/img.png",
+          "128": "file_types/128/img.png",
+          "256": "file_types/256/img.png"
+        }
+      },
+      {
+        "name": "zip_7z",
+        "files": {
+          "64": "file_types/64/zip_7z.png",
+          "128": "file_types/128/zip_7z.png",
+          "256": "file_types/256/zip_7z.png"
+        }
+      },
+      {
+        "name": "rar",
+        "files": {
+          "64": "file_types/64/rar.png",
+          "128": "file_types/128/rar.png",
+          "256": "file_types/256/rar.png"
+        }
+      },
+      {
+        "name": "pdf",
+        "files": {
+          "64": "file_types/64/pdf.png",
+          "128": "file_types/128/pdf.png",
+          "256": "file_types/256/pdf.png"
+        }
+      },
+      {
+        "name": "png",
+        "files": {
+          "64": "file_types/64/png.png",
+          "128": "file_types/128/png.png",
+          "256": "file_types/256/png.png"
+        }
+      },
+      {
+        "name": "jpg_jpeg",
+        "files": {
+          "64": "file_types/64/jpg_jpeg.png",
+          "128": "file_types/128/jpg_jpeg.png",
+          "256": "file_types/256/jpg_jpeg.png"
+        }
+      }
+    ],
+    "drives": [
+      {
+        "name": "local_drive",
+        "files": {
+          "64": "drives/64/local_drive.png",
+          "128": "drives/128/local_drive.png",
+          "256": "drives/256/local_drive.png"
+        }
+      },
+      {
+        "name": "system_drive",
+        "files": {
+          "64": "drives/64/system_drive.png",
+          "128": "drives/128/system_drive.png",
+          "256": "drives/256/system_drive.png"
+        }
+      },
+      {
+        "name": "external_drive",
+        "files": {
+          "64": "drives/64/external_drive.png",
+          "128": "drives/128/external_drive.png",
+          "256": "drives/256/external_drive.png"
+        }
+      },
+      {
+        "name": "usb_drive",
+        "files": {
+          "64": "drives/64/usb_drive.png",
+          "128": "drives/128/usb_drive.png",
+          "256": "drives/256/usb_drive.png"
+        }
+      },
+      {
+        "name": "ssd",
+        "files": {
+          "64": "drives/64/ssd.png",
+          "128": "drives/128/ssd.png",
+          "256": "drives/256/ssd.png"
+        }
+      },
+      {
+        "name": "hdd",
+        "files": {
+          "64": "drives/64/hdd.png",
+          "128": "drives/128/hdd.png",
+          "256": "drives/256/hdd.png"
+        }
+      },
+      {
+        "name": "network_drive",
+        "files": {
+          "64": "drives/64/network_drive.png",
+          "128": "drives/128/network_drive.png",
+          "256": "drives/256/network_drive.png"
+        }
+      },
+      {
+        "name": "cloud_drive",
+        "files": {
+          "64": "drives/64/cloud_drive.png",
+          "128": "drives/128/cloud_drive.png",
+          "256": "drives/256/cloud_drive.png"
+        }
+      },
+      {
+        "name": "optical_disc",
+        "files": {
+          "64": "drives/64/optical_disc.png",
+          "128": "drives/128/optical_disc.png",
+          "256": "drives/256/optical_disc.png"
+        }
+      },
+      {
+        "name": "ram_disk",
+        "files": {
+          "64": "drives/64/ram_disk.png",
+          "128": "drives/128/ram_disk.png",
+          "256": "drives/256/ram_disk.png"
+        }
+      }
+    ],
+    "status": [
+      {
+        "name": "online",
+        "files": {
+          "64": "status/64/online.png",
+          "128": "status/128/online.png",
+          "256": "status/256/online.png"
+        }
+      },
+      {
+        "name": "offline",
+        "files": {
+          "64": "status/64/offline.png",
+          "128": "status/128/offline.png",
+          "256": "status/256/offline.png"
+        }
+      },
+      {
+        "name": "busy",
+        "files": {
+          "64": "status/64/busy.png",
+          "128": "status/128/busy.png",
+          "256": "status/256/busy.png"
+        }
+      },
+      {
+        "name": "sync",
+        "files": {
+          "64": "status/64/sync.png",
+          "128": "status/128/sync.png",
+          "256": "status/256/sync.png"
+        }
+      },
+      {
+        "name": "error",
+        "files": {
+          "64": "status/64/error.png",
+          "128": "status/128/error.png",
+          "256": "status/256/error.png"
+        }
+      },
+      {
+        "name": "wifi",
+        "files": {
+          "64": "status/64/wifi.png",
+          "128": "status/128/wifi.png",
+          "256": "status/256/wifi.png"
+        }
+      },
+      {
+        "name": "bluetooth",
+        "files": {
+          "64": "status/64/bluetooth.png",
+          "128": "status/128/bluetooth.png",
+          "256": "status/256/bluetooth.png"
+        }
+      },
+      {
+        "name": "ethernet",
+        "files": {
+          "64": "status/64/ethernet.png",
+          "128": "status/128/ethernet.png",
+          "256": "status/256/ethernet.png"
+        }
+      },
+      {
+        "name": "battery",
+        "files": {
+          "64": "status/64/battery.png",
+          "128": "status/128/battery.png",
+          "256": "status/256/battery.png"
+        }
+      },
+      {
+        "name": "power",
+        "files": {
+          "64": "status/64/power.png",
+          "128": "status/128/power.png",
+          "256": "status/256/power.png"
+        }
+      },
+      {
+        "name": "microphone",
+        "files": {
+          "64": "status/64/microphone.png",
+          "128": "status/128/microphone.png",
+          "256": "status/256/microphone.png"
+        }
+      },
+      {
+        "name": "muted",
+        "files": {
+          "64": "status/64/muted.png",
+          "128": "status/128/muted.png",
+          "256": "status/256/muted.png"
+        }
+      },
+      {
+        "name": "speaker",
+        "files": {
+          "64": "status/64/speaker.png",
+          "128": "status/128/speaker.png",
+          "256": "status/256/speaker.png"
+        }
+      },
+      {
+        "name": "no_sound",
+        "files": {
+          "64": "status/64/no_sound.png",
+          "128": "status/128/no_sound.png",
+          "256": "status/256/no_sound.png"
+        }
+      },
+      {
+        "name": "recording",
+        "files": {
+          "64": "status/64/recording.png",
+          "128": "status/128/recording.png",
+          "256": "status/256/recording.png"
+        }
+      }
+    ],
+    "actions": [
+      {
+        "name": "recycle_bin_empty",
+        "files": {
+          "64": "actions/64/recycle_bin_empty.png",
+          "128": "actions/128/recycle_bin_empty.png",
+          "256": "actions/256/recycle_bin_empty.png"
+        }
+      },
+      {
+        "name": "recycle_bin_full",
+        "files": {
+          "64": "actions/64/recycle_bin_full.png",
+          "128": "actions/128/recycle_bin_full.png",
+          "256": "actions/256/recycle_bin_full.png"
+        }
+      },
+      {
+        "name": "delete",
+        "files": {
+          "64": "actions/64/delete.png",
+          "128": "actions/128/delete.png",
+          "256": "actions/256/delete.png"
+        }
+      },
+      {
+        "name": "restore",
+        "files": {
+          "64": "actions/64/restore.png",
+          "128": "actions/128/restore.png",
+          "256": "actions/256/restore.png"
+        }
+      },
+      {
+        "name": "refresh",
+        "files": {
+          "64": "actions/64/refresh.png",
+          "128": "actions/128/refresh.png",
+          "256": "actions/256/refresh.png"
+        }
+      },
+      {
+        "name": "copy",
+        "files": {
+          "64": "actions/64/copy.png",
+          "128": "actions/128/copy.png",
+          "256": "actions/256/copy.png"
+        }
+      },
+      {
+        "name": "cut",
+        "files": {
+          "64": "actions/64/cut.png",
+          "128": "actions/128/cut.png",
+          "256": "actions/256/cut.png"
+        }
+      },
+      {
+        "name": "paste",
+        "files": {
+          "64": "actions/64/paste.png",
+          "128": "actions/128/paste.png",
+          "256": "actions/256/paste.png"
+        }
+      },
+      {
+        "name": "search",
+        "files": {
+          "64": "actions/64/search.png",
+          "128": "actions/128/search.png",
+          "256": "actions/256/search.png"
+        }
+      },
+      {
+        "name": "lock",
+        "files": {
+          "64": "actions/64/lock.png",
+          "128": "actions/128/lock.png",
+          "256": "actions/256/lock.png"
+        }
+      },
+      {
+        "name": "unlock",
+        "files": {
+          "64": "actions/64/unlock.png",
+          "128": "actions/128/unlock.png",
+          "256": "actions/256/unlock.png"
+        }
+      },
+      {
+        "name": "warning",
+        "files": {
+          "64": "actions/64/warning.png",
+          "128": "actions/128/warning.png",
+          "256": "actions/256/warning.png"
+        }
+      },
+      {
+        "name": "info",
+        "files": {
+          "64": "actions/64/info.png",
+          "128": "actions/128/info.png",
+          "256": "actions/256/info.png"
+        }
+      },
+      {
+        "name": "success",
+        "files": {
+          "64": "actions/64/success.png",
+          "128": "actions/128/success.png",
+          "256": "actions/256/success.png"
+        }
+      },
+      {
+        "name": "help",
+        "files": {
+          "64": "actions/64/help.png",
+          "128": "actions/128/help.png",
+          "256": "actions/256/help.png"
+        }
+      }
+    ],
+    "navigation": [
+      {
+        "name": "back",
+        "files": {
+          "64": "navigation/64/back.png",
+          "128": "navigation/128/back.png",
+          "256": "navigation/256/back.png"
+        }
+      },
+      {
+        "name": "forward",
+        "files": {
+          "64": "navigation/64/forward.png",
+          "128": "navigation/128/forward.png",
+          "256": "navigation/256/forward.png"
+        }
+      },
+      {
+        "name": "up",
+        "files": {
+          "64": "navigation/64/up.png",
+          "128": "navigation/128/up.png",
+          "256": "navigation/256/up.png"
+        }
+      },
+      {
+        "name": "home",
+        "files": {
+          "64": "navigation/64/home.png",
+          "128": "navigation/128/home.png",
+          "256": "navigation/256/home.png"
+        }
+      },
+      {
+        "name": "menu",
+        "files": {
+          "64": "navigation/64/menu.png",
+          "128": "navigation/128/menu.png",
+          "256": "navigation/256/menu.png"
+        }
+      },
+      {
+        "name": "close",
+        "files": {
+          "64": "navigation/64/close.png",
+          "128": "navigation/128/close.png",
+          "256": "navigation/256/close.png"
+        }
+      },
+      {
+        "name": "minimize",
+        "files": {
+          "64": "navigation/64/minimize.png",
+          "128": "navigation/128/minimize.png",
+          "256": "navigation/256/minimize.png"
+        }
+      },
+      {
+        "name": "maximize",
+        "files": {
+          "64": "navigation/64/maximize.png",
+          "128": "navigation/128/maximize.png",
+          "256": "navigation/256/maximize.png"
+        }
+      },
+      {
+        "name": "settings",
+        "files": {
+          "64": "navigation/64/settings.png",
+          "128": "navigation/128/settings.png",
+          "256": "navigation/256/settings.png"
+        }
+      },
+      {
+        "name": "hamburger",
+        "files": {
+          "64": "navigation/64/hamburger.png",
+          "128": "navigation/128/hamburger.png",
+          "256": "navigation/256/hamburger.png"
+        }
+      },
+      {
+        "name": "chevron_left",
+        "files": {
+          "64": "navigation/64/chevron_left.png",
+          "128": "navigation/128/chevron_left.png",
+          "256": "navigation/256/chevron_left.png"
+        }
+      },
+      {
+        "name": "chevron_right",
+        "files": {
+          "64": "navigation/64/chevron_right.png",
+          "128": "navigation/128/chevron_right.png",
+          "256": "navigation/256/chevron_right.png"
+        }
+      },
+      {
+        "name": "chevron_up",
+        "files": {
+          "64": "navigation/64/chevron_up.png",
+          "128": "navigation/128/chevron_up.png",
+          "256": "navigation/256/chevron_up.png"
+        }
+      },
+      {
+        "name": "chevron_down",
+        "files": {
+          "64": "navigation/64/chevron_down.png",
+          "128": "navigation/128/chevron_down.png",
+          "256": "navigation/256/chevron_down.png"
+        }
+      },
+      {
+        "name": "ellipsis",
+        "files": {
+          "64": "navigation/64/ellipsis.png",
+          "128": "navigation/128/ellipsis.png",
+          "256": "navigation/256/ellipsis.png"
+        }
+      }
+    ],
+    "cursors": [
+      {
+        "name": "default",
+        "files": {
+          "64": "cursors/64/default.png",
+          "128": "cursors/128/default.png",
+          "256": "cursors/256/default.png"
+        }
+      },
+      {
+        "name": "pointer",
+        "files": {
+          "64": "cursors/64/pointer.png",
+          "128": "cursors/128/pointer.png",
+          "256": "cursors/256/pointer.png"
+        }
+      },
+      {
+        "name": "hand",
+        "files": {
+          "64": "cursors/64/hand.png",
+          "128": "cursors/128/hand.png",
+          "256": "cursors/256/hand.png"
+        }
+      },
+      {
+        "name": "text",
+        "files": {
+          "64": "cursors/64/text.png",
+          "128": "cursors/128/text.png",
+          "256": "cursors/256/text.png"
+        }
+      },
+      {
+        "name": "busy",
+        "files": {
+          "64": "cursors/64/busy.png",
+          "128": "cursors/128/busy.png",
+          "256": "cursors/256/busy.png"
+        }
+      },
+      {
+        "name": "help",
+        "files": {
+          "64": "cursors/64/help.png",
+          "128": "cursors/128/help.png",
+          "256": "cursors/256/help.png"
+        }
+      },
+      {
+        "name": "not_allowed",
+        "files": {
+          "64": "cursors/64/not_allowed.png",
+          "128": "cursors/128/not_allowed.png",
+          "256": "cursors/256/not_allowed.png"
+        }
+      },
+      {
+        "name": "move",
+        "files": {
+          "64": "cursors/64/move.png",
+          "128": "cursors/128/move.png",
+          "256": "cursors/256/move.png"
+        }
+      },
+      {
+        "name": "resize",
+        "files": {
+          "64": "cursors/64/resize.png",
+          "128": "cursors/128/resize.png",
+          "256": "cursors/256/resize.png"
+        }
+      },
+      {
+        "name": "working",
+        "files": {
+          "64": "cursors/64/working.png",
+          "128": "cursors/128/working.png",
+          "256": "cursors/256/working.png"
+        }
+      }
+    ],
+    "widgets": [
+      {
+        "name": "notification",
+        "files": {
+          "64": "widgets/64/notification.png",
+          "128": "widgets/128/notification.png",
+          "256": "widgets/256/notification.png"
+        }
+      },
+      {
+        "name": "volume",
+        "files": {
+          "64": "widgets/64/volume.png",
+          "128": "widgets/128/volume.png",
+          "256": "widgets/256/volume.png"
+        }
+      },
+      {
+        "name": "brightness",
+        "files": {
+          "64": "widgets/64/brightness.png",
+          "128": "widgets/128/brightness.png",
+          "256": "widgets/256/brightness.png"
+        }
+      },
+      {
+        "name": "network",
+        "files": {
+          "64": "widgets/64/network.png",
+          "128": "widgets/128/network.png",
+          "256": "widgets/256/network.png"
+        }
+      },
+      {
+        "name": "user",
+        "files": {
+          "64": "widgets/64/user.png",
+          "128": "widgets/128/user.png",
+          "256": "widgets/256/user.png"
+        }
+      },
+      {
+        "name": "power_menu",
+        "files": {
+          "64": "widgets/64/power_menu.png",
+          "128": "widgets/128/power_menu.png",
+          "256": "widgets/256/power_menu.png"
+        }
+      },
+      {
+        "name": "quick_settings",
+        "files": {
+          "64": "widgets/64/quick_settings.png",
+          "128": "widgets/128/quick_settings.png",
+          "256": "widgets/256/quick_settings.png"
+        }
+      },
+      {
+        "name": "fullscreen",
+        "files": {
+          "64": "widgets/64/fullscreen.png",
+          "128": "widgets/128/fullscreen.png",
+          "256": "widgets/256/fullscreen.png"
+        }
+      }
+    ],
+    "special": [
+      {
+        "name": "cpu",
+        "files": {
+          "64": "special/64/cpu.png",
+          "128": "special/128/cpu.png",
+          "256": "special/256/cpu.png"
+        }
+      },
+      {
+        "name": "gpu",
+        "files": {
+          "64": "special/64/gpu.png",
+          "128": "special/128/gpu.png",
+          "256": "special/256/gpu.png"
+        }
+      },
+      {
+        "name": "memory",
+        "files": {
+          "64": "special/64/memory.png",
+          "128": "special/128/memory.png",
+          "256": "special/256/memory.png"
+        }
+      },
+      {
+        "name": "security",
+        "files": {
+          "64": "special/64/security.png",
+          "128": "special/128/security.png",
+          "256": "special/256/security.png"
+        }
+      },
+      {
+        "name": "firewall",
+        "files": {
+          "64": "special/64/firewall.png",
+          "128": "special/128/firewall.png",
+          "256": "special/256/firewall.png"
+        }
+      },
+      {
+        "name": "ai_neural",
+        "files": {
+          "64": "special/64/ai_neural.png",
+          "128": "special/128/ai_neural.png",
+          "256": "special/256/ai_neural.png"
+        }
+      },
+      {
+        "name": "database",
+        "files": {
+          "64": "special/64/database.png",
+          "128": "special/128/database.png",
+          "256": "special/256/database.png"
+        }
+      },
+      {
+        "name": "network",
+        "files": {
+          "64": "special/64/network.png",
+          "128": "special/128/network.png",
+          "256": "special/256/network.png"
+        }
+      },
+      {
+        "name": "code",
+        "files": {
+          "64": "special/64/code.png",
+          "128": "special/128/code.png",
+          "256": "special/256/code.png"
+        }
+      },
+      {
+        "name": "devops",
+        "files": {
+          "64": "special/64/devops.png",
+          "128": "special/128/devops.png",
+          "256": "special/256/devops.png"
+        }
+      },
+      {
+        "name": "virtual_machine",
+        "files": {
+          "64": "special/64/virtual_machine.png",
+          "128": "special/128/virtual_machine.png",
+          "256": "special/256/virtual_machine.png"
+        }
+      },
+      {
+        "name": "container",
+        "files": {
+          "64": "special/64/container.png",
+          "128": "special/128/container.png",
+          "256": "special/256/container.png"
+        }
+      },
+      {
+        "name": "server",
+        "files": {
+          "64": "special/64/server.png",
+          "128": "special/128/server.png",
+          "256": "special/256/server.png"
+        }
+      },
+      {
+        "name": "terminal",
+        "files": {
+          "64": "special/64/terminal.png",
+          "128": "special/128/terminal.png",
+          "256": "special/256/terminal.png"
+        }
+      },
+      {
+        "name": "bug",
+        "files": {
+          "64": "special/64/bug.png",
+          "128": "special/128/bug.png",
+          "256": "special/256/bug.png"
+        }
+      },
+      {
+        "name": "shield",
+        "files": {
+          "64": "special/64/shield.png",
+          "128": "special/128/shield.png",
+          "256": "special/256/shield.png"
+        }
+      }
+    ],
+    "boot": [
+      {
+        "name": "boot_logo",
+        "files": {
+          "64": "boot/64/boot_logo.png",
+          "128": "boot/128/boot_logo.png",
+          "256": "boot/256/boot_logo.png"
+        }
+      },
+      {
+        "name": "loader_ring",
+        "files": {
+          "64": "boot/64/loader_ring.png",
+          "128": "boot/128/loader_ring.png",
+          "256": "boot/256/loader_ring.png"
+        }
+      },
+      {
+        "name": "spinner",
+        "files": {
+          "64": "boot/64/spinner.png",
+          "128": "boot/128/spinner.png",
+          "256": "boot/256/spinner.png"
+        }
+      },
+      {
+        "name": "hex_loader",
+        "files": {
+          "64": "boot/64/hex_loader.png",
+          "128": "boot/128/hex_loader.png",
+          "256": "boot/256/hex_loader.png"
+        }
+      },
+      {
+        "name": "progress_bar",
+        "files": {
+          "64": "boot/64/progress_bar.png",
+          "128": "boot/128/progress_bar.png",
+          "256": "boot/256/progress_bar.png"
+        }
+      }
+    ]
+  }
+}
