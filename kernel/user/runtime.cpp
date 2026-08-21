@@ -14,6 +14,7 @@
 
 #include "elf_loader.hpp"
 #include "console.hpp"
+#include "ui_window_adapter.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
 #include "../core/system_metrics.hpp"
@@ -34,7 +35,9 @@
 #include "../ui/window_manager.hpp"
 
 #define initialize legacy_initialize
+#define create_window create_ring3_window
 #include "runtime_base.inc"
+#undef create_window
 #undef initialize
 
 namespace user::runtime {
