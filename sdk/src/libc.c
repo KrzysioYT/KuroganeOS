@@ -64,6 +64,31 @@ int strncmp(const char* left, const char* right, size_t size) {
     return 0;
 }
 
+char* strchr(const char* text, int character) {
+    const char target = (char)character;
+    if (text == (const char*)0) return (char*)0;
+    for (;;) {
+        if (*text == target) return (char*)text;
+        if (*text == '\0') return (char*)0;
+        ++text;
+    }
+}
+
+char* strstr(const char* haystack, const char* needle) {
+    if (haystack == (const char*)0 || needle == (const char*)0) return (char*)0;
+    if (*needle == '\0') return (char*)haystack;
+    for (const char* start = haystack; *start != '\0'; ++start) {
+        const char* left = start;
+        const char* right = needle;
+        while (*right != '\0' && *left == *right) {
+            ++left;
+            ++right;
+        }
+        if (*right == '\0') return (char*)start;
+    }
+    return (char*)0;
+}
+
 char* strcpy(char* destination, const char* source) {
     size_t index = 0;
     do { destination[index] = source[index]; } while (source[index++] != '\0');
