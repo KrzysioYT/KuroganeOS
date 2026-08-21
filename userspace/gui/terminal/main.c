@@ -77,14 +77,10 @@ static void render(
         input, length, cursor, input_display, sizeof(input_display));
 
     kui_scene_initialize(&scene);
-    scene.visible_rows = 12U;
-    kui_scene_set_palette(
-        &scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    scene.visible_rows = KU_UI_MAX_LINES;
+    gui_apply_obsidian_theme(&scene, 0);
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "RED FLUX TERMINAL");
+    (void)kui_flow_panel(&root, 1U, "KUROGANE TERMINAL");
     for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {
         (void)kui_flow_label(
             &root, 10U + (uint32_t)index, g_output[index]);
@@ -132,16 +128,17 @@ static void input_insert(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 155, 760, 430);
+    const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 145, 780, 450);
     if (window == KU_INVALID_WINDOW) return 1;
 
     ku_shell_initialize(&g_shell);
     clear_output();
-    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / system shell");
-    terminal_emit(NULL, "Type help. Desktop surfaces are not shell commands.");
+    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / Obsidian terminal");
+    terminal_emit(NULL, "Type help. Native shell and desktop remain separate.");
 
     puts("[TEST] desktop_terminal_ring3: PASS");
     puts("[TEST] desktop_terminal_policy_shell: PASS");
+    puts("[TEST] kurogane5_obsidian_terminal: PASS");
 
     char input[TERMINAL_INPUT_CAPACITY] = {0};
     size_t length = 0U;
