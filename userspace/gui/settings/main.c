@@ -10,6 +10,11 @@ typedef enum settings_page {
     SETTINGS_PAGE_COUNT = 4
 } settings_page;
 
+#define VIEW_PAGE_NETWORK 60U
+#define VIEW_PAGE_APPEARANCE 61U
+#define VIEW_PAGE_AUDIO 62U
+#define VIEW_PAGE_SYSTEM 63U
+
 static void append_percent(char* destination, size_t capacity, uint32_t value) {
     char number[24];
     gui_u64(number, sizeof(number), value);
@@ -54,16 +59,29 @@ static uint32_t first_selectable(settings_page page) {
     }
 }
 
+static int control_is_selectable(settings_page page, uint32_t id) {
+    if (page == SETTINGS_NETWORK) return id == 40U;
+    if (page == SETTINGS_APPEARANCE) return id == 10U || id == 11U;
+    if (page == SETTINGS_AUDIO) return id >= 21U && id <= 23U;
+    if (page == SETTINGS_SYSTEM) return id == 30U || id == 34U;
+    return 0;
+}
+
 static void add_navigation(kui_flow* root, settings_page page) {
     char heading[64] = "FORGE CONTROL / ";
     gui_append_text(heading, sizeof(heading), page_name(page));
     (void)kui_flow_panel_icon(
         root, 1U, heading, KU_ICON_KUROGANE_APP_FORGE_CONTROL);
+    (void)kui_flow_button_icon(
+        root, VIEW_PAGE_NETWORK, "NETWORK", KU_ICON_SPECIAL_NETWORK);
+    (void)kui_flow_button_icon(
+        root, VIEW_PAGE_APPEARANCE, "APPEARANCE", KU_ICON_STATUS_BRIGHTNESS);
+    (void)kui_flow_button_icon(
+        root, VIEW_PAGE_AUDIO, "AUDIO", KU_ICON_STATUS_VOLUME);
+    (void)kui_flow_button_icon(
+        root, VIEW_PAGE_SYSTEM, "SYSTEM", KU_ICON_BRANDING_SYSTEM_MARK);
     (void)kui_flow_label_icon(
-        root, 2U, "1 NETWORK  2 APPEARANCE  3 AUDIO  4 SYSTEM",
-        page_icon(page));
-    (void)kui_flow_label_icon(
-        root, 3U, "LEFT/RIGHT PAGE   UP/DOWN SELECT   ENTER APPLY",
+        root, 3U, "CLICK PAGE / CONTROL   ARROWS + ENTER ALSO WORK",
         KU_ICON_WIDGET_SIDEBAR);
     (void)kui_flow_separator(root, 4U);
 }
@@ -81,7 +99,7 @@ static void build_scene(
     kui_scene_initialize(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
     gui_apply_forged_theme(scene, hot_edge);
-    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
 
     kui_flow_begin(&root, scene, 0U);
     add_navigation(&root, page);
@@ -214,8 +232,39 @@ static void spawn_system_app(const char* path, char* status, size_t capacity) {
     }
 }
 
+static void activate_control(
+    settings_page page,
+    uint32_t selected,
+    int* hot_edge,
+    ku_audio_state* audio,
+    char* status,
+    size_t capacity) {
+    if (page == SETTINGS_APPEARANCE) {
+        if (selected == 10U) {
+            *hot_edge = 0;
+            (void)strlcpy(status, "APPEARANCE / CRIMSON EDGE", capacity);
+        } else if (selected == 11U) {
+            *hot_edge = 1;
+            (void)strlcpy(status, "APPEARANCE / HOT EDGE", capacity);
+        }
+    } else if (page == SETTINGS_AUDIO) {
+        apply_audio(selected, audio, status, capacity);
+    } else if (page == SETTINGS_NETWORK && selected == 40U) {
+        spawn_system_app("/gui/browser", status, capacity);
+    } else if (page == SETTINGS_SYSTEM && selected == 30U) {
+        spawn_system_app("/gui/about", status, capacity);
+    } else if (page == SETTINGS_SYSTEM && selected == 34U) {
+        spawn_system_app("/gui/anvil", status, capacity);
+    }
+}
+
+static int page_from_view(uint32_t view, settings_page* page) {
+    if (page == NULL || view < VIEW_PAGE_NETWORK || view > VIEW_PAGE_SYSTEM) return 0;
+    *page = (settings_page)(view - VIEW_PAGE_NETWORK);
+    return 1;
+}
+
 int main(void) {
-    /* Internal title retained for current desktop pin/focus lookup. */
     const ku_window_t window = gui_open("FORGE CONTROL", 430, 150, 640, 500);
     settings_page page = SETTINGS_NETWORK;
     int hot_edge = 0;
@@ -242,6 +291,24 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
+            settings_page clicked_page;
+            if (page_from_view(hit, &clicked_page)) {
+                page = clicked_page;
+                selected = first_selectable(page);
+                (void)strlcpy(status, page_name(page), sizeof(status));
+            } else if (control_is_selectable(page, hit)) {
+                selected = hit;
+                activate_control(page, selected, &hot_edge, &audio, status, sizeof(status));
+            } else {
+                continue;
+            }
+            build_scene(&scene, page, hot_edge, selected, &audio, status);
+            (void)kui_scene_present(window, &scene);
+            continue;
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (event.character >= '1' && event.character <= '4') {
@@ -264,23 +331,7 @@ int main(void) {
             (void)kui_scene_select_next(&scene, -1);
             selected = kui_scene_selected(&scene);
         } else if (gui_key_activate(&event)) {
-            if (page == SETTINGS_APPEARANCE) {
-                if (selected == 10U) {
-                    hot_edge = 0;
-                    (void)strlcpy(status, "APPEARANCE / CRIMSON EDGE", sizeof(status));
-                } else if (selected == 11U) {
-                    hot_edge = 1;
-                    (void)strlcpy(status, "APPEARANCE / HOT EDGE", sizeof(status));
-                }
-            } else if (page == SETTINGS_AUDIO) {
-                apply_audio(selected, &audio, status, sizeof(status));
-            } else if (page == SETTINGS_NETWORK && selected == 40U) {
-                spawn_system_app("/gui/browser", status, sizeof(status));
-            } else if (page == SETTINGS_SYSTEM && selected == 30U) {
-                spawn_system_app("/gui/about", status, sizeof(status));
-            } else if (page == SETTINGS_SYSTEM && selected == 34U) {
-                spawn_system_app("/gui/anvil", status, sizeof(status));
-            }
+            activate_control(page, selected, &hot_edge, &audio, status, sizeof(status));
         } else if (gui_key_cancel(&event)) {
             page = SETTINGS_NETWORK;
             selected = first_selectable(page);
