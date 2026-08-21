@@ -31,12 +31,15 @@
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
 #include "../drivers/framebuffer.hpp"
+#include "../ui/forged_surface.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
 
 #define initialize legacy_initialize
 #define create_window create_ring3_window
+#define native_surface forged_surface
 #include "runtime_base.inc"
+#undef native_surface
 #undef create_window
 #undef initialize
 
