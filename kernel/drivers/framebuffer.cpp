@@ -233,7 +233,7 @@ void draw_codepoint(
             ? INT32_MAX : static_cast<int32_t>(scale);
     const uint8_t* rows = glyph_rows(codepoint);
     if (rows == nullptr && codepoint != UINT32_C(0x20)) {
-        rows = glyph_rows(UINT32_C('?'));
+        rows = glyph_rows(UINT32_C(0x3F));
     }
     for (uint32_t row = 0U; row < 7U; ++row) {
         for (uint32_t column = 0U; column < 5U; ++column) {
@@ -456,15 +456,15 @@ void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
         size_t available = 1U;
         while (available < 4U && text[available] != '\0') ++available;
         if (!ku_utf8_decode_one(text, available, &codepoint, &consumed)) {
-            codepoint = UINT32_C('?');
+            codepoint = UINT32_C(0x3F);
             consumed = 1U;
         }
 
-        if (codepoint == UINT32_C('\n')) {
+        if (codepoint == UINT32_C(0x0A)) {
             cursor_x = x;
             cursor_y = cursor_y > INT64_MAX - line_advance
                 ? INT64_MAX : cursor_y + line_advance;
-        } else if (codepoint != UINT32_C('\r')) {
+        } else if (codepoint != UINT32_C(0x0D)) {
             draw_codepoint(
                 saturate_i32(cursor_x), saturate_i32(cursor_y), codepoint,
                 foreground, background, scale, transparent);
