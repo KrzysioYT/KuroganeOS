@@ -42,7 +42,7 @@ static void build_input_display(
     size_t written = 0U;
     if (capacity == 0U) return;
     output[0] = '\0';
-    (void)strlcpy(output, "> ", capacity);
+    (void)strlcpy(output, "kurosh> ", capacity);
     written = strlen(output);
 
     if (cursor > TERMINAL_VISIBLE_INPUT / 2U) {
@@ -78,9 +78,9 @@ static void render(
 
     kui_scene_initialize(&scene);
     scene.visible_rows = KU_UI_MAX_LINES;
-    gui_apply_obsidian_theme(&scene, 0);
+    gui_apply_forged_theme(&scene, 0);
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "KUROGANE TERMINAL");
+    (void)kui_flow_panel(&root, 1U, "KUROSH / TERMINAL");
     for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {
         (void)kui_flow_label(
             &root, 10U + (uint32_t)index, g_output[index]);
@@ -128,17 +128,18 @@ static void input_insert(
 }
 
 int main(void) {
+    /* Internal title retained until WindowManager stops keying app roles by title. */
     const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 145, 780, 450);
     if (window == KU_INVALID_WINDOW) return 1;
 
     ku_shell_initialize(&g_shell);
     clear_output();
-    terminal_emit(NULL, "KuroganeOS " KUROGANE_VERSION_STRING " / Obsidian terminal");
-    terminal_emit(NULL, "Type help. Native shell and desktop remain separate.");
+    terminal_emit(NULL, "Kurosh / KuroganeOS " KUROGANE_VERSION_STRING);
+    terminal_emit(NULL, KU_GUI_BRAND_TAGLINE);
 
     puts("[TEST] desktop_terminal_ring3: PASS");
     puts("[TEST] desktop_terminal_policy_shell: PASS");
-    puts("[TEST] kurogane5_obsidian_terminal: PASS");
+    puts("[TEST] kurogane5_kurosh_terminal: PASS");
 
     char input[TERMINAL_INPUT_CAPACITY] = {0};
     size_t length = 0U;
@@ -160,7 +161,7 @@ int main(void) {
             input[0] = '\0';
             if (action == KU_SHELL_ACTION_CLEAR) {
                 clear_output();
-                terminal_emit(NULL, "Terminal cleared.");
+                terminal_emit(NULL, "Kurosh cleared.");
             } else if (action == KU_SHELL_ACTION_EXIT) {
                 break;
             }
