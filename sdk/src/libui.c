@@ -27,6 +27,20 @@ static const kui_view* find_view_const(const kui_scene* scene, uint32_t id) {
     return (const kui_view*)0;
 }
 
+static int line_style_valid(const ku_ui_line_style* style) {
+    const uint32_t known_flags =
+        KU_UI_LINE_STYLE_INHERIT_COLORS |
+        KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND |
+        KU_UI_LINE_STYLE_DOCUMENT_CONTENT;
+    if (style == (const ku_ui_line_style*)0 ||
+        !ku_text_style_valid(&style->text) ||
+        style->reserved != 0U ||
+        (style->flags & ~known_flags) != 0U) {
+        return 0;
+    }
+    return 1;
+}
+
 static int interactive_view(const kui_view* view) {
     if (view == (const kui_view*)0 || (view->flags & KUI_VIEW_DISABLED) != 0U ||
         (view->flags & KUI_VIEW_HIDDEN) != 0U) return 0;
@@ -73,9 +87,11 @@ static void render_view_line(
     }
 
     /*
-     * This remains the compatibility text transport, but 3.1 deliberately
-     * removes pseudo-DOS brackets and double-colon decoration. Native widget
-     * geometry can replace this serialization later without changing scenes.
+     * This remains the compatibility text transport.  Text style now travels
+     * independently beside each line so the compatibility path no longer
+     * forces every view (including browser document content) through one
+     * desktop font context.  Native widget geometry can replace the textual
+     * serialization without changing the style contract.
      */
     switch (view->type) {
         case KUI_VIEW_PANEL:
@@ -111,13 +127,25 @@ static void render_view_line(
     }
 }
 
+void kui_line_style_initialize(ku_ui_line_style* style, uint32_t text_context) {
+    if (style == (ku_ui_line_style*)0) return;
+    memset(style, 0, sizeof(*style));
+    style->text = ku_text_default_style(text_context);
+    style->flags = KU_UI_LINE_STYLE_INHERIT_COLORS;
+}
+
 void kui_frame_initialize(ku_ui_frame* frame) {
+    uint32_t index;
     if (frame == (ku_ui_frame*)0) return;
     memset(frame, 0, sizeof(*frame));
     frame->structure_size = sizeof(*frame);
     frame->background_rgb = UINT32_C(0x090A0C);
     frame->foreground_rgb = UINT32_C(0xECEEF1);
     frame->accent_rgb = UINT32_C(0xDE192D);
+    for (index = 0U; index < KU_UI_MAX_LINES; ++index) {
+        kui_line_style_initialize(
+            &frame->line_styles[index], KU_TEXT_CONTEXT_SYSTEM_UI);
+    }
 }
 
 ku_status_t kui_frame_set_line(
@@ -127,6 +155,16 @@ ku_status_t kui_frame_set_line(
     if (strlcpy(frame->lines[line], text, KU_UI_LINE_CAPACITY) >=
         KU_UI_LINE_CAPACITY) return KU_STATUS_OUT_OF_RANGE;
     if (frame->line_count <= line) frame->line_count = line + 1U;
+    return KU_STATUS_OK;
+}
+
+ku_status_t kui_frame_set_line_style(
+    ku_ui_frame* frame, uint32_t line, const ku_ui_line_style* style) {
+    if (frame == (ku_ui_frame*)0 || line >= KU_UI_MAX_LINES ||
+        !line_style_valid(style)) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    frame->line_styles[line] = *style;
     return KU_STATUS_OK;
 }
 
@@ -147,6 +185,8 @@ void kui_scene_initialize(kui_scene* scene) {
     scene->foreground_rgb = UINT32_C(0xECEEF1);
     scene->accent_rgb = UINT32_C(0xDE192D);
     scene->visible_rows = KU_UI_MAX_LINES;
+    kui_line_style_initialize(
+        &scene->default_style, KU_TEXT_CONTEXT_SYSTEM_UI);
 }
 
 void kui_scene_set_palette(
@@ -158,6 +198,15 @@ void kui_scene_set_palette(
     scene->background_rgb = background_rgb & UINT32_C(0xFFFFFF);
     scene->foreground_rgb = foreground_rgb & UINT32_C(0xFFFFFF);
     scene->accent_rgb = accent_rgb & UINT32_C(0xFFFFFF);
+}
+
+ku_status_t kui_scene_set_default_style(
+    kui_scene* scene, const ku_ui_line_style* style) {
+    if (scene == (kui_scene*)0 || !line_style_valid(style)) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    scene->default_style = *style;
+    return KU_STATUS_OK;
 }
 
 ku_status_t kui_scene_add(
@@ -181,6 +230,7 @@ ku_status_t kui_scene_add(
     view->id = id;
     view->parent_id = parent_id;
     view->type = type;
+    view->style = scene->default_style;
     if (strlcpy(view->text, text, sizeof(view->text)) >= sizeof(view->text)) {
         --scene->view_count;
         memset(view, 0, sizeof(*view));
@@ -210,6 +260,15 @@ ku_status_t kui_scene_set_text(
     }
     return strlcpy(view->text, text, sizeof(view->text)) < sizeof(view->text)
         ? KU_STATUS_OK : KU_STATUS_OUT_OF_RANGE;
+}
+
+ku_status_t kui_scene_set_style(
+    kui_scene* scene, uint32_t id, const ku_ui_line_style* style) {
+    kui_view* view = find_view(scene, id);
+    if (view == (kui_view*)0) return KU_STATUS_NOT_FOUND;
+    if (!line_style_valid(style)) return KU_STATUS_INVALID_ARGUMENT;
+    view->style = *style;
+    return KU_STATUS_OK;
 }
 
 ku_status_t kui_scene_set_flags(
@@ -310,12 +369,15 @@ ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
     for (index = 0U; index < scene->view_count && output_line < rows; ++index) {
         const kui_view* view = &scene->views[index];
         char line[KU_UI_LINE_CAPACITY];
+        ku_status_t status;
         if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
         if (visible_index++ < scene->scroll_offset) continue;
         render_view_line(scene, view, line, sizeof(line));
-        if (kui_frame_set_line(&frame, output_line++, line) != KU_STATUS_OK) {
-            return KU_STATUS_OUT_OF_RANGE;
-        }
+        status = kui_frame_set_line(&frame, output_line, line);
+        if (status != KU_STATUS_OK) return KU_STATUS_OUT_OF_RANGE;
+        status = kui_frame_set_line_style(&frame, output_line, &view->style);
+        if (status != KU_STATUS_OK) return status;
+        ++output_line;
         if (view->type == KUI_VIEW_PROGRESS && view->maximum != 0U) {
             frame.progress_value = view->value;
             frame.progress_maximum = view->maximum;
