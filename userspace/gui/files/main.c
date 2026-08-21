@@ -15,7 +15,7 @@ static size_t g_entry_count = 0U;
 static size_t g_selected = 0U;
 static size_t g_scroll = 0U;
 static char g_path[PATH_CAPACITY] = "/";
-static char g_status[64] = "FILES / READY";
+static char g_status[64] = "VAULT / READY";
 static char g_preview[64] = "SELECT AN ITEM";
 
 static const char* type_label(uint32_t type) {
@@ -72,7 +72,7 @@ static int refresh_directory(void) {
         strlen(g_path),
         KU_FILE_OPEN_READ | KU_FILE_OPEN_DIRECTORY);
     if (opened < 0) {
-        (void)strlcpy(g_status, "VFS / DIRECTORY OPEN FAILED", sizeof(g_status));
+        (void)strlcpy(g_status, "VAULT / DIRECTORY OPEN FAILED", sizeof(g_status));
         update_preview();
         return 0;
     }
@@ -83,7 +83,7 @@ static int refresh_directory(void) {
         if (status == KU_STATUS_END_OF_STREAM) break;
         if (status != KU_STATUS_OK) {
             (void)ku_file_close((ku_file_t)opened);
-            (void)strlcpy(g_status, "VFS / READDIR FAILED", sizeof(g_status));
+            (void)strlcpy(g_status, "VAULT / READDIR FAILED", sizeof(g_status));
             update_preview();
             return 0;
         }
@@ -99,7 +99,7 @@ static int refresh_directory(void) {
     }
 
     (void)ku_file_close((ku_file_t)opened);
-    (void)strlcpy(g_status, "VFS / DIRECTORY LOADED", sizeof(g_status));
+    (void)strlcpy(g_status, "VAULT / DIRECTORY LOADED", sizeof(g_status));
     update_preview();
     return 1;
 }
@@ -131,7 +131,7 @@ static void select_next(int direction) {
 static void go_parent(void) {
     size_t length = strlen(g_path);
     if (length <= 1U) {
-        (void)strlcpy(g_status, "FILES / ALREADY AT ROOT", sizeof(g_status));
+        (void)strlcpy(g_status, "VAULT / ALREADY AT ROOT", sizeof(g_status));
         return;
     }
     while (length > 1U && g_path[length - 1U] == '/') --length;
@@ -158,13 +158,13 @@ static void preview_text_file(const char* path) {
     char data[48];
     const ku_result_t opened = ku_file_open(path, strlen(path));
     if (opened < 0) {
-        (void)strlcpy(g_status, "FILE / OPEN FAILED", sizeof(g_status));
+        (void)strlcpy(g_status, "VAULT / FILE OPEN FAILED", sizeof(g_status));
         return;
     }
     const ku_result_t count = ku_file_read((ku_file_t)opened, data, sizeof(data) - 1U);
     (void)ku_file_close((ku_file_t)opened);
     if (count <= 0) {
-        (void)strlcpy(g_status, count == 0 ? "FILE / EMPTY" : "FILE / READ FAILED", sizeof(g_status));
+        (void)strlcpy(g_status, count == 0 ? "VAULT / FILE EMPTY" : "VAULT / FILE READ FAILED", sizeof(g_status));
         return;
     }
     data[count] = '\0';
@@ -182,7 +182,7 @@ static void open_selected(void) {
     if (g_entry_count == 0U || g_selected >= g_entry_count) return;
     entry = &g_entries[g_selected];
     if (!build_child_path(entry->name, path, sizeof(path))) {
-        (void)strlcpy(g_status, "FILES / PATH TOO LONG", sizeof(g_status));
+        (void)strlcpy(g_status, "VAULT / PATH TOO LONG", sizeof(g_status));
         return;
     }
 
@@ -196,11 +196,11 @@ static void open_selected(void) {
         const ku_result_t pid = ku_process_spawn(path, strlen(path));
         if (pid > 0) {
             char number[24];
-            (void)strlcpy(g_status, "OPENED APP / PID ", sizeof(g_status));
+            (void)strlcpy(g_status, "VAULT / OPENED APP PID ", sizeof(g_status));
             gui_u64(number, sizeof(number), (uint64_t)pid);
             gui_append_text(g_status, sizeof(g_status), number);
         } else {
-            (void)strlcpy(g_status, "APP / LAUNCH FAILED", sizeof(g_status));
+            (void)strlcpy(g_status, "VAULT / APP LAUNCH FAILED", sizeof(g_status));
         }
         return;
     }
@@ -208,7 +208,7 @@ static void open_selected(void) {
     if (entry->type == KU_FILE_TYPE_REGULAR) {
         preview_text_file(path);
     } else {
-        (void)strlcpy(g_status, "FILES / ITEM CANNOT BE OPENED", sizeof(g_status));
+        (void)strlcpy(g_status, "VAULT / ITEM CANNOT BE OPENED", sizeof(g_status));
     }
 }
 
@@ -219,10 +219,10 @@ static void build_scene(kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
-    gui_apply_obsidian_theme(scene, 0);
+    gui_apply_forged_theme(scene, 0);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FILES / KUROGANE FILE MANAGER");
+    (void)kui_flow_panel(&root, 1U, "VAULT / FILE MANAGER");
     (void)kui_flow_label(&root, 2U, g_path);
     (void)kui_flow_label(&root, 3U, "ENTER OPEN   BACKSPACE UP   H HOME   R REFRESH");
     (void)kui_flow_separator(&root, 4U);
@@ -248,6 +248,7 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
+    /* Keep title for the current WindowManager desktop-app lookup contract. */
     const ku_window_t window = gui_open("FILES", 280, 130, 720, 520);
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
@@ -260,11 +261,10 @@ int main(void) {
     }
 
     puts("[TEST] desktop_files_real_vfs: PASS");
-    puts("[TEST] flux_scene_files: PASS");
     puts("[TEST] desktop_files_3_1_navigation: PASS");
     puts("[TEST] desktop_files_readdir_navigation: PASS");
     puts("[TEST] desktop_files_elf_launch: PASS");
-    puts("[TEST] kurogane5_obsidian_files: PASS");
+    puts("[TEST] kurogane5_vault_surface: PASS");
 
     for (;;) {
         ku_ui_event event;
