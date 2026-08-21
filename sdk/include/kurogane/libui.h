@@ -17,13 +17,16 @@ enum kui_view_type {
     KUI_VIEW_INPUT = 4,
     KUI_VIEW_LIST_ITEM = 5,
     KUI_VIEW_PROGRESS = 6,
-    KUI_VIEW_SEPARATOR = 7
+    KUI_VIEW_SEPARATOR = 7,
+    KUI_VIEW_CARD = 8
 };
 
 enum kui_view_flags {
     KUI_VIEW_HIDDEN = UINT32_C(1) << 0,
     KUI_VIEW_SELECTED = UINT32_C(1) << 1,
-    KUI_VIEW_DISABLED = UINT32_C(1) << 2
+    KUI_VIEW_DISABLED = UINT32_C(1) << 2,
+    KUI_VIEW_MUTED = UINT32_C(1) << 3,
+    KUI_VIEW_ACCENT = UINT32_C(1) << 4
 };
 
 typedef struct kui_view {
@@ -33,6 +36,12 @@ typedef struct kui_view {
     uint32_t flags;
     uint32_t value;
     uint32_t maximum;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    uint32_t corner_radius;
+    ku_ui_line_style style;
     char text[KUI_VIEW_TEXT_CAPACITY];
 } kui_view;
 
@@ -45,6 +54,7 @@ typedef struct kui_scene {
     uint32_t visible_rows;
     uint32_t selected_id;
     uint32_t reserved;
+    ku_ui_line_style default_style;
     kui_view views[KUI_MAX_VIEWS];
 } kui_scene;
 
@@ -53,9 +63,12 @@ typedef struct kui_flow {
     uint32_t parent_id;
 } kui_flow;
 
+void kui_line_style_initialize(ku_ui_line_style* style, uint32_t text_context);
 void kui_frame_initialize(ku_ui_frame* frame);
 ku_status_t kui_frame_set_line(
     ku_ui_frame* frame, uint32_t line, const char* text);
+ku_status_t kui_frame_set_line_style(
+    ku_ui_frame* frame, uint32_t line, const ku_ui_line_style* style);
 ku_status_t kui_present(ku_window_t window, const ku_ui_frame* frame);
 int kui_next_event(ku_window_t window, ku_ui_event* event);
 
@@ -65,6 +78,8 @@ void kui_scene_set_palette(
     uint32_t background_rgb,
     uint32_t foreground_rgb,
     uint32_t accent_rgb);
+ku_status_t kui_scene_set_default_style(
+    kui_scene* scene, const ku_ui_line_style* style);
 ku_status_t kui_scene_add(
     kui_scene* scene,
     uint32_t id,
@@ -80,6 +95,16 @@ ku_status_t kui_scene_add_progress(
     uint32_t maximum);
 ku_status_t kui_scene_set_text(
     kui_scene* scene, uint32_t id, const char* text);
+ku_status_t kui_scene_set_style(
+    kui_scene* scene, uint32_t id, const ku_ui_line_style* style);
+ku_status_t kui_scene_set_bounds(
+    kui_scene* scene,
+    uint32_t id,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height,
+    uint32_t corner_radius);
 ku_status_t kui_scene_set_flags(
     kui_scene* scene, uint32_t id, uint32_t flags);
 ku_status_t kui_scene_set_value(
@@ -96,6 +121,7 @@ ku_status_t kui_flow_label(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_button(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_input(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_list_item(kui_flow* flow, uint32_t id, const char* text);
+ku_status_t kui_flow_card(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_progress(
     kui_flow* flow,
     uint32_t id,

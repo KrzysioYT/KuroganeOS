@@ -1,5 +1,7 @@
 #include "framebuffer.hpp"
 
+#include <kurogane/text.h>
+
 #include "../core/memory.hpp"
 
 namespace graphics {
@@ -29,10 +31,22 @@ ClipState g_clip{};
 uint32_t g_text_scale_limit = UINT32_MAX;
 
 struct Glyph {
-    char character;
+    uint32_t codepoint;
     uint8_t rows[7];
 };
 
+/*
+ * Emergency/compatibility bitmap font.
+ *
+ * This is intentionally not the final Kurogane text engine. It remains small
+ * enough for early boot, panic/recovery and the legacy ku_ui_frame path while
+ * the scalable font manager is brought up. Lowercase glyphs are distinct and
+ * the fallback path decodes UTF-8 before glyph lookup, so application/browser
+ * text is no longer silently uppercased or interpreted byte-by-byte.
+ *
+ * The compact Polish glyphs are a bootstrap set for readable system text. A
+ * future TTF/OTF rasterizer will replace these shapes for normal desktop use.
+ */
 constexpr Glyph kGlyphs[] = {
     {'A', {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11}},
     {'B', {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E}},
@@ -60,6 +74,32 @@ constexpr Glyph kGlyphs[] = {
     {'X', {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11}},
     {'Y', {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}},
     {'Z', {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F}},
+    {'a', {0x00, 0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F}},
+    {'b', {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x1E}},
+    {'c', {0x00, 0x00, 0x0E, 0x11, 0x10, 0x11, 0x0E}},
+    {'d', {0x01, 0x01, 0x0F, 0x11, 0x11, 0x11, 0x0F}},
+    {'e', {0x00, 0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E}},
+    {'f', {0x06, 0x09, 0x08, 0x1C, 0x08, 0x08, 0x08}},
+    {'g', {0x00, 0x00, 0x0F, 0x11, 0x0F, 0x01, 0x0E}},
+    {'h', {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x11}},
+    {'i', {0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E}},
+    {'j', {0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0C}},
+    {'k', {0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12}},
+    {'l', {0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E}},
+    {'m', {0x00, 0x00, 0x1A, 0x15, 0x15, 0x15, 0x15}},
+    {'n', {0x00, 0x00, 0x1E, 0x11, 0x11, 0x11, 0x11}},
+    {'o', {0x00, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E}},
+    {'p', {0x00, 0x00, 0x1E, 0x11, 0x1E, 0x10, 0x10}},
+    {'q', {0x00, 0x00, 0x0F, 0x11, 0x0F, 0x01, 0x01}},
+    {'r', {0x00, 0x00, 0x16, 0x19, 0x10, 0x10, 0x10}},
+    {'s', {0x00, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E}},
+    {'t', {0x08, 0x08, 0x1C, 0x08, 0x08, 0x09, 0x06}},
+    {'u', {0x00, 0x00, 0x11, 0x11, 0x11, 0x13, 0x0D}},
+    {'v', {0x00, 0x00, 0x11, 0x11, 0x11, 0x0A, 0x04}},
+    {'w', {0x00, 0x00, 0x11, 0x11, 0x15, 0x15, 0x0A}},
+    {'x', {0x00, 0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11}},
+    {'y', {0x00, 0x00, 0x11, 0x11, 0x0F, 0x01, 0x0E}},
+    {'z', {0x00, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F}},
     {'0', {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}},
     {'1', {0x04, 0x0C, 0x14, 0x04, 0x04, 0x04, 0x1F}},
     {'2', {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}},
@@ -99,6 +139,26 @@ constexpr Glyph kGlyphs[] = {
     {'|', {0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04}},
     {'^', {0x04, 0x0A, 0x11, 0x00, 0x00, 0x00, 0x00}},
     {'~', {0x00, 0x00, 0x09, 0x16, 0x00, 0x00, 0x00}},
+
+    /* Polish bootstrap coverage. */
+    {UINT32_C(0x0104), {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x13, 0x01}}, /* Ą */
+    {UINT32_C(0x0105), {0x00, 0x0E, 0x01, 0x0F, 0x11, 0x0F, 0x01}}, /* ą */
+    {UINT32_C(0x0106), {0x02, 0x0E, 0x10, 0x10, 0x10, 0x11, 0x0E}}, /* Ć */
+    {UINT32_C(0x0107), {0x02, 0x00, 0x0E, 0x11, 0x10, 0x11, 0x0E}}, /* ć */
+    {UINT32_C(0x0118), {0x1F, 0x10, 0x1E, 0x10, 0x10, 0x1F, 0x01}}, /* Ę */
+    {UINT32_C(0x0119), {0x00, 0x0E, 0x11, 0x1F, 0x10, 0x0E, 0x01}}, /* ę */
+    {UINT32_C(0x0141), {0x10, 0x12, 0x14, 0x18, 0x10, 0x10, 0x1F}}, /* Ł */
+    {UINT32_C(0x0142), {0x0C, 0x04, 0x06, 0x0C, 0x04, 0x04, 0x0E}}, /* ł */
+    {UINT32_C(0x0143), {0x02, 0x11, 0x19, 0x15, 0x13, 0x11, 0x11}}, /* Ń */
+    {UINT32_C(0x0144), {0x02, 0x00, 0x1E, 0x11, 0x11, 0x11, 0x11}}, /* ń */
+    {UINT32_C(0x00D3), {0x02, 0x0E, 0x11, 0x11, 0x11, 0x11, 0x0E}}, /* Ó */
+    {UINT32_C(0x00F3), {0x02, 0x00, 0x0E, 0x11, 0x11, 0x11, 0x0E}}, /* ó */
+    {UINT32_C(0x015A), {0x02, 0x0F, 0x10, 0x0E, 0x01, 0x01, 0x1E}}, /* Ś */
+    {UINT32_C(0x015B), {0x02, 0x00, 0x0F, 0x10, 0x0E, 0x01, 0x1E}}, /* ś */
+    {UINT32_C(0x0179), {0x02, 0x1F, 0x01, 0x02, 0x04, 0x08, 0x1F}}, /* Ź */
+    {UINT32_C(0x017A), {0x02, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F}}, /* ź */
+    {UINT32_C(0x017B), {0x04, 0x1F, 0x01, 0x02, 0x04, 0x08, 0x1F}}, /* Ż */
+    {UINT32_C(0x017C), {0x04, 0x00, 0x1F, 0x02, 0x04, 0x08, 0x1F}}, /* ż */
 };
 
 uint32_t native_color(Color color) {
@@ -110,12 +170,9 @@ uint32_t native_color(Color color) {
     return color;
 }
 
-const uint8_t* glyph_rows(char character) {
-    if (character >= 'a' && character <= 'z') {
-        character = static_cast<char>(character - ('a' - 'A'));
-    }
+const uint8_t* glyph_rows(uint32_t codepoint) {
     for (const auto& glyph : kGlyphs) {
-        if (glyph.character == character) return glyph.rows;
+        if (glyph.codepoint == codepoint) return glyph.rows;
     }
     return nullptr;
 }
@@ -160,6 +217,55 @@ void clip_edges(
         if (bottom > g_clip.bottom) bottom = g_clip.bottom;
     }
 }
+
+void draw_codepoint(
+    int32_t x,
+    int32_t y,
+    uint32_t codepoint,
+    Color foreground,
+    Color background,
+    uint32_t scale,
+    bool transparent) {
+    scale = effective_scale(scale);
+    if (!g_available || scale == 0U) return;
+    const int32_t pixel_size =
+        scale > static_cast<uint32_t>(INT32_MAX)
+            ? INT32_MAX : static_cast<int32_t>(scale);
+    const uint8_t* rows = glyph_rows(codepoint);
+    if (rows == nullptr && codepoint != UINT32_C(0x20)) {
+        rows = glyph_rows(UINT32_C(0x3F));
+    }
+    for (uint32_t row = 0U; row < 7U; ++row) {
+        for (uint32_t column = 0U; column < 5U; ++column) {
+            const bool set = rows && (rows[row] & (1u << (4u - column)));
+            if (set || !transparent) {
+                fill_rect(
+                    saturate_i32(static_cast<int64_t>(x) +
+                                 static_cast<int64_t>(column) * scale),
+                    saturate_i32(static_cast<int64_t>(y) +
+                                 static_cast<int64_t>(row) * scale),
+                    pixel_size, pixel_size, set ? foreground : background);
+            }
+        }
+        if (!transparent) {
+            fill_rect(
+                saturate_i32(static_cast<int64_t>(x) + INT64_C(5) * scale),
+                saturate_i32(static_cast<int64_t>(y) +
+                             static_cast<int64_t>(row) * scale),
+                pixel_size, pixel_size, background);
+        }
+    }
+    if (!transparent) {
+        const uint64_t cell_width = UINT64_C(6) * scale;
+        fill_rect(
+            x,
+            saturate_i32(static_cast<int64_t>(y) + INT64_C(7) * scale),
+            cell_width > static_cast<uint64_t>(INT32_MAX)
+                ? INT32_MAX : static_cast<int32_t>(cell_width),
+            pixel_size, background);
+    }
+}
+
 } // namespace
 
 bool init(const KuroganeFramebuffer& framebuffer) {
@@ -330,41 +436,9 @@ void draw_rect(int32_t x, int32_t y, int32_t rectangle_width,
 
 void draw_char(int32_t x, int32_t y, char character, Color foreground,
                Color background, uint32_t scale, bool transparent) {
-    scale = effective_scale(scale);
-    if (!g_available || scale == 0U) return;
-    const int32_t pixel_size =
-        scale > static_cast<uint32_t>(INT32_MAX)
-            ? INT32_MAX : static_cast<int32_t>(scale);
-    const uint8_t* rows = glyph_rows(character);
-    for (uint32_t row = 0U; row < 7U; ++row) {
-        for (uint32_t column = 0U; column < 5U; ++column) {
-            const bool set = rows && (rows[row] & (1u << (4u - column)));
-            if (set || !transparent) {
-                fill_rect(
-                    saturate_i32(static_cast<int64_t>(x) +
-                                 static_cast<int64_t>(column) * scale),
-                    saturate_i32(static_cast<int64_t>(y) +
-                                 static_cast<int64_t>(row) * scale),
-                    pixel_size, pixel_size, set ? foreground : background);
-            }
-        }
-        if (!transparent) {
-            fill_rect(
-                saturate_i32(static_cast<int64_t>(x) + INT64_C(5) * scale),
-                saturate_i32(static_cast<int64_t>(y) +
-                             static_cast<int64_t>(row) * scale),
-                pixel_size, pixel_size, background);
-        }
-    }
-    if (!transparent) {
-        const uint64_t cell_width = UINT64_C(6) * scale;
-        fill_rect(
-            x,
-            saturate_i32(static_cast<int64_t>(y) + INT64_C(7) * scale),
-            cell_width > static_cast<uint64_t>(INT32_MAX)
-                ? INT32_MAX : static_cast<int32_t>(cell_width),
-            pixel_size, background);
-    }
+    draw_codepoint(
+        x, y, static_cast<uint8_t>(character), foreground, background,
+        scale, transparent);
 }
 
 void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
@@ -377,17 +451,27 @@ void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
     const int64_t line_advance = static_cast<uint64_t>(scale) * 8u;
     const int64_t column_advance = static_cast<uint64_t>(scale) * 6u;
     while (*text) {
-        if (*text == '\n') {
+        uint32_t codepoint = KU_UNICODE_REPLACEMENT_CHARACTER;
+        size_t consumed = 1U;
+        size_t available = 1U;
+        while (available < 4U && text[available] != '\0') ++available;
+        if (!ku_utf8_decode_one(text, available, &codepoint, &consumed)) {
+            codepoint = UINT32_C(0x3F);
+            consumed = 1U;
+        }
+
+        if (codepoint == UINT32_C(0x0A)) {
             cursor_x = x;
             cursor_y = cursor_y > INT64_MAX - line_advance
                 ? INT64_MAX : cursor_y + line_advance;
-        } else {
-            draw_char(saturate_i32(cursor_x), saturate_i32(cursor_y),
-                      *text, foreground, background, scale, transparent);
+        } else if (codepoint != UINT32_C(0x0D)) {
+            draw_codepoint(
+                saturate_i32(cursor_x), saturate_i32(cursor_y), codepoint,
+                foreground, background, scale, transparent);
             cursor_x = cursor_x > INT64_MAX - column_advance
                 ? INT64_MAX : cursor_x + column_advance;
         }
-        ++text;
+        text += consumed;
     }
 }
 

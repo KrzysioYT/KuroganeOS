@@ -24,6 +24,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -Isdk/include \
+  tests/test_text.cpp \
+  -o "$OUT_DIR/test_text"
+
+"$OUT_DIR/test_text"
+
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -Isdk/include \
   tests/test_graphics_runtime.cpp \
   -o "$OUT_DIR/test_graphics_runtime"
 
