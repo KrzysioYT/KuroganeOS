@@ -107,6 +107,7 @@ $desktopApplications = @(
     @{ Name = 'terminal'; InstallName = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
     @{ Name = 'files'; InstallName = 'files'; Source = 'userspace\gui\files\main.c' },
     @{ Name = 'anvil'; InstallName = 'anvil'; Source = 'userspace\gui\anvil\main.c' },
+    @{ Name = 'pulse'; InstallName = 'pulse'; Source = 'userspace\gui\pulse\main.c' },
     @{ Name = 'sysmon'; InstallName = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
     @{ Name = 'performance'; InstallName = 'perf'; Source = 'userspace\gui\performance\main.c' },
     @{ Name = 'browser'; InstallName = 'browser'; Source = 'userspace\gui\browser\main.c' },
