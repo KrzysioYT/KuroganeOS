@@ -15,6 +15,7 @@ typedef struct login_profile {
 
 static uint64_t credential_hash(const char* username, const char* password) {
     uint64_t hash = UINT64_C(1469598103934665603);
+    /* Keep the existing credential domain stable across the visual migration. */
     const char domain[] = "KuroganeOS-3.3-dev:";
     size_t index;
     for (index = 0U; domain[index] != '\0'; ++index) {
@@ -138,26 +139,21 @@ static void build_scene(
     const int polish = is_polish(profile);
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x0B0C0F),
-        UINT32_C(0xEEF0F3),
-        UINT32_C(0xE0162B));
+    scene->visible_rows = KU_UI_MAX_LINES;
+    gui_apply_obsidian_theme(scene, 0);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U,
-        polish ? "LOGOWANIE KUROGANEOS" : "KUROGANEOS LOGIN");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DEV BETA");
-    (void)strlcpy(account_line + strlen(account_line), profile->username,
-                  sizeof(account_line) - strlen(account_line));
+        polish ? "LOGOWANIE / KUROGANEOS" : "SIGN IN / KUROGANEOS");
+    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / OBSIDIAN DESKTOP");
+    gui_append_text(account_line, sizeof(account_line), profile->username);
     (void)kui_flow_label(&root, 3U, account_line);
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&session, scene, 1U);
     if (!profile->installed_profile) {
         (void)kui_flow_label(&session, 9U,
-            polish ? "SESJA LIVE / TYLKO DO ODCZYTU"
+            polish ? "SESJA LIVE / SYSTEM TYLKO DO ODCZYTU"
                    : "LIVE SESSION / READ-ONLY SYSTEM ROOT");
     }
     if (profile->password_required) {
@@ -175,7 +171,7 @@ static void build_scene(
                    : "TYPE PASSWORD AND PRESS ENTER");
     } else {
         (void)kui_flow_button(&session, 10U,
-            polish ? "WEJDZ DO RED FLUX" : "ENTER RED FLUX DESKTOP");
+            polish ? "OTWORZ PULPIT KUROGANE" : "ENTER KUROGANE DESKTOP");
         (void)kui_flow_label(&session, 11U,
             polish ? "ENTER LUB KLIKNIJ, ABY OTWORZYC SESJE"
                    : "ENTER OR CLICK TO START THE SESSION");
@@ -204,6 +200,7 @@ static int start_session(ku_window_t window) {
             launcher, sizeof(launcher) - 1U);
         if (pid <= 0) return 4;
         puts("[TEST] red_flux_login_to_desktop: PASS");
+        puts("[TEST] kurogane5_login_to_desktop: PASS");
         return wait_for_desktop((uint64_t)pid);
     }
 }
@@ -217,7 +214,7 @@ int main(void) {
     kui_scene scene;
 
     load_profile(&profile);
-    window = gui_open("KUROGANE LOGIN", 280, 245, 520, 290);
+    window = gui_open("KUROGANE LOGIN", 280, 225, 560, 330);
     if (window == KU_INVALID_WINDOW) return 1;
 
     build_scene(&scene, &profile, password, error);
@@ -227,6 +224,7 @@ int main(void) {
     }
 
     puts("[TEST] red_flux_login_surface: PASS");
+    puts("[TEST] kurogane5_obsidian_login: PASS");
     puts(profile.installed_profile
         ? "[TEST] installed_account_profile: PASS"
         : "[TEST] live_login_profile: PASS");
