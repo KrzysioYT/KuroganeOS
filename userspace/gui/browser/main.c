@@ -49,16 +49,6 @@ static size_t g_link_count = 0U;
 static uint32_t g_selected = VIEW_ADDRESS;
 static int g_editing = 0;
 
-static int starts_with(const char* text, const char* prefix) {
-    size_t index = 0U;
-    if (text == NULL || prefix == NULL) return 0;
-    while (prefix[index] != '\0') {
-        if (text[index] != prefix[index]) return 0;
-        ++index;
-    }
-    return 1;
-}
-
 static int ascii_space(char value) {
     return value == ' ' || value == '\t' || value == '\r' || value == '\n';
 }
@@ -67,24 +57,45 @@ static char ascii_lower(char value) {
     return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
 }
 
-static int equals_case_n(const char* left, const char* right, size_t count) {
-    size_t index;
-    for (index = 0U; index < count; ++index) {
-        if (ascii_lower(left[index]) != ascii_lower(right[index])) return 0;
+static int starts_with(const char* text, const char* prefix) {
+    if (text == NULL || prefix == NULL) return 0;
+    while (*prefix != '\0') {
+        if (*text == '\0' || *text != *prefix) return 0;
+        ++text;
+        ++prefix;
+    }
+    return 1;
+}
+
+static int starts_with_case(const char* text, const char* prefix) {
+    if (text == NULL || prefix == NULL) return 0;
+    while (*prefix != '\0') {
+        if (*text == '\0' || ascii_lower(*text) != ascii_lower(*prefix)) return 0;
+        ++text;
+        ++prefix;
     }
     return 1;
 }
 
 static const char* find_case(const char* text, const char* needle) {
-    size_t needle_length;
     if (text == NULL || needle == NULL) return NULL;
-    needle_length = strlen(needle);
-    if (needle_length == 0U) return text;
+    if (*needle == '\0') return text;
     while (*text != '\0') {
-        if (equals_case_n(text, needle, needle_length)) return text;
+        if (starts_with_case(text, needle)) return text;
         ++text;
     }
     return NULL;
+}
+
+static int append_part(char* output, size_t capacity, const char* text) {
+    size_t used;
+    size_t incoming;
+    if (output == NULL || text == NULL || capacity == 0U) return 0;
+    used = strlen(output);
+    incoming = strlen(text);
+    if (used + incoming + 1U > capacity) return 0;
+    memcpy(output + used, text, incoming + 1U);
+    return 1;
 }
 
 static void set_status(const char* prefix, uint64_t value, const char* suffix) {
@@ -108,49 +119,46 @@ static void clear_page(void) {
     g_link_count = 0U;
 }
 
-static int append_part(char* output, size_t capacity, const char* text) {
-    const size_t used = strlen(output);
-    const size_t incoming = strlen(text);
-    if (used + incoming + 1U > capacity) return 0;
-    memcpy(output + used, text, incoming + 1U);
-    return 1;
-}
-
 static int parse_url(const char* input, browser_url* output) {
+    char source[BROWSER_ADDRESS_CAPACITY];
     const char* cursor;
     const char* slash;
     size_t host_length;
+    size_t path_length;
     if (input == NULL || output == NULL) return 0;
-    memset(output, 0, sizeof(*output));
     while (ascii_space(*input)) ++input;
+    (void)strlcpy(source, input, sizeof(source));
+    path_length = strlen(source);
+    while (path_length != 0U && ascii_space(source[path_length - 1U])) {
+        source[--path_length] = '\0';
+    }
+    if (source[0] == '\0') return 0;
 
-    if (starts_with(input, "https://")) {
+    memset(output, 0, sizeof(*output));
+    if (starts_with(source, "https://")) {
         output->secure = 1;
-        cursor = input + 8U;
-    } else if (starts_with(input, "http://")) {
+        cursor = source + 8U;
+    } else if (starts_with(source, "http://")) {
         output->secure = 0;
-        cursor = input + 7U;
+        cursor = source + 7U;
     } else {
         output->secure = 1;
-        cursor = input;
+        cursor = source;
     }
 
     slash = strchr(cursor, '/');
     host_length = slash != NULL ? (size_t)(slash - cursor) : strlen(cursor);
-    while (host_length != 0U && ascii_space(cursor[host_length - 1U])) --host_length;
-    if (host_length == 0U || host_length >= sizeof(output->host)) return 0;
-    if (memchr(cursor, ':', host_length) != NULL) return 0;
+    if (host_length == 0U || host_length >= sizeof(output->host) ||
+        memchr(cursor, ':', host_length) != NULL) return 0;
     memcpy(output->host, cursor, host_length);
     output->host[host_length] = '\0';
 
     if (slash == NULL) {
         (void)strlcpy(output->path, "/", sizeof(output->path));
     } else {
-        size_t path_length = strlen(slash);
-        while (path_length != 0U && ascii_space(slash[path_length - 1U])) --path_length;
+        path_length = strlen(slash);
         if (path_length == 0U || path_length >= sizeof(output->path)) return 0;
-        memcpy(output->path, slash, path_length);
-        output->path[path_length] = '\0';
+        memcpy(output->path, slash, path_length + 1U);
     }
 
     output->canonical[0] = '\0';
@@ -182,24 +190,25 @@ static int response_header(
     size_t capacity) {
     const size_t name_length = strlen(name);
     const char* line = response;
-    if (capacity == 0U) return 0;
+    if (response == NULL || name == NULL || output == NULL || capacity == 0U) return 0;
     output[0] = '\0';
-    while (line != NULL && *line != '\0') {
+    while (*line != '\0') {
         const char* end = strstr(line, "\r\n");
-        size_t length = end != NULL ? (size_t)(end - line) : strlen(line);
-        if (length == 0U) return 0;
-        if (length > name_length && equals_case_n(line, name, name_length) &&
+        const size_t line_length = end != NULL ? (size_t)(end - line) : strlen(line);
+        if (line_length == 0U) break;
+        if (line_length > name_length && starts_with_case(line, name) &&
             line[name_length] == ':') {
             const char* value = line + name_length + 1U;
             size_t value_length;
             while (*value == ' ' || *value == '\t') ++value;
-            value_length = length - (size_t)(value - line);
+            value_length = line_length - (size_t)(value - line);
             if (value_length >= capacity) value_length = capacity - 1U;
             memcpy(output, value, value_length);
             output[value_length] = '\0';
             return value_length != 0U;
         }
-        line = end != NULL ? end + 2U : NULL;
+        if (end == NULL) break;
+        line = end + 2U;
     }
     return 0;
 }
@@ -220,7 +229,7 @@ static void normalize_label(const char* begin, const char* end, char* output, si
     int in_tag = 0;
     int pending_space = 0;
     const char* cursor = begin;
-    if (capacity == 0U) return;
+    if (begin == NULL || end == NULL || output == NULL || capacity == 0U) return;
     while (cursor < end && *cursor != '\0' && written + 1U < capacity) {
         char value;
         size_t consumed = 1U;
@@ -244,8 +253,8 @@ static int resolve_href(
     const char* href,
     char* output,
     size_t capacity) {
-    browser_url parsed;
     char candidate[BROWSER_LINK_URL_CAPACITY];
+    browser_url parsed;
     if (base == NULL || href == NULL || output == NULL || capacity == 0U) return 0;
     while (ascii_space(*href)) ++href;
     if (*href == '\0' || *href == '#') return 0;
@@ -257,13 +266,13 @@ static int resolve_href(
         (void)strlcpy(candidate, base->secure ? "https:" : "http:", sizeof(candidate));
         if (!append_part(candidate, sizeof(candidate), href)) return 0;
     } else {
+        char directory[KU_NET_PATH_CAPACITY];
+        char* last;
         if (!append_part(candidate, sizeof(candidate), base->secure ? "https://" : "http://") ||
             !append_part(candidate, sizeof(candidate), base->host)) return 0;
         if (*href == '/') {
             if (!append_part(candidate, sizeof(candidate), href)) return 0;
         } else {
-            char directory[KU_NET_PATH_CAPACITY];
-            char* last;
             (void)strlcpy(directory, base->path, sizeof(directory));
             last = strrchr(directory, '/');
             if (last == NULL) (void)strlcpy(directory, "/", sizeof(directory));
@@ -297,20 +306,21 @@ static void parse_text(const char* html) {
     int in_tag = 0;
     int pending_space = 0;
     const char* cursor = html;
-    size_t line = 0U;
+    size_t line;
     size_t column = 0U;
     memset(plain, 0, sizeof(plain));
+
     while (*cursor != '\0' && written + 1U < sizeof(plain)) {
         char value;
         size_t consumed = 1U;
         if (*cursor == '<') {
-            if (find_case(cursor, "<script") == cursor) {
+            if (starts_with_case(cursor, "<script")) {
                 const char* close = find_case(cursor, "</script>");
                 cursor = close != NULL ? close + 9U : cursor + strlen(cursor);
                 pending_space = 1;
                 continue;
             }
-            if (find_case(cursor, "<style") == cursor) {
+            if (starts_with_case(cursor, "<style")) {
                 const char* close = find_case(cursor, "</style>");
                 cursor = close != NULL ? close + 8U : cursor + strlen(cursor);
                 pending_space = 1;
@@ -335,14 +345,13 @@ static void parse_text(const char* html) {
 
     for (line = 0U; line < BROWSER_TEXT_LINES; ++line) g_text[line][0] = '\0';
     line = 0U;
-    column = 0U;
     cursor = plain;
     while (*cursor != '\0' && line < BROWSER_TEXT_LINES) {
         if (column + 1U >= KU_UI_WIDGET_TEXT_CAPACITY) {
             g_text[line][column] = '\0';
             ++line;
             column = 0U;
-            if (line >= BROWSER_TEXT_LINES) break;
+            continue;
         }
         g_text[line][column++] = *cursor++;
     }
@@ -360,7 +369,7 @@ static void parse_links(const char* html, const browser_url* base) {
         const char* close;
         char quote = '\0';
         char raw[BROWSER_LINK_URL_CAPACITY];
-        size_t raw_length = 0U;
+        size_t raw_length;
         if (anchor == NULL) break;
         tag_end = strchr(anchor, '>');
         if (tag_end == NULL) break;
@@ -397,30 +406,30 @@ static void parse_links(const char* html, const browser_url* base) {
                           sizeof(g_links[g_link_count].label));
         }
         ++g_link_count;
-        cursor = close + (find_case(tag_end + 1U, "</a>") != NULL ? 4U : 0U);
+        cursor = close;
+        if (starts_with_case(cursor, "</a>")) cursor += 4U;
     }
 }
 
 static void history_push(const char* url) {
     size_t index;
     if (url == NULL || url[0] == '\0') return;
-    if (g_history_count != 0U &&
-        strcmp(g_history[g_history_count - 1U], url) == 0) return;
+    if (g_history_count != 0U && strcmp(g_history[g_history_count - 1U], url) == 0) return;
     if (g_history_count == BROWSER_HISTORY_CAPACITY) {
         for (index = 1U; index < BROWSER_HISTORY_CAPACITY; ++index) {
-            (void)strlcpy(g_history[index - 1U], g_history[index],
-                          sizeof(g_history[index - 1U]));
+            (void)strlcpy(g_history[index - 1U], g_history[index], sizeof(g_history[index - 1U]));
         }
         --g_history_count;
     }
-    (void)strlcpy(g_history[g_history_count++], url,
-                  sizeof(g_history[g_history_count]));
+    (void)strlcpy(g_history[g_history_count], url, sizeof(g_history[g_history_count]));
+    ++g_history_count;
 }
 
 static int fetch_page(const browser_url* target, browser_url* final_url, unsigned redirects) {
     ku_http_request request;
     ku_status_t status;
     char location[BROWSER_LINK_URL_CAPACITY];
+    char redirect_url[BROWSER_LINK_URL_CAPACITY];
     char* body = NULL;
     size_t body_size = 0U;
     browser_url redirected;
@@ -438,7 +447,7 @@ static int fetch_page(const browser_url* target, browser_url* final_url, unsigne
         return 0;
     }
     if (request.bytes_received >= sizeof(g_response)) {
-        (void)strlcpy(g_status, "PAGE EXCEEDS BOUNDED WEB BUFFER", sizeof(g_status));
+        (void)strlcpy(g_status, "PAGE EXCEEDS WEB BUFFER", sizeof(g_status));
         return 0;
     }
     g_response[(size_t)request.bytes_received] = '\0';
@@ -447,8 +456,8 @@ static int fetch_page(const browser_url* target, browser_url* final_url, unsigne
          request.http_status == 303U || request.http_status == 307U ||
          request.http_status == 308U) && redirects < BROWSER_REDIRECT_LIMIT &&
         response_header((const char*)g_response, "Location", location, sizeof(location)) &&
-        resolve_href(target, location, redirected.canonical, sizeof(redirected.canonical)) &&
-        parse_url(redirected.canonical, &redirected)) {
+        resolve_href(target, location, redirect_url, sizeof(redirect_url)) &&
+        parse_url(redirect_url, &redirected)) {
         return fetch_page(&redirected, final_url, redirects + 1U);
     }
 
@@ -511,7 +520,7 @@ static void select_next(int direction) {
     choices[count++] = VIEW_RELOAD;
     choices[count++] = VIEW_ADDRESS;
     for (index = 0U; index < g_link_count; ++index) choices[count++] = VIEW_LINK_BASE + (uint32_t)index;
-    for (index = 0U; index < count; ++index) if (choices[index] == g_selected) break;
+    for (index = 0U; index < count && choices[index] != g_selected; ++index) {}
     if (index == count) index = 0U;
     else if (direction > 0) index = (index + 1U) % count;
     else index = index == 0U ? count - 1U : index - 1U;
@@ -557,9 +566,10 @@ static void build_scene(kui_scene* scene) {
     (void)kui_scene_add(scene, VIEW_META, 0U, KUI_VIEW_LABEL, g_meta);
 
     for (index = 0U; index < BROWSER_TEXT_LINES; ++index) {
-        if (g_text[index][0] == '\0') continue;
-        (void)kui_scene_add(scene, VIEW_TEXT_BASE + (uint32_t)index, 0U,
-                            KUI_VIEW_LABEL, g_text[index]);
+        if (g_text[index][0] != '\0') {
+            (void)kui_scene_add(scene, VIEW_TEXT_BASE + (uint32_t)index, 0U,
+                                KUI_VIEW_LABEL, g_text[index]);
+        }
     }
     if (g_link_count != 0U) {
         (void)kui_scene_add(scene, VIEW_LINK_SEPARATOR, 0U, KUI_VIEW_SEPARATOR, "");
