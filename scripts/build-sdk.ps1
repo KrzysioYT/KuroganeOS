@@ -48,7 +48,7 @@ Copy-Item -LiteralPath (Join-Path $RootDir 'userspace\linker.ld') `
 $AnvilRepoHost = if ($env:ANVIL_REPO_HOST) { $env:ANVIL_REPO_HOST } else { 'raw.githubusercontent.com' }
 $AnvilRepoBase = if ($env:ANVIL_REPO_BASE) { $env:ANVIL_REPO_BASE } else { '/KrzysioYT/KuroganeOS-Packages/main' }
 @("HOST=$AnvilRepoHost", "BASE=$AnvilRepoBase") | Set-Content `
-    -LiteralPath (Join-Path $OverlayEtc 'anvil.repo') -Encoding ascii
+    -LiteralPath (Join-Path $OverlayEtc 'anvil.cfg') -Encoding ascii
 
 $common = @(
     '-ffreestanding', '-fno-stack-protector', '-m64', '-mno-red-zone',
