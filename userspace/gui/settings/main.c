@@ -30,7 +30,7 @@ static const char* page_name(settings_page page) {
         case SETTINGS_APPEARANCE: return "APPEARANCE";
         case SETTINGS_AUDIO: return "AUDIO";
         case SETTINGS_SYSTEM: return "SYSTEM";
-        default: return "SETTINGS";
+        default: return "FORGE";
     }
 }
 
@@ -45,7 +45,7 @@ static uint32_t first_selectable(settings_page page) {
 }
 
 static void add_navigation(kui_flow* root, settings_page page) {
-    char heading[64] = "SETTINGS / ";
+    char heading[64] = "FORGE CONTROL / ";
     gui_append_text(heading, sizeof(heading), page_name(page));
     (void)kui_flow_panel(root, 1U, heading);
     (void)kui_flow_label(root, 2U, "1 NETWORK  2 APPEARANCE  3 AUDIO  4 SYSTEM");
@@ -56,7 +56,7 @@ static void add_navigation(kui_flow* root, settings_page page) {
 static void build_scene(
     kui_scene* scene,
     settings_page page,
-    int low_contrast,
+    int hot_edge,
     uint32_t selected,
     const ku_audio_state* audio,
     const char* status) {
@@ -65,7 +65,7 @@ static void build_scene(
 
     kui_scene_initialize(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
-    gui_apply_obsidian_theme(scene, low_contrast);
+    gui_apply_forged_theme(scene, hot_edge);
 
     kui_flow_begin(&root, scene, 0U);
     add_navigation(&root, page);
@@ -74,21 +74,21 @@ static void build_scene(
     switch (page) {
         case SETTINGS_NETWORK:
             (void)kui_flow_label(&content, 41U, "WIRED / KERNEL NETWORK STACK");
-            (void)kui_flow_label(&content, 42U, "DHCP + DNS + TCP/TLS STATUS IN NETWORK SERVICE");
-            (void)kui_flow_label(&content, 43U, "WI-FI / USERSPACE CONTROL SERVICE NOT EXPOSED YET");
+            (void)kui_flow_label(&content, 42U, "DHCP + DNS + TCP/TLS / REAL SERVICE STATE");
+            (void)kui_flow_label(&content, 43U, "WI-FI / CONTROL SERVICE PENDING");
             (void)kui_flow_button(&content, 40U, "OPEN KUROGANE WEB / CONNECTION TEST");
             break;
 
         case SETTINGS_APPEARANCE:
-            (void)kui_flow_label(&content, 12U, "THEME / OBSIDIAN DARK + CRIMSON ACCENT");
-            (void)kui_flow_button(&content, 10U, "OBSIDIAN DARK");
-            (void)kui_flow_button(&content, 11U, "OBSIDIAN / REDUCED CONTRAST");
+            (void)kui_flow_label(&content, 12U, "THEME / FORGED STEEL");
+            (void)kui_flow_button(&content, 10U, "CRIMSON EDGE / #E62932");
+            (void)kui_flow_button(&content, 11U, "HOT EDGE / #FF4A45");
             (void)kui_flow_label(
                 &content,
                 13U,
-                low_contrast != 0
-                    ? "ACTIVE / REDUCED CONTRAST"
-                    : "ACTIVE / CRIMSON");
+                hot_edge != 0
+                    ? "ACTIVE / HOT EDGE"
+                    : "ACTIVE / CRIMSON EDGE");
             break;
 
         case SETTINGS_AUDIO: {
@@ -112,9 +112,10 @@ static void build_scene(
 
         case SETTINGS_SYSTEM:
             (void)kui_flow_label(&content, 31U, KUROGANE_PRODUCT_STRING " / " KUROGANE_RELEASE_CHANNEL);
-            (void)kui_flow_label(&content, 32U, "PACKAGES / STORE BACKEND REQUIRES PACKAGE SERVICE");
-            (void)kui_flow_label(&content, 33U, "UPDATES / RELEASE CHANNEL MANAGED BY SYSTEM");
+            (void)kui_flow_label(&content, 32U, "ANVIL / EXTERNAL GITHUB PACKAGE REPOSITORY");
+            (void)kui_flow_label(&content, 33U, "UPDATES / SERVICE INTEGRATION PENDING");
             (void)kui_flow_button(&content, 30U, "ABOUT KUROGANEOS");
+            (void)kui_flow_button(&content, 34U, "OPEN ANVIL PACKAGE MANAGER");
             break;
 
         default:
@@ -155,9 +156,9 @@ static void apply_audio(uint32_t selected, ku_audio_state* audio, char* status, 
 
     if (ku_audio_set(&request) == KU_STATUS_OK) {
         (void)read_audio(audio);
-        (void)strlcpy(status, "AUDIO / UPDATED", capacity);
+        (void)strlcpy(status, "FORGE / AUDIO UPDATED", capacity);
     } else {
-        (void)strlcpy(status, "AUDIO / UPDATE FAILED", capacity);
+        (void)strlcpy(status, "FORGE / AUDIO UPDATE FAILED", capacity);
     }
 }
 
@@ -173,29 +174,29 @@ static void spawn_system_app(const char* path, char* status, size_t capacity) {
 }
 
 int main(void) {
+    /* Internal title retained for current desktop pin/focus lookup. */
     const ku_window_t window = gui_open("SETTINGS", 430, 150, 640, 500);
     settings_page page = SETTINGS_NETWORK;
-    int low_contrast = 0;
+    int hot_edge = 0;
     uint32_t selected = first_selectable(page);
     ku_audio_state audio;
     kui_scene scene;
-    char status[64] = "KuroganeOS 5 / SETTINGS READY";
+    char status[64] = "FORGE CONTROL / READY";
 
     if (window == KU_INVALID_WINDOW) return 1;
     (void)read_audio(&audio);
 
-    build_scene(&scene, page, low_contrast, selected, &audio, status);
+    build_scene(&scene, page, hot_edge, selected, &audio, status);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
         return 2;
     }
 
     puts("[TEST] desktop_settings_real: PASS");
-    puts("[TEST] flux_scene_settings: PASS");
     puts("[TEST] desktop_settings_sections: PASS");
     puts("[TEST] desktop_settings_arrow_navigation: PASS");
     puts("[TEST] desktop_audio_settings_ui: PASS");
-    puts("[TEST] kurogane5_obsidian_settings: PASS");
+    puts("[TEST] kurogane5_forge_control: PASS");
 
     for (;;) {
         ku_ui_event event;
@@ -224,11 +225,11 @@ int main(void) {
         } else if (gui_key_activate(&event)) {
             if (page == SETTINGS_APPEARANCE) {
                 if (selected == 10U) {
-                    low_contrast = 0;
-                    (void)strlcpy(status, "APPEARANCE / OBSIDIAN CRIMSON", sizeof(status));
+                    hot_edge = 0;
+                    (void)strlcpy(status, "APPEARANCE / CRIMSON EDGE", sizeof(status));
                 } else if (selected == 11U) {
-                    low_contrast = 1;
-                    (void)strlcpy(status, "APPEARANCE / REDUCED CONTRAST", sizeof(status));
+                    hot_edge = 1;
+                    (void)strlcpy(status, "APPEARANCE / HOT EDGE", sizeof(status));
                 }
             } else if (page == SETTINGS_AUDIO) {
                 apply_audio(selected, &audio, status, sizeof(status));
@@ -236,16 +237,18 @@ int main(void) {
                 spawn_system_app("/gui/browser", status, sizeof(status));
             } else if (page == SETTINGS_SYSTEM && selected == 30U) {
                 spawn_system_app("/gui/about", status, sizeof(status));
+            } else if (page == SETTINGS_SYSTEM && selected == 34U) {
+                spawn_system_app("/gui/anvil", status, sizeof(status));
             }
         } else if (gui_key_cancel(&event)) {
             page = SETTINGS_NETWORK;
             selected = first_selectable(page);
-            (void)strlcpy(status, "SETTINGS / HOME", sizeof(status));
+            (void)strlcpy(status, "FORGE CONTROL / READY", sizeof(status));
         } else {
             continue;
         }
 
-        build_scene(&scene, page, low_contrast, selected, &audio, status);
+        build_scene(&scene, page, hot_edge, selected, &audio, status);
         (void)kui_scene_present(window, &scene);
     }
 
