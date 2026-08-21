@@ -543,6 +543,20 @@ static void move_selection(int direction) {
     normalize_selection();
 }
 
+static ku_icon_id_t anvil_status_icon(void) {
+    if (strstr(g_status, "FAILED") != NULL ||
+        strstr(g_status, "INVALID") != NULL ||
+        strstr(g_status, "CONFLICT") != NULL ||
+        strstr(g_status, "MISMATCH") != NULL) return KU_ICON_STATUS_ERROR;
+    if (strstr(g_status, "COMPLETE") != NULL ||
+        strstr(g_status, "READY") != NULL ||
+        strstr(g_status, "INSTALLED") != NULL) return KU_ICON_STATUS_SUCCESS;
+    if (strstr(g_status, "FETCH") != NULL ||
+        strstr(g_status, "DOWNLOAD") != NULL ||
+        strstr(g_status, "INSTALLING") != NULL) return KU_ICON_STATUS_LOADING;
+    return KU_ICON_STATUS_INFO;
+}
+
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow packages;
@@ -551,13 +565,22 @@ static void build_scene(kui_scene* scene) {
     gui_append_text(repo_line, sizeof(repo_line), g_repo.host);
 
     kui_scene_initialize(scene);
-    scene->visible_rows = KU_UI_MAX_LINES;
+    scene->visible_rows = 14U;
     gui_apply_forged_theme(scene, 0);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "ANVIL / PACKAGE MANAGER");
-    (void)kui_flow_label(&root, 2U, repo_line);
-    (void)kui_flow_label(&root, 3U, "ARROWS SELECT   ENTER INSTALL   R REFRESH");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "ANVIL / PACKAGES + DEPENDENCIES",
+        KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER);
+    (void)kui_flow_label_icon(
+        &root, 2U, repo_line, KU_ICON_SPECIAL_CLOUD_SYNC);
+    (void)kui_flow_label_icon(
+        &root, 3U, "ARROWS SELECT   ENTER INSTALL   R REFRESH",
+        KU_ICON_ACTION_REFRESH);
     (void)kui_flow_separator(&root, 4U);
+    (void)kui_flow_label_icon(
+        &root, 5U, "DEPENDENCY GRAPH / RESOLVED TRANSACTIONALLY ON INSTALL",
+        KU_ICON_SPECIAL_DATABASE);
 
     kui_flow_begin(&packages, scene, 1U);
     for (row = 0U; row < ANVIL_VISIBLE_PACKAGES; ++row) {
@@ -568,15 +591,19 @@ static void build_scene(kui_scene* scene) {
         gui_append_text(label, sizeof(label), g_packages[index].name);
         gui_append_text(label, sizeof(label), "  ");
         gui_append_text(label, sizeof(label), g_packages[index].version);
-        (void)kui_flow_list_item(&packages, 10U + (uint32_t)row, label);
+        (void)kui_flow_list_item_icon(
+            &packages, 10U + (uint32_t)row, label,
+            installed_name(g_packages[index].name)
+                ? KU_ICON_STATUS_SUCCESS : KU_ICON_ACTION_DOWNLOAD);
     }
     if (g_package_count != 0U) {
         char detail[64] = "";
         gui_append_text(detail, sizeof(detail), g_packages[g_selected].description);
-        (void)kui_flow_label(&root, 30U, detail);
+        (void)kui_flow_label_icon(
+            &root, 30U, detail, KU_ICON_WIDGET_CARD);
         (void)kui_scene_select(scene, 10U + (uint32_t)(g_selected - g_scroll));
     }
-    (void)kui_flow_label(&root, 31U, g_status);
+    (void)kui_flow_label_icon(&root, 31U, g_status, anvil_status_icon());
 }
 
 int main(void) {

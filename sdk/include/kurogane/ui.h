@@ -3,9 +3,12 @@
 
 #include <kurogane/syscall.h>
 
-#define KU_UI_ABI_VERSION UINT32_C(1)
+#define KU_UI_ABI_VERSION_LEGACY UINT32_C(1)
+#define KU_UI_ABI_VERSION UINT32_C(2)
 #define KU_UI_MAX_LINES 12U
 #define KU_UI_LINE_CAPACITY 64U
+#define KU_UI_MAX_WIDGETS 32U
+#define KU_UI_WIDGET_TEXT_CAPACITY KU_UI_LINE_CAPACITY
 
 typedef uint32_t ku_window_t;
 #define KU_INVALID_WINDOW UINT32_C(0)
@@ -53,6 +56,68 @@ typedef struct ku_ui_frame {
     char lines[KU_UI_MAX_LINES][KU_UI_LINE_CAPACITY];
 } ku_ui_frame;
 
+enum ku_ui_widget_type {
+    KU_UI_WIDGET_PANEL = 1,
+    KU_UI_WIDGET_LABEL = 2,
+    KU_UI_WIDGET_BUTTON = 3,
+    KU_UI_WIDGET_INPUT = 4,
+    KU_UI_WIDGET_LIST_ITEM = 5,
+    KU_UI_WIDGET_PROGRESS = 6,
+    KU_UI_WIDGET_SEPARATOR = 7
+};
+
+enum ku_ui_widget_flags {
+    KU_UI_WIDGET_HIDDEN = UINT32_C(1) << 0,
+    KU_UI_WIDGET_SELECTED = UINT32_C(1) << 1,
+    KU_UI_WIDGET_DISABLED = UINT32_C(1) << 2
+};
+
+enum ku_ui_cursor {
+    KU_UI_CURSOR_AUTO = 0,
+    KU_UI_CURSOR_DEFAULT = 1,
+    KU_UI_CURSOR_POINTER = 2,
+    KU_UI_CURSOR_HAND = 3,
+    KU_UI_CURSOR_TEXT = 4,
+    KU_UI_CURSOR_WORKING = 5,
+    KU_UI_CURSOR_BUSY = 6,
+    KU_UI_CURSOR_MOVE = 7,
+    KU_UI_CURSOR_RESIZE = 8,
+    KU_UI_CURSOR_HELP = 9,
+    KU_UI_CURSOR_NOT_ALLOWED = 10
+};
+
+/*
+ * Native 5.0 widget transport. The legacy text frame remains accepted by the
+ * kernel so older userspace binaries keep working, while new libui scenes
+ * preserve widget type, hierarchy, state and icon identity end to end.
+ */
+typedef struct ku_ui_widget {
+    uint32_t id;
+    uint32_t parent_id;
+    uint32_t type;
+    uint32_t flags;
+    uint32_t value;
+    uint32_t maximum;
+    uint32_t icon_id;
+    uint32_t reserved;
+    char text[KU_UI_WIDGET_TEXT_CAPACITY];
+} ku_ui_widget;
+
+typedef struct ku_ui_surface {
+    uint32_t structure_size;
+    uint32_t abi_version;
+    uint32_t background_rgb;
+    uint32_t foreground_rgb;
+    uint32_t accent_rgb;
+    uint32_t widget_count;
+    uint32_t scroll_offset;
+    uint32_t visible_rows;
+    uint32_t selected_id;
+    uint32_t cursor;
+    uint32_t reserved[2];
+    ku_ui_widget widgets[KU_UI_MAX_WIDGETS];
+} ku_ui_surface;
+
 enum ku_ui_event_type {
     KU_UI_EVENT_NONE = 0,
     KU_UI_EVENT_CLOSE = 1,
@@ -88,6 +153,14 @@ static inline ku_status_t ku_ui_present(
         sizeof(ku_ui_frame));
 }
 
+static inline ku_status_t ku_ui_present_surface(
+    ku_window_t window,
+    const ku_ui_surface* surface) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_UI_PRESENT, window, (uint64_t)(uintptr_t)surface,
+        sizeof(ku_ui_surface));
+}
+
 static inline ku_status_t ku_ui_poll(
     ku_window_t window,
     ku_ui_event* event) {
@@ -104,10 +177,14 @@ static inline ku_status_t ku_ui_close(ku_window_t window) {
 static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
 static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+static_assert(sizeof(ku_ui_widget) == 96, "UI widget ABI mismatch");
+static_assert(sizeof(ku_ui_surface) == 3120, "UI surface ABI mismatch");
 #else
 _Static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 _Static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
 _Static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+_Static_assert(sizeof(ku_ui_widget) == 96, "UI widget ABI mismatch");
+_Static_assert(sizeof(ku_ui_surface) == 3120, "UI surface ABI mismatch");
 #endif
 
 #endif

@@ -24,8 +24,10 @@ static void build_scene(kui_scene* scene) {
     kui_flow root;
     char net_line[64] = "NETWORK / ";
     char audio_line[64] = "AUDIO / ";
-    char perf_line[64] = "PERFORMANCE / CPU ";
-    char ram_line[64] = "MEMORY / ";
+    char cpu_line[64] = "CPU / ";
+    char gpu_line[64] = "GPU / ";
+    char ram_line[64] = "RAM / ";
+    char storage_line[64] = "STORAGE / ACTIVITY ";
 
     memset(&network, 0, sizeof(network));
     network.structure_size = sizeof(network);
@@ -50,29 +52,39 @@ static void build_scene(kui_scene* scene) {
     }
 
     if (ku_system_get_snapshot(&system) == KU_STATUS_OK) {
-        append_percent(perf_line, sizeof(perf_line), system.cpu_percent);
-        gui_append_text(perf_line, sizeof(perf_line), " / GFX ");
-        append_percent(perf_line, sizeof(perf_line), system.gpu_percent);
+        append_percent(cpu_line, sizeof(cpu_line), system.cpu_percent);
+        append_percent(gpu_line, sizeof(gpu_line), system.gpu_percent);
         append_percent(ram_line, sizeof(ram_line), system.ram_percent);
+        append_percent(storage_line, sizeof(storage_line), system.disk_percent);
     } else {
-        gui_append_text(perf_line, sizeof(perf_line), "UNAVAILABLE");
+        gui_append_text(cpu_line, sizeof(cpu_line), "UNAVAILABLE");
+        gui_append_text(gpu_line, sizeof(gpu_line), "UNAVAILABLE");
         gui_append_text(ram_line, sizeof(ram_line), "UNAVAILABLE");
+        gui_append_text(storage_line, sizeof(storage_line), "UNAVAILABLE");
     }
 
     kui_scene_initialize(scene);
-    scene->visible_rows = KU_UI_MAX_LINES;
+    scene->visible_rows = 8U;
     gui_apply_forged_theme(scene, 1);
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "PULSE / SYSTEM STATUS");
-    (void)kui_flow_label(&root, 2U, net_line);
-    (void)kui_flow_label(&root, 3U, audio_line);
-    (void)kui_flow_label(&root, 4U, perf_line);
-    (void)kui_flow_label(&root, 5U, ram_line);
-    (void)kui_flow_separator(&root, 6U);
-    (void)kui_flow_label(&root, 7U, "WI-FI / CONTROL SERVICE PENDING");
-    (void)kui_flow_label(&root, 8U, "BLUETOOTH / DRIVER SERVICE PENDING");
-    (void)kui_flow_label(&root, 9U, "BATTERY / POWER SERVICE PENDING");
-    (void)kui_flow_label(&root, 10U, "FORGE CONTROL / SETTINGS");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "PULSE / LIVE SYSTEM CARDS",
+        KU_ICON_KUROGANE_APP_PULSE_QUICK_SETTINGS);
+    (void)kui_flow_progress_icon(
+        &root, 2U, cpu_line, system.cpu_percent, 100U, KU_ICON_SPECIAL_CPU);
+    (void)kui_flow_progress_icon(
+        &root, 3U, gpu_line, system.gpu_percent, 100U, KU_ICON_SPECIAL_GPU);
+    (void)kui_flow_progress_icon(
+        &root, 4U, ram_line, system.ram_percent, 100U, KU_ICON_SPECIAL_MEMORY);
+    (void)kui_flow_progress_icon(
+        &root, 5U, storage_line, system.disk_percent, 100U,
+        KU_ICON_SPECIAL_STORAGE);
+    (void)kui_flow_label_icon(
+        &root, 6U, net_line,
+        network.ready != 0U ? KU_ICON_STATUS_CONNECTED : KU_ICON_STATUS_OFFLINE);
+    (void)kui_flow_label_icon(
+        &root, 7U, audio_line,
+        audio.muted != 0U ? KU_ICON_STATUS_MUTED : KU_ICON_STATUS_VOLUME);
 }
 
 int main(void) {

@@ -34,6 +34,16 @@ static const char* page_name(settings_page page) {
     }
 }
 
+static ku_icon_id_t page_icon(settings_page page) {
+    switch (page) {
+        case SETTINGS_NETWORK: return KU_ICON_SPECIAL_NETWORK;
+        case SETTINGS_APPEARANCE: return KU_ICON_STATUS_BRIGHTNESS;
+        case SETTINGS_AUDIO: return KU_ICON_STATUS_VOLUME;
+        case SETTINGS_SYSTEM: return KU_ICON_BRANDING_SYSTEM_MARK;
+        default: return KU_ICON_KUROGANE_APP_FORGE_CONTROL;
+    }
+}
+
 static uint32_t first_selectable(settings_page page) {
     switch (page) {
         case SETTINGS_NETWORK: return 40U;
@@ -47,9 +57,14 @@ static uint32_t first_selectable(settings_page page) {
 static void add_navigation(kui_flow* root, settings_page page) {
     char heading[64] = "FORGE CONTROL / ";
     gui_append_text(heading, sizeof(heading), page_name(page));
-    (void)kui_flow_panel(root, 1U, heading);
-    (void)kui_flow_label(root, 2U, "1 NETWORK  2 APPEARANCE  3 AUDIO  4 SYSTEM");
-    (void)kui_flow_label(root, 3U, "LEFT/RIGHT PAGE   UP/DOWN SELECT   ENTER APPLY");
+    (void)kui_flow_panel_icon(
+        root, 1U, heading, KU_ICON_KUROGANE_APP_FORGE_CONTROL);
+    (void)kui_flow_label_icon(
+        root, 2U, "1 NETWORK  2 APPEARANCE  3 AUDIO  4 SYSTEM",
+        page_icon(page));
+    (void)kui_flow_label_icon(
+        root, 3U, "LEFT/RIGHT PAGE   UP/DOWN SELECT   ENTER APPLY",
+        KU_ICON_WIDGET_SIDEBAR);
     (void)kui_flow_separator(root, 4U);
 }
 
@@ -66,6 +81,7 @@ static void build_scene(
     kui_scene_initialize(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
     gui_apply_forged_theme(scene, hot_edge);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
 
     kui_flow_begin(&root, scene, 0U);
     add_navigation(&root, page);
@@ -73,22 +89,34 @@ static void build_scene(
 
     switch (page) {
         case SETTINGS_NETWORK:
-            (void)kui_flow_label(&content, 41U, "WIRED / KERNEL NETWORK STACK");
-            (void)kui_flow_label(&content, 42U, "DHCP + DNS + TCP/TLS / REAL SERVICE STATE");
-            (void)kui_flow_label(&content, 43U, "WI-FI / CONTROL SERVICE PENDING");
-            (void)kui_flow_button(&content, 40U, "OPEN KUROGANE WEB / CONNECTION TEST");
+            (void)kui_flow_label_icon(
+                &content, 41U, "WIRED / KERNEL NETWORK STACK",
+                KU_ICON_DEVICE_ETHERNET);
+            (void)kui_flow_label_icon(
+                &content, 42U, "DHCP + DNS + TCP/TLS / REAL SERVICE STATE",
+                KU_ICON_STATUS_CONNECTED);
+            (void)kui_flow_label_icon(
+                &content, 43U, "WI-FI / CONTROL SERVICE NOT AVAILABLE",
+                KU_ICON_DEVICE_WIFI);
+            (void)kui_flow_button_icon(
+                &content, 40U, "OPEN KUROGANE WEB / CONNECTION TEST",
+                KU_ICON_APPLICATION_BROWSER);
             break;
 
         case SETTINGS_APPEARANCE:
-            (void)kui_flow_label(&content, 12U, "THEME / FORGED STEEL");
-            (void)kui_flow_button(&content, 10U, "CRIMSON EDGE / #E62932");
-            (void)kui_flow_button(&content, 11U, "HOT EDGE / #FF4A45");
-            (void)kui_flow_label(
+            (void)kui_flow_label_icon(
+                &content, 12U, "THEME / FORGED STEEL", KU_ICON_FOLDER_THEMES);
+            (void)kui_flow_button_icon(
+                &content, 10U, "CRIMSON EDGE / #E62932", KU_ICON_WIDGET_RADIO);
+            (void)kui_flow_button_icon(
+                &content, 11U, "HOT EDGE / #FF4A45", KU_ICON_WIDGET_RADIO);
+            (void)kui_flow_label_icon(
                 &content,
                 13U,
                 hot_edge != 0
                     ? "ACTIVE / HOT EDGE"
-                    : "ACTIVE / CRIMSON EDGE");
+                    : "ACTIVE / CRIMSON EDGE",
+                KU_ICON_STATUS_SUCCESS);
             break;
 
         case SETTINGS_AUDIO: {
@@ -103,19 +131,32 @@ static void build_scene(
             } else {
                 gui_append_text(audio_line, sizeof(audio_line), "NO AUDIO DEVICE");
             }
-            (void)kui_flow_label(&content, 20U, audio_line);
-            (void)kui_flow_button(&content, 21U, "VOLUME -10");
-            (void)kui_flow_button(&content, 22U, "VOLUME +10");
-            (void)kui_flow_button(&content, 23U, "MUTE / UNMUTE");
+            (void)kui_flow_label_icon(
+                &content, 20U, audio_line, KU_ICON_STATUS_VOLUME);
+            (void)kui_flow_button_icon(
+                &content, 21U, "VOLUME -10", KU_ICON_NAVIGATION_DOWN);
+            (void)kui_flow_button_icon(
+                &content, 22U, "VOLUME +10", KU_ICON_NAVIGATION_UP);
+            (void)kui_flow_button_icon(
+                &content, 23U, "MUTE / UNMUTE", KU_ICON_STATUS_MUTED);
             break;
         }
 
         case SETTINGS_SYSTEM:
-            (void)kui_flow_label(&content, 31U, KUROGANE_PRODUCT_STRING " / " KUROGANE_RELEASE_CHANNEL);
-            (void)kui_flow_label(&content, 32U, "ANVIL / EXTERNAL GITHUB PACKAGE REPOSITORY");
-            (void)kui_flow_label(&content, 33U, "UPDATES / SERVICE INTEGRATION PENDING");
-            (void)kui_flow_button(&content, 30U, "ABOUT KUROGANEOS");
-            (void)kui_flow_button(&content, 34U, "OPEN ANVIL PACKAGE MANAGER");
+            (void)kui_flow_label_icon(
+                &content, 31U, KUROGANE_PRODUCT_STRING " / " KUROGANE_RELEASE_CHANNEL,
+                KU_ICON_BRANDING_SYSTEM_MARK);
+            (void)kui_flow_label_icon(
+                &content, 32U, "ANVIL / EXTERNAL GITHUB PACKAGE REPOSITORY",
+                KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER);
+            (void)kui_flow_label_icon(
+                &content, 33U, "UPDATES / SERVICE NOT AVAILABLE",
+                KU_ICON_BRANDING_UPDATE_SCREEN);
+            (void)kui_flow_button_icon(
+                &content, 30U, "ABOUT KUROGANEOS", KU_ICON_STATUS_INFO);
+            (void)kui_flow_button_icon(
+                &content, 34U, "OPEN ANVIL PACKAGE MANAGER",
+                KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER);
             break;
 
         default:
@@ -123,7 +164,7 @@ static void build_scene(
     }
 
     (void)kui_flow_separator(&root, 50U);
-    (void)kui_flow_label(&root, 51U, status);
+    (void)kui_flow_label_icon(&root, 51U, status, KU_ICON_STATUS_INFO);
 
     if (kui_scene_select(scene, selected) != KU_STATUS_OK) {
         (void)kui_scene_select(scene, first_selectable(page));
@@ -175,7 +216,7 @@ static void spawn_system_app(const char* path, char* status, size_t capacity) {
 
 int main(void) {
     /* Internal title retained for current desktop pin/focus lookup. */
-    const ku_window_t window = gui_open("SETTINGS", 430, 150, 640, 500);
+    const ku_window_t window = gui_open("FORGE CONTROL", 430, 150, 640, 500);
     settings_page page = SETTINGS_NETWORK;
     int hot_edge = 0;
     uint32_t selected = first_selectable(page);

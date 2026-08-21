@@ -17,18 +17,31 @@ int main(void) {
     scene.visible_rows = KU_UI_MAX_LINES;
     gui_apply_obsidian_theme(&scene, 0);
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "ABOUT / KUROGANEOS");
-    (void)kui_flow_label(&root, 2U, version_line);
-    (void)kui_flow_label(&root, 3U, "OBSIDIAN DESKTOP / CRIMSON IDENTITY");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "ABOUT / KUROGANEOS", KU_ICON_BRANDING_LOGO_MAIN);
+    (void)kui_flow_label_icon(
+        &root, 2U, version_line, KU_ICON_BRANDING_SYSTEM_MARK);
+    (void)kui_flow_label_icon(
+        &root, 3U, "FORGED STEEL DESKTOP / CRIMSON EDGE",
+        KU_ICON_BRANDING_K_BADGE);
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&details, &scene, 1U);
-    (void)kui_flow_label(&details, 10U, "X86-64 UEFI / INDEPENDENT KERNEL");
-    (void)kui_flow_label(&details, 11U, "PREEMPTIVE RING 3 / PRIVATE ADDRESS SPACES");
-    (void)kui_flow_label(&details, 12U, "FAT32 + AHCI / NATIVE APPLICATIONS");
-    (void)kui_flow_label(&details, 13U, "NETWORK + TLS / KUROGANE WEB");
-    (void)kui_flow_label(&details, 14U, "HOME + DOCK + FILES + SETTINGS + MONITOR");
-    (void)kui_flow_label(&details, 15U, "NATIVE COMPOSITOR / NEXT GUI FOUNDATION");
+    (void)kui_flow_label_icon(
+        &details, 10U, "X86-64 UEFI / INDEPENDENT KERNEL", KU_ICON_SPECIAL_KERNEL);
+    (void)kui_flow_label_icon(
+        &details, 11U, "PREEMPTIVE RING 3 / PRIVATE ADDRESS SPACES",
+        KU_ICON_SPECIAL_SHIELD);
+    (void)kui_flow_label_icon(
+        &details, 12U, "FAT32 + AHCI / NATIVE APPLICATIONS", KU_ICON_DEVICE_SSD);
+    (void)kui_flow_label_icon(
+        &details, 13U, "NETWORK + TLS / KUROGANE WEB", KU_ICON_SPECIAL_NETWORK);
+    (void)kui_flow_label_icon(
+        &details, 14U, "BLADE + VAULT + ANVIL + FORGE + PULSE",
+        KU_ICON_KUROGANE_APP_BLADE_LAUNCHER);
+    (void)kui_flow_label_icon(
+        &details, 15U, "NATIVE COMPOSITOR / FORGED STEEL GUI",
+        KU_ICON_WIDGET_WINDOW);
 
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);

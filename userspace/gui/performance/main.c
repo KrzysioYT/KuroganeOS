@@ -44,17 +44,21 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     gui_apply_obsidian_theme(scene, 0);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "PERFORMANCE / LIVE");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / SYSTEM ACTIVITY");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "PERFORMANCE / LIVE", KU_ICON_SPECIAL_CPU);
+    (void)kui_flow_label_icon(
+        &root, 2U, KUROGANE_PRODUCT_STRING " / SYSTEM ACTIVITY",
+        KU_ICON_APPLICATION_SYSTEM_MONITOR);
     (void)kui_flow_separator(&root, 3U);
-    (void)kui_flow_label(&root, 4U, cpu);
-    (void)kui_flow_label(&root, 5U, gpu);
-    (void)kui_flow_label(&root, 6U, ram);
-    (void)kui_flow_label(&root, 7U, disk);
+    (void)kui_flow_label_icon(&root, 4U, cpu, KU_ICON_SPECIAL_CPU);
+    (void)kui_flow_label_icon(&root, 5U, gpu, KU_ICON_SPECIAL_GPU);
+    (void)kui_flow_label_icon(&root, 6U, ram, KU_ICON_SPECIAL_MEMORY);
+    (void)kui_flow_label_icon(&root, 7U, disk, KU_ICON_SPECIAL_STORAGE);
     (void)kui_flow_separator(&root, 8U);
-    (void)kui_flow_label(&root, 9U, memory);
-    (void)kui_flow_label(&root, 10U, uptime);
-    (void)kui_flow_label(&root, 11U, "GRAPHICS = GOP/COMPOSITOR ACTIVITY");
+    (void)kui_flow_label_icon(&root, 9U, memory, KU_ICON_SPECIAL_MEMORY);
+    (void)kui_flow_label_icon(&root, 10U, uptime, KU_ICON_STATUS_ONLINE);
+    (void)kui_flow_label_icon(
+        &root, 11U, "GRAPHICS = GOP/COMPOSITOR ACTIVITY", KU_ICON_SPECIAL_GPU);
 }
 
 int main(void) {

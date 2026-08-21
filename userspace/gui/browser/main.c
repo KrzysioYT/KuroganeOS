@@ -625,27 +625,36 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0x090A0C),
         UINT32_C(0xECEEF1),
         UINT32_C(0xDE192D));
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
-    (void)kui_flow_input(&root, 2U, address);
-    (void)kui_flow_label(&root, 3U, "ENTER: GO / SEARCH   ESC: CLEAR   BACKSPACE: EDIT");
-    (void)kui_flow_label(&root, 4U, engine);
-    (void)kui_flow_label(&root, 5U, g_browser.network);
-    (void)kui_flow_label(&root, 6U, stage);
-    (void)kui_flow_label(&root, 7U, g_browser.status);
+    (void)kui_flow_panel_icon(
+        &root, 1U, "KUROGANE WEB / CHROMIUM PORT", KU_ICON_APPLICATION_BROWSER);
+    (void)kui_flow_input_icon(&root, 2U, address, KU_ICON_ACTION_SEARCH);
+    (void)kui_flow_label_icon(
+        &root, 3U, "ENTER: GO / SEARCH   ESC: CLEAR   BACKSPACE: EDIT",
+        KU_ICON_DEVICE_KEYBOARD);
+    (void)kui_flow_label_icon(&root, 4U, engine, KU_ICON_SPECIAL_CODE);
+    (void)kui_flow_label_icon(
+        &root, 5U, g_browser.network, KU_ICON_SPECIAL_NETWORK);
+    (void)kui_flow_label_icon(
+        &root, 6U, stage, KU_ICON_NAVIGATION_FORWARD);
+    (void)kui_flow_label_icon(
+        &root, 7U, g_browser.status, KU_ICON_STATUS_INFO);
     (void)kui_flow_separator(&root, 8U);
     for (index = 0U; index < BROWSER_RENDER_LINES; ++index) {
-        (void)kui_flow_label(
+        (void)kui_flow_label_icon(
             &root,
             10U + (uint32_t)index,
             g_browser.render_lines[index][0] != '\0'
-                ? g_browser.render_lines[index] : " ");
+                ? g_browser.render_lines[index] : " ",
+            index == 0U ? KU_ICON_FILE_TYPE_HTML : KU_ICON_NONE);
     }
     (void)kui_flow_separator(&root, 30U);
-    (void)kui_flow_label(
+    (void)kui_flow_label_icon(
         &root, 31U,
-        "BOUNDED RENDERER / NETWORK WORK SLEEPS BETWEEN POLLS TO LIMIT CPU LOAD");
+        "BOUNDED RENDERER / NETWORK WORK SLEEPS BETWEEN POLLS TO LIMIT CPU LOAD",
+        KU_ICON_SPECIAL_DIAGNOSTICS);
 }
 
 int main(void) {

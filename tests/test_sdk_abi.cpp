@@ -110,7 +110,15 @@ int main() {
 
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_widget) == 96);
+    static_assert(sizeof(ku_ui_surface) == 3120);
     static_assert(sizeof(ku_ui_event) == 32);
+    static_assert(KU_UI_ABI_VERSION_LEGACY == 1U);
+    static_assert(KU_UI_ABI_VERSION == 2U);
+    static_assert(offsetof(ku_ui_widget, icon_id) == 24);
+    static_assert(offsetof(ku_ui_widget, text) == 32);
+    static_assert(offsetof(ku_ui_surface, widgets) == 48);
+    static_assert(KU_UI_CURSOR_NOT_ALLOWED == 10);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
 

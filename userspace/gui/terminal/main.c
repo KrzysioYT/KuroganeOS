@@ -79,16 +79,21 @@ static void render(
     kui_scene_initialize(&scene);
     scene.visible_rows = KU_UI_MAX_LINES;
     gui_apply_forged_theme(&scene, 0);
+    (void)kui_scene_set_cursor(&scene, KU_UI_CURSOR_TEXT);
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "KUROSH / TERMINAL");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "KUROSH / TERMINAL",
+        KU_ICON_KUROGANE_APP_KUROSH_TERMINAL);
     for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {
         (void)kui_flow_label(
             &root, 10U + (uint32_t)index, g_output[index]);
     }
-    (void)kui_flow_input(&root, 30U, input_display);
-    (void)kui_flow_label(
+    (void)kui_flow_input_icon(
+        &root, 30U, input_display, KU_ICON_SPECIAL_CONSOLE);
+    (void)kui_flow_label_icon(
         &root, 31U,
-        "ARROWS EDIT/HISTORY  ENTER RUN  ESC CANCEL");
+        "ARROWS EDIT/HISTORY  ENTER RUN  ESC CANCEL",
+        KU_ICON_DEVICE_KEYBOARD);
     (void)kui_scene_select(&scene, 30U);
     (void)kui_scene_present(window, &scene);
 }
@@ -129,7 +134,7 @@ static void input_insert(
 
 int main(void) {
     /* Internal title retained until WindowManager stops keying app roles by title. */
-    const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 145, 780, 450);
+    const ku_window_t window = gui_open("KUROSH", 235, 145, 780, 450);
     if (window == KU_INVALID_WINDOW) return 1;
 
     ku_shell_initialize(&g_shell);

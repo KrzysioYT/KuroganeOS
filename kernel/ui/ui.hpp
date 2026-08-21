@@ -2,6 +2,8 @@
 
 #include "../drivers/framebuffer.hpp"
 
+#include <kurogane/ui.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,9 +37,13 @@ enum class DockIcon : uint8_t {
     Home = 0,
     Terminal,
     Files,
-    Monitor,
+    Performance,
+    Web,
+    SystemMonitor,
     Settings,
     About,
+    Anvil,
+    Pulse,
 };
 
 const Theme& default_theme();
@@ -64,6 +70,8 @@ void label(const Rect& bounds, const char* text,
 void button(const Rect& bounds, const char* text, bool selected = false);
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum);
 void separator(int32_t x, int32_t y, int32_t width);
+void native_surface(
+    const Rect& bounds, const ku_ui_surface& surface, bool focused);
 
 // Legacy helper retained for old diagnostic surfaces.
 void taskbar(const char* status);

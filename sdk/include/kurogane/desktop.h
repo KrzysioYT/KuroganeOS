@@ -18,7 +18,9 @@ enum ku_desktop_app_id {
     KU_DESKTOP_APP_MONITOR = 5,
     KU_DESKTOP_APP_SETTINGS = 6,
     KU_DESKTOP_APP_ABOUT = 7,
-    KU_DESKTOP_APP_COUNT = 8
+    KU_DESKTOP_APP_ANVIL = 8,
+    KU_DESKTOP_APP_PULSE = 9,
+    KU_DESKTOP_APP_COUNT = 10
 };
 
 enum ku_desktop_pin_action {

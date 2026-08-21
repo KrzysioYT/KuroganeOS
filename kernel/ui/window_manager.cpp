@@ -1,8 +1,11 @@
 #include "window_manager.hpp"
 
+#include <kurogane/desktop.h>
+
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
+#include "icon_registry.hpp"
 #endif
 
 namespace windowing {
@@ -35,7 +38,7 @@ constexpr int32_t DESKTOP_SHORTCUT_STEP_Y = 84;
 constexpr int32_t RIBBON_GAP = 6;
 constexpr int32_t RIBBON_ITEM_MAX = 96;
 constexpr int32_t RIBBON_ITEM_MIN = 48;
-constexpr size_t DOCK_PIN_COUNT = 8U;
+constexpr size_t DOCK_PIN_COUNT = KU_DESKTOP_APP_COUNT;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
@@ -51,6 +54,7 @@ struct Slot {
     InputCallback input_callback;
     void* context;
     uint16_t generation;
+    CursorHint cursor_hint;
     bool occupied;
 };
 
@@ -63,14 +67,16 @@ struct DockPin {
 
 // Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
-    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
-    {"FILES", 'f', ui::DockIcon::Files, "FILES"},
-    {"PERFORMANCE", 'v', ui::DockIcon::Monitor, "PERF"},
-    {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
-    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
-    {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
+    {"BLADE LAUNCHER", 0, ui::DockIcon::Home, "BLADE"},
+    {"KUROSH", 't', ui::DockIcon::Terminal, "KUROSH"},
+    {"VAULT", 'f', ui::DockIcon::Files, "VAULT"},
+    {"PERFORMANCE", 'v', ui::DockIcon::Performance, "PERF"},
+    {"KUROGANE WEB", 'b', ui::DockIcon::Web, "WEB"},
+    {"SYSTEM MONITOR", 'm', ui::DockIcon::SystemMonitor, "MON"},
+    {"FORGE CONTROL", 's', ui::DockIcon::Settings, "FORGE"},
     {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About, "ABOUT"},
+    {"ANVIL", 'i', ui::DockIcon::Anvil, "ANVIL"},
+    {"PULSE", 'u', ui::DockIcon::Pulse, "PULSE"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
@@ -94,6 +100,9 @@ process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 bool g_cursor_visible = false;
 int32_t g_cursor_x = 0;
 int32_t g_cursor_y = 0;
+ui::icons::Cursor g_cursor_shape = ui::icons::Cursor::Default;
+constexpr int32_t CURSOR_SIZE = 24;
+graphics::Color g_cursor_under[CURSOR_SIZE * CURSOR_SIZE]{};
 #endif
 
 void mark_full_dirty() {
@@ -157,7 +166,8 @@ bool is_login_surface(const Slot& slot) {
 }
 
 bool is_home_surface(const char* title) {
-    return text_equals(title, "RED FLUX HOME");
+    return text_equals(title, "BLADE LAUNCHER") ||
+        text_equals(title, "RED FLUX HOME");
 }
 
 bool is_performance_surface(const char* title) {
@@ -507,7 +517,8 @@ Status activate_dock_pin(size_t position) {
     }
     if (pin.command == 0) return Status::NotFound;
 
-    Slot* launcher = find_by_title("RED FLUX HOME");
+    Slot* launcher = find_by_title("BLADE LAUNCHER");
+    if (launcher == nullptr) launcher = find_by_title("RED FLUX HOME");
     if (launcher == nullptr || launcher->input_callback == nullptr) {
         return Status::NotFound;
     }
@@ -539,49 +550,106 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
 }
 
 #ifndef KUROGANE_HOST_TEST
-void xor_pixel(int32_t x, int32_t y) {
-    if (!graphics::available() || x < 0 || y < 0 ||
-        x >= static_cast<int32_t>(graphics::width()) ||
-        y >= static_cast<int32_t>(graphics::height())) return;
-    const KuroganeFramebuffer& framebuffer = graphics::info();
-    auto* row = reinterpret_cast<uint32_t*>(
-        reinterpret_cast<uint8_t*>(framebuffer.base) +
-        static_cast<size_t>(y) * framebuffer.pitch);
-    row[x] ^= UINT32_C(0x00FFFFFF);
+ui::icons::Cursor icon_cursor(CursorHint hint) {
+    switch (hint) {
+        case CursorHint::Default: return ui::icons::Cursor::Default;
+        case CursorHint::Pointer: return ui::icons::Cursor::Pointer;
+        case CursorHint::Hand: return ui::icons::Cursor::Hand;
+        case CursorHint::Text: return ui::icons::Cursor::Text;
+        case CursorHint::Working: return ui::icons::Cursor::Working;
+        case CursorHint::Busy: return ui::icons::Cursor::Busy;
+        case CursorHint::Move: return ui::icons::Cursor::Move;
+        case CursorHint::Resize: return ui::icons::Cursor::Resize;
+        case CursorHint::Help: return ui::icons::Cursor::Help;
+        case CursorHint::NotAllowed: return ui::icons::Cursor::NotAllowed;
+        case CursorHint::Auto: return ui::icons::Cursor::Pointer;
+    }
+    return ui::icons::Cursor::Default;
 }
 
-void xor_cursor_shape(int32_t x, int32_t y) {
-    for (int32_t row = 0; row < 14; ++row) {
-        const int32_t width = row / 2 + 1;
-        for (int32_t column = 0; column < width; ++column) {
-            xor_pixel(x + column, y + row);
+ui::icons::Cursor cursor_for_position(int32_t x, int32_t y) {
+    if (g_resized != INVALID_WINDOW) return ui::icons::Cursor::Resize;
+    if (g_dragged != INVALID_WINDOW) return ui::icons::Cursor::Move;
+    if (login_surface() != nullptr) return ui::icons::Cursor::Default;
+
+    const WorkspaceGeometry workspace = calculate_workspace();
+    if (rect_contains(workspace.pulse_ribbon, x, y)) {
+        for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+            if (rect_contains(dock_pin_rect(index), x, y)) {
+                return ui::icons::Cursor::Hand;
+            }
+        }
+        for (size_t position = 0U; position < exposed_window_count(); ++position) {
+            if (rect_contains(ribbon_item_rect(position), x, y)) {
+                return ui::icons::Cursor::Hand;
+            }
         }
     }
-    for (int32_t row = 10; row < 18; ++row) {
-        for (int32_t column = 3; column < 6; ++column) {
-            xor_pixel(x + column, y + row);
+    for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
+        if (g_desktop_pinned[app] &&
+            rect_contains(desktop_shortcut_rect(app), x, y)) {
+            return ui::icons::Cursor::Hand;
+        }
+    }
+
+    const WindowId target = hit_test(x, y);
+    Slot* slot = find(target);
+    if (slot == nullptr || is_login_surface(*slot)) {
+        return ui::icons::Cursor::Default;
+    }
+    const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
+    if (rect_contains(chrome.minimize_control, x, y) ||
+        rect_contains(chrome.expand_control, x, y) ||
+        rect_contains(chrome.dismiss_control, x, y)) {
+        return ui::icons::Cursor::Hand;
+    }
+    if (slot->info.state == WindowState::Normal &&
+        rect_contains(chrome.resize_grip, x, y)) {
+        return ui::icons::Cursor::Resize;
+    }
+    if (title_hit(*slot, x, y)) return ui::icons::Cursor::Move;
+    return icon_cursor(slot->cursor_hint);
+}
+
+void capture_cursor_under(int32_t x, int32_t y) {
+    for (int32_t row = 0; row < CURSOR_SIZE; ++row) {
+        for (int32_t column = 0; column < CURSOR_SIZE; ++column) {
+            g_cursor_under[row * CURSOR_SIZE + column] =
+                graphics::get_pixel(x + column, y + row);
         }
     }
 }
 
 void hide_cursor() {
     if (!g_cursor_visible) return;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    for (int32_t row = 0; row < CURSOR_SIZE; ++row) {
+        for (int32_t column = 0; column < CURSOR_SIZE; ++column) {
+            graphics::put_pixel(
+                g_cursor_x + column, g_cursor_y + row,
+                g_cursor_under[row * CURSOR_SIZE + column]);
+        }
+    }
     g_cursor_visible = false;
 }
 
-void show_cursor(int32_t x, int32_t y) {
+void show_cursor(int32_t x, int32_t y, ui::icons::Cursor shape) {
     if (g_cursor_visible) hide_cursor();
     g_cursor_x = x;
     g_cursor_y = y;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    g_cursor_shape = shape;
+    capture_cursor_under(g_cursor_x, g_cursor_y);
+    ui::icons::draw(
+        ui::icons::cursor(g_cursor_shape),
+        g_cursor_x, g_cursor_y, CURSOR_SIZE, CURSOR_SIZE);
     g_cursor_visible = true;
 }
 
 void move_cursor(int32_t x, int32_t y) {
-    if (g_cursor_visible && x == g_cursor_x && y == g_cursor_y) return;
+    const ui::icons::Cursor shape = cursor_for_position(x, y);
+    if (g_cursor_visible && x == g_cursor_x && y == g_cursor_y &&
+        shape == g_cursor_shape) return;
     hide_cursor();
-    show_cursor(x, y);
+    show_cursor(x, y, shape);
 }
 
 void draw_window_slot(Slot& slot) {
@@ -643,7 +711,7 @@ void render_layers() {
         return;
     }
 
-    ui::desktop("KUROGANE / RED FLUX");
+    ui::desktop("KUROGANEOS 5 / FORGED STEEL");
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
     ui::signal_spine(workspace.signal_spine, tasks, focused_position());
@@ -677,16 +745,9 @@ void render_layers() {
     for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
-        if (index == 0U) {
-            // The session-root Home surface is also the system application
-            // menu. Present it as an explicit Start-style APPS button while
-            // keeping the HOME desktop shortcut permanently pinned.
-            ui::button(dock_pin_rect(index), "APPS", active);
-        } else {
-            ui::dock_item(
-                dock_pin_rect(index), kDockPins[index].icon,
-                running != nullptr, active);
-        }
+        ui::dock_item(
+            dock_pin_rect(index), kDockPins[index].icon,
+            running != nullptr, active);
     }
     for (size_t position = 0U; position < tasks; ++position) {
         const Slot* slot = exposed_at(position);
@@ -788,6 +849,7 @@ Status create_window(
     slot.draw = draw;
     slot.input_callback = input_callback;
     slot.context = context;
+    slot.cursor_hint = CursorHint::Auto;
     g_order[g_count++] = static_cast<uint8_t>(selected);
     if (owner_pid != 0U && !home) g_focused = slot.info.id;
     update_z_order();
@@ -911,6 +973,20 @@ Status query(WindowId id, WindowInfo* out_info) {
     Slot* slot = find(id);
     if (slot == nullptr) return Status::NotFound;
     *out_info = slot->info;
+    return Status::Ok;
+}
+
+Status set_content_cursor(WindowId id, CursorHint cursor) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (cursor > CursorHint::NotAllowed) return Status::InvalidArgument;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    slot->cursor_hint = cursor;
+#ifndef KUROGANE_HOST_TEST
+    if (slot->info.focused) {
+        move_cursor(input::pointer_x(), input::pointer_y());
+    }
+#endif
     return Status::Ok;
 }
 
@@ -1084,7 +1160,9 @@ bool render_if_needed() {
     const bool buffered = graphics::begin_frame();
     render_layers();
     if (buffered) graphics::end_frame();
-    show_cursor(input::pointer_x(), input::pointer_y());
+    const int32_t cursor_x = input::pointer_x();
+    const int32_t cursor_y = input::pointer_y();
+    show_cursor(cursor_x, cursor_y, cursor_for_position(cursor_x, cursor_y));
 #endif
     g_dirty = DirtyMode::None;
     return true;

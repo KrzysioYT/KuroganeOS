@@ -1,6 +1,7 @@
 #ifndef KUROGANE_LIBUI_H
 #define KUROGANE_LIBUI_H
 
+#include <kurogane/icons.h>
 #include <kurogane/ui.h>
 
 #ifdef __cplusplus
@@ -33,6 +34,8 @@ typedef struct kui_view {
     uint32_t flags;
     uint32_t value;
     uint32_t maximum;
+    uint32_t icon_id;
+    uint32_t reserved;
     char text[KUI_VIEW_TEXT_CAPACITY];
 } kui_view;
 
@@ -44,7 +47,7 @@ typedef struct kui_scene {
     uint32_t scroll_offset;
     uint32_t visible_rows;
     uint32_t selected_id;
-    uint32_t reserved;
+    uint32_t cursor;
     kui_view views[KUI_MAX_VIEWS];
 } kui_scene;
 
@@ -84,6 +87,9 @@ ku_status_t kui_scene_set_flags(
     kui_scene* scene, uint32_t id, uint32_t flags);
 ku_status_t kui_scene_set_value(
     kui_scene* scene, uint32_t id, uint32_t value, uint32_t maximum);
+ku_status_t kui_scene_set_icon(
+    kui_scene* scene, uint32_t id, ku_icon_id_t icon_id);
+ku_status_t kui_scene_set_cursor(kui_scene* scene, uint32_t cursor);
 ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta);
 ku_status_t kui_scene_select(kui_scene* scene, uint32_t id);
 ku_status_t kui_scene_select_next(kui_scene* scene, int32_t direction);
@@ -103,6 +109,20 @@ ku_status_t kui_flow_progress(
     uint32_t value,
     uint32_t maximum);
 ku_status_t kui_flow_separator(kui_flow* flow, uint32_t id);
+
+ku_status_t kui_flow_panel_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id);
+ku_status_t kui_flow_label_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id);
+ku_status_t kui_flow_button_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id);
+ku_status_t kui_flow_input_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id);
+ku_status_t kui_flow_list_item_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id);
+ku_status_t kui_flow_progress_icon(
+    kui_flow* flow, uint32_t id, const char* text,
+    uint32_t value, uint32_t maximum, ku_icon_id_t icon_id);
 
 #ifdef __cplusplus
 }

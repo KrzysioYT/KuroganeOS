@@ -29,6 +29,40 @@ static const char* type_label(uint32_t type) {
     }
 }
 
+static int extension_is(const char* name, const char* extension) {
+    size_t name_length;
+    size_t extension_length;
+    if (name == NULL || extension == NULL) return 0;
+    name_length = strlen(name);
+    extension_length = strlen(extension);
+    if (name_length <= extension_length) return 0;
+    return strcmp(name + name_length - extension_length, extension) == 0;
+}
+
+static ku_icon_id_t entry_icon(const file_entry* entry) {
+    if (entry == NULL) return KU_ICON_FILE_TYPE_BIN;
+    if (entry->type == KU_FILE_TYPE_DIRECTORY) return KU_ICON_FOLDER_DATA;
+    if (entry->type == KU_FILE_TYPE_MOUNT_POINT) return KU_ICON_DEVICE_SSD;
+    if (entry->type == KU_FILE_TYPE_DEVICE) return KU_ICON_DEVICE_HDD;
+    if (entry->type != KU_FILE_TYPE_REGULAR) return KU_ICON_FILE_TYPE_BIN;
+    if (extension_is(entry->name, ".txt")) return KU_ICON_FILE_TYPE_TXT;
+    if (extension_is(entry->name, ".md")) return KU_ICON_FILE_TYPE_MD;
+    if (extension_is(entry->name, ".log")) return KU_ICON_FILE_TYPE_LOG;
+    if (extension_is(entry->name, ".conf")) return KU_ICON_FILE_TYPE_CONF;
+    if (extension_is(entry->name, ".json")) return KU_ICON_FILE_TYPE_JSON;
+    if (extension_is(entry->name, ".html")) return KU_ICON_FILE_TYPE_HTML;
+    if (extension_is(entry->name, ".css")) return KU_ICON_FILE_TYPE_CSS;
+    if (extension_is(entry->name, ".js")) return KU_ICON_FILE_TYPE_JS;
+    if (extension_is(entry->name, ".c")) return KU_ICON_FILE_TYPE_C;
+    if (extension_is(entry->name, ".cpp")) return KU_ICON_FILE_TYPE_CPP;
+    if (extension_is(entry->name, ".h")) return KU_ICON_FILE_TYPE_H;
+    if (extension_is(entry->name, ".png")) return KU_ICON_FILE_TYPE_PNG;
+    if (extension_is(entry->name, ".jpg")) return KU_ICON_FILE_TYPE_JPG;
+    if (extension_is(entry->name, ".zip")) return KU_ICON_FILE_TYPE_ZIP;
+    if (extension_is(entry->name, ".pdf")) return KU_ICON_FILE_TYPE_PDF;
+    return KU_ICON_FILE_TYPE_BIN;
+}
+
 static int build_child_path(const char* name, char* output, size_t capacity) {
     if (name == NULL || output == NULL || capacity == 0U) return 0;
     output[0] = '\0';
@@ -218,14 +252,25 @@ static void build_scene(kui_scene* scene) {
     size_t row;
 
     kui_scene_initialize(scene);
-    scene->visible_rows = KU_UI_MAX_LINES;
+    scene->visible_rows = 16U;
     gui_apply_forged_theme(scene, 0);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "VAULT / FILE MANAGER");
-    (void)kui_flow_label(&root, 2U, g_path);
-    (void)kui_flow_label(&root, 3U, "ENTER OPEN   BACKSPACE UP   H HOME   R REFRESH");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "VAULT / FILE MANAGER",
+        KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER);
+    (void)kui_flow_label_icon(&root, 2U, g_path, KU_ICON_NAVIGATION_COLUMNS);
+    (void)kui_flow_label_icon(
+        &root, 3U, "ENTER OPEN   BACKSPACE UP   H HOME   R REFRESH",
+        KU_ICON_NAVIGATION_UP);
     (void)kui_flow_separator(&root, 4U);
+    (void)kui_flow_label_icon(&root, 5U, "HOME / /home", KU_ICON_FOLDER_HOME);
+    (void)kui_flow_label_icon(
+        &root, 6U, "PROJECTS / /home/projects", KU_ICON_FOLDER_PROJECTS);
+    (void)kui_flow_label_icon(
+        &root, 7U, "DOWNLOADS / /home/downloads", KU_ICON_FOLDER_DOWNLOADS);
+    (void)kui_flow_label_icon(&root, 8U, "SYSTEM SSD / /", KU_ICON_DEVICE_SSD);
 
     kui_flow_begin(&entries, scene, 1U);
     for (row = 0U; row < VISIBLE_ENTRIES; ++row) {
@@ -235,11 +280,14 @@ static void build_scene(kui_scene* scene) {
         gui_append_text(label, sizeof(label), type_label(g_entries[index].type));
         gui_append_text(label, sizeof(label), "  ");
         gui_append_text(label, sizeof(label), g_entries[index].name);
-        (void)kui_flow_list_item(&entries, 10U + (uint32_t)row, label);
+        (void)kui_flow_list_item_icon(
+            &entries, 10U + (uint32_t)row, label, entry_icon(&g_entries[index]));
     }
 
-    (void)kui_flow_label(&root, 30U, g_preview);
-    (void)kui_flow_label(&root, 31U, g_status);
+    (void)kui_flow_label_icon(
+        &root, 30U, g_preview,
+        g_entry_count != 0U ? entry_icon(&g_entries[g_selected]) : KU_ICON_STATUS_INFO);
+    (void)kui_flow_label_icon(&root, 31U, g_status, KU_ICON_STATUS_SYNC);
 
     if (g_entry_count != 0U) {
         const uint32_t selected_id = 10U + (uint32_t)(g_selected - g_scroll);
@@ -249,7 +297,7 @@ static void build_scene(kui_scene* scene) {
 
 int main(void) {
     /* Keep title for the current WindowManager desktop-app lookup contract. */
-    const ku_window_t window = gui_open("FILES", 280, 130, 720, 520);
+    const ku_window_t window = gui_open("VAULT", 280, 130, 720, 520);
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
 

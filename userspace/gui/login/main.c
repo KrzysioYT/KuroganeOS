@@ -141,13 +141,20 @@ static void build_scene(
     kui_scene_initialize(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
     gui_apply_obsidian_theme(scene, 0);
+    (void)kui_scene_set_cursor(
+        scene, profile->password_required ? KU_UI_CURSOR_TEXT : KU_UI_CURSOR_POINTER);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U,
-        polish ? "LOGOWANIE / KUROGANEOS" : "SIGN IN / KUROGANEOS");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / OBSIDIAN DESKTOP");
+    (void)kui_flow_panel_icon(
+        &root, 1U,
+        polish ? "LOGOWANIE / KUROGANEOS" : "SIGN IN / KUROGANEOS",
+        KU_ICON_BRANDING_USER_AVATAR);
+    (void)kui_flow_label_icon(
+        &root, 2U, KUROGANE_PRODUCT_STRING " / FORGED STEEL DESKTOP",
+        KU_ICON_BRANDING_LOGO_MAIN);
     gui_append_text(account_line, sizeof(account_line), profile->username);
-    (void)kui_flow_label(&root, 3U, account_line);
+    (void)kui_flow_label_icon(
+        &root, 3U, account_line, KU_ICON_BRANDING_USER_AVATAR);
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&session, scene, 1U);
@@ -164,14 +171,15 @@ static void build_scene(
         masked[count] = '\0';
         (void)kui_flow_label(&session, 10U,
             polish ? "HASLO" : "PASSWORD");
-        (void)kui_flow_input(&session, 11U,
-            masked[0] != '\0' ? masked : "_");
+        (void)kui_flow_input_icon(&session, 11U,
+            masked[0] != '\0' ? masked : "_", KU_ICON_STATUS_LOCK);
         (void)kui_flow_label(&session, 12U,
             polish ? "WPISZ HASLO I NACISNIJ ENTER"
                    : "TYPE PASSWORD AND PRESS ENTER");
     } else {
-        (void)kui_flow_button(&session, 10U,
-            polish ? "OTWORZ PULPIT KUROGANE" : "ENTER KUROGANE DESKTOP");
+        (void)kui_flow_button_icon(&session, 10U,
+            polish ? "OTWORZ PULPIT KUROGANE" : "ENTER KUROGANE DESKTOP",
+            KU_ICON_ACTION_UNLOCK);
         (void)kui_flow_label(&session, 11U,
             polish ? "ENTER LUB KLIKNIJ, ABY OTWORZYC SESJE"
                    : "ENTER OR CLICK TO START THE SESSION");
