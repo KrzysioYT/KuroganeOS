@@ -35,6 +35,8 @@ int main(void) {
         return 2;
     }
     puts("[TEST] desktop_about_ring3: PASS");
+    puts("[TEST] flux_scene_about: PASS");
+    puts("[TEST] red_flux_about: PASS");
     puts("[TEST] kurogane5_obsidian_about: PASS");
 
     for (;;) {
