@@ -15,10 +15,11 @@ extern "C" {
 #define KU_TEXT_WEIGHT_MEDIUM UINT32_C(500)
 #define KU_TEXT_WEIGHT_SEMIBOLD UINT32_C(600)
 #define KU_TEXT_WEIGHT_BOLD UINT32_C(700)
+#define KU_UNICODE_REPLACEMENT_CHARACTER UINT32_C(0xFFFD)
 
 /*
  * Logical families are deliberately independent from concrete font files.
- * Font discovery resolves them later.  In particular, SYSTEM_UI is not a
+ * Font discovery resolves them later. In particular, SYSTEM_UI is not a
  * browser-wide override: document renderers should use it only when page CSS
  * explicitly requests the CSS generic family `system-ui`.
  */
@@ -87,6 +88,93 @@ static inline ku_text_style ku_text_default_style(uint32_t context) {
     style.line_height_px = UINT32_C(18);
     style.reserved = 0U;
     return style;
+}
+
+/*
+ * Bounded UTF-8 decoder shared by the desktop, terminal and browser bootstrap.
+ * No NUL termination is required. On malformed input the caller can emit U+FFFD
+ * and advance one byte; this makes forward progress without reading past the
+ * provided buffer. Surrogates, overlong encodings and values above U+10FFFF
+ * are rejected.
+ */
+static inline int ku_utf8_decode_one(
+    const char* data,
+    size_t available,
+    uint32_t* codepoint,
+    size_t* consumed) {
+    uint32_t value;
+    uint8_t first;
+    uint8_t second;
+    uint8_t third;
+    uint8_t fourth;
+
+    if (data == NULL || codepoint == NULL || consumed == NULL || available == 0U) {
+        return 0;
+    }
+
+    first = (uint8_t)data[0];
+    if (first <= UINT8_C(0x7F)) {
+        *codepoint = first;
+        *consumed = 1U;
+        return 1;
+    }
+
+    if (first >= UINT8_C(0xC2) && first <= UINT8_C(0xDF)) {
+        if (available < 2U) return 0;
+        second = (uint8_t)data[1];
+        if ((second & UINT8_C(0xC0)) != UINT8_C(0x80)) return 0;
+        value = ((uint32_t)(first & UINT8_C(0x1F)) << 6U) |
+            (uint32_t)(second & UINT8_C(0x3F));
+        *codepoint = value;
+        *consumed = 2U;
+        return 1;
+    }
+
+    if (first >= UINT8_C(0xE0) && first <= UINT8_C(0xEF)) {
+        if (available < 3U) return 0;
+        second = (uint8_t)data[1];
+        third = (uint8_t)data[2];
+        if ((second & UINT8_C(0xC0)) != UINT8_C(0x80) ||
+            (third & UINT8_C(0xC0)) != UINT8_C(0x80)) {
+            return 0;
+        }
+        if ((first == UINT8_C(0xE0) && second < UINT8_C(0xA0)) ||
+            (first == UINT8_C(0xED) && second >= UINT8_C(0xA0))) {
+            return 0;
+        }
+        value = ((uint32_t)(first & UINT8_C(0x0F)) << 12U) |
+            ((uint32_t)(second & UINT8_C(0x3F)) << 6U) |
+            (uint32_t)(third & UINT8_C(0x3F));
+        *codepoint = value;
+        *consumed = 3U;
+        return 1;
+    }
+
+    if (first >= UINT8_C(0xF0) && first <= UINT8_C(0xF4)) {
+        if (available < 4U) return 0;
+        second = (uint8_t)data[1];
+        third = (uint8_t)data[2];
+        fourth = (uint8_t)data[3];
+        if ((second & UINT8_C(0xC0)) != UINT8_C(0x80) ||
+            (third & UINT8_C(0xC0)) != UINT8_C(0x80) ||
+            (fourth & UINT8_C(0xC0)) != UINT8_C(0x80)) {
+            return 0;
+        }
+        if ((first == UINT8_C(0xF0) && second < UINT8_C(0x90)) ||
+            (first == UINT8_C(0xF4) && second > UINT8_C(0x8F))) {
+            return 0;
+        }
+        value = ((uint32_t)(first & UINT8_C(0x07)) << 18U) |
+            ((uint32_t)(second & UINT8_C(0x3F)) << 12U) |
+            ((uint32_t)(third & UINT8_C(0x3F)) << 6U) |
+            (uint32_t)(fourth & UINT8_C(0x3F));
+        if (value > UINT32_C(0x10FFFF)) return 0;
+        *codepoint = value;
+        *consumed = 4U;
+        return 1;
+    }
+
+    return 0;
 }
 
 #ifdef __cplusplus
