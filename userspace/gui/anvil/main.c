@@ -2,12 +2,15 @@
 
 #define ANVIL_MAX_PACKAGES 12U
 #define ANVIL_VISIBLE_PACKAGES 6U
-#define ANVIL_CONFIG_PATH "/etc/anvil.repo"
+#define ANVIL_CONFIG_PATH "/etc/anvil.cfg"
 #define ANVIL_DATABASE_PATH "/home/anvil.db"
 #define ANVIL_INDEX_RESPONSE_CAPACITY 32768U
 #define ANVIL_MANIFEST_RESPONSE_CAPACITY 8192U
 #define ANVIL_IO_CHUNK 16384U
 #define ANVIL_DEPENDENCY_DEPTH 6U
+#define ANVIL_REFRESH_ID 6U
+#define ANVIL_INSTALL_ID 7U
+#define ANVIL_PACKAGE_ROW_BASE 10U
 
 typedef struct anvil_repository {
     char host[KU_NET_HOST_CAPACITY];
@@ -567,16 +570,20 @@ static void build_scene(kui_scene* scene) {
     kui_scene_initialize(scene);
     scene->visible_rows = 14U;
     gui_apply_forged_theme(scene, 0);
-    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
         &root, 1U, "ANVIL / PACKAGES + DEPENDENCIES",
         KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER);
     (void)kui_flow_label_icon(
         &root, 2U, repo_line, KU_ICON_SPECIAL_CLOUD_SYNC);
+    (void)kui_flow_button_icon(
+        &root, ANVIL_REFRESH_ID, "REFRESH CATALOG", KU_ICON_ACTION_REFRESH);
+    (void)kui_flow_button_icon(
+        &root, ANVIL_INSTALL_ID, "INSTALL SELECTED", KU_ICON_ACTION_DOWNLOAD);
     (void)kui_flow_label_icon(
-        &root, 3U, "ARROWS SELECT   ENTER INSTALL   R REFRESH",
-        KU_ICON_ACTION_REFRESH);
+        &root, 3U, "CLICK PACKAGE TO SELECT   ENTER ALSO INSTALLS",
+        KU_ICON_WIDGET_SIDEBAR);
     (void)kui_flow_separator(&root, 4U);
     (void)kui_flow_label_icon(
         &root, 5U, "DEPENDENCY GRAPH / RESOLVED TRANSACTIONALLY ON INSTALL",
@@ -592,7 +599,7 @@ static void build_scene(kui_scene* scene) {
         gui_append_text(label, sizeof(label), "  ");
         gui_append_text(label, sizeof(label), g_packages[index].version);
         (void)kui_flow_list_item_icon(
-            &packages, 10U + (uint32_t)row, label,
+            &packages, ANVIL_PACKAGE_ROW_BASE + (uint32_t)row, label,
             installed_name(g_packages[index].name)
                 ? KU_ICON_STATUS_SUCCESS : KU_ICON_ACTION_DOWNLOAD);
     }
@@ -601,7 +608,9 @@ static void build_scene(kui_scene* scene) {
         gui_append_text(detail, sizeof(detail), g_packages[g_selected].description);
         (void)kui_flow_label_icon(
             &root, 30U, detail, KU_ICON_WIDGET_CARD);
-        (void)kui_scene_select(scene, 10U + (uint32_t)(g_selected - g_scroll));
+        (void)kui_scene_select(
+            scene,
+            ANVIL_PACKAGE_ROW_BASE + (uint32_t)(g_selected - g_scroll));
     }
     (void)kui_flow_label_icon(&root, 31U, g_status, anvil_status_icon());
 }
@@ -626,6 +635,29 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
+            if (hit == ANVIL_REFRESH_ID) {
+                (void)refresh_catalog();
+            } else if (hit == ANVIL_INSTALL_ID) {
+                if (g_package_count != 0U) (void)install_package(g_selected, 0U);
+            } else if (hit >= ANVIL_PACKAGE_ROW_BASE &&
+                       hit < ANVIL_PACKAGE_ROW_BASE + ANVIL_VISIBLE_PACKAGES) {
+                const size_t package_index =
+                    g_scroll + (size_t)(hit - ANVIL_PACKAGE_ROW_BASE);
+                if (package_index >= g_package_count) continue;
+                g_selected = package_index;
+                normalize_selection();
+                (void)strlcpy(g_status, "ANVIL / PACKAGE SELECTED", sizeof(g_status));
+            } else {
+                continue;
+            }
+            build_scene(&scene);
+            (void)kui_scene_present(window, &scene);
+            continue;
+        }
+
         if (event.type != KU_UI_EVENT_KEY) continue;
         if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
             move_selection(1);
