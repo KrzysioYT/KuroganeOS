@@ -100,7 +100,7 @@ cp "$root/userspace/linker.ld" "$lib/kurogane-user.ld"
 
 anvil_repo_host="${ANVIL_REPO_HOST:-raw.githubusercontent.com}"
 anvil_repo_base="${ANVIL_REPO_BASE:-/KrzysioYT/KuroganeOS-Packages/main}"
-cat > "$overlay_etc/anvil.repo" <<EOF
+cat > "$overlay_etc/anvil.cfg" <<EOF
 HOST=$anvil_repo_host
 BASE=$anvil_repo_base
 EOF
