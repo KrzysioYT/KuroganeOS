@@ -239,7 +239,9 @@ int main(void) {
     puts("[TEST] desktop_clean_session: PASS");
     puts("[TEST] desktop_arrow_navigation: PASS");
     puts("[TEST] red_flux_dock_controller: PASS");
+    puts("[TEST] red_flux_home_pinned: PASS");
     puts("[TEST] desktop_app_pinning: PASS");
+    puts("[TEST] red_flux_apps_menu: PASS");
     puts("[TEST] kurogane5_obsidian_home: PASS");
 
     if (launch_app(2U, 1)) {
