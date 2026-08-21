@@ -2,8 +2,9 @@
 #define KUROGANE_SDK_UI_H
 
 #include <kurogane/syscall.h>
+#include <kurogane/text.h>
 
-#define KU_UI_ABI_VERSION UINT32_C(1)
+#define KU_UI_ABI_VERSION UINT32_C(2)
 #define KU_UI_MAX_LINES 12U
 #define KU_UI_LINE_CAPACITY 64U
 
@@ -41,6 +42,24 @@ typedef struct ku_ui_window_options {
     int32_t height;
 } ku_ui_window_options;
 
+enum ku_ui_line_style_flags {
+    /* Use frame foreground/background when the per-line color is zero. */
+    KU_UI_LINE_STYLE_INHERIT_COLORS = UINT32_C(1) << 0,
+    /* Leave the line cell background untouched while drawing glyphs. */
+    KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND = UINT32_C(1) << 1,
+    /* Marks page/document content so browser styling is never inherited from
+     * the desktop theme by accident.  It is metadata, not a CSS override. */
+    KU_UI_LINE_STYLE_DOCUMENT_CONTENT = UINT32_C(1) << 2
+};
+
+typedef struct ku_ui_line_style {
+    ku_text_style text;
+    uint32_t foreground_rgb;
+    uint32_t background_rgb;
+    uint32_t flags;
+    uint32_t reserved;
+} ku_ui_line_style;
+
 typedef struct ku_ui_frame {
     uint32_t structure_size;
     uint32_t background_rgb;
@@ -51,6 +70,7 @@ typedef struct ku_ui_frame {
     uint32_t progress_maximum;
     uint32_t reserved;
     char lines[KU_UI_MAX_LINES][KU_UI_LINE_CAPACITY];
+    ku_ui_line_style line_styles[KU_UI_MAX_LINES];
 } ku_ui_frame;
 
 enum ku_ui_event_type {
@@ -103,11 +123,13 @@ static inline ku_status_t ku_ui_close(ku_window_t window) {
 #if defined(__cplusplus)
 static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
-static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+static_assert(sizeof(ku_ui_line_style) == 48, "UI line style ABI mismatch");
+static_assert(sizeof(ku_ui_frame) == 1376, "UI frame ABI mismatch");
 #else
 _Static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 _Static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
-_Static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+_Static_assert(sizeof(ku_ui_line_style) == 48, "UI line style ABI mismatch");
+_Static_assert(sizeof(ku_ui_frame) == 1376, "UI frame ABI mismatch");
 #endif
 
 #endif
