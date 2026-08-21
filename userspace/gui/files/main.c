@@ -138,6 +138,18 @@ static int refresh_directory(void) {
     return 1;
 }
 
+static int navigate_location(const char* path) {
+    char previous[PATH_CAPACITY];
+    if (path == NULL) return 0;
+    (void)strlcpy(previous, g_path, sizeof(previous));
+    (void)strlcpy(g_path, path, sizeof(g_path));
+    if (refresh_directory()) return 1;
+    (void)strlcpy(g_path, previous, sizeof(g_path));
+    (void)refresh_directory();
+    (void)strlcpy(g_status, "VAULT / LOCATION UNAVAILABLE", sizeof(g_status));
+    return 0;
+}
+
 static void normalize_scroll(void) {
     if (g_entry_count == 0U) {
         g_selected = 0U;
@@ -246,6 +258,25 @@ static void open_selected(void) {
     }
 }
 
+static void activate_pointer_hit(uint32_t hit) {
+    if (hit == 5U) {
+        (void)navigate_location("/home");
+    } else if (hit == 6U) {
+        (void)navigate_location("/home/projects");
+    } else if (hit == 7U) {
+        (void)navigate_location("/home/downloads");
+    } else if (hit == 8U) {
+        (void)navigate_location("/");
+    } else if (hit >= 10U && hit < 10U + VISIBLE_ENTRIES) {
+        const size_t index = g_scroll + (size_t)(hit - 10U);
+        if (index < g_entry_count) {
+            g_selected = index;
+            update_preview();
+            open_selected();
+        }
+    }
+}
+
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow entries;
@@ -254,7 +285,7 @@ static void build_scene(kui_scene* scene) {
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
     gui_apply_forged_theme(scene, 0);
-    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_POINTER);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
@@ -262,15 +293,15 @@ static void build_scene(kui_scene* scene) {
         KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER);
     (void)kui_flow_label_icon(&root, 2U, g_path, KU_ICON_NAVIGATION_COLUMNS);
     (void)kui_flow_label_icon(
-        &root, 3U, "ENTER OPEN   BACKSPACE UP   H HOME   R REFRESH",
+        &root, 3U, "CLICK/ENTER OPEN   BACKSPACE UP   R REFRESH",
         KU_ICON_NAVIGATION_UP);
     (void)kui_flow_separator(&root, 4U);
-    (void)kui_flow_label_icon(&root, 5U, "HOME / /home", KU_ICON_FOLDER_HOME);
-    (void)kui_flow_label_icon(
+    (void)kui_flow_list_item_icon(&root, 5U, "HOME / /home", KU_ICON_FOLDER_HOME);
+    (void)kui_flow_list_item_icon(
         &root, 6U, "PROJECTS / /home/projects", KU_ICON_FOLDER_PROJECTS);
-    (void)kui_flow_label_icon(
+    (void)kui_flow_list_item_icon(
         &root, 7U, "DOWNLOADS / /home/downloads", KU_ICON_FOLDER_DOWNLOADS);
-    (void)kui_flow_label_icon(&root, 8U, "SYSTEM SSD / /", KU_ICON_DEVICE_SSD);
+    (void)kui_flow_list_item_icon(&root, 8U, "SYSTEM SSD / /", KU_ICON_DEVICE_SSD);
 
     kui_flow_begin(&entries, scene, 1U);
     for (row = 0U; row < VISIBLE_ENTRIES; ++row) {
@@ -296,7 +327,6 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
-    /* Keep title for the current WindowManager desktop-app lookup contract. */
     const ku_window_t window = gui_open("VAULT", 280, 130, 720, 520);
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
@@ -317,6 +347,16 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
+            if (hit != 0U) {
+                activate_pointer_hit(hit);
+                build_scene(&scene);
+                (void)kui_scene_present(window, &scene);
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
@@ -328,16 +368,11 @@ int main(void) {
         } else if (event.key == KU_UI_KEY_BACKSPACE || event.character == 'u' || event.character == 'U') {
             go_parent();
         } else if (event.character == 'h' || event.character == 'H') {
-            (void)strlcpy(g_path, "/home", sizeof(g_path));
-            if (!refresh_directory()) {
-                (void)strlcpy(g_path, "/", sizeof(g_path));
-                (void)refresh_directory();
-            }
+            (void)navigate_location("/home");
         } else if (event.character == 'r' || event.character == 'R') {
             (void)refresh_directory();
         } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_path, "/", sizeof(g_path));
-            (void)refresh_directory();
+            (void)navigate_location("/");
         } else {
             continue;
         }
