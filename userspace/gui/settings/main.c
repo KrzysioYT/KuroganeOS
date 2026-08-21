@@ -191,6 +191,7 @@ int main(void) {
     }
 
     puts("[TEST] desktop_settings_real: PASS");
+    puts("[TEST] flux_scene_settings: PASS");
     puts("[TEST] desktop_settings_sections: PASS");
     puts("[TEST] desktop_settings_arrow_navigation: PASS");
     puts("[TEST] desktop_audio_settings_ui: PASS");
