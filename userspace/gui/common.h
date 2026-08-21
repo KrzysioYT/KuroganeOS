@@ -7,6 +7,8 @@
 #include <kurogane/libui.h>
 #include <kurogane/kurogane.h>
 
+#include "theme.h"
+
 static inline void gui_u64(char* output, size_t capacity, uint64_t value) {
     char reverse[24];
     size_t count = 0;
@@ -19,6 +21,15 @@ static inline void gui_u64(char* output, size_t capacity, uint64_t value) {
         output[written++] = reverse[--count];
     }
     if (capacity != 0U) output[written] = '\0';
+}
+
+static inline void gui_append_text(
+    char* destination, size_t capacity, const char* source) {
+    size_t used;
+    if (destination == (char*)0 || source == (const char*)0 || capacity == 0U) return;
+    used = strlen(destination);
+    if (used >= capacity) return;
+    (void)strlcpy(destination + used, source, capacity - used);
 }
 
 static inline ku_window_t gui_open(
