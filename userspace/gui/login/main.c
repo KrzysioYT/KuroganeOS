@@ -277,9 +277,9 @@ int main(void) {
     kui_scene scene;
 
     load_profile(&profile);
-    /* 1120x720 is the current reference desktop. Keep the gate centered while
-     * leaving enough forged-steel canvas around it to read as a system screen. */
-    window = gui_open("KUROGANE ACCESS", 210, 145, 700, 430);
+    /* Keep the internal title stable until WindowManager roles stop depending
+     * on exact window titles. The visible scene still says SECURE ACCESS. */
+    window = gui_open("KUROGANE LOGIN", 210, 145, 700, 430);
     if (window == KU_INVALID_WINDOW) return 1;
 
     build_scene(&scene, &profile, password, error);
