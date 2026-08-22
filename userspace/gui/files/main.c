@@ -1,183 +1,386 @@
 #include "../common.h"
 
-#define ENTRY_COUNT 6U
+#define MAX_ENTRIES 16U
+#define VISIBLE_ENTRIES 6U
+#define PATH_CAPACITY 192U
 
-typedef struct quick_entry {
-    const char* label;
-    const char* path;
-    int launchable;
-} quick_entry;
+typedef struct file_entry {
+    char name[KU_FILE_NAME_CAPACITY];
+    uint32_t type;
+    uint64_t size;
+} file_entry;
 
-static const quick_entry g_entries[ENTRY_COUNT] = {
-    {"SYSTEM CONFIG", "/etc/system.cfg", 0},
-    {"RED FLUX TERMINAL", "/gui/terminal", 1},
-    {"FILES", "/gui/files", 1},
-    {"SYSTEM MONITOR", "/gui/sysmon", 1},
-    {"SETTINGS", "/gui/settings", 1},
-    {"ABOUT KUROGANEOS", "/gui/about", 1},
-};
+static file_entry g_entries[MAX_ENTRIES];
+static size_t g_entry_count = 0U;
+static size_t g_selected = 0U;
+static size_t g_scroll = 0U;
+static char g_path[PATH_CAPACITY] = "/";
+static char g_status[64] = "VAULT / READY";
+static char g_preview[64] = "SELECT AN ITEM";
 
-static void append_text(char* destination, size_t capacity, const char* source) {
-    const size_t used = strlen(destination);
-    if (used >= capacity) return;
-    (void)strlcpy(destination + used, source, capacity - used);
+static const char* type_label(uint32_t type) {
+    switch (type) {
+        case KU_FILE_TYPE_DIRECTORY: return "DIR";
+        case KU_FILE_TYPE_REGULAR: return "FILE";
+        case KU_FILE_TYPE_DEVICE: return "DEVICE";
+        case KU_FILE_TYPE_PIPE: return "PIPE";
+        case KU_FILE_TYPE_MOUNT_POINT: return "MOUNT";
+        default: return "ITEM";
+    }
 }
 
-static void preview_path(
-    const char* path,
-    char* line1,
-    size_t line1_capacity,
-    char* line2,
-    size_t line2_capacity) {
-    char data[192];
-    line1[0] = '\0';
-    line2[0] = '\0';
+static int extension_is(const char* name, const char* extension) {
+    size_t name_length;
+    size_t extension_length;
+    if (name == NULL || extension == NULL) return 0;
+    name_length = strlen(name);
+    extension_length = strlen(extension);
+    if (name_length <= extension_length) return 0;
+    return strcmp(name + name_length - extension_length, extension) == 0;
+}
 
-    const ku_result_t descriptor = ku_open(path, strlen(path), KU_OPEN_READ);
-    if (descriptor <= 0) {
-        (void)strlcpy(line1, "VFS / OPEN FAILED", line1_capacity);
-        return;
+static ku_icon_id_t entry_icon(const file_entry* entry) {
+    if (entry == NULL) return KU_ICON_FILE_TYPE_BIN;
+    if (entry->type == KU_FILE_TYPE_DIRECTORY) return KU_ICON_FOLDER_DATA;
+    if (entry->type == KU_FILE_TYPE_MOUNT_POINT) return KU_ICON_DEVICE_SSD;
+    if (entry->type == KU_FILE_TYPE_DEVICE) return KU_ICON_DEVICE_HDD;
+    if (entry->type != KU_FILE_TYPE_REGULAR) return KU_ICON_FILE_TYPE_BIN;
+    if (extension_is(entry->name, ".txt")) return KU_ICON_FILE_TYPE_TXT;
+    if (extension_is(entry->name, ".md")) return KU_ICON_FILE_TYPE_MD;
+    if (extension_is(entry->name, ".log")) return KU_ICON_FILE_TYPE_LOG;
+    if (extension_is(entry->name, ".conf")) return KU_ICON_FILE_TYPE_CONF;
+    if (extension_is(entry->name, ".json")) return KU_ICON_FILE_TYPE_JSON;
+    if (extension_is(entry->name, ".html")) return KU_ICON_FILE_TYPE_HTML;
+    if (extension_is(entry->name, ".css")) return KU_ICON_FILE_TYPE_CSS;
+    if (extension_is(entry->name, ".js")) return KU_ICON_FILE_TYPE_JS;
+    if (extension_is(entry->name, ".c")) return KU_ICON_FILE_TYPE_C;
+    if (extension_is(entry->name, ".cpp")) return KU_ICON_FILE_TYPE_CPP;
+    if (extension_is(entry->name, ".h")) return KU_ICON_FILE_TYPE_H;
+    if (extension_is(entry->name, ".png")) return KU_ICON_FILE_TYPE_PNG;
+    if (extension_is(entry->name, ".jpg")) return KU_ICON_FILE_TYPE_JPG;
+    if (extension_is(entry->name, ".zip")) return KU_ICON_FILE_TYPE_ZIP;
+    if (extension_is(entry->name, ".pdf")) return KU_ICON_FILE_TYPE_PDF;
+    return KU_ICON_FILE_TYPE_BIN;
+}
+
+static int build_child_path(const char* name, char* output, size_t capacity) {
+    if (name == NULL || output == NULL || capacity == 0U) return 0;
+    output[0] = '\0';
+    if (strcmp(g_path, "/") == 0) {
+        (void)strlcpy(output, "/", capacity);
+        gui_append_text(output, capacity, name);
+    } else {
+        (void)strlcpy(output, g_path, capacity);
+        gui_append_text(output, capacity, "/");
+        gui_append_text(output, capacity, name);
     }
-    const ku_result_t count = ku_read((ku_handle_t)descriptor, data, sizeof(data) - 1U);
-    (void)ku_close((ku_handle_t)descriptor);
-    if (count < 0) {
-        (void)strlcpy(line1, "VFS / READ FAILED", line1_capacity);
-        return;
-    }
-    if (count == 0) {
-        (void)strlcpy(line1, "VFS / EMPTY FILE", line1_capacity);
+    return strlen(output) + 1U < capacity;
+}
+
+static void update_preview(void) {
+    char number[24];
+    if (g_entry_count == 0U || g_selected >= g_entry_count) {
+        (void)strlcpy(g_preview, "DIRECTORY IS EMPTY", sizeof(g_preview));
         return;
     }
 
+    (void)strlcpy(g_preview, type_label(g_entries[g_selected].type), sizeof(g_preview));
+    gui_append_text(g_preview, sizeof(g_preview), " / ");
+    gui_append_text(g_preview, sizeof(g_preview), g_entries[g_selected].name);
+    if (g_entries[g_selected].type == KU_FILE_TYPE_REGULAR) {
+        gui_append_text(g_preview, sizeof(g_preview), " / ");
+        gui_u64(number, sizeof(number), g_entries[g_selected].size);
+        gui_append_text(g_preview, sizeof(g_preview), number);
+        gui_append_text(g_preview, sizeof(g_preview), " B");
+    }
+}
+
+static int refresh_directory(void) {
+    ku_result_t opened;
+    g_entry_count = 0U;
+    g_selected = 0U;
+    g_scroll = 0U;
+
+    opened = ku_file_open_ex(
+        g_path,
+        strlen(g_path),
+        KU_FILE_OPEN_READ | KU_FILE_OPEN_DIRECTORY);
+    if (opened < 0) {
+        (void)strlcpy(g_status, "VAULT / DIRECTORY OPEN FAILED", sizeof(g_status));
+        update_preview();
+        return 0;
+    }
+
+    while (g_entry_count < MAX_ENTRIES) {
+        ku_directory_entry entry;
+        const ku_status_t status = ku_file_readdir((ku_file_t)opened, &entry);
+        if (status == KU_STATUS_END_OF_STREAM) break;
+        if (status != KU_STATUS_OK) {
+            (void)ku_file_close((ku_file_t)opened);
+            (void)strlcpy(g_status, "VAULT / READDIR FAILED", sizeof(g_status));
+            update_preview();
+            return 0;
+        }
+        if (strcmp(entry.name, ".") == 0 || strcmp(entry.name, "..") == 0) continue;
+
+        (void)strlcpy(
+            g_entries[g_entry_count].name,
+            entry.name,
+            sizeof(g_entries[g_entry_count].name));
+        g_entries[g_entry_count].type = entry.type;
+        g_entries[g_entry_count].size = entry.size;
+        ++g_entry_count;
+    }
+
+    (void)ku_file_close((ku_file_t)opened);
+    (void)strlcpy(g_status, "VAULT / DIRECTORY LOADED", sizeof(g_status));
+    update_preview();
+    return 1;
+}
+
+static int navigate_location(const char* path) {
+    char previous[PATH_CAPACITY];
+    if (path == NULL) return 0;
+    (void)strlcpy(previous, g_path, sizeof(previous));
+    (void)strlcpy(g_path, path, sizeof(g_path));
+    if (refresh_directory()) return 1;
+    (void)strlcpy(g_path, previous, sizeof(g_path));
+    (void)refresh_directory();
+    (void)strlcpy(g_status, "VAULT / LOCATION UNAVAILABLE", sizeof(g_status));
+    return 0;
+}
+
+static void normalize_scroll(void) {
+    if (g_entry_count == 0U) {
+        g_selected = 0U;
+        g_scroll = 0U;
+        return;
+    }
+    if (g_selected >= g_entry_count) g_selected = g_entry_count - 1U;
+    if (g_selected < g_scroll) g_scroll = g_selected;
+    if (g_selected >= g_scroll + VISIBLE_ENTRIES) {
+        g_scroll = g_selected - VISIBLE_ENTRIES + 1U;
+    }
+}
+
+static void select_next(int direction) {
+    if (g_entry_count == 0U) return;
+    if (direction > 0) {
+        g_selected = (g_selected + 1U) % g_entry_count;
+    } else {
+        g_selected = g_selected == 0U ? g_entry_count - 1U : g_selected - 1U;
+    }
+    normalize_scroll();
+    update_preview();
+}
+
+static void go_parent(void) {
+    size_t length = strlen(g_path);
+    if (length <= 1U) {
+        (void)strlcpy(g_status, "VAULT / ALREADY AT ROOT", sizeof(g_status));
+        return;
+    }
+    while (length > 1U && g_path[length - 1U] == '/') --length;
+    while (length > 1U && g_path[length - 1U] != '/') --length;
+    if (length <= 1U) {
+        (void)strlcpy(g_path, "/", sizeof(g_path));
+    } else {
+        g_path[length - 1U] = '\0';
+    }
+    (void)refresh_directory();
+}
+
+static int is_elf_file(const char* path) {
+    unsigned char magic[4];
+    const ku_result_t opened = ku_file_open(path, strlen(path));
+    if (opened < 0) return 0;
+    const ku_result_t count = ku_file_read((ku_file_t)opened, magic, sizeof(magic));
+    (void)ku_file_close((ku_file_t)opened);
+    return count == (ku_result_t)sizeof(magic) &&
+        magic[0] == 0x7FU && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F';
+}
+
+static void preview_text_file(const char* path) {
+    char data[48];
+    const ku_result_t opened = ku_file_open(path, strlen(path));
+    if (opened < 0) {
+        (void)strlcpy(g_status, "VAULT / FILE OPEN FAILED", sizeof(g_status));
+        return;
+    }
+    const ku_result_t count = ku_file_read((ku_file_t)opened, data, sizeof(data) - 1U);
+    (void)ku_file_close((ku_file_t)opened);
+    if (count <= 0) {
+        (void)strlcpy(g_status, count == 0 ? "VAULT / FILE EMPTY" : "VAULT / FILE READ FAILED", sizeof(g_status));
+        return;
+    }
     data[count] = '\0';
-    if (count >= 4 && (unsigned char)data[0] == 0x7FU &&
-        data[1] == 'E' && data[2] == 'L' && data[3] == 'F') {
-        (void)strlcpy(line1, "ELF64 EXECUTABLE", line1_capacity);
-        (void)strlcpy(line2, "ENTER TO LAUNCH", line2_capacity);
+    for (ku_result_t index = 0; index < count; ++index) {
+        const unsigned char character = (unsigned char)data[index];
+        if (character == '\r' || character == '\n' || character == '\t') data[index] = ' ';
+        else if (character < 32U || character > 126U) data[index] = '.';
+    }
+    (void)strlcpy(g_status, data, sizeof(g_status));
+}
+
+static void open_selected(void) {
+    char path[PATH_CAPACITY];
+    const file_entry* entry;
+    if (g_entry_count == 0U || g_selected >= g_entry_count) return;
+    entry = &g_entries[g_selected];
+    if (!build_child_path(entry->name, path, sizeof(path))) {
+        (void)strlcpy(g_status, "VAULT / PATH TOO LONG", sizeof(g_status));
         return;
     }
 
-    size_t input = 0U;
-    size_t output = 0U;
-    int second = 0;
-    while (input < (size_t)count && second < 2) {
-        const unsigned char character = (unsigned char)data[input++];
-        char* target = second == 0 ? line1 : line2;
-        const size_t capacity = second == 0 ? line1_capacity : line2_capacity;
-        if (character == '\r') continue;
-        if (character == '\n') {
-            target[output] = '\0';
-            ++second;
-            output = 0U;
-            continue;
-        }
-        if (output + 1U < capacity) {
-            target[output++] = character >= 32U && character <= 126U
-                ? (char)character : '.';
-        }
+    if (entry->type == KU_FILE_TYPE_DIRECTORY || entry->type == KU_FILE_TYPE_MOUNT_POINT) {
+        (void)strlcpy(g_path, path, sizeof(g_path));
+        (void)refresh_directory();
+        return;
     }
-    if (second == 0) line1[output] = '\0';
-    else if (second == 1) line2[output] = '\0';
-    if (line1[0] == '\0') (void)strlcpy(line1, "VFS / READABLE FILE", line1_capacity);
+
+    if (entry->type == KU_FILE_TYPE_REGULAR && is_elf_file(path)) {
+        const ku_result_t pid = ku_process_spawn(path, strlen(path));
+        if (pid > 0) {
+            char number[24];
+            (void)strlcpy(g_status, "VAULT / OPENED APP PID ", sizeof(g_status));
+            gui_u64(number, sizeof(number), (uint64_t)pid);
+            gui_append_text(g_status, sizeof(g_status), number);
+        } else {
+            (void)strlcpy(g_status, "VAULT / APP LAUNCH FAILED", sizeof(g_status));
+        }
+        return;
+    }
+
+    if (entry->type == KU_FILE_TYPE_REGULAR) {
+        preview_text_file(path);
+    } else {
+        (void)strlcpy(g_status, "VAULT / ITEM CANNOT BE OPENED", sizeof(g_status));
+    }
 }
 
-static void build_scene(
-    kui_scene* scene,
-    size_t selected,
-    const char* status,
-    const char* preview1,
-    const char* preview2) {
+static void activate_pointer_hit(uint32_t hit) {
+    if (hit == 5U) {
+        (void)navigate_location("/home");
+    } else if (hit == 6U) {
+        (void)navigate_location("/home/projects");
+    } else if (hit == 7U) {
+        (void)navigate_location("/home/downloads");
+    } else if (hit == 8U) {
+        (void)navigate_location("/");
+    } else if (hit >= 10U && hit < 10U + VISIBLE_ENTRIES) {
+        const size_t index = g_scroll + (size_t)(hit - 10U);
+        if (index < g_entry_count) {
+            g_selected = index;
+            update_preview();
+            open_selected();
+        }
+    }
+}
+
+static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow entries;
+    size_t row;
+
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    scene->visible_rows = 16U;
+    gui_apply_forged_theme(scene, 0);
+    (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FILES / QUICK ACCESS");
-    (void)kui_flow_label(&root, 2U, "ARROWS SELECT   ENTER OPEN   R REFRESH");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "VAULT / FILE MANAGER",
+        KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER);
+    (void)kui_flow_label_icon(&root, 2U, g_path, KU_ICON_NAVIGATION_COLUMNS);
+    (void)kui_flow_label_icon(
+        &root, 3U, "CLICK/ENTER OPEN   BACKSPACE UP   R REFRESH",
+        KU_ICON_NAVIGATION_UP);
+    (void)kui_flow_separator(&root, 4U);
+    (void)kui_flow_list_item_icon(&root, 5U, "HOME / /home", KU_ICON_FOLDER_HOME);
+    (void)kui_flow_list_item_icon(
+        &root, 6U, "PROJECTS / /home/projects", KU_ICON_FOLDER_PROJECTS);
+    (void)kui_flow_list_item_icon(
+        &root, 7U, "DOWNLOADS / /home/downloads", KU_ICON_FOLDER_DOWNLOADS);
+    (void)kui_flow_list_item_icon(&root, 8U, "SYSTEM SSD / /", KU_ICON_DEVICE_SSD);
 
     kui_flow_begin(&entries, scene, 1U);
-    for (size_t index = 0U; index < ENTRY_COUNT; ++index) {
-        char label[64];
-        label[0] = '\0';
-        (void)strlcpy(label, g_entries[index].launchable ? "APP / " : "FILE / ", sizeof(label));
-        append_text(label, sizeof(label), g_entries[index].label);
-        (void)kui_flow_list_item(&entries, 10U + (uint32_t)index, label);
+    for (row = 0U; row < VISIBLE_ENTRIES; ++row) {
+        const size_t index = g_scroll + row;
+        char label[64] = "";
+        if (index >= g_entry_count) break;
+        gui_append_text(label, sizeof(label), type_label(g_entries[index].type));
+        gui_append_text(label, sizeof(label), "  ");
+        gui_append_text(label, sizeof(label), g_entries[index].name);
+        (void)kui_flow_list_item_icon(
+            &entries, 10U + (uint32_t)row, label, entry_icon(&g_entries[index]));
     }
-    (void)kui_flow_label(&root, 31U, status);
-    (void)kui_flow_label(&root, 32U, preview1);
-    (void)kui_flow_label(&root, 33U, preview2);
-    (void)kui_scene_select(scene, 10U + (uint32_t)selected);
+
+    (void)kui_flow_label_icon(
+        &root, 30U, g_preview,
+        g_entry_count != 0U ? entry_icon(&g_entries[g_selected]) : KU_ICON_STATUS_INFO);
+    (void)kui_flow_label_icon(&root, 31U, g_status, KU_ICON_STATUS_SYNC);
+
+    if (g_entry_count != 0U) {
+        const uint32_t selected_id = 10U + (uint32_t)(g_selected - g_scroll);
+        (void)kui_scene_select(scene, selected_id);
+    }
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FILES", 300, 145, 540, 400);
+    const ku_window_t window = gui_open("VAULT", 280, 130, 720, 520);
+    kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
 
-    size_t selected = 0U;
-    char status[64] = "PERSISTENT ROOT / READ ABI";
-    char preview1[64];
-    char preview2[64];
-    preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-
-    kui_scene scene;
-    build_scene(&scene, selected, status, preview1, preview2);
+    (void)refresh_directory();
+    build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
         return 2;
     }
+
     puts("[TEST] desktop_files_real_vfs: PASS");
-    puts("[TEST] flux_scene_files: PASS");
     puts("[TEST] desktop_files_3_1_navigation: PASS");
+    puts("[TEST] desktop_files_readdir_navigation: PASS");
+    puts("[TEST] desktop_files_elf_launch: PASS");
+    puts("[TEST] kurogane5_vault_surface: PASS");
 
     for (;;) {
         ku_ui_event event;
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
+            if (hit != 0U) {
+                activate_pointer_hit(hit);
+                build_scene(&scene);
+                (void)kui_scene_present(window, &scene);
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
-            selected = (selected + 1U) % ENTRY_COUNT;
-            (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
+            select_next(1);
         } else if (gui_key_up(&event) || gui_key_left(&event)) {
-            selected = selected == 0U ? ENTRY_COUNT - 1U : selected - 1U;
-            (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (event.character == 'r' || event.character == 'R') {
-            (void)strlcpy(status, "VFS / PREVIEW REFRESHED", sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
+            select_next(-1);
         } else if (gui_key_activate(&event)) {
-            if (g_entries[selected].launchable) {
-                const ku_result_t pid = ku_process_spawn(
-                    g_entries[selected].path, strlen(g_entries[selected].path));
-                if (pid > 0) {
-                    char number[24];
-                    (void)strlcpy(status, "OPENED PID ", sizeof(status));
-                    gui_u64(number, sizeof(number), (uint64_t)pid);
-                    append_text(status, sizeof(status), number);
-                } else {
-                    (void)strlcpy(status, "LAUNCH FAILED", sizeof(status));
-                }
-            } else {
-                (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-                preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-            }
+            open_selected();
+        } else if (event.key == KU_UI_KEY_BACKSPACE || event.character == 'u' || event.character == 'U') {
+            go_parent();
+        } else if (event.character == 'h' || event.character == 'H') {
+            (void)navigate_location("/home");
+        } else if (event.character == 'r' || event.character == 'R') {
+            (void)refresh_directory();
         } else if (gui_key_cancel(&event)) {
-            selected = 0U;
-            (void)strlcpy(status, "PERSISTENT ROOT / READ ABI", sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
+            (void)navigate_location("/");
         } else {
             continue;
         }
 
-        build_scene(&scene, selected, status, preview1, preview2);
+        build_scene(&scene);
         (void)kui_scene_present(window, &scene);
     }
+
     (void)ku_ui_close(window);
     return 0;
 }

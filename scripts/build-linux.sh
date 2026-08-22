@@ -72,6 +72,8 @@ clean_outputs() {
 if $clean; then clean_outputs; exit 0; fi
 if $rebuild; then clean_outputs; fi
 
+python3 scripts/generate-gui-assets.py --check
+
 mkdir -p build build/userspace/rootfs build/boot iso/EFI/BOOT dist
 
 if ! $stage_only; then

@@ -41,6 +41,8 @@ void set_text_scale_limit(uint32_t maximum_scale);
 void reset_text_scale_limit();
 
 void put_pixel(int32_t x, int32_t y, Color color);
+Color get_pixel(int32_t x, int32_t y);
+void blend_pixel(int32_t x, int32_t y, Color color, uint8_t alpha);
 void clear(Color color);
 void fill_rect(int32_t x, int32_t y, int32_t width, int32_t height,
                Color color);

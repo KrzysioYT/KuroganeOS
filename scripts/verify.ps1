@@ -138,25 +138,52 @@ function Invoke-Step {
 
     $stepLog = Get-StepLogPath -Slug $Slug
     $started = Get-Date
+    $stepDir = [System.IO.Path]::GetDirectoryName($stepLog)
+    Ensure-Directory -DirectoryPath $stepDir
+    [System.IO.File]::WriteAllLines(
+        $stepLog,
+        @(
+            "Step: $Name",
+            "Started: $($started.ToString('o'))",
+            'Output follows while the step is running.',
+            ''
+        ),
+        $Utf8NoBom
+    )
     Write-Status -State 'START' -Message "$Name (log: $stepLog)"
 
     $previousPreference = $ErrorActionPreference
-    $output = @()
+    $outputTail = New-Object System.Collections.Generic.List[string]
     $exitCode = 0
     $failure = $null
 
     try {
-        # Native tools legitimately use stderr for diagnostics, so capture it and
-        # decide success from their process exit code instead of PowerShell's stream.
+        # Do not buffer an entire compiler/QEMU run in memory.  Stream every line
+        # to the terminal and durable step log as it arrives, while retaining only
+        # a bounded tail for diagnostics and small return values such as wslpath.
         $ErrorActionPreference = 'Continue'
         $global:LASTEXITCODE = 0
-        $output = @(& $Action 2>&1)
+        & $Action 2>&1 | ForEach-Object {
+            $line = [string]$_
+            Write-Host $line
+            [System.IO.File]::AppendAllText($stepLog, "$line`r`n", $Utf8NoBom)
+            if ($outputTail.Count -ge 200) {
+                $outputTail.RemoveAt(0)
+            }
+            $outputTail.Add($line)
+        }
         $exitCode = $global:LASTEXITCODE
     }
     catch {
         $failure = $_
         $exitCode = 1
-        $output += $_
+        $line = [string]$_
+        Write-Host $line
+        [System.IO.File]::AppendAllText($stepLog, "$line`r`n", $Utf8NoBom)
+        if ($outputTail.Count -ge 200) {
+            $outputTail.RemoveAt(0)
+        }
+        $outputTail.Add($line)
     }
     finally {
         $ErrorActionPreference = $previousPreference
@@ -164,27 +191,18 @@ function Invoke-Step {
 
     $finished = Get-Date
     $duration = $finished - $started
-    $logLines = New-Object System.Collections.Generic.List[string]
-    $logLines.Add("Step: $Name")
-    $logLines.Add("Started: $($started.ToString('o'))")
-    $logLines.Add("Finished: $($finished.ToString('o'))")
-    $logLines.Add(('Duration: {0:n1} seconds' -f $duration.TotalSeconds))
-    $logLines.Add("Exit code: $exitCode")
-    $logLines.Add('')
-    foreach ($item in $output) {
-        $logLines.Add([string]$item)
-    }
-    $stepDir = [System.IO.Path]::GetDirectoryName($stepLog)
-    Ensure-Directory -DirectoryPath $stepDir
-    [System.IO.File]::WriteAllLines($stepLog, $logLines, $Utf8NoBom)
+    [System.IO.File]::AppendAllText(
+        $stepLog,
+        "`r`nFinished: $($finished.ToString('o'))`r`nDuration: $('{0:n1}' -f $duration.TotalSeconds) seconds`r`nExit code: $exitCode`r`n",
+        $Utf8NoBom
+    )
 
     if ($failure -or $exitCode -ne 0) {
         Write-Status -State 'FAIL' -Message "$Name failed after $('{0:n1}' -f $duration.TotalSeconds) seconds (exit $exitCode)."
-        $tail = @($output | Select-Object -Last 50)
-        if ($tail.Count -gt 0) {
+        if ($outputTail.Count -gt 0) {
             Write-Host '---- failure log tail ----'
-            foreach ($line in $tail) {
-                Write-Host ([string]$line)
+            foreach ($line in $outputTail) {
+                Write-Host $line
             }
             Write-Host '---- end failure log ----'
         }
@@ -192,7 +210,7 @@ function Invoke-Step {
     }
 
     Write-Status -State 'PASS' -Message "$Name completed in $('{0:n1}' -f $duration.TotalSeconds) seconds."
-    return $output
+    return $outputTail.ToArray()
 }
 
 function Invoke-WslBash {
@@ -204,11 +222,11 @@ function Invoke-WslBash {
         [string]$Script
     )
 
-    # Windows PowerShell 5.1 re-quotes native arguments, which can corrupt a
-    # multiline `bash -lc` program.  Encode the complete script so the only
-    # dynamic shell token uses the restricted Base64 alphabet, then decode it
-    # inside WSL and let Bash read the original UTF-8 bytes from stdin.
-    $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+    # Windows PowerShell here-strings follow the host newline convention. Normalize
+    # every Bash payload to LF before Base64 encoding so WSL never receives CRLF,
+    # regardless of Git checkout settings or the source file's line endings.
+    $normalizedScript = $Script.Replace("`r`n", "`n").Replace("`r", "`n")
+    $encodedScript = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($normalizedScript))
     $bootstrap = "set -o pipefail;printf %s $encodedScript|base64 -d|bash -s --"
     & $WslExecutable --exec bash -c $bootstrap
 }
@@ -331,7 +349,8 @@ done
     Invoke-Step -Name 'Clean debug build' -Slug 'debug-build' -Action {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $BuildScript -Configuration debug -Rebuild
     } | Out-Null
-    Assert-File -Path $ImagePath -Description 'Debug disk image'
+    Assert-File -Path $ImagePath -Description 'Debug FAT boot image'
+    Assert-File -Path $FoundationBaseImage -Description 'Debug Foundation GPT image'
     Assert-BuildManifestProfile -Expected 'debug'
 
     Invoke-Step -Name 'Host tests in WSL2' -Slug 'host-tests' -Action {
@@ -353,10 +372,14 @@ fsck.fat -vn "$WslImagePath"
             -File $FoundationImageTest
     } | Out-Null
 
+    # Normal userspace requires /system/init and the persistent Kurogane Root
+    # partition. The legacy 64 MiB FAT boot image has no GPT root partition, so
+    # it is validated above as an EFI/FAT artifact rather than used for PID1.
     $diskPort = Get-FreeMonitorPort
-    Invoke-Step -Name 'QEMU disk ShellTest' -Slug 'qemu-disk' -Action {
+    Invoke-Step -Name 'QEMU Foundation disk ShellTest' -Slug 'qemu-disk' -Action {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $QemuScript `
             -UseDiskImage `
+            -DiskImagePath $FoundationBaseImage `
             -ShellTest `
             -TimeoutSeconds $TimeoutSeconds `
             -MonitorPort $diskPort `

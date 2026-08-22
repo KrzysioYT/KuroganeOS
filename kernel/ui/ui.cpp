@@ -1,4 +1,5 @@
 #include "ui.hpp"
+#include "icon_registry.hpp"
 
 #include "../../common/version.h"
 
@@ -189,36 +190,44 @@ void dock_icon(const Rect& bounds, DockIcon icon,
                graphics::Color foreground, graphics::Color accent) {
     const int32_t cx = bounds.x + bounds.width / 2;
     const int32_t cy = bounds.y + bounds.height / 2;
+    ku_icon_id_t asset = KU_ICON_NONE;
     switch (icon) {
         case DockIcon::Home:
-            brand_mark(cx, cy, 1, accent, foreground);
+            asset = KU_ICON_KUROGANE_APP_BLADE_LAUNCHER;
             break;
         case DockIcon::Terminal:
-            line(cx - 9, cy - 7, cx - 2, cy, foreground);
-            line(cx - 9, cy + 7, cx - 2, cy, foreground);
-            graphics::fill_rect(cx + 1, cy + 6, 10, 2, accent);
+            asset = KU_ICON_KUROGANE_APP_KUROSH_TERMINAL;
             break;
         case DockIcon::Files:
-            graphics::fill_rect(cx - 10, cy - 7, 8, 4, accent);
-            graphics::draw_rect(cx - 11, cy - 4, 22, 15, foreground, 2U);
-            graphics::fill_rect(cx - 8, cy, 16, 2, kDockRaised);
+            asset = KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER;
             break;
-        case DockIcon::Monitor:
-            graphics::fill_rect(cx - 10, cy + 3, 4, 7, foreground);
-            graphics::fill_rect(cx - 3, cy - 2, 4, 12, accent);
-            graphics::fill_rect(cx + 4, cy - 8, 4, 18, foreground);
+        case DockIcon::Performance:
+            asset = KU_ICON_SPECIAL_CPU;
+            break;
+        case DockIcon::Web:
+            asset = KU_ICON_APPLICATION_BROWSER;
+            break;
+        case DockIcon::SystemMonitor:
+            asset = KU_ICON_APPLICATION_SYSTEM_MONITOR;
             break;
         case DockIcon::Settings:
-            graphics::draw_rect(cx - 8, cy - 8, 16, 16, foreground, 2U);
-            graphics::fill_rect(cx - 2, cy - 11, 4, 22, accent);
-            graphics::fill_rect(cx - 11, cy - 2, 22, 4, accent);
-            graphics::fill_rect(cx - 2, cy - 2, 4, 4, kDockSurface);
+            asset = KU_ICON_KUROGANE_APP_FORGE_CONTROL;
             break;
         case DockIcon::About:
-            graphics::fill_rect(cx - 2, cy - 7, 4, 4, accent);
-            graphics::fill_rect(cx - 2, cy, 4, 11, foreground);
+            asset = KU_ICON_STATUS_INFO;
+            break;
+        case DockIcon::Anvil:
+            asset = KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER;
+            break;
+        case DockIcon::Pulse:
+            asset = KU_ICON_KUROGANE_APP_PULSE_QUICK_SETTINGS;
             break;
     }
+    if (asset != KU_ICON_NONE && icons::valid(asset)) {
+        icons::draw(asset, cx - 15, cy - 15, 30, 30);
+        return;
+    }
+    brand_mark(cx, cy, 1, accent, foreground);
 }
 } // namespace
 
@@ -246,7 +255,7 @@ void boot_splash(const char* stage, uint32_t progress_value) {
     graphics::draw_text(cx - 62, cy + 18, KUROGANE_VERSION_STRING,
                         kTheme.text_muted, kTheme.desktop, 2U, true);
     graphics::draw_text(cx - 108, cy + 54,
-                        stage ? stage : "INITIALIZING RED FLUX",
+                        stage ? stage : "INITIALIZING FORGED STEEL",
                         kTheme.text_muted, kTheme.desktop, 1U, true);
 
     const int32_t bar_width = width > 520 ? 360 : width - 120;
@@ -272,7 +281,7 @@ void login_backdrop(const char* status) {
     brand_mark(cx, 132, 4, kRedBright, kRedDeep);
     graphics::draw_text(cx - 108, 208, "KUROGANEOS",
                         kTheme.text, kTheme.desktop, 3U, true);
-    graphics::draw_text(cx - 114, 250, "RED FLUX / SESSION",
+    graphics::draw_text(cx - 126, 250, "FORGED STEEL / SESSION",
                         kTheme.text_muted, kTheme.desktop, 1U, true);
     if (status != nullptr) {
         graphics::draw_text(cx - 96, height - 48, status,
@@ -302,7 +311,7 @@ void desktop(const char* title) {
     graphics::fill_rect(22, 39, brand_width > 156 ? 156 : brand_width - 4,
                         2, kRedBright);
     brand_mark(40, 25, 1, kRedBright, kRedMuted);
-    graphics::draw_text(61, 17, title ? title : "KUROGANE / RED FLUX",
+    graphics::draw_text(61, 17, title ? title : "KUROGANEOS / FORGED STEEL",
                         kTheme.text, kHeaderBand, 2U, true);
 
     if (width > 640) {
@@ -310,7 +319,7 @@ void desktop(const char* title) {
         graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
         graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
         graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
-        graphics::draw_text(status_x + 14, 19, "SESSION / RED FLUX 3.2",
+        graphics::draw_text(status_x + 14, 19, "SESSION / FORGED STEEL",
                             kTheme.text_muted, kTheme.panel_alt, 1U, true);
     }
 
@@ -541,6 +550,167 @@ void separator(int32_t x, int32_t y, int32_t width) {
     if (width > 24) graphics::fill_rect(x, y, 22, 2, kTheme.accent);
 }
 
+namespace {
+uint32_t widget_depth(
+    const ku_ui_surface& surface, const ku_ui_widget& widget) {
+    uint32_t depth = 0U;
+    uint32_t parent_id = widget.parent_id;
+    while (parent_id != 0U && depth < 3U) {
+        bool found = false;
+        for (uint32_t index = 0U; index < surface.widget_count; ++index) {
+            if (surface.widgets[index].id != parent_id) continue;
+            parent_id = surface.widgets[index].parent_id;
+            found = true;
+            ++depth;
+            break;
+        }
+        if (!found) break;
+    }
+    return depth;
+}
+
+int32_t widget_height(uint32_t type) {
+    switch (type) {
+        case KU_UI_WIDGET_PANEL: return 38;
+        case KU_UI_WIDGET_LABEL: return 26;
+        case KU_UI_WIDGET_BUTTON:
+        case KU_UI_WIDGET_INPUT:
+        case KU_UI_WIDGET_LIST_ITEM: return 36;
+        case KU_UI_WIDGET_PROGRESS: return 50;
+        case KU_UI_WIDGET_SEPARATOR: return 12;
+        default: return 0;
+    }
+}
+
+void widget_icon(const ku_ui_widget& widget, int32_t x, int32_t y, int32_t size) {
+    const auto icon = static_cast<ku_icon_id_t>(widget.icon_id);
+    if (icon == KU_ICON_NONE || !icons::valid(icon)) return;
+    icons::draw(icon, x, y, size, size);
+}
+} // namespace
+
+void native_surface(
+    const Rect& bounds, const ku_ui_surface& surface, bool focused) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    const graphics::Color background =
+        surface.background_rgb & UINT32_C(0xFFFFFF);
+    const graphics::Color foreground =
+        surface.foreground_rgb & UINT32_C(0xFFFFFF);
+    const graphics::Color accent = surface.accent_rgb & UINT32_C(0xFFFFFF);
+    graphics::fill_rect(
+        bounds.x, bounds.y, bounds.width, bounds.height, background);
+
+    const int32_t left = bounds.x + 12;
+    const int32_t right = bounds.x + bounds.width - 12;
+    int32_t y = bounds.y + 10;
+    uint32_t visible_index = 0U;
+    uint32_t rendered = 0U;
+    const uint32_t row_limit = surface.visible_rows == 0U
+        ? KU_UI_MAX_WIDGETS : surface.visible_rows;
+
+    for (uint32_t index = 0U; index < surface.widget_count; ++index) {
+        const ku_ui_widget& widget = surface.widgets[index];
+        if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U) continue;
+        if (visible_index++ < surface.scroll_offset) continue;
+        if (rendered++ >= row_limit) break;
+
+        const int32_t height = widget_height(widget.type);
+        if (height <= 0 || y >= bounds.y + bounds.height) break;
+        const int32_t indent = static_cast<int32_t>(
+            widget_depth(surface, widget)) * 14;
+        const Rect row{left + indent, y, right - left - indent, height - 4};
+        const bool selected =
+            (widget.flags & KU_UI_WIDGET_SELECTED) != 0U ||
+            surface.selected_id == widget.id;
+        const bool disabled = (widget.flags & KU_UI_WIDGET_DISABLED) != 0U;
+        const graphics::Color text_color = disabled ? kTheme.text_muted : foreground;
+        const int32_t icon_size = widget.type == KU_UI_WIDGET_PANEL ? 24 : 20;
+        const bool has_icon = widget.icon_id != 0U &&
+            icons::valid(static_cast<ku_icon_id_t>(widget.icon_id));
+        const int32_t text_x = row.x + (has_icon ? icon_size + 13 : 10);
+
+        switch (widget.type) {
+            case KU_UI_WIDGET_PANEL: {
+                const graphics::Color panel_background = selected
+                    ? graphics::rgb(43, 27, 31) : kGraphiteRaised;
+                graphics::fill_rect(
+                    row.x + 3, row.y + 3, row.width, row.height, kSurfaceShadow);
+                graphics::fill_rect(
+                    row.x, row.y, row.width, row.height, panel_background);
+                graphics::draw_rect(
+                    row.x, row.y, row.width, row.height,
+                    selected ? accent : kTheme.border);
+                graphics::fill_rect(
+                    row.x, row.y, 3, row.height,
+                    focused || selected ? accent : kSteel);
+                widget_icon(widget, row.x + 7, row.y + 4, icon_size);
+                graphics::draw_text(
+                    text_x, row.y + 10, widget.text, text_color,
+                    panel_background, 1U, true);
+                break;
+            }
+            case KU_UI_WIDGET_LABEL:
+                widget_icon(widget, row.x + 4, row.y + 1, icon_size);
+                graphics::draw_text(
+                    text_x, row.y + 6, widget.text, text_color,
+                    background, 1U, true);
+                break;
+            case KU_UI_WIDGET_BUTTON:
+            case KU_UI_WIDGET_INPUT:
+            case KU_UI_WIDGET_LIST_ITEM: {
+                const graphics::Color item_background = selected
+                    ? graphics::rgb(49, 27, 32) : kGraphite;
+                graphics::fill_rect(
+                    row.x + 2, row.y + 2, row.width, row.height, kSurfaceShadow);
+                graphics::fill_rect(
+                    row.x, row.y, row.width, row.height, item_background);
+                graphics::draw_rect(
+                    row.x, row.y, row.width, row.height,
+                    selected ? accent : kTheme.border);
+                graphics::fill_rect(
+                    row.x, row.y, selected ? 4 : 2, row.height,
+                    selected ? accent : kSteel);
+                if (widget.type == KU_UI_WIDGET_INPUT) {
+                    graphics::fill_rect(
+                        row.x + 8, row.y + row.height - 3,
+                        row.width - 16, 1, selected ? accent : kTheme.border);
+                }
+                widget_icon(widget, row.x + 7, row.y + 6, icon_size);
+                graphics::draw_text(
+                    text_x, row.y + 11, widget.text, text_color,
+                    item_background, 1U, true);
+                if (selected && widget.type == KU_UI_WIDGET_LIST_ITEM) {
+                    graphics::fill_rect(
+                        row.x + row.width - 8, row.y + row.height / 2 - 2,
+                        3, 5, kRedBright);
+                }
+                break;
+            }
+            case KU_UI_WIDGET_PROGRESS: {
+                graphics::fill_rect(
+                    row.x, row.y, row.width, row.height, kGraphite);
+                graphics::draw_rect(
+                    row.x, row.y, row.width, row.height, kTheme.border);
+                widget_icon(widget, row.x + 7, row.y + 5, icon_size);
+                graphics::draw_text(
+                    text_x, row.y + 8, widget.text, text_color,
+                    kGraphite, 1U, true);
+                progress(
+                    {row.x + 8, row.y + row.height - 15, row.width - 16, 9},
+                    widget.value, widget.maximum);
+                break;
+            }
+            case KU_UI_WIDGET_SEPARATOR:
+                separator(row.x, row.y + 3, row.width);
+                break;
+            default:
+                break;
+        }
+        y += height;
+    }
+}
+
 void taskbar(const char* status) {
     if (!graphics::available() || graphics::height() < 32 ||
         graphics::width() < 80) return;
@@ -550,9 +720,9 @@ void taskbar(const char* status) {
     const int32_t x = 14;
     const int32_t y = screen_height - 27;
     const int32_t width = screen_width - 28;
-    const char* text = status ? status : "RED FLUX READY";
+    const char* text = status ? status : "FORGED STEEL READY";
     if (text_starts_with(text, "WINDOWS:")) {
-        text = "LEGACY SURFACE / RED FLUX COMPATIBILITY";
+        text = "LEGACY SURFACE / FORGED STEEL COMPATIBILITY";
     }
 
     graphics::fill_rect(x + 3, y + 3, width, 20, kSurfaceShadow);

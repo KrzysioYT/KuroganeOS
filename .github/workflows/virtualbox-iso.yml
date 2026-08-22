@@ -13,6 +13,8 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'assets/**'
+      - 'KuroganeOS_5.0_Icon_Pack_v2.zip'
       - '.gitmodules'
       - 'Makefile'
       - 'linker.ld'
@@ -29,6 +31,8 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'assets/**'
+      - 'KuroganeOS_5.0_Icon_Pack_v2.zip'
       - '.gitmodules'
       - 'Makefile'
       - 'linker.ld'
@@ -45,6 +49,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: true
 
       - name: Install build and UEFI test dependencies
         run: |

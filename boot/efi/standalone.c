@@ -853,7 +853,7 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
 
     console_write(
         system_table,
-        (const CHAR16*)L"Red Flux desktop starts automatically. "
+        (const CHAR16*)L"KuroganeOS Forged Steel desktop starts automatically. "
                         L"Press S or F8 for Safe Mode, X for diagnostics, "
                         L"D to continue now...\r\n");
     for (attempt = 0; attempt < 150; ++attempt) {
@@ -874,7 +874,7 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
             if (key.UnicodeChar == 'd' || key.UnicodeChar == 'D') {
                 console_write(
                     system_table,
-                    (const CHAR16*)L"Red Flux desktop requested\r\n");
+                    (const CHAR16*)L"Forged Steel desktop requested\r\n");
                 return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
             }
             if (key.UnicodeChar == 'x' || key.UnicodeChar == 'X') {

@@ -7,6 +7,8 @@
 #include <kurogane/libui.h>
 #include <kurogane/kurogane.h>
 
+#include "theme.h"
+
 static inline void gui_u64(char* output, size_t capacity, uint64_t value) {
     char reverse[24];
     size_t count = 0;
@@ -19,6 +21,15 @@ static inline void gui_u64(char* output, size_t capacity, uint64_t value) {
         output[written++] = reverse[--count];
     }
     if (capacity != 0U) output[written] = '\0';
+}
+
+static inline void gui_append_text(
+    char* destination, size_t capacity, const char* source) {
+    size_t used;
+    if (destination == (char*)0 || source == (const char*)0 || capacity == 0U) return;
+    used = strlen(destination);
+    if (used >= capacity) return;
+    (void)strlcpy(destination + used, source, capacity - used);
 }
 
 static inline ku_window_t gui_open(
@@ -70,6 +81,51 @@ static inline int gui_key_cancel(const ku_ui_event* event) {
 
 static inline int gui_key_tab(const ku_ui_event* event) {
     return event != NULL && event->key == KU_UI_KEY_TAB;
+}
+
+/*
+ * Mirrors the stable ABI-v2 native_surface row metrics in kernel/ui/ui.cpp.
+ * Pointer events are expected in content-local coordinates. Keeping this
+ * arithmetic in one userspace helper means applications share one hit-test
+ * contract instead of growing app-specific magic offsets.
+ */
+static inline int32_t gui_widget_height(uint32_t type) {
+    switch (type) {
+        case KU_UI_WIDGET_PANEL: return 38;
+        case KU_UI_WIDGET_LABEL: return 26;
+        case KU_UI_WIDGET_BUTTON:
+        case KU_UI_WIDGET_INPUT:
+        case KU_UI_WIDGET_LIST_ITEM: return 36;
+        case KU_UI_WIDGET_PROGRESS: return 50;
+        case KU_UI_WIDGET_SEPARATOR: return 12;
+        default: return 26;
+    }
+}
+
+static inline uint32_t gui_scene_hit_test_local(
+    const kui_scene* scene,
+    const ku_ui_event* event) {
+    uint32_t visible_index = 0U;
+    int32_t y = 10;
+    uint32_t index;
+    if (scene == NULL || event == NULL || event->type != KU_UI_EVENT_POINTER) return 0U;
+    if ((event->buttons & 1U) == 0U || event->x < 8 || event->y < 0) return 0U;
+
+    for (index = 0U; index < scene->view_count; ++index) {
+        const kui_view* view = &scene->views[index];
+        int32_t height;
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (visible_index++ < scene->scroll_offset) continue;
+        if (scene->visible_rows != 0U &&
+            visible_index > scene->scroll_offset + scene->visible_rows) break;
+        height = gui_widget_height(view->type);
+        if (event->y >= y && event->y < y + height - 4) {
+            if ((view->flags & KUI_VIEW_DISABLED) != 0U) return 0U;
+            return view->id;
+        }
+        y += height;
+    }
+    return 0U;
 }
 
 #endif

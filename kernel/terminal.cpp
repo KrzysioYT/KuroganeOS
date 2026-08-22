@@ -118,7 +118,7 @@ void update_boot_splash(const char* text) {
     } else if (kstd::streq(text, "[TEST] kernel_preemption: PASS")) {
         ui::boot_splash("SCHEDULER / INPUT SERVICES", 80U);
     } else if (kstd::streq(text, "[TEST] userspace_init_spawn: PASS")) {
-        ui::boot_splash("STARTING RED FLUX SESSION", 96U);
+        ui::boot_splash("STARTING FORGED STEEL SESSION", 96U);
     }
 }
 
@@ -136,7 +136,7 @@ void resume_graphical_boot_after_degraded_tests() {
     g_framebuffer_output = false;
     g_column = 0U;
     g_row = 0U;
-    ui::boot_splash("STARTING RED FLUX SESSION", 96U);
+    ui::boot_splash("STARTING FORGED STEEL SESSION", 96U);
 }
 } // namespace
 

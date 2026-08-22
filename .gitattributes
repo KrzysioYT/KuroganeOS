@@ -3,9 +3,11 @@
 
 # Unix/WSL build entry points must never be checked out with CRLF. Bash reads
 # a trailing CR as part of tokens such as `pipefail`, which makes an otherwise
-# valid script fail immediately on Windows+WSL. Keep these canonical on every
-# host regardless of core.autocrlf.
+# valid script fail immediately on Windows+WSL. PowerShell itself accepts LF,
+# and several PS1 runners embed Bash here-strings that are forwarded verbatim
+# into WSL, so keep PS1 files LF-only as well.
 *.sh text eol=lf
+*.ps1 text eol=lf
 Makefile text eol=lf
 *.mk text eol=lf
 
