@@ -63,9 +63,19 @@ mdir -i "$root" ::/system/init ::/apps/shell ::/apps/files \
     ::/gui/terminal ::/gui/files ::/gui/sysmon ::/gui/about \
     ::/gui/settings >/dev/null
 config="$(mtype -i "$root" ::/etc/system.cfg | tr -d '\r')"
-grep -qx 'HOSTNAME=kurogane' <<<"$config"
-grep -qx 'BOOT_MODE=console' <<<"$config"
-grep -qx 'LOG_LEVEL=info' <<<"$config"
+require_config_line() {
+    local expected="$1"
+    if ! grep -qxF "$expected" <<<"$config"; then
+        echo "foundation-image config mismatch: expected '$expected'" >&2
+        echo "---- /etc/system.cfg ----" >&2
+        printf '%s\n' "$config" >&2
+        echo "---- end config ----" >&2
+        return 1
+    fi
+}
+require_config_line 'HOSTNAME=kurogane'
+require_config_line 'BOOT_MODE=desktop'
+require_config_line 'LOG_LEVEL=info'
 
 temporary="$(mktemp -d)"
 trap 'rm -rf -- "$temporary"' EXIT
