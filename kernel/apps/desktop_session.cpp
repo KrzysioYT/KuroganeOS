@@ -36,7 +36,34 @@ bool flux_session_start(const char*) {
 
 void flux_session_key(char) {}
 
+void dispatch_desktop_input(const input::Event& event) {
+    const windowing::Status status = windowing::dispatch(event);
+    if (status != windowing::Status::Ok &&
+        status != windowing::Status::NotFound &&
+        status != windowing::Status::IterationStopped) {
+        log::write(log::Level::Warn, "GUI", windowing::status_message(status));
+    }
+}
+
 void flux_session_tick(uint64_t) {
+    /*
+     * main.cpp historically runs the generic Ring-3 slice before its input
+     * pump. That was fine for the console, but on a graphical desktop it adds
+     * a complete scheduling turn between a physical click and the user
+     * process seeing the event. Service the desktop queue here, at the start
+     * of the application tick, so input_user_window() has already queued the
+     * ABI event before the following Ring-3 slice begins.
+     *
+     * The later generic input pump remains useful for packets that arrive
+     * after this point in the tick. Because this drains the shared queue, an
+     * event can only be delivered once.
+     */
+    static_cast<void>(input::pump());
+    input::Event event{};
+    while (input::try_read(&event)) {
+        dispatch_desktop_input(event);
+    }
+
     // One compositor pass per PIT tick is enough. Input dispatch and Ring-3 UI
     // presents can mark several things dirty inside the same tick; delaying the
     // scanout until here collapses them into one frame instead of repainting
@@ -50,12 +77,7 @@ void flux_session_stop() {
 }
 
 void flux_session_input(const input::Event& event) {
-    const windowing::Status status = windowing::dispatch(event);
-    if (status != windowing::Status::Ok &&
-        status != windowing::Status::NotFound &&
-        status != windowing::Status::IterationStopped) {
-        log::write(log::Level::Warn, "GUI", windowing::status_message(status));
-    }
+    dispatch_desktop_input(event);
     // Do not force a compositor pass here. Mouse/button bursts can contain
     // many events in one PIT interval and immediate rendering makes each one a
     // full software frame. The tick callback above presents the final state.
