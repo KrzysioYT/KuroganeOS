@@ -9,7 +9,7 @@ namespace {
 
 bool flux_session_start(const char*) {
     if (!graphics::available()) {
-        log::write(log::Level::Error, "GUI", "framebuffer unavailable for Flux session");
+        log::write(log::Level::Error, "GUI", "framebuffer unavailable for desktop session");
         return false;
     }
 
@@ -22,11 +22,11 @@ bool flux_session_start(const char*) {
     }
 
     terminal::println("[TEST] desktop_session: PASS");
-    log::write(log::Level::Info, "GUI", "Kurogane Flux desktop session online");
+    log::write(log::Level::Info, "GUI", "Kurogane Forged Steel desktop session online");
 
-    // Flux owns GOP from this point onward. stdout/stderr and diagnostic
-    // messages remain visible on serial, but the boot terminal may no longer
-    // draw glyphs or call framebuffer scroll_up() underneath the desktop.
+    // The graphical session owns GOP from this point onward. stdout/stderr and
+    // diagnostics remain available over serial, but the boot terminal must no
+    // longer repaint underneath the compositor.
     terminal::set_framebuffer_output(false);
 
     windowing::invalidate();
@@ -37,14 +37,16 @@ bool flux_session_start(const char*) {
 void flux_session_key(char) {}
 
 void flux_session_tick(uint64_t) {
-    // Repaint only when a window operation or userspace UI present marks the
-    // WindowManager dirty. Idle desktop must not continuously touch GOP.
+    // One compositor pass per PIT tick is enough. Input dispatch and Ring-3 UI
+    // presents can mark several things dirty inside the same tick; delaying the
+    // scanout until here collapses them into one frame instead of repainting
+    // the whole desktop once for focus and again for the application's update.
     static_cast<void>(windowing::render_if_needed());
 }
 
 void flux_session_stop() {
     terminal::set_framebuffer_output(true);
-    log::write(log::Level::Warn, "GUI", "Flux desktop session stopped; terminal display restored");
+    log::write(log::Level::Warn, "GUI", "desktop session stopped; terminal display restored");
 }
 
 void flux_session_input(const input::Event& event) {
@@ -54,7 +56,9 @@ void flux_session_input(const input::Event& event) {
         status != windowing::Status::IterationStopped) {
         log::write(log::Level::Warn, "GUI", windowing::status_message(status));
     }
-    static_cast<void>(windowing::render_if_needed());
+    // Do not force a compositor pass here. Mouse/button bursts can contain
+    // many events in one PIT interval and immediate rendering makes each one a
+    // full software frame. The tick callback above presents the final state.
 }
 
 } // namespace
@@ -67,7 +71,7 @@ extern "C" bool kurogane_start_desktop_session() {
     const applications::Status registration =
         applications::register_application({
             "flux-session",
-            "Kurogane Flux userspace desktop session host",
+            "Kurogane Forged Steel userspace desktop session host",
             flux_session_start,
             flux_session_key,
             flux_session_tick,
