@@ -349,7 +349,8 @@ done
     Invoke-Step -Name 'Clean debug build' -Slug 'debug-build' -Action {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $BuildScript -Configuration debug -Rebuild
     } | Out-Null
-    Assert-File -Path $ImagePath -Description 'Debug disk image'
+    Assert-File -Path $ImagePath -Description 'Debug FAT boot image'
+    Assert-File -Path $FoundationBaseImage -Description 'Debug Foundation GPT image'
     Assert-BuildManifestProfile -Expected 'debug'
 
     Invoke-Step -Name 'Host tests in WSL2' -Slug 'host-tests' -Action {
@@ -371,10 +372,14 @@ fsck.fat -vn "$WslImagePath"
             -File $FoundationImageTest
     } | Out-Null
 
+    # Normal userspace requires /system/init and the persistent Kurogane Root
+    # partition. The legacy 64 MiB FAT boot image has no GPT root partition, so
+    # it is validated above as an EFI/FAT artifact rather than used for PID1.
     $diskPort = Get-FreeMonitorPort
-    Invoke-Step -Name 'QEMU disk ShellTest' -Slug 'qemu-disk' -Action {
+    Invoke-Step -Name 'QEMU Foundation disk ShellTest' -Slug 'qemu-disk' -Action {
         & $PowerShellExe -NoProfile -ExecutionPolicy Bypass -File $QemuScript `
             -UseDiskImage `
+            -DiskImagePath $FoundationBaseImage `
             -ShellTest `
             -TimeoutSeconds $TimeoutSeconds `
             -MonitorPort $diskPort `
