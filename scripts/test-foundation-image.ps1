@@ -79,8 +79,11 @@ after="$(sha256sum "$image" | awk '{print $1}')"
 echo "foundation-image test: PASS"
 '@
 $script = $script.Replace('__IMAGE_BASE64__', $encodedPath)
+# PowerShell here-strings inherit Windows CRLF in common checkouts. Normalize
+# the Bash program before encoding so WSL never sees stray carriage returns.
+$normalizedScript = $script.Replace("`r`n", "`n").Replace("`r", "`n")
 $encodedScript = [Convert]::ToBase64String(
-    [System.Text.Encoding]::UTF8.GetBytes($script))
+    [System.Text.Encoding]::UTF8.GetBytes($normalizedScript))
 $bootstrap = "printf %s $encodedScript | base64 -d | bash"
 & wsl.exe --exec bash -lc $bootstrap
 if ($LASTEXITCODE -ne 0) {
