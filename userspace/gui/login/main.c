@@ -4,6 +4,7 @@
 #define LOGIN_USERNAME_CAPACITY 24U
 #define LOGIN_PASSWORD_CAPACITY 48U
 #define LOGIN_CONFIG_CAPACITY 384U
+#define LOGIN_ACTION_ID 22U
 
 typedef struct login_profile {
     char username[LOGIN_USERNAME_CAPACITY];
@@ -132,14 +133,24 @@ static void build_scene(
     const char* password,
     const char* error) {
     kui_flow root;
-    kui_flow session;
-    char account_line[64] = "ACCOUNT / ";
+    kui_flow identity;
+    kui_flow identity_details;
+    kui_flow gate;
+    kui_flow gate_details;
+    char account_line[64];
+    char locale_line[48];
+    char mode_line[72];
     char masked[LOGIN_PASSWORD_CAPACITY];
     size_t index;
     const int polish = is_polish(profile);
 
+    account_line[0] = '\0';
+    locale_line[0] = '\0';
+    mode_line[0] = '\0';
+
     kui_scene_initialize(scene);
-    scene->visible_rows = KU_UI_MAX_LINES;
+    /* The access screen deliberately uses more than the legacy 12 text rows. */
+    scene->visible_rows = 16U;
     gui_apply_obsidian_theme(scene, 0);
     (void)kui_scene_set_cursor(
         scene, profile->password_required ? KU_UI_CURSOR_TEXT : KU_UI_CURSOR_POINTER);
@@ -147,47 +158,91 @@ static void build_scene(
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
         &root, 1U,
-        polish ? "LOGOWANIE / KUROGANEOS" : "SIGN IN / KUROGANEOS",
-        KU_ICON_BRANDING_USER_AVATAR);
-    (void)kui_flow_label_icon(
-        &root, 2U, KUROGANE_PRODUCT_STRING " / FORGED STEEL DESKTOP",
+        polish ? "KUROGANE // BEZPIECZNY DOSTEP" : "KUROGANE // SECURE ACCESS",
         KU_ICON_BRANDING_LOGO_MAIN);
-    gui_append_text(account_line, sizeof(account_line), profile->username);
     (void)kui_flow_label_icon(
-        &root, 3U, account_line, KU_ICON_BRANDING_USER_AVATAR);
+        &root, 2U, KUROGANE_PRODUCT_STRING " // FORGED STEEL DESKTOP",
+        KU_ICON_BRANDING_LOGO_MAIN);
+    (void)kui_flow_label(&root, 3U,
+        "BUILT IN STEEL. REFINED IN FIRE.");
     (void)kui_flow_separator(&root, 4U);
 
-    kui_flow_begin(&session, scene, 1U);
-    if (!profile->installed_profile) {
-        (void)kui_flow_label(&session, 9U,
-            polish ? "SESJA LIVE / SYSTEM TYLKO DO ODCZYTU"
-                   : "LIVE SESSION / READ-ONLY SYSTEM ROOT");
+    kui_flow_begin(&identity, scene, 1U);
+    (void)kui_flow_panel_icon(
+        &identity, 10U,
+        polish ? "PROFIL TOZSAMOSCI" : "IDENTITY PROFILE",
+        KU_ICON_BRANDING_USER_AVATAR);
+
+    kui_flow_begin(&identity_details, scene, 10U);
+    (void)strlcpy(
+        account_line,
+        polish ? "UZYTKOWNIK // " : "ACCOUNT // ",
+        sizeof(account_line));
+    gui_append_text(account_line, sizeof(account_line), profile->username);
+    (void)kui_flow_label_icon(
+        &identity_details, 11U, account_line, KU_ICON_BRANDING_USER_AVATAR);
+
+    (void)strlcpy(locale_line, "LOCALE // ", sizeof(locale_line));
+    gui_append_text(locale_line, sizeof(locale_line), profile->locale);
+    (void)kui_flow_label(&identity_details, 12U, locale_line);
+    (void)kui_flow_label(&identity_details, 13U,
+        profile->installed_profile
+            ? (polish ? "TRUST // PROFIL LOKALNY" : "TRUST // LOCAL PROFILE")
+            : (polish ? "TRUST // SESJA TYMCZASOWA" : "TRUST // EPHEMERAL SESSION"));
+
+    (void)kui_flow_separator(&root, 14U);
+
+    kui_flow_begin(&gate, scene, 1U);
+    (void)kui_flow_panel_icon(
+        &gate, 20U,
+        polish ? "BRAMA SESJI" : "SESSION GATE",
+        profile->password_required ? KU_ICON_STATUS_LOCK : KU_ICON_ACTION_UNLOCK);
+
+    kui_flow_begin(&gate_details, scene, 20U);
+    if (profile->installed_profile) {
+        (void)strlcpy(
+            mode_line,
+            polish ? "TRYB // INSTALACJA LOKALNA" : "MODE // LOCAL INSTALLATION",
+            sizeof(mode_line));
+    } else {
+        (void)strlcpy(
+            mode_line,
+            polish ? "TRYB // LIVE / ROOT TYLKO DO ODCZYTU"
+                   : "MODE // LIVE / READ-ONLY SYSTEM ROOT",
+            sizeof(mode_line));
     }
+    (void)kui_flow_label(&gate_details, 21U, mode_line);
+
     if (profile->password_required) {
         const size_t length = strlen(password);
         const size_t count = length < sizeof(masked) - 1U
             ? length : sizeof(masked) - 1U;
         for (index = 0U; index < count; ++index) masked[index] = '*';
         masked[count] = '\0';
-        (void)kui_flow_label(&session, 10U,
-            polish ? "HASLO" : "PASSWORD");
-        (void)kui_flow_input_icon(&session, 11U,
-            masked[0] != '\0' ? masked : "_", KU_ICON_STATUS_LOCK);
-        (void)kui_flow_label(&session, 12U,
-            polish ? "WPISZ HASLO I NACISNIJ ENTER"
-                   : "TYPE PASSWORD AND PRESS ENTER");
+        (void)kui_flow_input_icon(
+            &gate_details, LOGIN_ACTION_ID,
+            masked[0] != '\0' ? masked : "PASSWORD // _",
+            KU_ICON_STATUS_LOCK);
+        (void)kui_flow_label(&gate_details, 23U,
+            polish ? "ENTER // ZATWIERDZ   ESC // WYCZYSC"
+                   : "ENTER // AUTHORIZE   ESC // CLEAR");
     } else {
-        (void)kui_flow_button_icon(&session, 10U,
-            polish ? "OTWORZ PULPIT KUROGANE" : "ENTER KUROGANE DESKTOP",
+        (void)kui_flow_button_icon(
+            &gate_details, LOGIN_ACTION_ID,
+            polish ? "WEJDZ DO KUROGANE DESKTOP"
+                   : "ENTER KUROGANE DESKTOP",
             KU_ICON_ACTION_UNLOCK);
-        (void)kui_flow_label(&session, 11U,
-            polish ? "ENTER LUB KLIKNIJ, ABY OTWORZYC SESJE"
-                   : "ENTER OR CLICK TO START THE SESSION");
+        (void)kui_flow_label(&gate_details, 23U,
+            polish ? "ENTER LUB KLIKNIJ PRZYCISK, ABY OTWORZYC SESJE"
+                   : "PRESS ENTER OR CLICK THE GATE TO START SESSION");
     }
-    if (error != NULL && error[0] != '\0') {
-        (void)kui_flow_label(&session, 13U, error);
-    }
-    (void)kui_scene_select(scene, 10U);
+
+    (void)kui_flow_label(&root, 24U,
+        error != NULL && error[0] != '\0'
+            ? error
+            : (polish ? "STATUS // GOTOWY DO AUTORYZACJI"
+                      : "STATUS // READY FOR AUTHORIZATION"));
+    (void)kui_scene_select(scene, LOGIN_ACTION_ID);
 }
 
 static int wait_for_desktop(uint64_t pid) {
@@ -222,7 +277,9 @@ int main(void) {
     kui_scene scene;
 
     load_profile(&profile);
-    window = gui_open("KUROGANE LOGIN", 280, 225, 560, 330);
+    /* 1120x720 is the current reference desktop. Keep the gate centered while
+     * leaving enough forged-steel canvas around it to read as a system screen. */
+    window = gui_open("KUROGANE ACCESS", 210, 145, 700, 430);
     if (window == KU_INVALID_WINDOW) return 1;
 
     build_scene(&scene, &profile, password, error);
@@ -247,7 +304,7 @@ int main(void) {
 
         if (!profile.password_required &&
             event.type == KU_UI_EVENT_POINTER &&
-            (event.buttons & UINT32_C(1)) != 0U) {
+            gui_scene_hit_test_local(&scene, &event) == LOGIN_ACTION_ID) {
             return start_session(window);
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
@@ -272,8 +329,8 @@ int main(void) {
             password_length = 0U;
             password[0] = '\0';
             error = is_polish(&profile)
-                ? "NIEPRAWIDLOWE HASLO"
-                : "INCORRECT PASSWORD";
+                ? "STATUS // NIEPRAWIDLOWE HASLO"
+                : "STATUS // INCORRECT PASSWORD";
         } else if (event.character >= 0x20U && event.character <= 0x7EU &&
                    password_length + 1U < sizeof(password)) {
             password[password_length++] = (char)event.character;
