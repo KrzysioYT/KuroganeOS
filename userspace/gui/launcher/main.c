@@ -6,6 +6,12 @@
 #define NO_APP_ID UINT32_C(0xFFFFFFFF)
 #define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
 
+enum blade_launch_result {
+    BLADE_LAUNCH_FAILED = 0,
+    BLADE_LAUNCH_STARTED = 1,
+    BLADE_LAUNCH_ALREADY_RUNNING = 2
+};
+
 typedef struct launcher_app {
     const char* label;
     const char* subtitle;
@@ -40,6 +46,28 @@ static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static size_t g_selected = 0U;
 static char g_status[64] = "BLADE / READY";
+
+static const char* launch_error_text(ku_result_t result) {
+    switch ((ku_status_t)result) {
+        case KU_STATUS_NOT_FOUND: return "NOT FOUND";
+        case KU_STATUS_ACCESS_DENIED: return "ACCESS DENIED";
+        case KU_STATUS_OUT_OF_MEMORY: return "NO PROCESS SLOTS";
+        case KU_STATUS_BAD_STATE: return "BAD SESSION STATE";
+        case KU_STATUS_INVALID_ARGUMENT: return "INVALID REQUEST";
+        case KU_STATUS_NOT_SUPPORTED: return "NOT SUPPORTED";
+        case KU_STATUS_IO_ERROR: return "I/O ERROR";
+        default: return "RUNTIME ERROR";
+    }
+}
+
+static void set_launch_failure(const launcher_app* app, ku_result_t result) {
+    (void)strlcpy(g_status, "LAUNCH FAILED / ", sizeof(g_status));
+    gui_append_text(g_status, sizeof(g_status), app->label);
+    gui_append_text(g_status, sizeof(g_status), " / ");
+    gui_append_text(g_status, sizeof(g_status), launch_error_text(result));
+    puts("[GUI] Blade launch failed");
+    puts(app->path);
+}
 
 static void reap_children(void) {
     size_t index;
@@ -82,37 +110,44 @@ static int launch_app(size_t index, int quiet_if_running) {
     const launcher_app* app;
     ku_result_t result;
     char number[24];
-    if (index >= APP_COUNT) return 0;
+    if (index >= APP_COUNT) return BLADE_LAUNCH_FAILED;
     app = &g_apps[index];
     if (app_is_running(app->runtime_id)) {
         if (!quiet_if_running) {
-            (void)strlcpy(g_status, "BLADE / APP ALREADY RUNNING", sizeof(g_status));
+            (void)strlcpy(g_status, "ALREADY RUNNING / ", sizeof(g_status));
+            gui_append_text(g_status, sizeof(g_status), app->label);
+            gui_append_text(g_status, sizeof(g_status), " / USE DOCK TO FOCUS");
         }
-        return 1;
+        return BLADE_LAUNCH_ALREADY_RUNNING;
     }
 
     result = ku_process_spawn(app->path, strlen(app->path));
     if (result <= 0) {
-        (void)strlcpy(g_status, "BLADE / LAUNCH FAILED", sizeof(g_status));
-        return 0;
+        set_launch_failure(app, result);
+        return BLADE_LAUNCH_FAILED;
     }
-    (void)remember_child((uint64_t)result, app->runtime_id);
-    gui_u64(number, sizeof(number), (uint64_t)result);
-    (void)strlcpy(g_status, "OPENED / ", sizeof(g_status));
-    gui_append_text(g_status, sizeof(g_status), app->label);
-    gui_append_text(g_status, sizeof(g_status), " / PID ");
-    gui_append_text(g_status, sizeof(g_status), number);
-    return 1;
+    if (!remember_child((uint64_t)result, app->runtime_id)) {
+        (void)strlcpy(g_status, "OPENED / CHILD TRACKING FULL", sizeof(g_status));
+    } else {
+        gui_u64(number, sizeof(number), (uint64_t)result);
+        (void)strlcpy(g_status, "OPENED / ", sizeof(g_status));
+        gui_append_text(g_status, sizeof(g_status), app->label);
+        gui_append_text(g_status, sizeof(g_status), " / PID ");
+        gui_append_text(g_status, sizeof(g_status), number);
+    }
+    puts("[GUI] Blade launch accepted");
+    puts(app->path);
+    return BLADE_LAUNCH_STARTED;
 }
 
-static void launch_selected(void) {
-    (void)launch_app(g_selected, 0);
+static int launch_selected(void) {
+    return launch_app(g_selected, 0);
 }
 
-static void select_and_launch(size_t index) {
-    if (index >= APP_COUNT) return;
+static int select_and_launch(size_t index) {
+    if (index >= APP_COUNT) return BLADE_LAUNCH_FAILED;
     g_selected = index;
-    launch_selected();
+    return launch_selected();
 }
 
 static int pin_state(uint32_t app_id) {
@@ -251,6 +286,11 @@ static void build_scene(kui_scene* scene) {
     (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
 }
 
+static void present_scene(ku_window_t window, kui_scene* scene) {
+    build_scene(scene);
+    (void)kui_scene_present(window, scene);
+}
+
 int main(void) {
     const ku_window_t window = gui_open("BLADE LAUNCHER", 120, 105, 760, 560);
     kui_scene scene;
@@ -285,6 +325,7 @@ int main(void) {
 
     for (;;) {
         ku_ui_event event;
+        int should_present = 1;
         reap_children();
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
 
@@ -292,9 +333,8 @@ int main(void) {
             const uint32_t hit = gui_scene_hit_test_local(&scene, &event);
             if (hit >= 10U && hit < 10U + APP_COUNT) {
                 g_selected = (size_t)(hit - 10U);
-                launch_selected();
-                build_scene(&scene);
-                (void)kui_scene_present(window, &scene);
+                should_present = launch_selected() != BLADE_LAUNCH_STARTED;
+                if (should_present) present_scene(window, &scene);
             }
             continue;
         }
@@ -307,34 +347,34 @@ int main(void) {
             g_selected = g_selected == 0U ? APP_COUNT - 1U : g_selected - 1U;
             (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
         } else if (gui_key_activate(&event)) {
-            launch_selected();
+            should_present = launch_selected() != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'p' || event.character == 'P') {
             toggle_selected_pin();
         } else if (event.character == 't' || event.character == 'T') {
-            select_and_launch(0U);
+            should_present = select_and_launch(0U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'f' || event.character == 'F') {
-            select_and_launch(1U);
+            should_present = select_and_launch(1U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'i' || event.character == 'I') {
-            select_and_launch(2U);
+            should_present = select_and_launch(2U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 's' || event.character == 'S') {
-            select_and_launch(3U);
+            should_present = select_and_launch(3U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'u' || event.character == 'U') {
-            select_and_launch(4U);
+            should_present = select_and_launch(4U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'b' || event.character == 'B') {
-            select_and_launch(5U);
+            should_present = select_and_launch(5U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'v' || event.character == 'V') {
-            select_and_launch(6U);
+            should_present = select_and_launch(6U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'm' || event.character == 'M') {
-            select_and_launch(7U);
+            should_present = select_and_launch(7U) != BLADE_LAUNCH_STARTED;
         } else if (event.character == 'a' || event.character == 'A') {
-            select_and_launch(8U);
+            should_present = select_and_launch(8U) != BLADE_LAUNCH_STARTED;
         } else if (gui_key_cancel(&event)) {
             (void)strlcpy(g_status, "BLADE / READY", sizeof(g_status));
         } else {
             continue;
         }
-        build_scene(&scene);
-        (void)kui_scene_present(window, &scene);
+
+        if (should_present) present_scene(window, &scene);
     }
 
     (void)ku_ui_close(window);
