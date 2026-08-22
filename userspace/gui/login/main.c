@@ -149,7 +149,6 @@ static void build_scene(
     mode_line[0] = '\0';
 
     kui_scene_initialize(scene);
-    /* The access screen deliberately uses more than the legacy 12 text rows. */
     scene->visible_rows = 16U;
     gui_apply_obsidian_theme(scene, 0);
     (void)kui_scene_set_cursor(
@@ -158,19 +157,20 @@ static void build_scene(
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
         &root, 1U,
-        polish ? "KUROGANE // BEZPIECZNY DOSTEP" : "KUROGANE // SECURE ACCESS",
+        polish ? "BEZPIECZNY DOSTEP // SESJA LOKALNA"
+               : "SECURE ACCESS // LOCAL AUTHORITY",
         KU_ICON_BRANDING_LOGO_MAIN);
     (void)kui_flow_label_icon(
-        &root, 2U, KUROGANE_PRODUCT_STRING " // FORGED STEEL DESKTOP",
-        KU_ICON_BRANDING_LOGO_MAIN);
-    (void)kui_flow_label(&root, 3U,
-        "BUILT IN STEEL. REFINED IN FIRE.");
+        &root, 2U, KUROGANE_PRODUCT_STRING " // LOCAL TRUST DOMAIN",
+        KU_ICON_STATUS_LOCK);
+    (void)kui_flow_label(&root, 3U, "BUILT IN STEEL. REFINED IN FIRE.");
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&identity, scene, 1U);
     (void)kui_flow_panel_icon(
         &identity, 10U,
-        polish ? "PROFIL TOZSAMOSCI" : "IDENTITY PROFILE",
+        polish ? "TOZSAMOSC // PROFIL LOKALNY"
+               : "IDENTITY // LOCAL PROFILE",
         KU_ICON_BRANDING_USER_AVATAR);
 
     kui_flow_begin(&identity_details, scene, 10U);
@@ -187,7 +187,7 @@ static void build_scene(
     (void)kui_flow_label(&identity_details, 12U, locale_line);
     (void)kui_flow_label(&identity_details, 13U,
         profile->installed_profile
-            ? (polish ? "TRUST // PROFIL LOKALNY" : "TRUST // LOCAL PROFILE")
+            ? (polish ? "TRUST // ZAPISANY PROFIL" : "TRUST // PERSISTENT PROFILE")
             : (polish ? "TRUST // SESJA TYMCZASOWA" : "TRUST // EPHEMERAL SESSION"));
 
     (void)kui_flow_separator(&root, 14U);
@@ -195,7 +195,7 @@ static void build_scene(
     kui_flow_begin(&gate, scene, 1U);
     (void)kui_flow_panel_icon(
         &gate, 20U,
-        polish ? "BRAMA SESJI" : "SESSION GATE",
+        polish ? "SESJA // AUTORYZACJA" : "SESSION // AUTHORIZATION",
         profile->password_required ? KU_ICON_STATUS_LOCK : KU_ICON_ACTION_UNLOCK);
 
     kui_flow_begin(&gate_details, scene, 20U);
@@ -229,19 +229,19 @@ static void build_scene(
     } else {
         (void)kui_flow_button_icon(
             &gate_details, LOGIN_ACTION_ID,
-            polish ? "WEJDZ DO KUROGANE DESKTOP"
-                   : "ENTER KUROGANE DESKTOP",
+            polish ? "AUTORYZUJ // OTWORZ PULPIT"
+                   : "AUTHORIZE // ENTER DESKTOP",
             KU_ICON_ACTION_UNLOCK);
         (void)kui_flow_label(&gate_details, 23U,
-            polish ? "ENTER LUB KLIKNIJ PRZYCISK, ABY OTWORZYC SESJE"
-                   : "PRESS ENTER OR CLICK THE GATE TO START SESSION");
+            polish ? "ENTER LUB KLIKNIJ BRAME SESJI"
+                   : "PRESS ENTER OR CLICK THE SESSION GATE");
     }
 
     (void)kui_flow_label(&root, 24U,
         error != NULL && error[0] != '\0'
             ? error
-            : (polish ? "STATUS // GOTOWY DO AUTORYZACJI"
-                      : "STATUS // READY FOR AUTHORIZATION"));
+            : (polish ? "STATUS // GOTOWY"
+                      : "STATUS // AUTHORIZATION READY"));
     (void)kui_scene_select(scene, LOGIN_ACTION_ID);
 }
 
@@ -278,8 +278,9 @@ int main(void) {
 
     load_profile(&profile);
     /* Keep the internal title stable until WindowManager roles stop depending
-     * on exact window titles. The visible scene still says SECURE ACCESS. */
-    window = gui_open("KUROGANE LOGIN", 210, 145, 700, 430);
+     * on exact window titles. The access card is intentionally lower than the
+     * standalone brand mark so both layers read as one composition. */
+    window = gui_open("KUROGANE LOGIN", 250, 238, 780, 420);
     if (window == KU_INVALID_WINDOW) return 1;
 
     build_scene(&scene, &profile, password, error);
