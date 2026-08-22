@@ -273,11 +273,10 @@ Status spawn(const char* executable, ProcessId* pid) {
     }
     reap_orphan_zombies();
     size_t index = MAX_PROCESSES;
-    // Slot zero is a boot-time ABI reservation for /system/init. Ordinary
-    // processes must never consume it before PID 1 has been created, even
-    // when boot self-tests or compatibility launchers run first.
-    const size_t first_candidate = g_init_spawned ? 0U : 1U;
-    for (size_t candidate = first_candidate; candidate < MAX_PROCESSES; ++candidate) {
+    // Slot zero is permanently reserved for /system/init and the stable PID 1
+    // identity. Ordinary processes always allocate from slots 1..N, including
+    // boot probes that intentionally run before the real init process exists.
+    for (size_t candidate = 1U; candidate < MAX_PROCESSES; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
             index = candidate;
             break;
