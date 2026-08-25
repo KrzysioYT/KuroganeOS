@@ -3,7 +3,7 @@
 #define SESSION_PATH "/gui/login"
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
-    (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
+    (void)u_puts("init: Forged Steel session unavailable; entering console fallback\n");
     (void)u_puts("[TEST] desktop_session_fallback: PASS\n");
     for (;;) {
         const ku_result_t shell_pid = u_spawn("/apps/shell");
@@ -38,9 +38,9 @@ __attribute__((noreturn)) void _start(void) {
     uint64_t session_pid = spawn_session_gate();
     if (session_pid == 0U) run_console_fallback();
 
-    // PID 1 supervises one graphical session gate. The login process owns the
-    // transition into Flux Home and waits for the desktop root. When the
-    // desktop session ends, login exits and PID 1 creates a fresh gate.
+    // PID 1 supervises one graphical secure-access gate. The login process
+    // owns the transition into Blade Launcher and waits for the desktop root.
+    // When the desktop session ends, login exits and PID 1 creates a fresh gate.
     (void)ku_sleep(UINT64_C(25));
     int32_t status = 0;
     const ku_status_t early = ku_wait(session_pid, &status);
@@ -53,14 +53,17 @@ __attribute__((noreturn)) void _start(void) {
 
     (void)u_puts("[TEST] desktop_userspace_apps: PASS\n");
     (void)u_puts("[TEST] userspace_desktop_session: PASS\n");
+    // Compatibility marker retained while older qualification scripts still
+    // consume it. It is not a user-visible product name anymore.
     (void)u_puts("[TEST] red_flux_login_supervision: PASS\n");
-    (void)u_puts("init: Red Flux session gate supervision online\n");
+    (void)u_puts("[TEST] forged_steel_login_supervision: PASS\n");
+    (void)u_puts("init: Forged Steel secure session supervision online\n");
 
     for (;;) {
         status = 0;
         const ku_status_t wait_status = ku_wait(session_pid, &status);
         if (wait_status == KU_STATUS_OK) {
-            (void)u_puts("init: session gate ended; returning to login\n");
+            (void)u_puts("init: session gate ended; returning to secure access\n");
             (void)ku_sleep(UINT64_C(8));
             session_pid = spawn_session_gate();
             if (session_pid == 0U) run_console_fallback();
