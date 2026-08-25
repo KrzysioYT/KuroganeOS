@@ -15,6 +15,11 @@ constexpr uint32_t kBackbufferHeight = 1200U;
 constexpr size_t kBackbufferPixels =
     static_cast<size_t>(kBackbufferWidth) * kBackbufferHeight;
 alignas(64) static uint32_t g_backbuffer[kBackbufferPixels];
+// Last frame that was actually presented to GOP. Comparing backbuffer against
+// this RAM shadow avoids reading emulated GOP/VRAM for every pixel on every
+// frame, which is especially expensive under QEMU TCG.
+alignas(64) static uint32_t g_front_shadow[kBackbufferPixels];
+bool g_front_shadow_valid = false;
 bool g_frame_active = false;
 
 struct ClipState {
@@ -345,6 +350,7 @@ bool draw_forged_application_line(
 bool init(const KuroganeFramebuffer& framebuffer) {
     g_available = false;
     g_frame_active = false;
+    g_front_shadow_valid = false;
     g_clip = {};
     g_text_scale_limit = UINT32_MAX;
     if (!framebuffer.base || framebuffer.width == 0 ||
@@ -384,41 +390,54 @@ bool begin_frame() {
 void end_frame() {
     if (!g_available || !g_frame_active) return;
 
-    // Present only changed spans instead of copying the complete GOP frame on
-    // every userspace UI update. Animated widgets such as System Monitor's
-    // heartbeat used to force a full-screen row-by-row scanout once per
-    // sample, which is visibly expensive under QEMU/TCG and can look like a
-    // desktop flash. The compositor still renders a complete frame into the
-    // software backbuffer, but GOP receives only pixels that actually differ.
+    // Never compare against GOP/VRAM directly. Emulated framebuffer reads are
+    // disproportionately expensive under QEMU/TCG. The first compositor frame
+    // establishes a RAM shadow; later frames compare RAM-to-RAM and only write
+    // changed horizontal spans to GOP.
     auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
     const uint32_t frame_width = g_framebuffer.width;
+    const size_t row_bytes =
+        static_cast<size_t>(frame_width) * sizeof(uint32_t);
     for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
         auto* destination_row = reinterpret_cast<uint32_t*>(
             framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
         const auto* source_row = g_backbuffer +
             static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+        auto* shadow_row = g_front_shadow +
+            static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+
+        if (!g_front_shadow_valid) {
+            memcpy(destination_row, source_row, row_bytes);
+            memcpy(shadow_row, source_row, row_bytes);
+            continue;
+        }
 
         uint32_t first_changed = 0U;
         while (first_changed < frame_width &&
-               destination_row[first_changed] == source_row[first_changed]) {
+               shadow_row[first_changed] == source_row[first_changed]) {
             ++first_changed;
         }
         if (first_changed == frame_width) continue;
 
         uint32_t last_changed = frame_width;
         while (last_changed > first_changed &&
-               destination_row[last_changed - 1U] ==
-                   source_row[last_changed - 1U]) {
+               shadow_row[last_changed - 1U] == source_row[last_changed - 1U]) {
             --last_changed;
         }
 
         const size_t changed_pixels = static_cast<size_t>(
             last_changed - first_changed);
+        const size_t changed_bytes = changed_pixels * sizeof(uint32_t);
         memcpy(
             destination_row + first_changed,
             source_row + first_changed,
-            changed_pixels * sizeof(uint32_t));
+            changed_bytes);
+        memcpy(
+            shadow_row + first_changed,
+            source_row + first_changed,
+            changed_bytes);
     }
+    g_front_shadow_valid = true;
     g_frame_active = false;
     reset_clip();
     reset_text_scale_limit();
