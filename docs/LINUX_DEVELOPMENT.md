@@ -1,20 +1,19 @@
-# KuroganeOS 3.3.1-dev — Linux development
+# KuroganeOS 3.3.3-dev — Linux development
 
-KuroganeOS ma natywny workflow dla hostów **Linux x86-64**. KuroganeOS nadal
-jest osobnym systemem x86-64/UEFI; Linux jest wyłącznie hostem build/test.
+KuroganeOS ma natywny workflow dla hostów **Linux x86-64**. Linux jest wyłącznie
+hostem build/test; target pozostaje własnym `x86_64 + UEFI` KuroganeOS.
 
-## Zależności
-
-Skrypt rozpoznaje apt, dnf lub pacman:
+## Setup
 
 ```bash
+chmod +x scripts/*.sh
 bash ./scripts/setup-linux.sh --install
 ```
 
 Wymagane są m.in.:
 
 ```text
-gcc / g++ / binutils / make
+gcc/g++/binutils/make
 python3
 qemu-system-x86_64
 mtools
@@ -23,96 +22,92 @@ sgdisk
 xorriso
 ```
 
-Na x86-64 skrypty mogą użyć hostowego GNU toolchainu w trybie freestanding.
-Jeśli w PATH istnieje `x86_64-elf-gcc`, jest preferowany.
+Jeżeli `x86_64-elf-gcc` jest dostępny, jest preferowany. Host GCC może być
+fallbackiem tylko na odpowiednio wspieranym hoście x86-64.
 
-Na hostach Linux innych niż x86-64 wymagany jest dedykowany x86_64-elf
-cross-toolchain; automatyczny fallback host GCC jest tam wyłączony.
-
-## Pełny media build
-
-```bash
-bash ./scripts/build-media-linux.sh --configuration release --rebuild
-```
-
-Wynik:
-
-```text
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
-dist/SHA256SUMS.txt
-```
-
-Oba nośniki uruchamiają Red Flux Setup z `Try KuroganeOS` i
-`Install KuroganeOS`.
-
-ISO przechodzi obowiązkowo 20-pass El Torito/FAT/GPT/PE verifier przed
-publikacją do `dist/`.
-
-## Development-only build
-
-Bez pełnego media setu:
+## Development build
 
 ```bash
 bash ./scripts/build-linux.sh --configuration debug --rebuild
 ```
 
-Można też użyć:
+Pełny userspace testuje Foundation image:
 
-```bash
-bash ./scripts/build.sh debug
-bash ./scripts/build.sh rebuild
-bash ./scripts/build.sh media
+```text
+build/images/KuroganeOS-base.img
 ```
 
-W prawdziwym WSL `build.sh` zachowuje Windows/PowerShell workflow. Na natywnym
-Linuxie przechodzi do `build-linux.sh`.
+Legacy `kurogane.img` jest FAT/EFI artifactem i nie zastępuje Foundation GPT z
+`Kurogane Root`.
 
-## UEFI optical smoke ISO
+## Pełne media
 
-Jeżeli masz OVMF:
+```bash
+bash ./scripts/build-media-linux.sh --configuration release --rebuild
+```
+
+Dokładne nazwy wyników sprawdź w outputcie bieżącego buildera i
+`dist/SHA256SUMS.txt`; historyczne dokumenty release mogą zawierać starsze
+schematy nazw.
+
+## QEMU
+
+Na natywnym Linux x86-64 do ręcznego GUI preferuj KVM, jeżeli host udostępnia
+`/dev/kvm`. Deterministyczne CI może używać TCG.
+
+Minimalny przykład dla Foundation:
+
+```bash
+qemu-system-x86_64 \
+  -machine q35,accel=kvm:tcg \
+  -m 1024 \
+  -smp 1 \
+  -drive if=none,id=kurogane,format=raw,file=./build/images/KuroganeOS-base.img,snapshot=on \
+  -device ide-hd,drive=kurogane,bus=ide.0,bootindex=1 \
+  -netdev user,id=net0 \
+  -device e1000,netdev=net0
+```
+
+Do realnego bootu potrzebujesz również EDK2/OVMF pflash CODE/VARS zgodnie z
+lokalizacją pakietu na swojej dystrybucji.
+
+## UEFI optical smoke
 
 ```bash
 bash ./scripts/smoke-uefi-iso-qemu.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
-  --timeout 60
+  ./dist/<aktualne-kurogane-iso> \
+  --timeout 90
 ```
 
-Helper używa oddzielnych pflash CODE + writable VARS i czeka na marker kernela
-przez serial. To jest niezależny test od analizy struktury ISO.
+## VirtualBox x86-64
 
-## VirtualBox na Linux x86-64
-
-Jeżeli masz Oracle VirtualBox z `VBoxManage`, możesz utworzyć referencyjną VM:
+Jeżeli `VBoxManage` jest dostępny, użyj bieżącego VirtualBox ISO i helpera:
 
 ```bash
-bash ./scripts/create-virtualbox-vm.sh \
-  --iso ./dist/KuroganeOS-3.3.1-dev-x86_64.iso
+bash ./scripts/create-virtualbox-vm.sh --iso ./dist/<aktualne-virtualbox-iso>
 ```
 
-Profil ustawia EFI64, SATA/AHCI, NAT + 82540EM oraz Intel AC'97.
+Profil powinien mieć EFI, SATA/AHCI, NAT + E1000 82540EM oraz AC'97.
 
-## Internet
+## Sieć / Web
 
-Referencyjna karta:
+Referencyjny NIC:
 
 ```text
 Intel E1000 / 82540EM
 ```
 
-Dla QEMU możesz użyć:
+KuroganeOS ma DHCP/DNS/ICMP/TCP oraz transport HTTP/HTTPS używany przez
+Kurogane Web. Do testu online w QEMU używaj user-mode NAT i Foundation image.
 
-```text
--netdev user,id=net0
--device e1000,netdev=net0
-```
+## GUI performance
 
-Kernel pobiera DHCP i ma DNS/ICMP/basic TCP probe. Brak DHCP nie zatrzymuje już
-całego desktopu — system przechodzi do loopback fallback.
+TCG nie jest miarodajnym benchmarkiem software compositora. Na Linux x86-64 z
+KVM różnica może być bardzo duża. Bieżąca optymalizacja dotyczy input latency,
+redukcji redraw oraz kosztu GOP scanout.
 
 ## Status
 
-Linux jest aktywnie kwalifikowany przez GitHub Actions. Workflow buduje pełny
-IMG/ISO, wykonuje verifier oraz realny optical UEFI boot przez OVMF/QEMU.
-Prawdziwy VirtualBox smoke nadal wymaga hosta x86-64 z zainstalowanym
-VirtualBox.
+Publiczna wersja pozostaje `3.3.3-dev`. Gałąź Forged Steel nie jest jeszcze
+release 5.0.0. Aktualny status kwalifikacji opisuje [BUILD_STATUS.md](BUILD_STATUS.md),
+a procedurę testową [TESTING.md](TESTING.md).
