@@ -1,205 +1,207 @@
-# Graphics, input and Kurogane Red Flux Desktop
+# Graphics, input and Forged Steel Desktop
 
-KuroganeOS 3.2 używa UEFI GOP framebuffer i własnego software renderera. Nie ma
-jeszcze akcelerowanego sterownika GPU. PS/2 keyboard/mouse oraz obsługiwane HID
-źródła zasilają wspólny InputManager.
+KuroganeOS `3.3.3-dev` używa UEFI GOP oraz własnego software compositora.
+Bieżąca gałąź rozwija warstwę wizualną Forged Steel/KuroganeOS 5, ale publiczny
+numer wersji nie jest jeszcze podniesiony do 5.0.0.
 
 ## Boot i model sesji
 
-Normalny flow 3.2:
+Normalny Foundation flow:
 
 ```text
 UEFI
- -> Red Flux desktop boot (default)
- -> graphical boot splash
- -> kernel + persistent FAT32 root
+ -> BOOTX64.EFI
+ -> Forged Steel boot splash
+ -> kernel + GPT Kurogane Root
  -> WindowManager
- -> /system/init PID 1
+ -> /system/init jako PID 1
  -> /gui/login
- -> /gui/launcher (Red Flux Home)
- -> aplikacje Ring 3 uruchamiane na żądanie
+ -> KUROGANE // SECURE ACCESS
+ -> /gui/launcher (Blade Launcher)
+ -> aplikacje Ring-3 uruchamiane na żądanie
 ```
 
-UEFI zachowuje awaryjne wejścia `S`/`F8` do Safe Mode i `X` do Diagnostics.
-Normalny start nie wymaga już klawisza `D`.
+Safe Mode pozostaje ścieżką diagnostyczną bez normalnej sesji desktopowej.
+Serial pozostaje źródłem pełnych logów, nawet kiedy GOP jest już własnością GUI.
 
-Podczas startu kernel utrzymuje pełne logi na serialu, a GOP pokazuje boot
-splash. Progres odpowiada faktycznym checkpointom: paging, Ring 3, filesystem,
-persistent storage, preemption/input i start PID1. Safe Mode, Diagnostics,
-Installer i fatalny boot failure przywracają framebufferową service console.
+## Secure Access / session gate
 
-## Login / session gate
-
-`/gui/login` jest specjalną userspace surface bez zwykłego window chrome.
-Enter lub kliknięcie uruchamia Red Flux Home. Login jest obecnie bramą lokalnej
-sesji deweloperskiej — 3.2 celowo nie udaje hasła bez account/credential
-service.
+`/gui/login` jest specjalnym oknem bez zwykłego chrome. Jego techniczny tytuł
+pozostaje `KUROGANE LOGIN`, ponieważ WindowManager używa go obecnie do
+identyfikacji roli session gate. Widoczny branding jest niezależny od tego
+tytułu.
 
 PID1 nadzoruje:
 
 ```text
-Login -> Home -> Login
+Secure Access -> Blade Launcher -> Secure Access
 ```
 
-Nowy Login czyści surfaces poprzedniej sesji i prosi process manager o
-zakończenie ich właścicieli. Zakończone orphan zombie slots są odzyskiwane przy
-kolejnych spawnach.
+Live profile może wejść przez Enter/CTA. Profil instalowany może używać danych z
+`/etc/user.cfg` i lokalnego hasha credentiali.
 
-## Red Flux Window Core
+## WindowManager
 
-WindowManager udostępnia:
+Aktualny WindowManager obsługuje:
 
 - generation-checked window IDs;
 - focus i z-order;
-- header drag;
-- interactive bottom-right resize;
+- move/drag;
+- resize;
 - minimize/maximize/restore/close;
 - Alt+Tab i Alt+F4;
-- software pointer;
-- jawne workspace/chrome geometry;
-- userspace session ownership.
+- software cursor z własnymi kształtami;
+- workspace/chrome geometry;
+- Dock/Pulse Ribbon i desktop shortcuts;
+- Ring-3 ownership względem session root;
+- adapter global -> window-local dla pointer input;
+- native UI ABI v2 surfaces.
 
-Aplikacje GUI po wejściu do desktopu muszą należeć do drzewa procesu Red Flux
-Home. Historyczne anonimowe `/gui/*` requesty Ring-0 są kompatybilnościowym
-no-op i nie tworzą procesów ani widocznych okien.
+Blade Launcher jest rootem graficznego drzewa sesji. Aplikacje uruchomione przez
+Blade są jego potomkami i mogą tworzyć zwykłe surfaces. Stare anonimowe Ring-0
+`/gui/*` requesty pozostają compatibility no-op i nie są prawdziwą ścieżką
+launchera.
 
-## Red Flux Dock
+## Forged Steel visual language
 
-3.2 zastępuje dawny prosty Pulse Ribbon systemowym Dockiem. Przypięte pozycje:
-
-- Home;
-- Terminal;
-- Files;
-- Monitor;
-- Settings;
-- About.
-
-Każda ma własną geometryczną ikonę KuroganeOS, running indicator i active/focus
-state. Kliknięcie przypiętej aplikacji:
-
-1. focusuje ją, jeśli już działa;
-2. przywraca ją, jeśli jest zminimalizowana;
-3. wysyła quick-launch do Home, jeśli nie działa.
-
-Po prawej stronie przypiętej części Docka znajduje się dynamiczna sekcja żywych
-okien do focus/restore. Dock nie jest klasycznym taskbarem i nie używa ikon ani
-assetów Windows/macOS/GNOME/KDE.
-
-## Pulpit i język wizualny
-
-3.2 rozwija profil Red Flux:
-
-- prawie czarne gradientowe tło;
-- grafitowe surfaces;
-- czerwony focus/active/danger;
-- subtelny stalowy tekst pomocniczy;
-- duży niski-kontrast geometryczny znak Kurogane w tle;
-- top identity rail zamiast klasycznego desktop panelu;
-- odświeżony window chrome i czerwony resize signal;
-- osobne wizualne warstwy boot, login i desktop.
-
-Brand geometry jest inspirowana ostrą formą logo KuroganeOS, ale renderer
-pozostaje własnym zestawem prymitywów systemu.
-
-## Software full-frame backbuffer
-
-Pełny desktop renderuje się poza widocznym GOP dla wspieranych trybów do
-1600x1200:
-
-1. software cursor jest ukrywany;
-2. primitives przechodzą na backbuffer;
-3. WindowManager buduje całą klatkę;
-4. gotowa klatka jest kopiowana do GOP;
-5. cursor trafia na ukończony obraz.
-
-Dla większego trybu istnieje direct-render fallback. Natywne per-window surfaces
-i damage tracking pozostają etapem 3.3.
-
-## Content clipping i body text scale
-
-Przed callbackiem aplikacji WindowManager ustawia clip na content area okna.
-`put_pixel`, `fill_rect`, `draw_rect`, `draw_char` i `draw_text` nie powinny
-wychodzić poza ten prostokąt.
-
-Compatibility body text ma limit skali zależny od szerokości okna. Window chrome
-i tytuły są renderowane poza tym limitem.
-
-## Public UI key codes
-
-SDK publikuje nazwane wartości m.in.:
+Tokeny:
 
 ```text
-KU_UI_KEY_ESCAPE
-KU_UI_KEY_BACKSPACE
-KU_UI_KEY_TAB
-KU_UI_KEY_ENTER
-KU_UI_KEY_HOME
-KU_UI_KEY_ARROW_UP
-KU_UI_KEY_ARROW_LEFT
-KU_UI_KEY_ARROW_RIGHT
-KU_UI_KEY_END
-KU_UI_KEY_ARROW_DOWN
-KU_UI_KEY_DELETE
+Obsidian      #090E0E
+Forged Steel  #171C22
+Ash           #A8AFB8
+Crimson       #E62932
+Hot Edge      #FF4A45
 ```
 
-Model sterowania:
+Kierunek UI:
 
-- arrows — selection/navigation;
-- Enter — activate;
-- Escape — cancel/reset lokalnej interakcji;
-- Tab — następny focus/selection;
-- mysz — focus, drag, resize, controls, Dock i Login;
-- Alt+Tab — następne okno;
-- Alt+F4 — zamknięcie aktywnego okna.
+- czarne/obsydianowe tło;
+- warstwowe stalowe surfaces;
+- chamfered/angular geometry;
+- Crimson do struktury i stanu;
+- Hot Edge tylko dla aktywnego/focus CTA;
+- kondensowana techniczna typografia UI;
+- Mono dla Kurosh/code;
+- własny Kurogane branding i icon pack;
+- bez kopiowania layoutu Windows/macOS/GNOME/KDE.
 
-## libui scene/view runtime
+**BUILT IN STEEL. REFINED IN FIRE.**
 
-`kui_scene` posiada do 32 `kui_view` records. Dostępne compatibility view types:
+## Native UI ABI v2
 
-- panel;
-- label;
-- button;
-- input;
-- list item;
-- progress;
-- separator.
-
-`kui_flow` tworzy pionowy flow. Główny transport nadal wykorzystuje
-`KU_SYS_UI_PRESENT` / `ku_ui_frame`; Red Flux 3.2 nie deklaruje jeszcze
-natywnego widget compositora.
-
-## FluxShellCore i Terminal
-
-`/apps/shell` oraz `/gui/terminal` są frontendami tego samego
-`userspace/common/flux_shell.h`. GUI Terminal dodaje scrollback i edycję inputu,
-ale parser, commands, jobs, cwd, history semantics i capability errors pozostają
-wspólne.
-
-## Runtime markers 3.2
-
-Przy poprawnym przejściu session flow serial powinien zawierać m.in.:
+Bieżący `ku_ui_surface` transportuje do kernela prawdziwe widget records, a nie
+tylko serializowane linie tekstu. Typy:
 
 ```text
-[TEST] userspace_init_spawn: PASS
-[TEST] red_flux_login_surface: PASS
-[TEST] red_flux_session_gate: PASS
-[TEST] red_flux_login_supervision: PASS
-[TEST] red_flux_login_to_desktop: PASS
-[TEST] red_flux_dock_controller: PASS
+panel
+label
+button
+input
+list item
+progress
+separator
 ```
 
-Markery potwierdzają ścieżkę kodu; brak flickera, poprawny Dock i wizualny flow
-muszą być ocenione runtime w QEMU.
+Każdy widget zachowuje m.in.:
 
-## Known GUI limitations
+```text
+id
+parent_id
+type
+flags
+value / maximum
+icon_id
+text
+```
 
-- software rendering only;
-- compatibility `ku_ui_frame` nadal jest głównym transportem aplikacji;
-- brak natywnych per-window surfaces i damage compositora;
-- brak native widget pointer `widget_id`;
-- brak wheel routing, clipboard, Unicode i context actions;
-- login nie posiada jeszcze realnego account/credential service;
-- brak multi-monitor i GPU compositora;
-- brak publicznego `readdir/stat` dla pełnej nawigacji Files.
+`kui_scene` / `kui_flow` w userspace budują sceny, a kernelowy Forged renderer
+rysuje native surface. Legacy `ku_ui_frame` nadal istnieje dla kompatybilności,
+ale nie jest już jedynym transportem GUI.
 
-Zobacz `docs/roadmap/DESKTOP_ROADMAP.md` dla planu do 3.6.
+## Input i responsywność
+
+PS/2 keyboard/mouse oraz wspierane HID źródła trafiają do wspólnej kolejki
+InputManagera. Kolejne ruchy myszy są koaleskowane, aby nie odtwarzać starych
+pozycji kursora po przeciążeniu CPU.
+
+Desktop nie renderuje pełnej klatki po każdym pojedynczym evencie. Input może
+oznaczyć WindowManager jako dirty, a compositor składa końcowy stan raz na tick.
+To jest część trwającej optymalizacji latency.
+
+## Software compositor
+
+Wspierane tryby do 1600x1200 korzystają z software backbufferu. Obecny model:
+
+1. cursor jest zdejmowany z widocznego obrazu;
+2. WindowManager składa desktop/windows do RAM backbufferu;
+3. zmienione fragmenty są prezentowane do GOP;
+4. software cursor jest nakładany po prezentacji.
+
+Nie ma jeszcze produkcyjnego GPU accelerated compositora. GOP/GFX activity w
+Performance oznacza pracę software renderera/scanoutu, nie fizyczne użycie GPU.
+
+Najbliższy performance work obejmuje dalsze ograniczenie pełnego frame scan i
+bardziej precyzyjne dirty rectangles/per-window damage.
+
+## Fonty
+
+Kernel ma osobne logiczne faces:
+
+```text
+Ui
+Mono
+Display
+```
+
+Nie należy tego mylić z pełnym TTF/OpenType stackiem. Obecny system fontów jest
+własnym bitmapowym/rasterowym subsystemem; skalowalne font assets/rasterizer są
+nadal pracą przyszłą.
+
+## Aplikacje bieżącej sesji
+
+```text
+Blade Launcher
+Kurosh
+Vault
+Anvil
+Forge Control
+Pulse
+Kurogane Web
+Performance
+System Monitor
+About
+```
+
+Vault korzysta z prawdziwego VFS/readdir i potrafi otwierać katalogi, podglądać
+pliki tekstowe i uruchamiać ELF. Forge Control ma działające kontrolki
+Network/Appearance/Audio/System. Anvil ma realny backend pakietów i klikalny
+refresh/install. Web ma HTTP/HTTPS, redirecty, historię i aktywację linków.
+
+## Pointer hit testing
+
+WindowManager dostaje globalne współrzędne. `ui_window_adapter` zapamiętuje
+aktualny content rect i konwertuje pointer event do window-local przed callbackiem
+Ring-3. Dzięki temu kliknięcia zachowują geometrię po move/resize/maximize bez
+app-specific offsetów.
+
+## Legacy markery testowe
+
+Część serial markerów nadal zawiera historyczne `red_flux_*`, ponieważ starsze
+testy/CI mogą ich używać. Są to identyfikatory kompatybilności, nie bieżąca
+nazwa produktu. Nowe ścieżki powinny równolegle emitować markery `kurogane5_*`
+lub `forged_steel_*`.
+
+## Znane ograniczenia
+
+- software compositor/GOP bez pełnej akceleracji GPU;
+- brak multi-monitor;
+- bitmapowy font subsystem zamiast pełnego TTF/OpenType;
+- widget layout jest nadal głównie flow-based, nie pełnym constraint/flex/grid;
+- brak kompletnego clipboard/IME/Unicode text stack;
+- brak pełnego accessibility model;
+- brak produkcyjnego compositor damage graph;
+- część internal roles nadal zależy od stabilnych tytułów okien;
+- publiczna kompatybilność D3D nie oznacza jeszcze pełnego sprzętowego DirectX.
+
+Aktualny plan GUI: [roadmap/KUROGANEOS_5_GUI.md](roadmap/KUROGANEOS_5_GUI.md).
