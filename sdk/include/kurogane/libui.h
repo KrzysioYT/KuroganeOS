@@ -56,6 +56,73 @@ typedef struct kui_flow {
     uint32_t parent_id;
 } kui_flow;
 
+typedef struct kui_bounds {
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+} kui_bounds;
+
+/*
+ * Optional KuroganeOS 5 spatial layout. This uses the ABI-v2 compatible
+ * packing defined in kurogane/ui.h; old flow scenes remain unchanged.
+ */
+static inline int kui_view_has_bounds(const kui_view* view) {
+    return view != (const kui_view*)0 &&
+        view->type != KUI_VIEW_PROGRESS &&
+        (view->value & KU_UI_LAYOUT_ABSOLUTE) != 0U &&
+        KU_UI_LAYOUT_WIDTH(view->maximum) > 0 &&
+        KU_UI_LAYOUT_HEIGHT(view->maximum) > 0;
+}
+
+static inline kui_bounds kui_view_bounds(const kui_view* view) {
+    kui_bounds bounds = {0, 0, 0, 0};
+    if (!kui_view_has_bounds(view)) return bounds;
+    bounds.x = KU_UI_LAYOUT_X(view->value);
+    bounds.y = KU_UI_LAYOUT_Y(view->value);
+    bounds.width = KU_UI_LAYOUT_WIDTH(view->maximum);
+    bounds.height = KU_UI_LAYOUT_HEIGHT(view->maximum);
+    return bounds;
+}
+
+static inline ku_status_t kui_scene_set_bounds(
+    kui_scene* scene,
+    uint32_t id,
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height) {
+    uint32_t index;
+    if (scene == (kui_scene*)0 || id == 0U ||
+        x < 0 || x > 32767 || y < 0 || y > 65535 ||
+        width <= 0 || width > 65535 || height <= 0 || height > 65535) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    for (index = 0U; index < scene->view_count; ++index) {
+        kui_view* view = &scene->views[index];
+        if (view->id != id) continue;
+        if (view->type == KUI_VIEW_PROGRESS) return KU_STATUS_NOT_SUPPORTED;
+        view->value = KU_UI_LAYOUT_PACK_POSITION(x, y);
+        view->maximum = KU_UI_LAYOUT_PACK_SIZE(width, height);
+        return KU_STATUS_OK;
+    }
+    return KU_STATUS_NOT_FOUND;
+}
+
+static inline ku_status_t kui_scene_clear_bounds(kui_scene* scene, uint32_t id) {
+    uint32_t index;
+    if (scene == (kui_scene*)0 || id == 0U) return KU_STATUS_INVALID_ARGUMENT;
+    for (index = 0U; index < scene->view_count; ++index) {
+        kui_view* view = &scene->views[index];
+        if (view->id != id) continue;
+        if (view->type == KUI_VIEW_PROGRESS) return KU_STATUS_NOT_SUPPORTED;
+        view->value = 0U;
+        view->maximum = 0U;
+        return KU_STATUS_OK;
+    }
+    return KU_STATUS_NOT_FOUND;
+}
+
 void kui_frame_initialize(ku_ui_frame* frame);
 ku_status_t kui_frame_set_line(
     ku_ui_frame* frame, uint32_t line, const char* text);
