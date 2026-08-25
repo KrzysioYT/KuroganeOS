@@ -5,25 +5,84 @@
 namespace ui::font {
 namespace {
 
+char display_character(char character) {
+    if (character >= 'a' && character <= 'z') {
+        return static_cast<char>(character - ('a' - 'A'));
+    }
+    return character;
+}
+
 int32_t base_advance(Face face, char character) {
     if (face == Face::Mono) return 6;
-    if (character == ' ') return face == Face::Display ? 5 : 4;
+
+    if (face == Face::Display) {
+        const char glyph = display_character(character);
+        if (glyph == ' ') return 5;
+        switch (glyph) {
+            case 'I':
+            case '.': case ',': case ':': case ';':
+            case '!': case '\'': case '|':
+                return 5;
+            case 'M': case 'W': case '@': case '%': case '&':
+                return 8;
+            default:
+                return 7;
+        }
+    }
+
+    // UI Pixel is intentionally proportional while still using the same
+    // deterministic 5x7 bitmap grid as the rest of the kernel UI.
+    if (character == ' ') return 4;
     switch (character) {
         case 'i': case 'l': case 'I':
         case '.': case ',': case ':': case ';':
         case '!': case '\'': case '|':
-            return face == Face::Display ? 5 : 4;
+            return 4;
         case 'M': case 'W': case 'm': case 'w':
         case '@': case '%': case '&':
-            return face == Face::Display ? 8 : 6;
+            return 6;
         default:
-            return face == Face::Display ? 7 : 5;
+            return 5;
     }
 }
 
 int32_t line_advance(Face face, uint32_t scale) {
     const int32_t base = face == Face::Display ? 9 : 8;
     return base * static_cast<int32_t>(scale);
+}
+
+void draw_glyph(
+    Face face,
+    int32_t x,
+    int32_t y,
+    char character,
+    graphics::Color foreground,
+    graphics::Color background,
+    uint32_t scale,
+    bool transparent) {
+    if (face != Face::Display) {
+        graphics::draw_char(
+            x, y, character, foreground, background, scale, transparent);
+        return;
+    }
+
+    // Display Pixel is a deliberately chunky title face: all-caps with a
+    // one-pixel horizontal emboldening pass. The second pass is transparent so
+    // it never erases pixels from the first pass when the caller requested an
+    // opaque cell background.
+    const char glyph = display_character(character);
+    graphics::draw_char(
+        x, y, glyph, foreground, background, scale, transparent);
+    if (glyph != ' ') {
+        graphics::draw_char(
+            x + static_cast<int32_t>(scale),
+            y,
+            glyph,
+            foreground,
+            background,
+            scale,
+            true);
+    }
 }
 
 } // namespace
@@ -57,10 +116,6 @@ void draw(
     int32_t cursor_y = y;
     if (text == nullptr || scale == 0U) return;
 
-    // Kurogane 5 uses crisp condensed/technical typography. The previous
-    // renderer performed a second complete glyph pass one pixel down/right to
-    // fake a shadow. Besides looking too soft for Forged Steel, that doubled a
-    // large part of software text rasterization on every compositor redraw.
     while (*text != '\0') {
         if (*text == '\n') {
             cursor_x = x;
@@ -69,7 +124,8 @@ void draw(
             continue;
         }
 
-        graphics::draw_char(
+        draw_glyph(
+            face,
             cursor_x,
             cursor_y,
             *text,
