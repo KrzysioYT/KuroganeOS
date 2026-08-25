@@ -1,321 +1,287 @@
 # Uruchamianie KuroganeOS 3.3.3-dev
 
-Ten dokument jest główną instrukcją uruchamiania systemu po zbudowaniu.
-Jeżeli nie wiesz, czym różni się IMG od ISO, użyj sekcji **Najprostsza opcja**.
+Ten plik jest **kanoniczną instrukcją uruchamiania bieżącego development builda**.
+Aktualny publiczny numer wersji nadal wynosi `3.3.3-dev`; gałąź GUI rozwija
+warstwę Forged Steel/KuroganeOS 5, ale nie oznaczamy jej jako gotowego 5.0.0.
 
-> KuroganeOS jest systemem x86-64 UEFI. Nie używaj trybu legacy BIOS.
+KuroganeOS jest gościem **x86-64 UEFI**. Nie uruchamiaj go w trybie legacy BIOS.
 
-## Najprostsza opcja
+## Którego obrazu użyć?
 
-Po pełnym buildzie masz dwa główne nośniki:
-
-```text
-dist/KuroganeOS-3.3.3-dev-<host>-qemu.img
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
-```
-
-- **IMG**: najlepszy do szybkiego testowania w QEMU.
-- **ISO**: najlepszy do VirtualBox oraz testowania `Try / Install` jak zwykłego nośnika instalacyjnego.
-
-Po starcie nośnika wybierz `Try KuroganeOS`, jeżeli chcesz tylko uruchomić
-system bez instalacji.
-
----
-
-# Windows 11 + WSL
-
-## 1. Wymagane pliki Windows
-
-Windows potrzebuje repozytoryjnego toolchainu z paczki:
-
-https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
-
-Po wypakowaniu musi istnieć:
+Po zwykłym buildzie deweloperskim najważniejsze są:
 
 ```text
-tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe
+build/images/KuroganeOS-base.img   # czysty Foundation GPT + ESP + Kurogane Root
+state/KuroganeOS.img               # zachowywany working image, jeżeli istnieje
+kurogane.img                        # legacy 64 MiB FAT/EFI artifact
 ```
 
-WSL również musi być zainstalowany.
+Do normalnego desktopu, PID 1, `/system/init`, loginu i aplikacji Ring-3 używaj
+**Foundation GPT** (`build/images/KuroganeOS-base.img`) albo working image.
+`kurogane.img` nie ma partycji `Kurogane Root` i nie jest pełnym dyskiem
+userspace.
 
-## 2. Repo może być na C:, D:, I: lub innym dysku
+Po `build-media.ps1` na Windows powstają media dystrybucyjne:
 
-3.3.x zawiera `scripts/wsl-path.ps1`. Jeżeli standardowy `wslpath` nie widzi
-np. `I:\KuroganeOS`, build próbuje automatycznie zamontować dysk przez DrvFs.
-
-Jeżeli WSL nadal nie widzi dysku:
-
-```powershell
-wsl.exe --shutdown
+```text
+dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+dist/SHA256SUMS.txt
 ```
 
-i uruchom build ponownie.
+## Windows 11 — najszybsza ścieżka developerska
 
-## 3. Pełny build IMG + ISO
+### 1. Build
 
 ```powershell
-cd I:\KuroganeOS
+cd E:\KuroganeOS
 
-git pull origin main
-wsl.exe --shutdown
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build.ps1 `
+  -Configuration debug `
+  -Rebuild
+```
 
+Windows build wymaga repozytoryjnego cross-toolchainu w:
+
+```text
+tools\compiler\x86_64-elf\bin\
+```
+
+oraz WSL2 dla host tests, FAT/GPT i części media tooling.
+
+### 2. Interaktywny QEMU — zalecane
+
+Dla pracy nad GUI na Windows użyj szybkiego runnera:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run-qemu-fast.ps1 `
+  -MemoryMiB 1024 `
+  -Accelerator auto `
+  -LogName forged-dev
+```
+
+Jeżeli istnieje `state/KuroganeOS.img`, runner wybiera go automatycznie. W
+przeciwnym razie używa `build/images/KuroganeOS-base.img`.
+
+`-Accelerator auto` najpierw próbuje **WHPX**. Jeżeli host nie udostępnia WHPX,
+runner wraca do **TCG**. W terminalu sprawdź:
+
+```text
+[active] accelerator=whpx
+```
+
+TCG jest funkcjonalne, ale software framebuffer/compositor może działać znacznie
+wolniej.
+
+### 3. Deterministyczny QEMU/test runner
+
+Do testów i logów używaj `run-qemu.ps1`/`run-qemu.sh`, nie `run-qemu-fast.ps1`.
+Foundation test:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run-qemu.ps1 `
+  -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -ShellTest `
+  -TimeoutSeconds 90 `
+  -MemoryMiB 1024 `
+  -LogName foundation-test
+```
+
+`ShellTest` jest nazwą kompatybilności historycznej. Na bieżącym Foundation
+obrazie rozpoznaje **graficzny login**, aktywuje live session i weryfikuje
+markery PID1/login/Blade zamiast bezwarunkowo czekać na stary prompt tekstowy.
+
+### 4. WSL wrapper
+
+Z WSL:
+
+```bash
+./scripts/run-qemu.sh interactive
+./scripts/run-qemu.sh system
+./scripts/run-qemu.sh safe
+./scripts/run-qemu.sh fast
+```
+
+`interactive` wybiera working image, a potem base image. `system` zawsze używa
+czystego Foundation base, aby wynik testu nie zależał od danych użytkownika.
+
+## Pełne media Windows
+
+```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\build-media.ps1 `
   -Configuration release `
   -Rebuild
 ```
 
-Oczekiwane pliki:
+Wyniki:
 
 ```text
-dist\KuroganeOS-3.3.3-dev-windows-qemu.img
-dist\KuroganeOS-3.3.3-dev-x86_64.iso
+dist\KuroganeOS-3.3.3-dev-qemu-x86_64.img
+dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+dist\SHA256SUMS.txt
 ```
 
-## 4. Uruchom IMG w QEMU
+Nie używaj starych nazw `*-windows-qemu.img` ani ogólnego `*-x86_64.iso` jako
+bieżącego kontraktu Windows. Builder usuwa te niejednoznaczne aliasy.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\run-qemu.ps1 `
-  -UseDiskImage `
-  -DiskImagePath .\dist\KuroganeOS-3.3.3-dev-windows-qemu.img `
-  -Display `
-  -KeepRunning `
-  -MemoryMiB 1024
-```
+## VirtualBox x86-64
 
-## 5. Uruchom ISO w QEMU
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\run-qemu.ps1 `
-  -UseIso `
-  -Display `
-  -KeepRunning `
-  -MemoryMiB 1024
-```
-
----
-
-# macOS
-
-## 1. Przygotowanie
-
-```bash
-cd /Users/$USER/Documents/Github/KuroganeOS
-chmod +x scripts/*.sh
-./scripts/setup-macos.sh --install
-```
-
-## 2. Pełny build IMG + ISO
-
-```bash
-git pull origin main
-chmod +x scripts/*.sh
-
-bash ./scripts/build-media-macos.sh \
-  --configuration release \
-  --rebuild
-```
-
-Oczekiwane:
+Użyj:
 
 ```text
-dist/KuroganeOS-3.3.3-dev-macos-qemu.img
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 ```
 
-## 3. Uruchom IMG
+Referencyjna VM:
 
-Okno:
+```text
+Firmware:      EFI / UEFI
+Secure Boot:   OFF
+RAM:           1024-2048 MiB
+CPU:           1-2
+System disk:   SATA / Intel AHCI
+Optical ISO:   IDE/DVD
+Network:       NAT
+NIC:           Intel PRO/1000 MT Desktop (82540EM)
+Audio:         Intel AC'97
+Input:         PS/2
+```
+
+Pełna instrukcja: [VIRTUALBOX.md](VIRTUALBOX.md).
+
+## macOS
+
+Pierwsze przygotowanie:
+
+```bash
+chmod +x scripts/*.sh
+bash ./scripts/setup-macos.sh --install
+```
+
+Build:
+
+```bash
+bash ./scripts/build-media-macos.sh --configuration debug --rebuild
+```
+
+Interaktywny QEMU:
 
 ```bash
 ./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-3.3.3-dev-macos-qemu.img \
-  --windowed
+  --image ./build/images/KuroganeOS-base.img \
+  --windowed \
+  --memory 1024
 ```
 
-Pełny ekran:
+Możesz pominąć `--image`; runner szuka kolejno aktualnego obrazu `dist`, working
+image oraz Foundation base.
 
-```bash
-./scripts/run-qemu-macos.sh \
-  --image ./dist/KuroganeOS-3.3.3-dev-macos-qemu.img \
-  --display
-```
+Na Apple Silicon gość x86-64 działa przez **QEMU TCG**, więc GUI będzie wyraźnie
+wolniejsze niż na Windows/WHPX. To nie jest właściwe środowisko do mierzenia
+FPS compositora.
 
-Na Apple Silicon KuroganeOS x86-64 działa przez QEMU TCG. VirtualBox nie jest
-referencyjną ścieżką dla tego gościa na Apple Silicon.
+## Linux x86-64
 
-## 4. Bezpośredni QEMU, gdy wrapper sprawia problem
-
-```bash
-cp "$(brew --prefix qemu)/share/qemu/edk2-i386-vars.fd" /tmp/kurogane-vars.fd
-
-qemu-system-x86_64 \
-  -machine q35,accel=tcg \
-  -cpu max \
-  -m 1024 \
-  -vga std \
-  -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
-  -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_system,format=raw,file="./dist/KuroganeOS-3.3.3-dev-macos-qemu.img",cache=writeback \
-  -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
-  -device e1000,netdev=net0 \
-  -netdev user,id=net0 \
-  -audiodev coreaudio,id=audio0 \
-  -device AC97,audiodev=audio0 \
-  -display cocoa \
-  -serial stdio \
-  -no-reboot \
-  -no-shutdown
-```
-
----
-
-# Linux x86-64
-
-## Build
+Build media:
 
 ```bash
 bash ./scripts/setup-linux.sh --install
 bash ./scripts/build-media-linux.sh --configuration release --rebuild
 ```
 
-Wynik:
+Do szybkiego testu z hosta Linux preferuj zwykłe `qemu-system-x86_64` z KVM,
+jeżeli host i konfiguracja na to pozwalają. WSL wrapper jest przeznaczony dla
+Windows + WSL, ponieważ deleguje do `powershell.exe`.
 
-```text
-dist/KuroganeOS-3.3.3-dev-linux-qemu.img
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
-```
+## Co powinno pojawić się po starcie Foundation
 
----
-
-# VirtualBox x86-64
-
-Używaj:
-
-```text
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
-```
-
-Ustawienia referencyjne:
-
-```text
-Firmware:     EFI / UEFI
-RAM:          1024 MiB
-CPU:          1-2
-Storage:      Intel AHCI SATA
-Optical:      KuroganeOS ISO
-Boot order:   DVD, potem HDD
-Network:      NAT
-Adapter:      Intel PRO/1000 MT Desktop (82540EM)
-Audio:        Intel AC'97
-Secure Boot:  OFF
-```
-
-Pełna instrukcja: [`VIRTUALBOX.md`](VIRTUALBOX.md).
-
----
-
-# Co powinno pojawić się po uruchomieniu 3.3.3
+Bieżąca ścieżka desktopowa:
 
 ```text
 UEFI
- -> KuroganeOS bootloader
- -> Red Flux boot splash
- -> Try / Install
- -> Login
- -> Red Flux Desktop
-      -> HOME shortcut
-      -> PERFORMANCE shortcut
-      -> Dock
-      -> Performance live widget po prawej stronie
+ -> BOOTX64.EFI
+ -> kernel
+ -> Forged Steel boot splash
+ -> PID 1: /system/init
+ -> KUROGANE // SECURE ACCESS
+ -> ENTER KUROGANE DESKTOP
+ -> Blade Launcher session root
+ -> desktop / dock / aplikacje Ring-3
 ```
 
-Home pozostaje procesem-rootem sesji. Zamknięcie jego okna nie wylogowuje.
-
-## Performance
-
-Po wejściu do desktopu `/gui/performance` uruchamia się automatycznie i
-WindowManager ustawia go w środkowo-prawej części workspace.
-
-Pokazuje na żywo:
+Najważniejsze aplikacje:
 
 ```text
-CPU %
-GPU/GFX %
-RAM %
-DISK ACTIVITY %
-RAM used / total
-uptime ticks
+Blade Launcher
+Kurosh
+Vault
+Anvil
+Forge Control
+Pulse
+Kurogane Web
+Performance
+System Monitor
+About
 ```
-
-`GPU/GFX %` oznacza obciążenie aktualnego stosu GOP/software compositor, a nie
-wykorzystanie rdzeni fizycznego GPU.
-
-## Przypinanie aplikacji do pulpitu
-
-Otwórz Home, wybierz aplikację strzałkami i naciśnij:
-
-```text
-P
-```
-
-aby ją przypiąć lub odpiąć od pulpitu.
-
-Home jest zawsze przypięty, Performance jest przypięte domyślnie. W 3.3.3 stan
-pozostałych pinów jest sesyjny; zapis na dysk pojawi się z persistent settings
-service.
 
 ## Kurogane Web
 
-Z Home/Dock uruchom `Kurogane Web`. Przeglądarka 3.3.3 używa własnego stosu:
+Bieżąca aplikacja Web obsługuje własny stos KuroganeOS i ma transport HTTP oraz
+HTTPS/TLS. Nie jest Chromium. Ma prosty natywny parser/rendering HTML/CSS,
+historię, Back/Home/Reload, redirecty oraz aktywację linków.
+
+Do testu sieci używaj Foundation/base image z E1000/NAT, nie legacy
+`kurogane.img`.
+
+## Logi
+
+Windows QEMU zapisuje:
 
 ```text
-E1000 -> DHCP -> DNS -> TCP -> HTTP/1.0
+build/logs/<LogName>-serial.log
+build/logs/<LogName>-stdout.log
+build/logs/<LogName>-stderr.log
 ```
 
-Przykładowy adres:
+Przy problemie runtime najważniejszy jest `*-serial.log`.
 
-```text
-http://example.com/
-```
+## Najczęstsze problemy
 
-Ograniczenia DEV BETA:
+### System zatrzymuje się na splash/login
 
-- tylko `http://`;
-- brak TLS/HTTPS;
-- maksymalnie 4096 B odpowiedzi w jednym żądaniu;
-- prosty tekstowy rendering HTML;
-- nie jest to jeszcze Chromium.
-
----
-
-# Najczęstsze problemy
-
-## `Unable to convert path for WSL: I:\...`
+Sprawdź serial:
 
 ```powershell
-git pull origin main
+Get-Content .\build\logs\<nazwa>-serial.log -Tail 160
+```
+
+Szukaj `userspace_init_spawn`, `userspace_init_pid1`, `desktop_session` i
+`kurogane5_obsidian_login`.
+
+### `cannot create /system/init as PID 1`
+
+Upewnij się, że uruchamiasz Foundation GPT, a nie legacy `kurogane.img`.
+
+### GUI działa bardzo wolno
+
+Na Windows uruchom `run-qemu-fast.ps1` i sprawdź, czy aktywny jest WHPX. TCG
+emuluje x86-64 programowo i jest szczególnie kosztowne dla software compositora.
+
+### Aplikacja nie otwiera się
+
+Użyj unikalnego `-LogName`, odtwórz problem i sprawdź serial. Blade raportuje
+status uruchomienia procesu, a kernel loguje błędy WindowManager/session tree.
+
+### WSL nie widzi repozytorium
+
+```powershell
 wsl.exe --shutdown
 ```
 
-Następnie ponownie uruchom `build-media.ps1`.
-
-## macOS: `Permission denied` dla `scripts/*.sh`
-
-```bash
-chmod +x scripts/*.sh
-```
-
-## VirtualBox: `No bootable medium`
-
-Sprawdź:
-
-1. EFI/UEFI jest włączone;
-2. ISO jest podpięte jako DVD;
-3. DVD jest przed HDD;
-4. używasz `KuroganeOS-3.3.3-dev-x86_64.iso`;
-5. Secure Boot jest wyłączony.
-
-ISO przechodzi obowiązkowy 20-pass verifier i optical UEFI smoke w CI.
+Następnie uruchom build ponownie. `scripts/wsl-path.ps1` obsługuje repozytoria
+na dyskach innych niż `C:`.
