@@ -6,8 +6,6 @@
 namespace ui {
 namespace {
 
-// KuroganeOS 5 design tokens. Keep these values in sync with the approved
-// Forged Steel reference instead of drifting toward the older Flux palette.
 constexpr graphics::Color kObsidian = graphics::rgb(9, 14, 14);       // #090E0E
 constexpr graphics::Color kSteel = graphics::rgb(23, 28, 34);        // #171C22
 constexpr graphics::Color kSteelRaised = graphics::rgb(31, 37, 44);
@@ -22,6 +20,18 @@ constexpr graphics::Color kCrimson = graphics::rgb(230, 41, 50);     // #E62932
 constexpr graphics::Color kHotEdge = graphics::rgb(255, 74, 69);     // #FF4A45
 constexpr graphics::Color kGlowDeep = graphics::rgb(94, 20, 26);
 constexpr graphics::Color kShadow = graphics::rgb(2, 5, 6);
+
+enum class SurfaceKind : uint8_t {
+    Generic = 0,
+    Blade,
+    Kurosh,
+    Access,
+    Forge,
+    Pulse,
+    Anvil,
+    Vault,
+    Web,
+};
 
 bool starts_with(const char* text, const char* prefix) {
     if (text == nullptr || prefix == nullptr) return false;
@@ -89,14 +99,16 @@ void outline_chamfered(
     int32_t height,
     int32_t cut,
     graphics::Color edge,
-    graphics::Color fill) {
+    graphics::Color fill,
+    bool shadow) {
+    if (shadow) {
+        fill_chamfered(x + 3, y + 4, width, height, cut, kShadow);
+    }
     fill_chamfered(x, y, width, height, cut, edge);
     fill_chamfered(x + 1, y + 1, width - 2, height - 2,
                    cut > 0 ? cut - 1 : 0, fill);
 }
 
-// Blade cards deliberately use an asymmetric cut. The reference launcher is a
-// stack of forged wedges, not a list of rounded/rectangular desktop buttons.
 void fill_blade_card(
     int32_t x,
     int32_t y,
@@ -133,51 +145,42 @@ void draw_icon(const ku_ui_widget& widget, int32_t x, int32_t y, int32_t size) {
     icons::draw(icon, x, y, size, size);
 }
 
-bool surface_has_panel_prefix(const ku_ui_surface& surface, const char* prefix) {
+SurfaceKind surface_kind(const ku_ui_surface& surface) {
     for (uint32_t index = 0U; index < surface.widget_count; ++index) {
         const ku_ui_widget& widget = surface.widgets[index];
-        if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U) continue;
-        if (widget.type != KU_UI_WIDGET_PANEL) continue;
-        return starts_with(widget.text, prefix);
+        if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U ||
+            widget.type != KU_UI_WIDGET_PANEL) continue;
+        if (starts_with(widget.text, "BLADE LAUNCHER")) return SurfaceKind::Blade;
+        if (starts_with(widget.text, "KUROSH")) return SurfaceKind::Kurosh;
+        if (starts_with(widget.text, "SECURE ACCESS") ||
+            starts_with(widget.text, "BEZPIECZNY DOSTEP")) return SurfaceKind::Access;
+        if (starts_with(widget.text, "FORGE CONTROL")) return SurfaceKind::Forge;
+        if (starts_with(widget.text, "PULSE")) return SurfaceKind::Pulse;
+        if (starts_with(widget.text, "ANVIL")) return SurfaceKind::Anvil;
+        if (starts_with(widget.text, "VAULT")) return SurfaceKind::Vault;
+        if (starts_with(widget.text, "KUROGANE WEB")) return SurfaceKind::Web;
+        return SurfaceKind::Generic;
+    }
+    return SurfaceKind::Generic;
+}
+
+bool has_spatial_widgets(const ku_ui_surface& surface) {
+    for (uint32_t index = 0U; index < surface.widget_count; ++index) {
+        if (ku_ui_widget_has_absolute_layout(&surface.widgets[index])) return true;
     }
     return false;
 }
 
-bool is_kurosh_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "KUROSH");
-}
-
-bool is_blade_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "BLADE LAUNCHER");
-}
-
-bool is_access_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "SECURE ACCESS") ||
-        surface_has_panel_prefix(surface, "BEZPIECZNY DOSTEP");
-}
-
-bool is_forge_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "FORGE CONTROL");
-}
-
-bool is_pulse_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "PULSE");
-}
-
-bool is_anvil_surface(const ku_ui_surface& surface) {
-    return surface_has_panel_prefix(surface, "ANVIL");
-}
-
-font::Face text_face(bool kurosh, const ku_ui_widget& widget) {
+font::Face text_face(SurfaceKind kind, const ku_ui_widget& widget) {
     if (widget.type == KU_UI_WIDGET_PANEL) return font::Face::Display;
-    if (kurosh && widget.type != KU_UI_WIDGET_BUTTON) return font::Face::Mono;
+    if (kind == SurfaceKind::Kurosh && widget.type != KU_UI_WIDGET_BUTTON) {
+        return font::Face::Mono;
+    }
     return font::Face::Ui;
 }
 
 void draw_micro_etch(const Rect& bounds) {
     if (bounds.width < 180 || bounds.height < 100) return;
-    // Low-cost brushed metal cue. It stays sparse so the software renderer does
-    // not spend frame time drawing decorative noise.
     for (int32_t y = bounds.y + 50; y < bounds.y + bounds.height; y += 72) {
         graphics::fill_rect(bounds.x + 18, y, bounds.width - 36, 1,
                             graphics::rgb(16, 22, 26));
@@ -185,17 +188,17 @@ void draw_micro_etch(const Rect& bounds) {
     for (int32_t y = bounds.y + 74; y < bounds.y + bounds.height; y += 144) {
         graphics::fill_rect(bounds.x + bounds.width - 62, y, 36, 1,
                             graphics::rgb(55, 29, 33));
-        graphics::fill_rect(bounds.x + bounds.width - 29, y - 4, 1, 5,
-                            graphics::rgb(91, 27, 32));
     }
 }
 
-void draw_surface_frame(const Rect& bounds, bool focused, bool access) {
-    if (access) {
-        fill_chamfered(bounds.x + 5, bounds.y + 6,
-                       bounds.width - 5, bounds.height - 6, 9, kShadow);
+void draw_surface_frame(
+    const Rect& bounds,
+    bool focused,
+    SurfaceKind kind) {
+    if (kind == SurfaceKind::Access) {
         outline_chamfered(bounds.x, bounds.y, bounds.width, bounds.height,
-                          9, focused ? kHotEdge : kSteelEdge, kObsidian);
+                          9, focused ? kHotEdge : kSteelEdge,
+                          kObsidian, true);
         graphics::fill_rect(bounds.x + 18, bounds.y + 1,
                             bounds.width > 230 ? 184 : bounds.width - 36,
                             2, kCrimson);
@@ -211,15 +214,109 @@ void draw_surface_frame(const Rect& bounds, bool focused, bool access) {
                         kGlowDeep);
 }
 
+void draw_standard_widget(
+    const ku_ui_widget& widget,
+    const Rect& row,
+    SurfaceKind kind,
+    bool focused,
+    bool selected) {
+    if (row.width <= 0 || row.height <= 0) return;
+    const bool disabled = (widget.flags & KU_UI_WIDGET_DISABLED) != 0U;
+    const graphics::Color foreground = disabled
+        ? kMuted : (selected ? kText : kAsh);
+    const bool has_icon = widget.icon_id != 0U &&
+        icons::valid(static_cast<ku_icon_id_t>(widget.icon_id));
+    const int32_t icon_size = widget.type == KU_UI_WIDGET_PANEL ? 24 : 20;
+    const int32_t text_x = row.x + (has_icon ? icon_size + 18 : 11);
+    const font::Face face = text_face(kind, widget);
+
+    switch (widget.type) {
+        case KU_UI_WIDGET_PANEL: {
+            const graphics::Color fill = selected ? kSteelRaised : kSteel;
+            const graphics::Color edge = selected
+                ? kHotEdge : (focused ? kCrimson : kSteelEdge);
+            outline_chamfered(row.x, row.y, row.width, row.height, 6,
+                              edge, fill, true);
+            graphics::fill_rect(row.x + 8, row.y + 1,
+                                row.width > 112 ? 96 : row.width - 16,
+                                1, selected ? kHotEdge : kCrimson);
+            graphics::fill_rect(row.x + 5, row.y + 7,
+                                selected ? 3 : 2,
+                                row.height > 14 ? row.height - 14 : 1,
+                                selected ? kHotEdge : kCrimson);
+            draw_icon(widget, row.x + 10,
+                      row.y + (row.height - icon_size) / 2, icon_size);
+            font::draw(face, text_x,
+                       row.y + (row.height >= 42 ? 13 : 10),
+                       widget.text, disabled ? kMuted : kText,
+                       fill, row.height >= 42 ? 2U : 1U, true);
+            break;
+        }
+        case KU_UI_WIDGET_LABEL:
+            draw_icon(widget, row.x + 4,
+                      row.y + (row.height - icon_size) / 2, icon_size);
+            font::draw(face, text_x, row.y + 7,
+                       widget.text, foreground, kObsidian, 1U, true);
+            break;
+        case KU_UI_WIDGET_BUTTON:
+        case KU_UI_WIDGET_INPUT:
+        case KU_UI_WIDGET_LIST_ITEM: {
+            const graphics::Color fill = selected ? kSteelActive : kSteel;
+            const graphics::Color edge = selected ? kHotEdge : kSteelEdge;
+            outline_chamfered(row.x, row.y, row.width, row.height, 5,
+                              edge, fill, true);
+            graphics::fill_rect(row.x + 5, row.y + 7,
+                                selected ? 3 : 1,
+                                row.height > 14 ? row.height - 14 : 1,
+                                selected ? kHotEdge : kCrimson);
+            if (widget.type == KU_UI_WIDGET_INPUT) {
+                graphics::fill_rect(row.x + 11, row.y + row.height - 4,
+                                    row.width - 22, 1,
+                                    selected ? kHotEdge : kSteelEdge);
+            }
+            draw_icon(widget, row.x + 9,
+                      row.y + (row.height - icon_size) / 2, icon_size);
+            font::draw(face, text_x,
+                       row.y + (row.height - 8) / 2,
+                       widget.text, foreground, fill, 1U, true);
+            break;
+        }
+        case KU_UI_WIDGET_PROGRESS: {
+            outline_chamfered(row.x, row.y, row.width, row.height, 5,
+                              kSteelEdge, kSteel, false);
+            font::draw(face, row.x + 10, row.y + 8,
+                       widget.text, foreground, kSteel, 1U, true);
+            const uint32_t maximum = widget.maximum == 0U ? 1U : widget.maximum;
+            const uint32_t value = widget.value > maximum ? maximum : widget.value;
+            const int32_t bar_x = row.x + 10;
+            const int32_t bar_y = row.y + row.height - 14;
+            const int32_t bar_width = row.width - 20;
+            graphics::fill_rect(bar_x, bar_y, bar_width, 7,
+                                graphics::rgb(38, 45, 52));
+            graphics::fill_rect(
+                bar_x, bar_y,
+                static_cast<int32_t>(
+                    (static_cast<uint64_t>(bar_width) * value) / maximum),
+                7, kCrimson);
+            break;
+        }
+        case KU_UI_WIDGET_SEPARATOR:
+            graphics::fill_rect(row.x, row.y + row.height / 2,
+                                row.width, 1, kSteelEdge);
+            graphics::fill_rect(row.x, row.y + row.height / 2,
+                                row.width > 88 ? 88 : row.width,
+                                1, kCrimson);
+            break;
+        default:
+            break;
+    }
+}
+
 void draw_blade_surface(
     const Rect& bounds,
     const ku_ui_surface& surface,
     bool focused) {
-    draw_surface_frame(bounds, focused, false);
-
-    // Internal launcher rail. Together with the system spine this produces the
-    // twin-blade silhouette from the 5.0 design board without requiring bitmap
-    // wallpaper assets or expensive alpha composition.
+    draw_surface_frame(bounds, focused, SurfaceKind::Blade);
     const int32_t rail_x = bounds.x + 12;
     graphics::fill_rect(rail_x, bounds.y + 16, 12, bounds.height - 32, kSteelDeep);
     graphics::fill_rect(rail_x, bounds.y + 16, 1, bounds.height - 32, kSteelHairline);
@@ -241,7 +338,6 @@ void draw_blade_surface(
         if (rendered++ >= row_limit) break;
         const int32_t height = row_height(widget.type);
         if (y + height > bounds.y + bounds.height) break;
-
         const bool selected =
             (widget.flags & KU_UI_WIDGET_SELECTED) != 0U ||
             surface.selected_id == widget.id;
@@ -255,35 +351,27 @@ void draw_blade_surface(
                                 2, kCrimson);
             draw_icon(widget, bounds.x + bounds.width - 46, y + 4, 26);
         } else if (widget.type == KU_UI_WIDGET_LABEL) {
-            const graphics::Color color = widget.id == 31U ? kAsh : kMuted;
             font::draw(font::Face::Ui, bounds.x + 39, y + 6,
-                       widget.text, color, kObsidian, 1U, true);
+                       widget.text, widget.id == 31U ? kAsh : kMuted,
+                       kObsidian, 1U, true);
         } else if (widget.type == KU_UI_WIDGET_LIST_ITEM ||
                    widget.type == KU_UI_WIDGET_BUTTON) {
             const int32_t card_x = bounds.x + 34;
-            int32_t card_width = bounds.width - 48;
-            const int32_t taper = static_cast<int32_t>(blade_index % 4U) * 5;
-            card_width -= taper;
+            int32_t card_width = bounds.width - 48 -
+                static_cast<int32_t>(blade_index % 4U) * 5;
             const graphics::Color fill = selected ? kSteelActive : kSteel;
             const graphics::Color edge = selected ? kHotEdge : kSteelEdge;
-            outline_blade_card(card_x, y + 1, card_width, height - 5, edge, fill);
-            if (selected) {
-                graphics::fill_rect(card_x + 3, y + 6, 4, height - 16, kHotEdge);
-                graphics::fill_rect(card_x + 7, y + 8, 1, height - 20, kCrimson);
-                graphics::fill_rect(card_x + 16, y + 1,
-                                    card_width > 92 ? 74 : card_width - 24,
-                                    2, kHotEdge);
-            } else {
-                graphics::fill_rect(card_x + 4, y + 8, 1, height - 20, kCrimson);
-            }
+            outline_blade_card(card_x, y + 1, card_width, height - 5,
+                               edge, fill);
+            graphics::fill_rect(card_x + 4, y + 8,
+                                selected ? 3 : 1,
+                                height - 20,
+                                selected ? kHotEdge : kCrimson);
             draw_icon(widget, card_x + 13, y + 5, 24);
             font::draw(font::Face::Ui, card_x + 47, y + 9,
                        widget.text,
                        disabled ? kMuted : (selected ? kText : kAsh),
                        fill, 1U, true);
-
-            // 01..09 rail markers mirror the reference launcher's indexed
-            // spine and make keyboard selection visually obvious.
             if (blade_index < 9U) {
                 char marker[3] = {'0', (char)('1' + blade_index), '\0'};
                 font::draw(font::Face::Mono, rail_x - 1, y + 10,
@@ -292,29 +380,26 @@ void draw_blade_surface(
             }
             ++blade_index;
         } else if (widget.type == KU_UI_WIDGET_SEPARATOR) {
-            graphics::fill_rect(bounds.x + 39, y + 5, bounds.width - 68, 1,
-                                kSteelEdge);
+            graphics::fill_rect(bounds.x + 39, y + 5,
+                                bounds.width - 68, 1, kSteelEdge);
             graphics::fill_rect(bounds.x + 39, y + 5, 68, 1, kCrimson);
         }
         y += height;
     }
 }
 
-void draw_generic_surface(
+void draw_flow_surface(
     const Rect& bounds,
     const ku_ui_surface& surface,
     bool focused,
-    bool kurosh,
-    bool access,
-    bool forge,
-    bool pulse,
-    bool anvil) {
-    draw_surface_frame(bounds, focused, access);
+    SurfaceKind kind) {
+    draw_surface_frame(bounds, focused, kind);
     draw_micro_etch(bounds);
 
-    // Forge/Pulse/Anvil get slightly tighter horizontal framing to make them
-    // read like control boards instead of generic document windows.
-    const int32_t side = access ? 18 : ((forge || pulse || anvil) ? 16 : 12);
+    const bool control_board = kind == SurfaceKind::Forge ||
+        kind == SurfaceKind::Pulse || kind == SurfaceKind::Anvil;
+    const int32_t side = kind == SurfaceKind::Access
+        ? 18 : (control_board ? 16 : 12);
     const int32_t left = bounds.x + side;
     const int32_t right = bounds.x + bounds.width - side;
     int32_t y = bounds.y + 10;
@@ -328,110 +413,57 @@ void draw_generic_surface(
         if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U) continue;
         if (visible_index++ < surface.scroll_offset) continue;
         if (rendered++ >= row_limit) break;
-
         const int32_t height = row_height(widget.type);
-        if (y >= bounds.y + bounds.height) break;
-        const uint32_t depth = widget_depth(surface, widget);
-        const int32_t indent = static_cast<int32_t>(depth) * (access ? 10 : 14);
-        const Rect row{left + indent, y, right - left - indent, height - 4};
-        if (row.width <= 0) break;
+        if (y + height > bounds.y + bounds.height) break;
+        const int32_t indent = static_cast<int32_t>(
+            widget_depth(surface, widget)) * 14;
+        const Rect row{left + indent, y,
+                       right - left - indent, height - 4};
+        draw_standard_widget(
+            widget, row, kind, focused,
+            (widget.flags & KU_UI_WIDGET_SELECTED) != 0U ||
+                surface.selected_id == widget.id);
+        y += height;
+    }
+}
 
+void draw_spatial_surface(
+    const Rect& bounds,
+    const ku_ui_surface& surface,
+    bool focused,
+    SurfaceKind kind) {
+    draw_surface_frame(bounds, focused, kind);
+    draw_micro_etch(bounds);
+
+    int32_t fallback_y = bounds.y + 10;
+    uint32_t visible_index = 0U;
+    for (uint32_t index = 0U; index < surface.widget_count; ++index) {
+        const ku_ui_widget& widget = surface.widgets[index];
+        if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U) continue;
         const bool selected =
             (widget.flags & KU_UI_WIDGET_SELECTED) != 0U ||
             surface.selected_id == widget.id;
-        const bool disabled = (widget.flags & KU_UI_WIDGET_DISABLED) != 0U;
-        const graphics::Color text_color = disabled ? kMuted : kText;
-        const bool has_icon = widget.icon_id != 0U &&
-            icons::valid(static_cast<ku_icon_id_t>(widget.icon_id));
-        const int32_t icon_size = widget.type == KU_UI_WIDGET_PANEL ? 24 : 20;
-        const int32_t text_x = row.x + (has_icon ? icon_size + 14 : 11);
-        const font::Face face = text_face(kurosh, widget);
 
-        switch (widget.type) {
-            case KU_UI_WIDGET_PANEL: {
-                const graphics::Color fill = selected ? kSteelRaised : kSteel;
-                const graphics::Color edge = selected
-                    ? kHotEdge
-                    : (depth == 0U && focused ? kCrimson : kSteelEdge);
-                fill_chamfered(row.x + 3, row.y + 3, row.width, row.height, 6, kShadow);
-                outline_chamfered(row.x, row.y, row.width, row.height, 6, edge, fill);
-                graphics::fill_rect(row.x + 8, row.y + 1,
-                                    row.width > 118 ? 104 : row.width - 16,
-                                    1, selected ? kHotEdge : kCrimson);
-                graphics::fill_rect(row.x + 5, row.y + 7,
-                                    selected ? 3 : 2,
-                                    row.height > 14 ? row.height - 14 : 1,
-                                    selected ? kHotEdge : kCrimson);
-                draw_icon(widget, row.x + 10, row.y + 6, icon_size);
-                font::draw(face, text_x, row.y + 10, widget.text,
-                           text_color, fill, depth == 0U ? 2U : 1U, true);
-                break;
-            }
-            case KU_UI_WIDGET_LABEL: {
-                draw_icon(widget, row.x + 4, row.y + 1, icon_size);
-                const graphics::Color label_color = disabled ? kMuted : kAsh;
-                font::draw(face, text_x, row.y + 6, widget.text,
-                           label_color, kObsidian, 1U, true);
-                break;
-            }
-            case KU_UI_WIDGET_BUTTON:
-            case KU_UI_WIDGET_INPUT:
-            case KU_UI_WIDGET_LIST_ITEM: {
-                const graphics::Color fill = selected ? kSteelActive : kSteel;
-                const graphics::Color edge = selected ? kHotEdge : kSteelEdge;
-                fill_chamfered(row.x + 2, row.y + 3, row.width, row.height, 5, kShadow);
-                outline_chamfered(row.x, row.y, row.width, row.height, 5, edge, fill);
-                graphics::fill_rect(row.x + 5, row.y + 7,
-                                    selected ? 3 : 1,
-                                    row.height > 14 ? row.height - 14 : 1,
-                                    selected ? kHotEdge : kCrimson);
-                if (widget.type == KU_UI_WIDGET_INPUT) {
-                    graphics::fill_rect(row.x + 11, row.y + row.height - 4,
-                                        row.width - 22, 1,
-                                        selected ? kHotEdge : kSteelEdge);
-                }
-                draw_icon(widget, row.x + 9, row.y + 6, icon_size);
-                font::draw(face, text_x, row.y + 11, widget.text,
-                           text_color, fill, 1U, true);
-                if (selected) {
-                    graphics::fill_rect(row.x + row.width - 10,
-                                        row.y + row.height / 2 - 4,
-                                        2, 9, kHotEdge);
-                }
-                break;
-            }
-            case KU_UI_WIDGET_PROGRESS: {
-                outline_chamfered(row.x, row.y, row.width, row.height, 5,
-                                  kSteelEdge, kSteel);
-                draw_icon(widget, row.x + 9, row.y + 6, icon_size);
-                font::draw(face, text_x, row.y + 8, widget.text,
-                           text_color, kSteel, 1U, true);
-                const uint32_t maximum = widget.maximum == 0U ? 1U : widget.maximum;
-                const uint32_t value = widget.value > maximum ? maximum : widget.value;
-                const int32_t bar_x = row.x + 10;
-                const int32_t bar_y = row.y + row.height - 14;
-                const int32_t bar_width = row.width - 20;
-                graphics::fill_rect(bar_x, bar_y, bar_width, 7,
-                                    graphics::rgb(38, 45, 52));
-                graphics::fill_rect(
-                    bar_x, bar_y,
-                    static_cast<int32_t>((static_cast<uint64_t>(bar_width) * value) / maximum),
-                    7, kCrimson);
-                graphics::fill_rect(bar_x, bar_y,
-                                    bar_width > 44 ? 44 : bar_width,
-                                    1, kHotEdge);
-                break;
-            }
-            case KU_UI_WIDGET_SEPARATOR:
-                graphics::fill_rect(row.x, row.y + 4, row.width, 1, kSteelEdge);
-                graphics::fill_rect(row.x, row.y + 4,
-                                    row.width > 88 ? 88 : row.width,
-                                    1, kCrimson);
-                break;
-            default:
-                break;
+        if (ku_ui_widget_has_absolute_layout(&widget)) {
+            const Rect row{
+                bounds.x + KU_UI_LAYOUT_X(widget.value),
+                bounds.y + KU_UI_LAYOUT_Y(widget.value),
+                KU_UI_LAYOUT_WIDTH(widget.maximum),
+                KU_UI_LAYOUT_HEIGHT(widget.maximum)};
+            draw_standard_widget(widget, row, kind, focused, selected);
+            continue;
         }
-        y += height;
+
+        // Progress retains value/maximum semantics and older non-spatial rows
+        // remain valid while an application migrates incrementally.
+        if (visible_index++ < surface.scroll_offset) continue;
+        if (surface.visible_rows != 0U &&
+            visible_index > surface.scroll_offset + surface.visible_rows) break;
+        const int32_t height = row_height(widget.type);
+        const Rect row{bounds.x + 12, fallback_y,
+                       bounds.width - 24, height - 4};
+        draw_standard_widget(widget, row, kind, focused, selected);
+        fallback_y += height;
     }
 }
 
@@ -442,21 +474,14 @@ void forged_surface(
     const ku_ui_surface& surface,
     bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-
-    if (is_blade_surface(surface)) {
+    const SurfaceKind kind = surface_kind(surface);
+    if (has_spatial_widgets(surface)) {
+        draw_spatial_surface(bounds, surface, focused, kind);
+    } else if (kind == SurfaceKind::Blade) {
         draw_blade_surface(bounds, surface, focused);
-        return;
+    } else {
+        draw_flow_surface(bounds, surface, focused, kind);
     }
-
-    draw_generic_surface(
-        bounds,
-        surface,
-        focused,
-        is_kurosh_surface(surface),
-        is_access_surface(surface),
-        is_forge_surface(surface),
-        is_pulse_surface(surface),
-        is_anvil_surface(surface));
 }
 
 } // namespace ui
