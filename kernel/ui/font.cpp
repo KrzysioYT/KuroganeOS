@@ -57,6 +57,10 @@ void draw(
     int32_t cursor_y = y;
     if (text == nullptr || scale == 0U) return;
 
+    // Kurogane 5 uses crisp condensed/technical typography. The previous
+    // renderer performed a second complete glyph pass one pixel down/right to
+    // fake a shadow. Besides looking too soft for Forged Steel, that doubled a
+    // large part of software text rasterization on every compositor redraw.
     while (*text != '\0') {
         if (*text == '\n') {
             cursor_x = x;
@@ -65,17 +69,6 @@ void draw(
             continue;
         }
 
-        if (face != Face::Mono && transparent && *text != ' ') {
-            const graphics::Color shadow = graphics::rgb(3, 5, 6);
-            graphics::draw_char(
-                cursor_x + 1,
-                cursor_y + 1,
-                *text,
-                shadow,
-                background,
-                scale,
-                true);
-        }
         graphics::draw_char(
             cursor_x,
             cursor_y,
