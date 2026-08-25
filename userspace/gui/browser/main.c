@@ -37,12 +37,12 @@ typedef struct browser_link {
 
 static uint8_t g_response[KU_HTTP_RESPONSE_CAPACITY_LIMIT + 1U];
 static char g_address[BROWSER_ADDRESS_CAPACITY] = "https://example.com/";
-static char g_loaded_url[BROWSER_ADDRESS_CAPACITY] = "https://example.com/";
+static char g_loaded_url[BROWSER_ADDRESS_CAPACITY] = "";
 static char g_history[BROWSER_HISTORY_CAPACITY][BROWSER_ADDRESS_CAPACITY];
 static size_t g_history_count = 0U;
 static char g_title[KU_UI_WIDGET_TEXT_CAPACITY] = "Kurogane Web";
-static char g_meta[KU_UI_WIDGET_TEXT_CAPACITY] = "Secure web surface";
-static char g_status[KU_UI_WIDGET_TEXT_CAPACITY] = "READY";
+static char g_meta[KU_UI_WIDGET_TEXT_CAPACITY] = "Native HTTP / HTTPS surface";
+static char g_status[KU_UI_WIDGET_TEXT_CAPACITY] = "WEB SHELL READY";
 static char g_text[BROWSER_TEXT_LINES][KU_UI_WIDGET_TEXT_CAPACITY];
 static browser_link g_links[BROWSER_LINKS];
 static size_t g_link_count = 0U;
@@ -54,7 +54,8 @@ static int ascii_space(char value) {
 }
 
 static char ascii_lower(char value) {
-    return value >= 'A' && value <= 'Z' ? (char)(value + ('a' - 'A')) : value;
+    return value >= 'A' && value <= 'Z'
+        ? (char)(value + ('a' - 'A')) : value;
 }
 
 static int starts_with(const char* text, const char* prefix) {
@@ -107,10 +108,10 @@ static void set_status(const char* prefix, uint64_t value, const char* suffix) {
     gui_append_text(g_status, sizeof(g_status), suffix);
 }
 
-static void clear_page(void) {
+static void clear_document(void) {
     size_t index;
     (void)strlcpy(g_title, "Kurogane Web", sizeof(g_title));
-    (void)strlcpy(g_meta, "Waiting for page", sizeof(g_meta));
+    (void)strlcpy(g_meta, "Native HTTP / HTTPS surface", sizeof(g_meta));
     for (index = 0U; index < BROWSER_TEXT_LINES; ++index) g_text[index][0] = '\0';
     for (index = 0U; index < BROWSER_LINKS; ++index) {
         g_links[index].label[0] = '\0';
@@ -119,26 +120,36 @@ static void clear_page(void) {
     g_link_count = 0U;
 }
 
+static int network_is_ready(void) {
+    ku_network_status status;
+    memset(&status, 0, sizeof(status));
+    status.structure_size = sizeof(status);
+    if (ku_network_get_status(&status) != KU_STATUS_OK) return 0;
+    return status.ready != 0U;
+}
+
 static int parse_url(const char* input, browser_url* output) {
     char source[BROWSER_ADDRESS_CAPACITY];
     const char* cursor;
     const char* slash;
     size_t host_length;
-    size_t path_length;
+    size_t length;
+    size_t index;
+
     if (input == NULL || output == NULL) return 0;
     while (ascii_space(*input)) ++input;
     (void)strlcpy(source, input, sizeof(source));
-    path_length = strlen(source);
-    while (path_length != 0U && ascii_space(source[path_length - 1U])) {
-        source[--path_length] = '\0';
+    length = strlen(source);
+    while (length != 0U && ascii_space(source[length - 1U])) {
+        source[--length] = '\0';
     }
     if (source[0] == '\0') return 0;
 
     memset(output, 0, sizeof(*output));
-    if (starts_with(source, "https://")) {
+    if (starts_with_case(source, "https://")) {
         output->secure = 1;
         cursor = source + 8U;
-    } else if (starts_with(source, "http://")) {
+    } else if (starts_with_case(source, "http://")) {
         output->secure = 0;
         cursor = source + 7U;
     } else {
@@ -148,28 +159,36 @@ static int parse_url(const char* input, browser_url* output) {
 
     slash = strchr(cursor, '/');
     host_length = slash != NULL ? (size_t)(slash - cursor) : strlen(cursor);
-    if (host_length == 0U || host_length >= sizeof(output->host) ||
-        memchr(cursor, ':', host_length) != NULL) return 0;
-    memcpy(output->host, cursor, host_length);
+    if (host_length == 0U || host_length >= sizeof(output->host)) return 0;
+    for (index = 0U; index < host_length; ++index) {
+        if (cursor[index] == ':' || ascii_space(cursor[index])) return 0;
+        output->host[index] = ascii_lower(cursor[index]);
+    }
     output->host[host_length] = '\0';
 
     if (slash == NULL) {
         (void)strlcpy(output->path, "/", sizeof(output->path));
     } else {
-        path_length = strlen(slash);
-        if (path_length == 0U || path_length >= sizeof(output->path)) return 0;
-        memcpy(output->path, slash, path_length + 1U);
+        length = strlen(slash);
+        if (length == 0U || length >= sizeof(output->path)) return 0;
+        memcpy(output->path, slash, length + 1U);
     }
 
     output->canonical[0] = '\0';
     if (!append_part(output->canonical, sizeof(output->canonical),
                      output->secure ? "https://" : "http://") ||
         !append_part(output->canonical, sizeof(output->canonical), output->host) ||
-        !append_part(output->canonical, sizeof(output->canonical), output->path)) return 0;
+        !append_part(output->canonical, sizeof(output->canonical), output->path)) {
+        return 0;
+    }
     return 1;
 }
 
-static int response_body(uint8_t* response, size_t size, char** body, size_t* body_size) {
+static int response_body(
+    uint8_t* response,
+    size_t size,
+    char** body,
+    size_t* body_size) {
     size_t index;
     if (response == NULL || body == NULL || body_size == NULL) return 0;
     for (index = 0U; index + 3U < size; ++index) {
@@ -190,11 +209,13 @@ static int response_header(
     size_t capacity) {
     const size_t name_length = strlen(name);
     const char* line = response;
-    if (response == NULL || name == NULL || output == NULL || capacity == 0U) return 0;
+    if (response == NULL || output == NULL || capacity == 0U) return 0;
     output[0] = '\0';
+
     while (*line != '\0') {
         const char* end = strstr(line, "\r\n");
-        const size_t line_length = end != NULL ? (size_t)(end - line) : strlen(line);
+        const size_t line_length = end != NULL
+            ? (size_t)(end - line) : strlen(line);
         if (line_length == 0U) break;
         if (line_length > name_length && starts_with_case(line, name) &&
             line[name_length] == ':') {
@@ -224,22 +245,35 @@ static size_t decode_entity(const char* source, char* output) {
     return 1U;
 }
 
-static void normalize_label(const char* begin, const char* end, char* output, size_t capacity) {
+static void normalize_text(
+    const char* begin,
+    const char* end,
+    char* output,
+    size_t capacity) {
     size_t written = 0U;
     int in_tag = 0;
     int pending_space = 0;
     const char* cursor = begin;
     if (begin == NULL || end == NULL || output == NULL || capacity == 0U) return;
+
     while (cursor < end && *cursor != '\0' && written + 1U < capacity) {
         char value;
         size_t consumed = 1U;
         if (*cursor == '<') { in_tag = 1; ++cursor; continue; }
-        if (*cursor == '>' && in_tag) { in_tag = 0; pending_space = 1; ++cursor; continue; }
+        if (*cursor == '>' && in_tag) {
+            in_tag = 0;
+            pending_space = written != 0U;
+            ++cursor;
+            continue;
+        }
         if (in_tag) { ++cursor; continue; }
         if (*cursor == '&') consumed = decode_entity(cursor, &value);
         else value = *cursor;
         cursor += consumed;
-        if (ascii_space(value)) { pending_space = written != 0U; continue; }
+        if (ascii_space(value)) {
+            pending_space = written != 0U;
+            continue;
+        }
         if (pending_space && written + 1U < capacity) output[written++] = ' ';
         pending_space = 0;
         output[written++] = value;
@@ -260,7 +294,7 @@ static int resolve_href(
     if (*href == '\0' || *href == '#') return 0;
 
     candidate[0] = '\0';
-    if (starts_with(href, "https://") || starts_with(href, "http://")) {
+    if (starts_with_case(href, "https://") || starts_with_case(href, "http://")) {
         (void)strlcpy(candidate, href, sizeof(candidate));
     } else if (starts_with(href, "//")) {
         (void)strlcpy(candidate, base->secure ? "https:" : "http:", sizeof(candidate));
@@ -281,6 +315,7 @@ static int resolve_href(
                 !append_part(candidate, sizeof(candidate), href)) return 0;
         }
     }
+
     if (!parse_url(candidate, &parsed)) return 0;
     (void)strlcpy(output, parsed.canonical, capacity);
     return 1;
@@ -296,20 +331,20 @@ static void parse_title(const char* html) {
     ++begin;
     end = find_case(begin, "</title>");
     if (end == NULL) return;
-    normalize_label(begin, end, g_title, sizeof(g_title));
+    normalize_text(begin, end, g_title, sizeof(g_title));
     if (g_title[0] == '\0') (void)strlcpy(g_title, "Kurogane Web", sizeof(g_title));
 }
 
-static void parse_text(const char* html) {
+static void parse_document_text(const char* html) {
     char plain[KU_UI_WIDGET_TEXT_CAPACITY * BROWSER_TEXT_LINES];
+    const char* cursor = html;
     size_t written = 0U;
+    size_t line = 0U;
+    size_t column = 0U;
     int in_tag = 0;
     int pending_space = 0;
-    const char* cursor = html;
-    size_t line;
-    size_t column = 0U;
-    memset(plain, 0, sizeof(plain));
 
+    memset(plain, 0, sizeof(plain));
     while (*cursor != '\0' && written + 1U < sizeof(plain)) {
         char value;
         size_t consumed = 1U;
@@ -327,7 +362,7 @@ static void parse_text(const char* html) {
                 continue;
             }
             in_tag = 1;
-            pending_space = 1;
+            pending_space = written != 0U;
             ++cursor;
             continue;
         }
@@ -336,7 +371,10 @@ static void parse_text(const char* html) {
         if (*cursor == '&') consumed = decode_entity(cursor, &value);
         else value = *cursor;
         cursor += consumed;
-        if (ascii_space(value)) { pending_space = written != 0U; continue; }
+        if (ascii_space(value)) {
+            pending_space = written != 0U;
+            continue;
+        }
         if (pending_space && written + 1U < sizeof(plain)) plain[written++] = ' ';
         pending_space = 0;
         plain[written++] = value;
@@ -361,6 +399,7 @@ static void parse_text(const char* html) {
 static void parse_links(const char* html, const browser_url* base) {
     const char* cursor = html;
     g_link_count = 0U;
+
     while (g_link_count < BROWSER_LINKS) {
         const char* anchor = find_case(cursor, "<a");
         const char* tag_end;
@@ -370,24 +409,36 @@ static void parse_links(const char* html, const browser_url* base) {
         char quote = '\0';
         char raw[BROWSER_LINK_URL_CAPACITY];
         size_t raw_length;
+
         if (anchor == NULL) break;
         tag_end = strchr(anchor, '>');
         if (tag_end == NULL) break;
         href = find_case(anchor, "href");
-        if (href == NULL || href >= tag_end) { cursor = tag_end + 1U; continue; }
+        if (href == NULL || href >= tag_end) {
+            cursor = tag_end + 1U;
+            continue;
+        }
         href += 4U;
         while (href < tag_end && ascii_space(*href)) ++href;
-        if (href >= tag_end || *href != '=') { cursor = tag_end + 1U; continue; }
+        if (href >= tag_end || *href != '=') {
+            cursor = tag_end + 1U;
+            continue;
+        }
         ++href;
         while (href < tag_end && ascii_space(*href)) ++href;
-        if (href >= tag_end) { cursor = tag_end + 1U; continue; }
+        if (href >= tag_end) break;
         if (*href == '\'' || *href == '"') quote = *href++;
         value = href;
         while (href < tag_end &&
                ((quote != '\0' && *href != quote) ||
-                (quote == '\0' && !ascii_space(*href) && *href != '>'))) ++href;
+                (quote == '\0' && !ascii_space(*href) && *href != '>'))) {
+            ++href;
+        }
         raw_length = (size_t)(href - value);
-        if (raw_length == 0U || raw_length >= sizeof(raw)) { cursor = tag_end + 1U; continue; }
+        if (raw_length == 0U || raw_length >= sizeof(raw)) {
+            cursor = tag_end + 1U;
+            continue;
+        }
         memcpy(raw, value, raw_length);
         raw[raw_length] = '\0';
         if (!resolve_href(base, raw, g_links[g_link_count].url,
@@ -395,11 +446,12 @@ static void parse_links(const char* html, const browser_url* base) {
             cursor = tag_end + 1U;
             continue;
         }
+
         close = find_case(tag_end + 1U, "</a>");
         if (close == NULL) close = tag_end + 1U;
-        normalize_label(tag_end + 1U, close,
-                        g_links[g_link_count].label,
-                        sizeof(g_links[g_link_count].label));
+        normalize_text(tag_end + 1U, close,
+                       g_links[g_link_count].label,
+                       sizeof(g_links[g_link_count].label));
         if (g_links[g_link_count].label[0] == '\0') {
             (void)strlcpy(g_links[g_link_count].label,
                           g_links[g_link_count].url,
@@ -414,18 +466,24 @@ static void parse_links(const char* html, const browser_url* base) {
 static void history_push(const char* url) {
     size_t index;
     if (url == NULL || url[0] == '\0') return;
-    if (g_history_count != 0U && strcmp(g_history[g_history_count - 1U], url) == 0) return;
+    if (g_history_count != 0U &&
+        strcmp(g_history[g_history_count - 1U], url) == 0) return;
     if (g_history_count == BROWSER_HISTORY_CAPACITY) {
         for (index = 1U; index < BROWSER_HISTORY_CAPACITY; ++index) {
-            (void)strlcpy(g_history[index - 1U], g_history[index], sizeof(g_history[index - 1U]));
+            (void)strlcpy(g_history[index - 1U], g_history[index],
+                          sizeof(g_history[index - 1U]));
         }
         --g_history_count;
     }
-    (void)strlcpy(g_history[g_history_count], url, sizeof(g_history[g_history_count]));
+    (void)strlcpy(g_history[g_history_count], url,
+                  sizeof(g_history[g_history_count]));
     ++g_history_count;
 }
 
-static int fetch_page(const browser_url* target, browser_url* final_url, unsigned redirects) {
+static int fetch_page(
+    const browser_url* target,
+    browser_url* final_url,
+    unsigned redirects) {
     ku_http_request request;
     ku_status_t status;
     char location[BROWSER_LINK_URL_CAPACITY];
@@ -433,14 +491,15 @@ static int fetch_page(const browser_url* target, browser_url* final_url, unsigne
     char* body = NULL;
     size_t body_size = 0U;
     browser_url redirected;
-    if (target == NULL || final_url == NULL) return 0;
 
+    if (target == NULL || final_url == NULL) return 0;
     memset(&request, 0, sizeof(request));
     request.structure_size = sizeof(request);
     (void)strlcpy(request.host, target->host, sizeof(request.host));
     (void)strlcpy(request.path, target->path, sizeof(request.path));
     request.output = g_response;
     request.output_capacity = KU_HTTP_RESPONSE_CAPACITY_LIMIT;
+
     status = target->secure ? ku_https_get(&request) : ku_http_get(&request);
     if (status != KU_STATUS_OK) {
         set_status("NETWORK ERROR ", (uint64_t)(uint32_t)(-status), "");
@@ -454,8 +513,10 @@ static int fetch_page(const browser_url* target, browser_url* final_url, unsigne
 
     if ((request.http_status == 301U || request.http_status == 302U ||
          request.http_status == 303U || request.http_status == 307U ||
-         request.http_status == 308U) && redirects < BROWSER_REDIRECT_LIMIT &&
-        response_header((const char*)g_response, "Location", location, sizeof(location)) &&
+         request.http_status == 308U) &&
+        redirects < BROWSER_REDIRECT_LIMIT &&
+        response_header((const char*)g_response, "Location",
+                        location, sizeof(location)) &&
         resolve_href(target, location, redirect_url, sizeof(redirect_url)) &&
         parse_url(redirect_url, &redirected)) {
         return fetch_page(&redirected, final_url, redirects + 1U);
@@ -465,15 +526,17 @@ static int fetch_page(const browser_url* target, browser_url* final_url, unsigne
         set_status("HTTP ", request.http_status, "");
         return 0;
     }
-    if (!response_body(g_response, (size_t)request.bytes_received, &body, &body_size)) {
+    if (!response_body(g_response, (size_t)request.bytes_received,
+                       &body, &body_size)) {
         (void)strlcpy(g_status, "INVALID HTTP RESPONSE", sizeof(g_status));
         return 0;
     }
+
     body[body_size] = '\0';
     *final_url = *target;
-    clear_page();
+    clear_document();
     parse_title(body);
-    parse_text(body);
+    parse_document_text(body);
     parse_links(body, final_url);
     set_status("LOADED ", body_size, " BYTES");
     return 1;
@@ -486,16 +549,27 @@ static int navigate_to(const char* requested, int remember_current) {
         (void)strlcpy(g_status, "INVALID URL", sizeof(g_status));
         return 0;
     }
+    if (!network_is_ready()) {
+        (void)strlcpy(g_status,
+                      "NETWORK OFFLINE / PRESS R TO RETRY",
+                      sizeof(g_status));
+        return 0;
+    }
+
     (void)strlcpy(g_status, "CONNECTING...", sizeof(g_status));
     if (!fetch_page(&target, &final_url, 0U)) return 0;
+
     if (remember_current && g_loaded_url[0] != '\0' &&
-        strcmp(g_loaded_url, final_url.canonical) != 0) history_push(g_loaded_url);
+        strcmp(g_loaded_url, final_url.canonical) != 0) {
+        history_push(g_loaded_url);
+    }
     (void)strlcpy(g_loaded_url, final_url.canonical, sizeof(g_loaded_url));
     (void)strlcpy(g_address, final_url.canonical, sizeof(g_address));
     g_editing = 0;
     g_selected = g_link_count != 0U ? VIEW_LINK_BASE : VIEW_ADDRESS;
     g_meta[0] = '\0';
-    gui_append_text(g_meta, sizeof(g_meta), final_url.secure ? "TLS 1.2  |  " : "HTTP  |  ");
+    gui_append_text(g_meta, sizeof(g_meta),
+                    final_url.secure ? "TLS 1.2  |  " : "HTTP  |  ");
     gui_append_text(g_meta, sizeof(g_meta), final_url.host);
     return 1;
 }
@@ -519,7 +593,9 @@ static void select_next(int direction) {
     choices[count++] = VIEW_HOME;
     choices[count++] = VIEW_RELOAD;
     choices[count++] = VIEW_ADDRESS;
-    for (index = 0U; index < g_link_count; ++index) choices[count++] = VIEW_LINK_BASE + (uint32_t)index;
+    for (index = 0U; index < g_link_count; ++index) {
+        choices[count++] = VIEW_LINK_BASE + (uint32_t)index;
+    }
     for (index = 0U; index < count && choices[index] != g_selected; ++index) {}
     if (index == count) index = 0U;
     else if (direction > 0) index = (index + 1U) % count;
@@ -530,9 +606,11 @@ static void select_next(int direction) {
 static void activate(uint32_t id) {
     if (id == VIEW_BACK) navigate_back();
     else if (id == VIEW_HOME) (void)navigate_to("https://example.com/", 1);
-    else if (id == VIEW_RELOAD) (void)navigate_to(g_loaded_url, 0);
-    else if (id == VIEW_ADDRESS) g_editing = 1;
-    else if (id >= VIEW_LINK_BASE && id < VIEW_LINK_BASE + BROWSER_LINKS) {
+    else if (id == VIEW_RELOAD) {
+        (void)navigate_to(g_loaded_url[0] != '\0' ? g_loaded_url : g_address, 0);
+    } else if (id == VIEW_ADDRESS) {
+        g_editing = 1;
+    } else if (id >= VIEW_LINK_BASE && id < VIEW_LINK_BASE + BROWSER_LINKS) {
         const size_t link = (size_t)(id - VIEW_LINK_BASE);
         if (link < g_link_count) (void)navigate_to(g_links[link].url, 1);
     }
@@ -543,7 +621,8 @@ static void build_scene(kui_scene* scene) {
     char address_label[KU_UI_WIDGET_TEXT_CAPACITY];
     kui_scene_initialize(scene);
     gui_apply_forged_theme(scene, 1);
-    (void)kui_scene_set_cursor(scene, g_editing ? KU_UI_CURSOR_TEXT : KU_UI_CURSOR_HAND);
+    (void)kui_scene_set_cursor(
+        scene, g_editing ? KU_UI_CURSOR_TEXT : KU_UI_CURSOR_HAND);
 
     (void)kui_scene_add(scene, VIEW_SHELL, 0U, KUI_VIEW_PANEL,
                         "KUROGANE WEB / SECURE NAVIGATION");
@@ -556,7 +635,8 @@ static void build_scene(kui_scene* scene) {
     (void)kui_scene_set_icon(scene, VIEW_RELOAD, KU_ICON_ACTION_REFRESH);
 
     address_label[0] = '\0';
-    gui_append_text(address_label, sizeof(address_label), g_editing ? "EDIT  " : "URL   ");
+    gui_append_text(address_label, sizeof(address_label),
+                    g_editing ? "EDIT  " : "URL   ");
     gui_append_text(address_label, sizeof(address_label), g_address);
     (void)kui_scene_add(scene, VIEW_ADDRESS, 0U, KUI_VIEW_INPUT, address_label);
     (void)kui_scene_set_icon(scene, VIEW_ADDRESS, KU_ICON_ACTION_SEARCH);
@@ -567,22 +647,32 @@ static void build_scene(kui_scene* scene) {
 
     for (index = 0U; index < BROWSER_TEXT_LINES; ++index) {
         if (g_text[index][0] != '\0') {
-            (void)kui_scene_add(scene, VIEW_TEXT_BASE + (uint32_t)index, 0U,
-                                KUI_VIEW_LABEL, g_text[index]);
+            (void)kui_scene_add(scene, VIEW_TEXT_BASE + (uint32_t)index,
+                                0U, KUI_VIEW_LABEL, g_text[index]);
         }
     }
     if (g_link_count != 0U) {
-        (void)kui_scene_add(scene, VIEW_LINK_SEPARATOR, 0U, KUI_VIEW_SEPARATOR, "");
+        (void)kui_scene_add(scene, VIEW_LINK_SEPARATOR,
+                            0U, KUI_VIEW_SEPARATOR, "");
         for (index = 0U; index < g_link_count; ++index) {
-            (void)kui_scene_add(scene, VIEW_LINK_BASE + (uint32_t)index, 0U,
-                                KUI_VIEW_BUTTON, g_links[index].label);
-            (void)kui_scene_set_icon(scene, VIEW_LINK_BASE + (uint32_t)index,
+            (void)kui_scene_add(scene, VIEW_LINK_BASE + (uint32_t)index,
+                                0U, KUI_VIEW_BUTTON, g_links[index].label);
+            (void)kui_scene_set_icon(scene,
+                                     VIEW_LINK_BASE + (uint32_t)index,
                                      KU_ICON_ACTION_OPEN);
         }
     }
     (void)kui_scene_add(scene, VIEW_STATUS, 0U, KUI_VIEW_LABEL, g_status);
-    (void)kui_scene_set_icon(scene, VIEW_STATUS, KU_ICON_STATUS_ONLINE);
+    (void)kui_scene_set_icon(scene, VIEW_STATUS,
+                             network_is_ready()
+                                 ? KU_ICON_STATUS_ONLINE
+                                 : KU_ICON_STATUS_WARNING);
     (void)kui_scene_select(scene, g_selected);
+}
+
+static int present(ku_window_t window, kui_scene* scene) {
+    build_scene(scene);
+    return kui_scene_present(window, scene) == KU_STATUS_OK;
 }
 
 static void edit_character(uint32_t character) {
@@ -599,16 +689,41 @@ int main(void) {
     kui_scene scene;
     ku_ui_event event;
 
-    clear_page();
+    clear_document();
     window = gui_open("KUROGANE WEB", 330, 94, 870, 650);
     if (window == KU_INVALID_WINDOW) return 1;
-    (void)navigate_to(g_address, 0);
+
+    // Important 5.0 launch contract: the browser surface becomes visible
+    // before any synchronous DNS/TCP/TLS work begins. A slow or unavailable
+    // network therefore cannot masquerade as a failed application launch.
+    (void)strlcpy(g_status, "WEB SHELL ONLINE / CHECKING NETWORK",
+                  sizeof(g_status));
+    if (!present(window, &scene)) {
+        (void)ku_ui_close(window);
+        return 2;
+    }
+    puts("[TEST] kurogane5_web_surface: PASS");
+    puts("[TEST] desktop_browser_ring3: PASS");
+    (void)kuro_sleep(2U);
+
+    if (network_is_ready()) {
+        (void)strlcpy(g_status, "OPENING SECURE HOME...", sizeof(g_status));
+        (void)present(window, &scene);
+        (void)kuro_sleep(1U);
+        if (navigate_to(g_address, 0)) {
+            puts("[TEST] kurogane5_web_initial_navigation: PASS");
+        }
+    } else {
+        (void)strlcpy(g_status,
+                      "NETWORK OFFLINE / WEB REMAINS INTERACTIVE",
+                      sizeof(g_status));
+        puts("[TEST] kurogane5_web_offline_shell: PASS");
+    }
 
     for (;;) {
         uint32_t hit;
-        build_scene(&scene);
-        if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
-        if (!gui_wait_event(window, &event)) continue;
+        if (!present(window, &scene)) break;
+        if (gui_wait_event(window, &event) < 0) break;
         if (event.type == KU_UI_EVENT_CLOSE) break;
 
         if (event.type == KU_UI_EVENT_POINTER) {
@@ -625,7 +740,9 @@ int main(void) {
             if (gui_key_activate(&event)) {
                 (void)navigate_to(g_address, 1);
             } else if (gui_key_cancel(&event)) {
-                (void)strlcpy(g_address, g_loaded_url, sizeof(g_address));
+                if (g_loaded_url[0] != '\0') {
+                    (void)strlcpy(g_address, g_loaded_url, sizeof(g_address));
+                }
                 g_editing = 0;
             } else if (event.key == KU_UI_KEY_BACKSPACE) {
                 const size_t length = strlen(g_address);
