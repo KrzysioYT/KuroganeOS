@@ -19,9 +19,19 @@ $Firmware = Join-Path $RootDir 'tools\qemu\share\edk2-x86_64-code.fd'
 $FirmwareVars = Join-Path $RootDir 'tools\qemu\share\edk2-i386-vars.fd'
 $BuildDir = Join-Path $RootDir 'build'
 $LogDir = Join-Path $BuildDir 'logs'
+$imageWasExplicit = $PSBoundParameters.ContainsKey('DiskImagePath')
 
 if ([string]::IsNullOrWhiteSpace($DiskImagePath)) {
-    $DiskImagePath = Join-Path $BuildDir 'images\KuroganeOS-base.img'
+    $working = Join-Path $RootDir 'state\KuroganeOS.img'
+    $base = Join-Path $BuildDir 'images\KuroganeOS-base.img'
+    $DiskImagePath = if (Test-Path -LiteralPath $working -PathType Leaf) {
+        $working
+    } else {
+        $base
+    }
+}
+if ($WritableDiskImage -and -not $imageWasExplicit) {
+    throw '-WritableDiskImage requires an explicit -DiskImagePath. The default working/base image is protected.'
 }
 
 foreach ($required in @($Qemu, $Firmware, $FirmwareVars, $DiskImagePath)) {
@@ -31,8 +41,16 @@ foreach ($required in @($Qemu, $Firmware, $FirmwareVars, $DiskImagePath)) {
 }
 
 $Image = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $DiskImagePath).ProviderPath)
-if ($Image.Contains(',')) {
-    throw "Disk image path cannot contain a comma: $Image"
+$item = Get-Item -LiteralPath $Image -Force
+if ($Image.Contains(',')) { throw "Disk image path cannot contain a comma: $Image" }
+if ($item.Length -lt 512 -or ($item.Length % 512) -ne 0) {
+    throw "Disk image must be non-empty and 512-byte aligned: $Image"
+}
+if ([System.IO.Path]::GetExtension($Image) -notin @('.img', '.raw')) {
+    throw "Disk image must use .img or .raw: $Image"
+}
+if ($WritableDiskImage -and $item.IsReadOnly) {
+    throw "Disk image is read-only: $Image"
 }
 
 [System.IO.Directory]::CreateDirectory($LogDir) | Out-Null
@@ -44,14 +62,11 @@ function Invoke-KuroganeQemu {
         [string]$Mode
     )
 
-    $suffix = $Mode
-    $SerialLog = Join-Path $LogDir "$LogName-$suffix-serial.log"
-    $StdoutLog = Join-Path $LogDir "$LogName-$suffix-stdout.log"
-    $StderrLog = Join-Path $LogDir "$LogName-$suffix-stderr.log"
+    $SerialLog = Join-Path $LogDir "$LogName-$Mode-serial.log"
+    $StdoutLog = Join-Path $LogDir "$LogName-$Mode-stdout.log"
+    $StderrLog = Join-Path $LogDir "$LogName-$Mode-stderr.log"
     foreach ($log in @($SerialLog, $StdoutLog, $StderrLog)) {
-        if (Test-Path -LiteralPath $log) {
-            Remove-Item -LiteralPath $log -Force
-        }
+        if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
     }
 
     $snapshot = if ($WritableDiskImage) { 'off' } else { 'on' }
@@ -72,15 +87,11 @@ function Invoke-KuroganeQemu {
         '-no-reboot',
         '-no-shutdown'
     )
+    if ($Mode -eq 'tcg') { $arguments += @('-cpu', 'max') }
 
-    # `max` is a TCG CPU model. Hardware accelerators should expose their own
-    # supported virtual CPU feature set instead of forcing a TCG-only model.
-    if ($Mode -eq 'tcg') {
-        $arguments += @('-cpu', 'max')
-    }
-
-    Write-Host "[qemu] accelerator=$Mode memory=${MemoryMiB}MiB"
+    Write-Host "[qemu-fast] accelerator=$Mode memory=${MemoryMiB}MiB"
     Write-Host "[image] $Image"
+    Write-Host "[image-mode] $(if ($WritableDiskImage) { 'writable' } else { 'protected snapshot' })"
     Write-Host "[serial] $SerialLog"
 
     $process = Start-Process `
@@ -100,18 +111,10 @@ function Invoke-KuroganeQemu {
 }
 
 function Test-AccelerationFailure {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$StderrPath
-    )
-
-    if (-not (Test-Path -LiteralPath $StderrPath)) {
-        return $false
-    }
+    param([Parameter(Mandatory = $true)][string]$StderrPath)
+    if (-not (Test-Path -LiteralPath $StderrPath)) { return $false }
     $text = Get-Content -LiteralPath $StderrPath -Raw -ErrorAction SilentlyContinue
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $false
-    }
+    if ([string]::IsNullOrWhiteSpace($text)) { return $false }
     return $text -match '(?i)(whpx|hypervisor).*(failed|unavailable|not available|not supported|not implemented)|failed to initialize.*whpx|no accelerator found'
 }
 
@@ -119,13 +122,20 @@ $launch = $null
 if ($Accelerator -eq 'auto') {
     $launch = Invoke-KuroganeQemu -Mode 'whpx'
     Start-Sleep -Milliseconds 1500
-    if ($launch.Process.HasExited -and
-        (Test-AccelerationFailure -StderrPath $launch.Stderr)) {
-        Write-Warning 'WHPX is unavailable on this Windows host; falling back to TCG.'
-        $launch = Invoke-KuroganeQemu -Mode 'tcg'
+    $launch.Process.Refresh()
+    if ($launch.Process.HasExited) {
+        if (Test-AccelerationFailure -StderrPath $launch.Stderr) {
+            Write-Warning 'WHPX is unavailable; falling back to QEMU TCG.'
+            $launch = Invoke-KuroganeQemu -Mode 'tcg'
+        } else {
+            Write-Warning 'WHPX QEMU exited during startup; stderr follows.'
+            if (Test-Path -LiteralPath $launch.Stderr) {
+                Get-Content -LiteralPath $launch.Stderr -Tail 40
+            }
+            exit $launch.Process.ExitCode
+        }
     }
-}
-else {
+} else {
     $launch = Invoke-KuroganeQemu -Mode $Accelerator
 }
 
