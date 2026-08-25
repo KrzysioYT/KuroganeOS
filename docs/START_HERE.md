@@ -1,37 +1,95 @@
 # KuroganeOS — START HERE
 
-KuroganeOS **3.3.3-dev DEV BETA** jest systemem x86-64 rozwijanym od zera.
-Najbezpieczniej uruchamiać go w maszynie wirtualnej. Nie instaluj DEV BETA na
-fizycznym dysku zawierającym ważne dane.
+KuroganeOS `3.3.3-dev` jest eksperymentalnym systemem x86-64 rozwijanym od
+zera. Bieżąca gałąź desktopowa rozwija UI Forged Steel/KuroganeOS 5, ale nie
+jest jeszcze wydaniem 5.0.0.
 
-## Wybierz właściwy artefakt
+Najbezpieczniej testować system w QEMU albo VirtualBox. Nie instaluj DEV BETA na
+dysku zawierającym ważne dane.
 
-Na Windows canonical media są rozdzielone według hypervisora:
+## Chcę tylko zobaczyć bieżący desktop na Windows
 
-```text
-Oracle VirtualBox:
-  dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+Po buildzie:
 
-QEMU:
-  dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+```powershell
+.\scripts\run-qemu-fast.ps1 `
+  -Accelerator auto `
+  -MemoryMiB 1024 `
+  -LogName first-run
 ```
 
-Nie używaj `.img` jako VirtualBox DVD.
+Runner wybiera `state/KuroganeOS.img`, jeżeli istnieje, w przeciwnym razie
+`build/images/KuroganeOS-base.img`.
+
+Na ekranie powinieneś zobaczyć:
+
+```text
+Forged Steel splash
+KUROGANE // SECURE ACCESS
+ENTER KUROGANE DESKTOP
+Blade Launcher / desktop
+```
+
+Jeżeli terminal wypisze `accelerator=whpx`, QEMU używa Windows Hypervisor
+Platform. Przy `accelerator=tcg` system działa programowo i GUI może być dużo
+wolniejsze.
+
+## Foundation a legacy FAT
+
+Do pełnego desktopu używaj:
+
+```text
+build/images/KuroganeOS-base.img
+state/KuroganeOS.img
+```
+
+Nie używaj `kurogane.img` jako normalnego dysku userspace. To legacy 64 MiB
+FAT/EFI artifact bez partycji `Kurogane Root` wymaganej przez `/system/init`.
+
+## Chcę uruchomić media QEMU
+
+Po:
+
+```powershell
+.\scripts\build-media.ps1 -Configuration release -Rebuild
+```
+
+Windows publikuje:
+
+```text
+dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+dist/SHA256SUMS.txt
+```
+
+QEMU IMG:
+
+```powershell
+.\scripts\run-qemu-fast.ps1 `
+  -DiskImagePath .\dist\KuroganeOS-3.3.3-dev-qemu-x86_64.img `
+  -Accelerator auto
+```
 
 ## Chcę uruchomić KuroganeOS w VirtualBox
+
+Użyj:
+
+```text
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+```
 
 Referencyjna konfiguracja:
 
 ```text
-Firmware:       EFI64 / UEFI
+Firmware:       EFI / UEFI
 Secure Boot:    OFF
 I/O APIC:       ON
-RAM:            2048 MiB
+RAM:            1024-2048 MiB
 CPU:            1-2
 HDD:            pusty VDI >= 2 GiB
 HDD controller: SATA / Intel AHCI
-DVD controller: IDE / PIIX4
-DVD:            KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+DVD controller: IDE
+DVD:            KuroganeOS VirtualBox ISO
 Boot order:     DVD -> Disk
 Network:        NAT
 NIC:            Intel PRO/1000 MT Desktop (82540EM)
@@ -39,142 +97,100 @@ Audio:          Intel AC'97
 Input:          PS/2
 ```
 
-Najważniejsze:
+Szczegóły: [VIRTUALBOX.md](VIRTUALBOX.md).
+
+## Chcę zbudować system na Windows
+
+Wymagane są repozytoryjne pliki cross-toolchainu:
 
 ```text
-SATA / IntelAHCI -> KuroganeOS.vdi
-IDE / PIIX4      -> KuroganeOS VirtualBox ISO
+tools/compiler/x86_64-elf/bin/
 ```
 
-Jeżeli VDI jest na IDE, ISO może się uruchomić, ale instalator nie zobaczy
-wymaganego PCI AHCI.
+oraz WSL2.
 
-Szczegóły: [`VIRTUALBOX.md`](VIRTUALBOX.md).
-
-## Chcę tylko zobaczyć system
-
-1. Uruchom VirtualBox ISO albo QEMU IMG.
-2. W Red Flux Setup wybierz `TRY KUROGANEOS`.
-3. System uruchomi sesję live bez formatowania dysku.
-
-Na Macach Apple Silicon używaj QEMU/TCG dla gościa x86-64.
-
-## Chcę zainstalować w VirtualBox
-
-1. Upewnij się, że VDI jest podpięty przez SATA / Intel AHCI.
-2. Uruchom canonical VirtualBox ISO.
-3. Wybierz `INSTALL KUROGANEOS`.
-4. Wybierz język, username i tryb hasła.
-5. Wybierz pusty wirtualny dysk.
-6. Na ekranie destrukcyjnego potwierdzenia wpisz `INSTALL`.
-7. Wielkość liter nie ma znaczenia — `install`, `Install` i `INSTALL` są
-   akceptowane.
-8. Błędny tekst można poprawić bez restartu instalatora.
-9. `Esc` wraca do wyboru dysku i nie zapisuje GPT.
-10. Poczekaj na `[TEST] installer_complete: PASS`.
-11. Wyłącz VM, odłącz ISO i uruchom z HDD.
-
-Pełna instrukcja: [`INSTALLATION.md`](INSTALLATION.md).
-
-## Windows — zbuduj media
+Development build:
 
 ```powershell
-.\scripts\build-media.ps1 -Configuration release -Rebuild
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build.ps1 `
+  -Configuration debug `
+  -Rebuild
 ```
 
-Windows build domyślnie uruchamia realny Oracle VirtualBox smoke dla canonical
-ISO. Jeżeli świadomie budujesz na hoście bez VirtualBox:
+Pełne media:
 
 ```powershell
-.\scripts\build-media.ps1 `
-    -Configuration release `
-    -Rebuild `
-    -SkipVirtualBoxSmoke
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\build-media.ps1 `
+  -Configuration release `
+  -Rebuild
 ```
 
-Taki build nie jest runtime-qualified jako VirtualBox PASS.
+## macOS
 
-## Windows — utwórz poprawną VM automatycznie
+```bash
+chmod +x scripts/*.sh
+bash ./scripts/setup-macos.sh --install
+bash ./scripts/build-media-macos.sh --configuration debug --rebuild
+./scripts/run-qemu-macos.sh --windowed --memory 1024
+```
+
+Apple Silicon uruchamia x86-64 guest przez QEMU TCG. Nie traktuj FPS z TCG jako
+miarodajnego benchmarku compositora.
+
+## Testy przed zgłoszeniem błędu
+
+Host tests:
 
 ```powershell
-.\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -Name "KuroganeOS-3.3.3-VB"
+wsl.exe --exec bash -lc "cd /mnt/e/KuroganeOS && bash ./scripts/test.sh"
 ```
 
-## Windows — napraw istniejącą VM
-
-VM musi być całkowicie wyłączona:
+Focused QEMU integration:
 
 ```powershell
-.\scripts\repair-virtualbox-boot.ps1 `
-    -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
+.\scripts\run-qemu.ps1 `
+  -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -ShellTest `
+  -TimeoutSeconds 90 `
+  -LogName focused
 ```
 
-Repair helper ustawia EFI64, DVD -> Disk, IntelAHCI i potrafi przenieść
-wirtualny HDD z IDE na SATA 0:0 bez tworzenia nowego dysku.
+Pełna kwalifikacja:
 
-## Najczęstsze błędy
-
-### `No bootable medium`
-
-Sprawdź EFI64, Secure Boot OFF, canonical `.iso` i boot order DVD -> Disk.
-
-### `[FATAL][INSTALL] no PCI AHCI controller`
-
-ISO już wystartowało. Przenieś VDI na SATA / Intel AHCI.
-
-### `INSTALLATION CONFIRMATION DID NOT MATCH INSTALL`
-
-To stary build instalatora. Bieżący flow nie zatrzymuje instalacji przy złym
-wpisie i nie rozróżnia wielkości liter. Zbuduj nowe media i sprawdź hash/datę
-ISO.
-
-### TLS `x509_crt_parse ... D9D2`
-
-Kod `-0x262E` oznacza brak obsługi algorytmu podpisu/OID podczas parsowania
-trust store. Bieżący profil Mbed TLS 3.6.7 włącza `MBEDTLS_SHA384_C`, wymagane
-przez dołączone rooty GTS. Jeżeli widzisz ten błąd po aktualizacji brancha,
-upewnij się, że uruchamiasz świeżo przebudowany canonical QEMU IMG/VirtualBox ISO,
-a nie starszy artefakt.
-
-Szczegóły sieci: [`NETWORKING.md`](NETWORKING.md).
-
-## Internet w VirtualBox
-
-```text
-Attached to: NAT
-Adapter Type: Intel PRO/1000 MT Desktop (82540EM)
-Cable Connected: ON
+```powershell
+.\scripts\verify.ps1 -TimeoutSeconds 90 -KeepLogs
 ```
 
-## Rozwój aplikacji i kernela
+## Kurogane Web
 
-Aplikacje:
+Bieżący Web używa własnego stosu KuroganeOS. Obsługuje HTTP i HTTPS/TLS,
+redirecty, historię, Back/Home/Reload, aktywację linków oraz prosty natywny
+rendering HTML/CSS. Nie jest Chromium.
 
-- [`DEVELOPERS/README.md`](DEVELOPERS/README.md)
-- [`DEVELOPERS/APP_DEVELOPMENT.md`](DEVELOPERS/APP_DEVELOPMENT.md)
-- [`DEVELOPERS/API_REFERENCE.md`](DEVELOPERS/API_REFERENCE.md)
+## Gdzie szukać dalej
 
-Kernel/system:
-
-- [`DEVELOPERS/KERNEL_CONTRIBUTION.md`](DEVELOPERS/KERNEL_CONTRIBUTION.md)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`GUI.md`](GUI.md)
+- uruchamianie: [RUNNING.md](RUNNING.md)
+- build: [BUILDING.md](BUILDING.md)
+- QEMU: [QEMU_TESTING.md](QEMU_TESTING.md)
+- pełne testy: [TESTING.md](TESTING.md)
+- VirtualBox: [VIRTUALBOX.md](VIRTUALBOX.md)
+- macOS: [MACOS_DEVELOPMENT.md](MACOS_DEVELOPMENT.md)
+- aplikacje: [DEVELOPERS/README.md](DEVELOPERS/README.md)
 
 ## Zgłaszanie błędu
 
-Podaj co najmniej:
+Podaj:
 
 ```text
-KuroganeOS version / commit:
-Host OS:
-QEMU / VirtualBox version:
-CPU architecture hosta:
-Użyty plik IMG/ISO i jego SHA-256:
-Try czy Install:
-Konfiguracja storage/NIC:
-Ostatnie linie serial log:
-Screenshot:
+commit / branch
+host OS
+QEMU/VirtualBox version
+użyty IMG/ISO
+WHPX czy TCG
+ostatnie 100-200 linii serial log
+screenshot
+kroki odtworzenia
 ```
