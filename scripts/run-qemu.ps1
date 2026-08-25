@@ -34,10 +34,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Public compatibility entry point. The actual runner is kept separate so the
-# graphical Foundation contract can evolve without duplicating the parameter
-# surface consumed by verify.ps1 and the platform-specific wrappers.
-$CoreRunner = Join-Path $PSScriptRoot 'run-qemu-next.ps1'
+# Stable public entry point used by verify.ps1 and the platform wrappers.
+# The implementation lives in run-qemu-core.ps1 so the test engine can evolve
+# without breaking existing command lines.
+$CoreRunner = Join-Path $PSScriptRoot 'run-qemu-core.ps1'
 if (-not (Test-Path -LiteralPath $CoreRunner -PathType Leaf)) {
     throw "Missing canonical QEMU runner core: $CoreRunner"
 }
