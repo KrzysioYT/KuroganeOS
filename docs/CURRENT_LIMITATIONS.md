@@ -1,132 +1,151 @@
 # Aktualne ograniczenia — KuroganeOS 3.3.3-dev
 
-KuroganeOS 3.3.3-dev jest **DEV BETA**, a nie stabilnym systemem codziennego
-użytku. Ten dokument mówi wprost co działa, co jest eksperymentalne i czego nie
-należy jeszcze oczekiwać.
-
-Jeżeli pierwszy raz uruchamiasz system, zacznij od [`START_HERE.md`](START_HERE.md).
+KuroganeOS `3.3.3-dev` jest **DEV BETA**, nie stabilnym systemem codziennego
+użytku. Bieżąca gałąź rozwija Forged Steel/KuroganeOS 5, ale nie jest jeszcze
+wydaniem 5.0.0.
 
 ## Co już istnieje
 
-- własny UEFI x86-64 bootloader i boot protocol v3;
-- VMM, GDT/TSS/IST, IDT i obsługa wyjątków;
-- Ring 3, procesy ELF64, PID/TID, spawn/wait/exit i preempcja;
-- `/system/init` jako PID 1;
-- AHCI, GPT, writable FAT32/VFS i persistent root;
-- publiczny Ring-3 filesystem ABI: read/write/append/seek, stat/readdir,
-  create/unlink/rename, mkdir/rmdir, process-local cwd/chdir/getcwd i sync;
-- ścieżki względne rozwiązywane względem cwd procesu oraz dziedziczenie cwd
-  przez dziecko przy `spawn`;
-- Try/Install media i read-only live package root;
-- instalator GPT/FAT32 z językiem, lokalnym profilem i opcjonalnym hasłem DEV;
+- własny UEFI x86-64 bootloader i boot protocol;
+- VMM, GDT/TSS/IST, IDT i exception handling;
+- ELF64 Ring-3, PID/TID, spawn/wait/exit, timer preemption;
+- `/system/init` jako stabilny PID 1;
+- AHCI, GPT, FAT32/VFS i persistent `Kurogane Root`;
+- publiczny Ring-3 filesystem ABI z `stat/readdir`, cwd i mutacjami;
+- Try/Install media i lokalny profil użytkownika;
 - PS/2 keyboard/mouse, PCI, ACPI MADT/APIC discovery;
-- E1000 `8086:100E` z Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS i podstawowym TCP probe;
-- loopback fallback, gdy DHCP/fizyczny interfejs nie może się skonfigurować;
-- Intel ICH AC'97 `8086:2415` jako kernelowy PCM output backend;
-- bounded Ring-3 AC'97 playback: 48 kHz S16LE stereo, max 1024 frames,
-  per-PID ownership, poll/stop i kernel-owned DMA copy;
-- WindowManager, Red Flux Desktop, Dock i aplikacje GUI Ring 3;
-- software backbuffer i damage-style GOP scanout;
-- SDK oraz build na Windows/WSL, macOS i Linux x86-64;
-- ISO z El Torito EFI + GPT ESP i obowiązkowym 20-pass verifierem;
-- pre-merge PR qualification oraz helper realnego VirtualBox smoke na hostach x86-64.
+- E1000 z Ethernet/ARP/IPv4/ICMP/UDP/DHCP/DNS/TCP;
+- HTTP oraz HTTPS/TLS używane przez Kurogane Web;
+- Intel ICH AC'97 i bounded Ring-3 playback;
+- WindowManager i Forged Steel desktop;
+- native UI ABI v2 z widget hierarchy/icon IDs/cursor hints;
+- Blade Launcher, Kurosh, Vault, Anvil, Forge Control, Pulse, Web,
+  Performance, System Monitor i About;
+- software backbuffer + GOP scanout;
+- SDK/build tooling dla Windows+WSL, macOS i Linux;
+- QEMU/VirtualBox media validation.
 
-## Pamięć i wykonanie
+## Pamięć / CPU
 
-- brak SMP i wykorzystania wielu CPU przez kernel;
-- brak demand paging, copy-on-write, swap i pełnego mmap files;
-- część struktur kernela nadal wymaga dalszego utwardzenia pod długotrwałą
-  preempcję i przyszłe SMP;
-- publiczne ABI jest eksperymentalne i może zmieniać się między DEV BETA.
+- kernel nie używa jeszcze SMP do równoległej pracy wielu CPU;
+- brak demand paging, copy-on-write, swap i pełnego file-backed mmap;
+- część struktur wymaga dalszego utwardzenia przed SMP;
+- publiczne ABI nadal może zmieniać się pomiędzy DEV BETA.
 
-## Userspace i shell
+## Userspace
 
-- filesystem ABI nie ma jeszcze file-backed mmap;
-- Try/live-package root pozostaje celowo read-only i odrzuca mutacje;
-- brak links, pełnego modelu users/groups/ACL i Unix-like permissions;
-- brak pipes, redirection, glob, zmiennych środowiskowych i języka skryptowego;
-- background jobs są uproszczone względem pełnego Unix-like job control.
+- brak pełnego POSIX;
+- brak links, pełnego users/groups/ACL/Unix permissions;
+- shell nie ma jeszcze kompletnego pipes/redirection/glob/environment/script
+  language;
+- background jobs są uproszczone;
+- publiczne socket API nie jest jeszcze finalnym async handle/event service.
 
-## Desktop
+## Forged Steel Desktop
 
-- Red Flux nadal renderuje programowo; nie jest jeszcze kompozytorem GPU;
-- font/rendering, HiDPI, Unicode i animacje wymagają dalszej pracy;
-- brak pełnego clipboard i multi-monitor;
-- część compatibility `ku_ui_frame` nadal istnieje;
-- brak natywnego per-window accelerated surface API.
+Największe aktywne ograniczenia GUI:
+
+- software compositor nad UEFI GOP, bez produkcyjnej akceleracji GPU;
+- wydajność pod QEMU TCG może być niska, szczególnie przy wysokiej rozdzielczości;
+- trwa optymalizacja dirty/redraw/scanout i input latency;
+- bitmapowy font subsystem zamiast pełnego TTF/OpenType;
+- layout widgetów jest nadal głównie flow-based;
+- brak pełnego Unicode/IME, clipboard i accessibility;
+- brak multi-monitor;
+- część internal window roles nadal zależy od stabilnych technicznych tytułów;
+- legacy `ku_ui_frame` pozostaje dla kompatybilności obok native ABI v2.
+
+Do testów responsywności na Windows preferuj WHPX przez
+`scripts/run-qemu-fast.ps1`. TCG jest poprawnym funkcjonalnie fallbackiem, ale
+nie jest miarodajnym benchmarkiem FPS.
+
+## Grafika / Direct3D
+
+KuroganeOS **nie ma jeszcze pełnej zgodności Direct3D 9/10/11/12**.
+
+Istnieją warstwy API/testy compatibility i rozwijany software graphics stack,
+ale pełna zgodność wymaga m.in. zasobów GPU, shaderów, command submission,
+synchronizacji, presentation i realnego backendu hardware/software. Nie należy
+interpretować obecności nazw D3D jako pełnego feature level.
+
+Zobacz [GRAPHICS_COMPATIBILITY.md](GRAPHICS_COMPATIBILITY.md).
 
 ## Storage / instalacja
 
-- główny persistent filesystem pozostaje FAT32;
-- brak pełnego recovery environment i transakcyjnych aktualizacji;
-- NVMe nie jest jeszcze równorzędnym, szeroko zweryfikowanym backendem;
-- instalatora nie należy kierować na dysk z ważnymi danymi;
-- `FNV1A64-DEV` jest tymczasowym verifierem hasła, nie bezpiecznym KDF.
+- główny persistent filesystem nadal opiera się na FAT32;
+- instalator ma twardy FAT 8.3 contract dla package paths;
+- dlatego Anvil config używa `/etc/anvil.cfg`, nie `/etc/anvil.repo`;
+- brak pełnego recovery environment;
+- brak ogólnego transakcyjnego system update/rollback;
+- NVMe nie jest jeszcze równorzędnym referencyjnym backendem;
+- DEV credential hash nie jest produkcyjnym password KDF;
+- instalatora nie kieruj na dysk z ważnymi danymi.
 
-## VirtualBox
+## Sieć / Web
 
-Referencyjny profil 3.3.x to x86-64 UEFI, SATA/AHCI, E1000 82540EM i AC'97.
+Kernel ma własny stos i referencyjny E1000 dla QEMU/VirtualBox NAT.
+Kurogane Web ma HTTP/HTTPS, trust store, redirecty, historię i prosty
+HTML/CSS rendering.
 
-Builder potrafi dowieść struktury nośnika i repo ma realny smoke boot helper, ale
-nie istnieje matematyczna "100% gwarancja" dla każdej wersji VirtualBox, hosta i
-ustawień VM. Release qualification wymaga zarówno automatycznych testów, jak i
-realnego smoke na x86-64 VirtualBox.
+Ograniczenia Web:
 
-Na Apple Silicon x86-64 KuroganeOS należy uruchamiać przez QEMU/TCG.
-
-## Sieć
-
-Kernel posiada rzeczywisty stos i referencyjny driver E1000 dla VirtualBox NAT.
-
-**Userspace nie ma jeszcze stabilnego socket API.** Obecne kernelowe DNS/ping
-helpers mają synchroniczny model pollingu. Zamiast utrwalać je jako długie
-blocking syscalls, publiczne API zostanie zaprojektowane jako async handle/event
-service.
+- to nie Chromium;
+- brak JavaScript engine;
+- brak pełnego DOM/CSS layout engine;
+- brak WebGL/WebGPU;
+- API sieciowe aplikacji nadal jest węższe niż POSIX/BSD sockets;
+- obsługa współczesnego webu jest celowo ograniczona.
 
 ## Audio
 
-3.3.3 ma publiczny bounded Ring-3 playback nad Intel ICH AC'97:
+AC'97 playback działa w ograniczonym modelu:
 
 ```text
-S16LE / stereo / 48 kHz / max 1024 frames / DMA32
+S16LE / stereo / 48 kHz / bounded buffer / DMA32
 ```
 
-To nadal nie jest finalny wielostrumieniowy serwis audio. Brakuje per-process
-stream handles i mixera wielu aplikacji, ciągłego buffer scheduling z pełnym
-underrun recovery, konwersji formatów/resamplingu, capture/microphone oraz Intel
-HDA. Referencyjny hardware runtime smoke nadal wymaga realnego VirtualBox hosta
-z działającym wyjściem audio.
-
-## Grafika / DirectX
-
-**KuroganeOS 3.3.3-dev nie obsługuje jeszcze pełnego DirectX/Direct3D 9/10/11/12.**
-
-Obecnie dostępny jest software framebuffer/UI stack. Pełna zgodność D3D wymaga
-native graphics runtime, zasobów, shaderów, command submission i backendu GPU.
-Projekt ma architekturę/plan kompatybilności, ale nie udaje feature level, którego
-realnie nie implementuje.
-
-Zobacz [`GRAPHICS_COMPATIBILITY.md`](GRAPHICS_COMPATIBILITY.md).
+Brakuje m.in. produkcyjnego wielostrumieniowego mixera, resamplingu, capture,
+pełnego underrun recovery i Intel HDA.
 
 ## Hardware
 
-- AHCI/SATA, PS/2, E1000 i AC'97 mają konkretne wspierane modele;
-- real hardware UEFI ma mniejsze pokrycie niż VM;
-- USB/xHCI nadal wymaga dalszej stabilizacji;
-- brak produkcyjnego GPU acceleration, NVMe/audio-HDA support i szerokiej
-  kwalifikacji ACPI/SMP;
-- Guest Additions VirtualBox nie są portowane do KuroganeOS.
+Referencyjne modele to głównie:
+
+```text
+AHCI/SATA
+PS/2
+E1000 82540EM
+Intel AC'97
+UEFI GOP
+```
+
+Real hardware ma mniejsze pokrycie niż VM. USB/xHCI, ACPI diversity, NVMe,
+HDA i GPU wymagają dalszej kwalifikacji. Guest Additions VirtualBox nie są
+portowane.
+
+## QEMU / VirtualBox
+
+Pełny userspace wymaga Foundation GPT (`build/images/KuroganeOS-base.img`) albo
+working image. Legacy `kurogane.img` jest tylko FAT/EFI artifactem i nie ma
+`Kurogane Root`.
+
+VirtualBox nie daje gwarancji działania na każdej kombinacji hosta/wersji.
+Release wymaga realnej kwalifikacji, nie tylko poprawnej struktury ISO.
+
+Na Apple Silicon x86-64 KuroganeOS działa przez QEMU TCG.
 
 ## Reliability
 
-Każda rewizja systemu musi zostać ponownie zbudowana i uruchomiona. Sam fakt, że
-kod się kompiluje albo że plik ISO istnieje, nie jest wystarczającym dowodem
-runtime PASS.
+Build PASS nie oznacza runtime PASS. Dla bieżącej gałęzi wymagamy kolejno:
 
-Dla 3.3.x kwalifikacja ISO składa się z:
+1. host tests;
+2. FAT/GPT validation;
+3. Foundation QEMU boot;
+4. PID1 + login + Blade session;
+5. storage/network/input markers;
+6. test profile i AHCI scratch;
+7. release build/ISO;
+8. QEMU ISO qualification;
+9. dla release media — odpowiedniej kwalifikacji VirtualBox.
 
-1. build od zera;
-2. 20-pass El Torito/FAT/GPT/PE verifier;
-3. niezależny UEFI optical smoke przez OVMF/QEMU;
-4. realny VirtualBox smoke na x86-64 hoście;
-5. test `ISO -> Install -> target HDD -> reboot -> Login`.
+Pełny workflow opisuje [TESTING.md](TESTING.md).
