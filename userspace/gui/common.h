@@ -83,12 +83,7 @@ static inline int gui_key_tab(const ku_ui_event* event) {
     return event != NULL && event->key == KU_UI_KEY_TAB;
 }
 
-/*
- * Mirrors the stable ABI-v2 native_surface row metrics in kernel/ui/ui.cpp.
- * Pointer events are expected in content-local coordinates. Keeping this
- * arithmetic in one userspace helper means applications share one hit-test
- * contract instead of growing app-specific magic offsets.
- */
+/* Stable flow-layout metrics shared with the kernel renderer fallback. */
 static inline int32_t gui_widget_height(uint32_t type) {
     switch (type) {
         case KU_UI_WIDGET_PANEL: return 38;
@@ -109,12 +104,30 @@ static inline uint32_t gui_scene_hit_test_local(
     int32_t y = 10;
     uint32_t index;
     if (scene == NULL || event == NULL || event->type != KU_UI_EVENT_POINTER) return 0U;
-    if ((event->buttons & 1U) == 0U || event->x < 8 || event->y < 0) return 0U;
+    if ((event->buttons & 1U) == 0U || event->x < 0 || event->y < 0) return 0U;
 
+    /*
+     * Spatial views are content-local rectangles and take precedence over the
+     * legacy flow stack. Iterate backwards so later scene entries behave like
+     * the visually top-most control when rectangles overlap.
+     */
+    for (index = scene->view_count; index != 0U; --index) {
+        const kui_view* view = &scene->views[index - 1U];
+        kui_bounds bounds;
+        if ((view->flags & (KUI_VIEW_HIDDEN | KUI_VIEW_DISABLED)) != 0U) continue;
+        if (!kui_view_has_bounds(view)) continue;
+        bounds = kui_view_bounds(view);
+        if (event->x >= bounds.x && event->x < bounds.x + bounds.width &&
+            event->y >= bounds.y && event->y < bounds.y + bounds.height) {
+            return view->id;
+        }
+    }
+
+    /* Existing ABI-v2 applications continue to use the deterministic flow map. */
     for (index = 0U; index < scene->view_count; ++index) {
         const kui_view* view = &scene->views[index];
         int32_t height;
-        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U || kui_view_has_bounds(view)) continue;
         if (visible_index++ < scene->scroll_offset) continue;
         if (scene->visible_rows != 0U &&
             visible_index > scene->scroll_offset + scene->visible_rows) break;
