@@ -1,12 +1,40 @@
-# QEMU testing
+# QEMU quick reference
 
-The verified profile uses `q35`, EDK2 pflash, `-cpu max`, 256 MiB RAM, a serial
-file, no network device, and no display for automation. Run:
+Pełna instrukcja: [`../QEMU_TESTING.md`](../QEMU_TESTING.md).
 
-```bash
-./scripts/run-qemu.sh smoke
-./scripts/run-qemu.sh system
+Bieżący pełny userspace wymaga Foundation GPT image:
+
+```text
+build/images/KuroganeOS-base.img
 ```
 
-PowerShell users may call `scripts/run-qemu.ps1` directly. Use a unique
-`-LogName` and monitor port for concurrent runs.
+Windows focused integration:
+
+```powershell
+.\scripts\run-qemu.ps1 `
+  -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -ShellTest `
+  -TimeoutSeconds 90 `
+  -MemoryMiB 1024 `
+  -LogName qemu-foundation
+```
+
+Windows interactive GUI/performance:
+
+```powershell
+.\scripts\run-qemu-fast.ps1 `
+  -Accelerator auto `
+  -MemoryMiB 1024
+```
+
+WSL convenience:
+
+```bash
+./scripts/run-qemu.sh interactive
+./scripts/run-qemu.sh system
+./scripts/run-qemu.sh safe
+```
+
+`kurogane.img` jest legacy FAT/EFI artifactem; nie używaj go do normalnego
+PID1/login/desktop testu.
