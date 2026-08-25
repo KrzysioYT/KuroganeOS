@@ -1,74 +1,51 @@
 #include "ui.hpp"
+
+#include "font.hpp"
+#include "forged_surface.hpp"
 #include "icon_registry.hpp"
 
 #include "../../common/version.h"
 
 namespace ui {
-
 namespace {
+
+// Approved KuroganeOS 5 / Forged Steel design tokens.
+constexpr graphics::Color kObsidian = graphics::rgb(9, 14, 14);       // #090E0E
+constexpr graphics::Color kSteel = graphics::rgb(23, 28, 34);        // #171C22
+constexpr graphics::Color kSteelDeep = graphics::rgb(12, 17, 21);
+constexpr graphics::Color kSteelRaised = graphics::rgb(31, 37, 44);
+constexpr graphics::Color kSteelEdge = graphics::rgb(52, 59, 67);
+constexpr graphics::Color kSteelHairline = graphics::rgb(76, 83, 91);
+constexpr graphics::Color kAsh = graphics::rgb(168, 175, 184);       // #A8AFB8
+constexpr graphics::Color kText = graphics::rgb(238, 241, 244);
+constexpr graphics::Color kMuted = graphics::rgb(125, 134, 144);
+constexpr graphics::Color kCrimson = graphics::rgb(230, 41, 50);     // #E62932
+constexpr graphics::Color kHotEdge = graphics::rgb(255, 74, 69);     // #FF4A45
+constexpr graphics::Color kGlowDeep = graphics::rgb(91, 19, 25);
+constexpr graphics::Color kShadow = graphics::rgb(2, 4, 5);
+
 constexpr Theme kTheme = {
-    graphics::rgb(4, 5, 7),       // desktop
-    graphics::rgb(18, 19, 22),    // panel
-    graphics::rgb(10, 11, 14),    // panel_alt
-    graphics::rgb(55, 58, 64),    // border
-    graphics::rgb(238, 239, 242), // text
-    graphics::rgb(145, 149, 156), // text_muted
-    graphics::rgb(220, 22, 40),   // accent
-    graphics::rgb(255, 54, 66),   // danger
+    kObsidian,
+    kSteel,
+    kSteelDeep,
+    kSteelEdge,
+    kText,
+    kAsh,
+    kCrimson,
+    kHotEdge,
 };
 
-constexpr graphics::Color kRedBright = graphics::rgb(255, 34, 48);
-constexpr graphics::Color kRedHot = graphics::rgb(239, 20, 36);
-constexpr graphics::Color kRedDeep = graphics::rgb(83, 10, 20);
-constexpr graphics::Color kRedMuted = graphics::rgb(139, 24, 36);
-constexpr graphics::Color kGraphite = graphics::rgb(25, 27, 31);
-constexpr graphics::Color kGraphiteRaised = graphics::rgb(31, 33, 38);
-constexpr graphics::Color kGraphiteFocused = graphics::rgb(38, 35, 40);
-constexpr graphics::Color kSteel = graphics::rgb(85, 89, 96);
-constexpr graphics::Color kInactiveSignal = graphics::rgb(43, 45, 50);
-constexpr graphics::Color kSurfaceShadow = graphics::rgb(1, 2, 3);
-constexpr graphics::Color kHeaderBand = graphics::rgb(12, 13, 16);
-constexpr graphics::Color kDockSurface = graphics::rgb(14, 15, 18);
-constexpr graphics::Color kDockRaised = graphics::rgb(27, 28, 33);
+int32_t absolute(int32_t value) { return value < 0 ? -value : value; }
 
-bool text_equals(const char* left, const char* right) {
-    if (left == nullptr || right == nullptr) return false;
-    size_t index = 0U;
-    while (left[index] != '\0' && left[index] == right[index]) ++index;
-    return left[index] == right[index];
-}
-
-bool text_starts_with(const char* text, const char* prefix) {
-    if (text == nullptr || prefix == nullptr) return false;
-    size_t index = 0U;
-    while (prefix[index] != '\0') {
-        if (text[index] != prefix[index]) return false;
-        ++index;
-    }
-    return true;
-}
-
-void copy_short_label(char* destination, size_t capacity, const char* source) {
-    if (destination == nullptr || capacity == 0U) return;
-    size_t index = 0U;
-    if (source != nullptr) {
-        while (index + 1U < capacity && source[index] != '\0') {
-            destination[index] = source[index];
-            ++index;
-        }
-    }
-    destination[index] = '\0';
-}
-
-int32_t iabs(int32_t value) {
-    return value < 0 ? -value : value;
-}
-
-void line(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
-          graphics::Color color) {
-    const int32_t dx = iabs(x1 - x0);
+void line(
+    int32_t x0,
+    int32_t y0,
+    int32_t x1,
+    int32_t y1,
+    graphics::Color color) {
+    const int32_t dx = absolute(x1 - x0);
     const int32_t sx = x0 < x1 ? 1 : -1;
-    const int32_t dy = -iabs(y1 - y0);
+    const int32_t dy = -absolute(y1 - y0);
     const int32_t sy = y0 < y1 ? 1 : -1;
     int32_t error = dx + dy;
     for (;;) {
@@ -86,30 +63,122 @@ void line(int32_t x0, int32_t y0, int32_t x1, int32_t y1,
     }
 }
 
-void signal_node(int32_t x, int32_t y, graphics::Color color) {
-    graphics::fill_rect(x + 2, y, 4, 2, color);
-    graphics::fill_rect(x, y + 2, 8, 4, color);
-    graphics::fill_rect(x + 2, y + 6, 4, 2, color);
-    graphics::fill_rect(x + 3, y + 3, 2, 2, kTheme.desktop);
+void fill_chamfered(
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height,
+    int32_t cut,
+    graphics::Color color) {
+    if (width <= 0 || height <= 0) return;
+    if (cut < 0) cut = 0;
+    if (cut * 2 > height) cut = height / 2;
+    for (int32_t row = 0; row < height; ++row) {
+        int32_t inset = 0;
+        if (row < cut) inset = cut - row;
+        else if (row >= height - cut) inset = row - (height - cut - 1);
+        if (inset * 2 >= width) continue;
+        graphics::fill_rect(x + inset, y + row, width - inset * 2, 1, color);
+    }
 }
 
-void corner_marks(const Rect& bounds, graphics::Color color) {
-    constexpr int32_t mark = 12;
-    graphics::fill_rect(bounds.x, bounds.y, mark, 2, color);
-    graphics::fill_rect(bounds.x, bounds.y, 2, mark, color);
-    graphics::fill_rect(bounds.x + bounds.width - mark, bounds.y, mark, 2, color);
-    graphics::fill_rect(bounds.x + bounds.width - 2, bounds.y, 2, mark, color);
-    graphics::fill_rect(bounds.x, bounds.y + bounds.height - 2, mark, 2, color);
-    graphics::fill_rect(bounds.x, bounds.y + bounds.height - mark, 2, mark, color);
-    graphics::fill_rect(bounds.x + bounds.width - mark,
-                        bounds.y + bounds.height - 2, mark, 2, color);
-    graphics::fill_rect(bounds.x + bounds.width - 2,
-                        bounds.y + bounds.height - mark, 2, mark, color);
+void outline_chamfered(
+    int32_t x,
+    int32_t y,
+    int32_t width,
+    int32_t height,
+    int32_t cut,
+    graphics::Color edge,
+    graphics::Color fill) {
+    fill_chamfered(x + 4, y + 5, width, height, cut, kShadow);
+    fill_chamfered(x, y, width, height, cut, edge);
+    fill_chamfered(x + 1, y + 1, width - 2, height - 2,
+                   cut > 0 ? cut - 1 : 0, fill);
+}
+
+void draw_brand(int32_t x, int32_t y, int32_t size) {
+    if (icons::valid(KU_ICON_BRANDING_LOGO_MAIN)) {
+        icons::draw(KU_ICON_BRANDING_LOGO_MAIN, x, y, size, size);
+        return;
+    }
+    const int32_t cx = x + size / 2;
+    const int32_t cy = y + size / 2;
+    const int32_t radius = size / 2 - 2;
+    line(cx - radius, cy + radius, cx - radius / 2, cy - radius, kAsh);
+    line(cx - radius / 2, cy - radius, cx - 2, cy - radius / 3, kSteelHairline);
+    line(cx - 2, cy - radius / 3, cx + radius, cy - radius, kHotEdge);
+    line(cx - 2, cy, cx + radius, cy + radius, kCrimson);
+}
+
+void draw_brushed_backdrop() {
+    if (!graphics::available()) return;
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t height = static_cast<int32_t>(graphics::height());
+    graphics::clear(kObsidian);
+
+    // Sparse texture rather than per-pixel noise: visually closer to brushed
+    // forged steel while keeping QEMU/TCG frame cost bounded.
+    for (int32_t y = 8; y < height; y += 28) {
+        graphics::fill_rect(0, y, width, 1, graphics::rgb(13, 19, 22));
+    }
+    for (int32_t y = 18; y < height; y += 84) {
+        graphics::fill_rect(width / 5, y, width * 3 / 5, 1,
+                            graphics::rgb(18, 23, 27));
+    }
+
+    // Energy seam from the design board. It is intentionally geometric and
+    // sparse so it does not become an animation/performance tax.
+    if (width > 760 && height > 480) {
+        int32_t x = width / 2 + 40;
+        int32_t y = 58;
+        const int32_t end_y = height - 100;
+        while (y < end_y) {
+            const int32_t next_y = y + 48;
+            const int32_t next_x = x + ((y / 48) % 2 == 0 ? -28 : 18);
+            line(x, y, next_x, next_y, kGlowDeep);
+            line(x + 1, y, next_x + 1, next_y, kCrimson);
+            if ((y / 48) % 3 == 0) {
+                line(x + 3, y + 4, next_x + 3, next_y - 3, kHotEdge);
+            }
+            x = next_x;
+            y = next_y;
+        }
+    }
+}
+
+void draw_top_identity(const char* title) {
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t rail_height = 52;
+    graphics::fill_rect(0, 0, width, rail_height, graphics::rgb(5, 9, 11));
+    graphics::fill_rect(0, rail_height - 1, width, 1, kSteelEdge);
+    graphics::fill_rect(0, rail_height - 2, width / 3, 1, kGlowDeep);
+
+    draw_brand(22, 9, 34);
+    font::draw(font::Face::Display, 68, 13,
+               title ? title : "KUROGANEOS 5.0",
+               kText, graphics::rgb(5, 9, 11), 2U, true);
+    font::draw(font::Face::Ui, 70, 34,
+               "KUROGANE FORGE DESKTOP ENVIRONMENT",
+               kMuted, graphics::rgb(5, 9, 11), 1U, true);
+
+    if (width > 850) {
+        const char* tagline = "BUILT IN STEEL. REFINED IN FIRE.";
+        const int32_t text_width = font::measure(font::Face::Ui, tagline, 1U);
+        font::draw(font::Face::Ui, (width - text_width) / 2, 21,
+                   tagline, kAsh, graphics::rgb(5, 9, 11), 1U, true);
+        graphics::fill_rect(width / 2 + text_width / 2 + 9, 19, 24, 1, kCrimson);
+    }
+
+    if (width > 1120) {
+        font::draw(font::Face::Ui, width - 224, 20,
+                   "FORGED STEEL / DEV BETA",
+                   kMuted, graphics::rgb(5, 9, 11), 1U, true);
+    }
 }
 
 void control_minimize(const Rect& bounds, graphics::Color color) {
-    const int32_t y = bounds.y + bounds.height / 2 + 3;
-    graphics::fill_rect(bounds.x + 6, y, bounds.width - 12, 2, color);
+    graphics::fill_rect(bounds.x + 6, bounds.y + bounds.height - 7,
+                        bounds.width - 12, 1, color);
 }
 
 void control_expand(const Rect& bounds, graphics::Color color) {
@@ -117,10 +186,10 @@ void control_expand(const Rect& bounds, graphics::Color color) {
     const int32_t top = bounds.y + 5;
     const int32_t right = bounds.x + bounds.width - 7;
     const int32_t bottom = bounds.y + bounds.height - 6;
-    graphics::fill_rect(left, top, 7, 2, color);
-    graphics::fill_rect(left, top, 2, 7, color);
-    graphics::fill_rect(right - 5, bottom, 7, 2, color);
-    graphics::fill_rect(right, bottom - 5, 2, 7, color);
+    graphics::fill_rect(left, top, 7, 1, color);
+    graphics::fill_rect(left, top, 1, 7, color);
+    graphics::fill_rect(right - 6, bottom, 7, 1, color);
+    graphics::fill_rect(right, bottom - 6, 1, 7, color);
 }
 
 void control_dismiss(const Rect& bounds, graphics::Color color) {
@@ -128,250 +197,175 @@ void control_dismiss(const Rect& bounds, graphics::Color color) {
          bounds.x + bounds.width - 8, bounds.y + bounds.height - 6, color);
     line(bounds.x + bounds.width - 8, bounds.y + 5,
          bounds.x + 7, bounds.y + bounds.height - 6, color);
-    line(bounds.x + 8, bounds.y + 5,
-         bounds.x + bounds.width - 7, bounds.y + bounds.height - 6, color);
-    line(bounds.x + bounds.width - 7, bounds.y + 5,
-         bounds.x + 8, bounds.y + bounds.height - 6, color);
 }
 
-void red_chevron(int32_t center_x, int32_t y) {
-    graphics::fill_rect(center_x - 18, y, 12, 2, kRedMuted);
-    graphics::fill_rect(center_x - 10, y + 2, 10, 2, kTheme.accent);
-    graphics::fill_rect(center_x, y + 2, 10, 2, kTheme.accent);
-    graphics::fill_rect(center_x + 6, y, 12, 2, kRedMuted);
-    graphics::fill_rect(center_x - 2, y + 4, 4, 5, kRedBright);
-}
-
-void backdrop_gradient() {
-    if (!graphics::available()) return;
-    const int32_t width = static_cast<int32_t>(graphics::width());
-    const int32_t height = static_cast<int32_t>(graphics::height());
-    graphics::clear(kTheme.desktop);
-    for (int32_t y = 0; y < height; y += 4) {
-        const uint32_t position = height > 0
-            ? static_cast<uint32_t>((static_cast<uint64_t>(y) * 9U) /
-                                    static_cast<uint32_t>(height))
-            : 0U;
-        const uint8_t shade = static_cast<uint8_t>(6U + position);
-        graphics::fill_rect(
-            0, y, width, 4,
-            graphics::rgb(shade, shade, static_cast<uint8_t>(shade + 2U)));
-    }
-    graphics::fill_rect(0, 0, width, 3, kRedDeep);
-}
-
-void brand_mark(int32_t center_x, int32_t center_y, int32_t scale,
-                graphics::Color primary, graphics::Color secondary) {
-    if (scale < 1) scale = 1;
-    const int32_t r = 15 * scale;
-    // Angular outer crest inspired by the wolf/ring language of the logo.
-    line(center_x - r, center_y, center_x, center_y - r, secondary);
-    line(center_x, center_y - r, center_x + r, center_y, secondary);
-    line(center_x + r, center_y, center_x, center_y + r, secondary);
-    line(center_x, center_y + r, center_x - r, center_y, secondary);
-    line(center_x - r + scale * 2, center_y,
-         center_x, center_y - r + scale * 2, primary);
-    line(center_x, center_y - r + scale * 2,
-         center_x + r - scale * 2, center_y, primary);
-
-    // Inner asymmetric shard: a compact Kurogane signature rather than a
-    // Windows/macOS/Linux-derived icon.
-    line(center_x - 5 * scale, center_y - 7 * scale,
-         center_x - 5 * scale, center_y + 7 * scale, primary);
-    line(center_x - 4 * scale, center_y,
-         center_x + 6 * scale, center_y - 7 * scale, primary);
-    line(center_x - 4 * scale, center_y,
-         center_x + 7 * scale, center_y + 7 * scale, kRedBright);
-    graphics::fill_rect(center_x - scale, center_y - scale,
-                        scale * 3, scale * 3, kRedBright);
-}
-
-void dock_icon(const Rect& bounds, DockIcon icon,
-               graphics::Color foreground, graphics::Color accent) {
-    const int32_t cx = bounds.x + bounds.width / 2;
-    const int32_t cy = bounds.y + bounds.height / 2;
+void draw_dock_icon(
+    const Rect& bounds,
+    DockIcon icon,
+    bool active) {
     ku_icon_id_t asset = KU_ICON_NONE;
     switch (icon) {
-        case DockIcon::Home:
-            asset = KU_ICON_KUROGANE_APP_BLADE_LAUNCHER;
-            break;
-        case DockIcon::Terminal:
-            asset = KU_ICON_KUROGANE_APP_KUROSH_TERMINAL;
-            break;
-        case DockIcon::Files:
-            asset = KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER;
-            break;
-        case DockIcon::Performance:
-            asset = KU_ICON_SPECIAL_CPU;
-            break;
-        case DockIcon::Web:
-            asset = KU_ICON_APPLICATION_BROWSER;
-            break;
-        case DockIcon::SystemMonitor:
-            asset = KU_ICON_APPLICATION_SYSTEM_MONITOR;
-            break;
-        case DockIcon::Settings:
-            asset = KU_ICON_KUROGANE_APP_FORGE_CONTROL;
-            break;
-        case DockIcon::About:
-            asset = KU_ICON_STATUS_INFO;
-            break;
-        case DockIcon::Anvil:
-            asset = KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER;
-            break;
-        case DockIcon::Pulse:
-            asset = KU_ICON_KUROGANE_APP_PULSE_QUICK_SETTINGS;
-            break;
+        case DockIcon::Home: asset = KU_ICON_KUROGANE_APP_BLADE_LAUNCHER; break;
+        case DockIcon::Terminal: asset = KU_ICON_KUROGANE_APP_KUROSH_TERMINAL; break;
+        case DockIcon::Files: asset = KU_ICON_KUROGANE_APP_VAULT_FILE_MANAGER; break;
+        case DockIcon::Performance: asset = KU_ICON_SPECIAL_CPU; break;
+        case DockIcon::Web: asset = KU_ICON_APPLICATION_BROWSER; break;
+        case DockIcon::SystemMonitor: asset = KU_ICON_APPLICATION_SYSTEM_MONITOR; break;
+        case DockIcon::Settings: asset = KU_ICON_KUROGANE_APP_FORGE_CONTROL; break;
+        case DockIcon::About: asset = KU_ICON_STATUS_INFO; break;
+        case DockIcon::Anvil: asset = KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER; break;
+        case DockIcon::Pulse: asset = KU_ICON_KUROGANE_APP_PULSE_QUICK_SETTINGS; break;
     }
     if (asset != KU_ICON_NONE && icons::valid(asset)) {
-        icons::draw(asset, cx - 15, cy - 15, 30, 30);
-        return;
+        const int32_t size = bounds.height > 38 ? 28 : 22;
+        icons::draw(asset,
+                    bounds.x + (bounds.width - size) / 2,
+                    bounds.y + (bounds.height - size) / 2 - (active ? 1 : 0),
+                    size, size);
+    } else {
+        draw_brand(bounds.x + bounds.width / 2 - 11,
+                   bounds.y + bounds.height / 2 - 11, 22);
     }
-    brand_mark(cx, cy, 1, accent, foreground);
 }
+
+void copy_short_label(char* destination, size_t capacity, const char* source) {
+    if (destination == nullptr || capacity == 0U) return;
+    size_t written = 0U;
+    while (source != nullptr && source[written] != '\0' &&
+           written + 1U < capacity) {
+        destination[written] = source[written];
+        ++written;
+    }
+    destination[written] = '\0';
+}
+
 } // namespace
 
 const Theme& default_theme() { return kTheme; }
 
 bool contains(const Rect& rectangle, int32_t x, int32_t y) {
     return x >= rectangle.x && y >= rectangle.y &&
-           x < rectangle.x + rectangle.width &&
-           y < rectangle.y + rectangle.height;
+        x < rectangle.x + rectangle.width &&
+        y < rectangle.y + rectangle.height;
 }
 
 void boot_splash(const char* stage, uint32_t progress_value) {
     if (!graphics::available()) return;
     graphics::reset_clip();
     graphics::reset_text_scale_limit();
-    backdrop_gradient();
+    draw_brushed_backdrop();
+
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t height = static_cast<int32_t>(graphics::height());
     const int32_t cx = width / 2;
     const int32_t cy = height / 2;
 
-    brand_mark(cx, cy - 92, 4, kRedBright, kRedDeep);
-    graphics::draw_text(cx - 114, cy - 20, "KUROGANEOS",
-                        kTheme.text, kTheme.desktop, 3U, true);
-    graphics::draw_text(cx - 62, cy + 18, KUROGANE_VERSION_STRING,
-                        kTheme.text_muted, kTheme.desktop, 2U, true);
-    graphics::draw_text(cx - 108, cy + 54,
-                        stage ? stage : "INITIALIZING FORGED STEEL",
-                        kTheme.text_muted, kTheme.desktop, 1U, true);
+    draw_brand(cx - 52, cy - 142, 104);
+    font::draw(font::Face::Display, cx - 145, cy - 12,
+               "KUROGANEOS", kText, kObsidian, 3U, true);
+    font::draw(font::Face::Ui, cx - 92, cy + 28,
+               "BUILT IN STEEL. REFINED IN FIRE.",
+               kAsh, kObsidian, 1U, true);
+    font::draw(font::Face::Mono, cx - 106, cy + 54,
+               stage ? stage : "INITIALIZING FORGED STEEL",
+               kMuted, kObsidian, 1U, true);
 
-    const int32_t bar_width = width > 520 ? 360 : width - 120;
-    const int32_t bar_x = (width - bar_width) / 2;
-    const int32_t bar_y = cy + 82;
-    graphics::fill_rect(bar_x, bar_y, bar_width, 4, kInactiveSignal);
     if (progress_value > 100U) progress_value = 100U;
+    const int32_t bar_width = width > 620 ? 420 : width - 100;
+    const int32_t bar_x = cx - bar_width / 2;
+    const int32_t bar_y = cy + 86;
+    graphics::fill_rect(bar_x, bar_y, bar_width, 5, kSteel);
     const int32_t active = static_cast<int32_t>(
         (static_cast<uint64_t>(bar_width) * progress_value) / 100U);
-    if (active > 0) graphics::fill_rect(bar_x, bar_y, active, 4, kRedHot);
-    red_chevron(cx, bar_y + 22);
+    if (active > 0) graphics::fill_rect(bar_x, bar_y, active, 5, kCrimson);
+    graphics::fill_rect(bar_x, bar_y, active > 58 ? 58 : active, 1, kHotEdge);
 }
 
 void login_backdrop(const char* status) {
     if (!graphics::available()) return;
     graphics::reset_clip();
     graphics::reset_text_scale_limit();
-    backdrop_gradient();
+    draw_brushed_backdrop();
+    draw_top_identity("KUROGANEOS 5.0");
+
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t height = static_cast<int32_t>(graphics::height());
     const int32_t cx = width / 2;
-
-    brand_mark(cx, 132, 4, kRedBright, kRedDeep);
-    graphics::draw_text(cx - 108, 208, "KUROGANEOS",
-                        kTheme.text, kTheme.desktop, 3U, true);
-    graphics::draw_text(cx - 126, 250, "FORGED STEEL / SESSION",
-                        kTheme.text_muted, kTheme.desktop, 1U, true);
+    draw_brand(cx - 45, 108, 90);
+    font::draw(font::Face::Display, cx - 104, 218,
+               "SECURE ACCESS", kText, kObsidian, 2U, true);
+    font::draw(font::Face::Ui, cx - 126, 246,
+               "LOCAL FORGED STEEL SESSION GATE",
+               kAsh, kObsidian, 1U, true);
+    graphics::fill_rect(cx - 150, 272, 300, 1, kSteelEdge);
+    graphics::fill_rect(cx - 150, 272, 82, 2, kCrimson);
     if (status != nullptr) {
-        graphics::draw_text(cx - 96, height - 48, status,
-                            kTheme.text_muted, kTheme.desktop, 1U, true);
+        font::draw(font::Face::Mono, cx - 120, height - 48,
+                   status, kMuted, kObsidian, 1U, true);
     }
-    graphics::fill_rect(0, height - 3, width, 3, kRedDeep);
 }
 
 void desktop(const char* title) {
     if (!graphics::available()) return;
+    graphics::reset_clip();
+    graphics::reset_text_scale_limit();
+    draw_brushed_backdrop();
+    draw_top_identity(title ? title : "KUROGANEOS 5.0");
 
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t height = static_cast<int32_t>(graphics::height());
-    backdrop_gradient();
 
-    // Quiet geometric wallpaper: a large low-contrast Kurogane mark creates
-    // depth without imitating a conventional OS wallpaper/taskbar layout.
+    // Low-contrast forge mark below app surfaces.
     if (width > 760 && height > 520) {
-        brand_mark(width / 2, height / 2 - 28, 9,
-                   graphics::rgb(48, 12, 18), graphics::rgb(27, 15, 19));
+        draw_brand(width / 2 - 72, height / 2 - 84, 144);
+        graphics::fill_rect(width / 2 - 122, height / 2 + 76, 244, 1,
+                            graphics::rgb(31, 29, 33));
+        graphics::fill_rect(width / 2 - 42, height / 2 + 76, 84, 2,
+                            kGlowDeep);
     }
-
-    // Top identity rail.
-    const int32_t brand_width = width > 480 ? 360 : width - 36;
-    graphics::fill_rect(18, 10, brand_width, 31, kHeaderBand);
-    graphics::fill_rect(18, 10, 4, 31, kTheme.accent);
-    graphics::fill_rect(22, 39, brand_width > 156 ? 156 : brand_width - 4,
-                        2, kRedBright);
-    brand_mark(40, 25, 1, kRedBright, kRedMuted);
-    graphics::draw_text(61, 17, title ? title : "KUROGANEOS / FORGED STEEL",
-                        kTheme.text, kHeaderBand, 2U, true);
-
-    if (width > 640) {
-        const int32_t status_x = width - 238;
-        graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
-        graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
-        graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
-        graphics::draw_text(status_x + 14, 19, "SESSION / FORGED STEEL",
-                            kTheme.text_muted, kTheme.panel_alt, 1U, true);
-    }
-
-    // Signature rail retained from early Flux, now reduced to a background
-    // status element rather than a competing navigation surface.
-    graphics::fill_rect(17, 58, 2, height > 142 ? height - 142 : 1,
-                        kRedDeep);
-    graphics::fill_rect(20, 58, 1, height > 142 ? height - 142 : 1,
-                        kTheme.border);
-    signal_node(14, 59, kRedBright);
-
-    if (width > 620) red_chevron(width / 2, 24);
 }
 
 void panel(const Rect& bounds, bool raised) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    graphics::fill_rect(bounds.x + 5, bounds.y + 6,
-                        bounds.width, bounds.height, kSurfaceShadow);
-    const auto background = raised ? kGraphiteRaised : kTheme.panel_alt;
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
-    corner_marks(bounds, raised ? kTheme.accent : kRedDeep);
+    outline_chamfered(bounds.x, bounds.y, bounds.width, bounds.height,
+                      7, raised ? kSteelHairline : kSteelEdge,
+                      raised ? kSteelRaised : kSteelDeep);
+    graphics::fill_rect(bounds.x + 12, bounds.y + 1,
+                        bounds.width > 84 ? 72 : bounds.width - 24,
+                        1, raised ? kHotEdge : kGlowDeep);
 }
 
 void flux_window(const Rect& bounds, const char* title, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color edge = focused ? kHotEdge : kSteelEdge;
+    const graphics::Color fill = focused ? graphics::rgb(18, 24, 28) : kSteelDeep;
+    outline_chamfered(bounds.x, bounds.y, bounds.width, bounds.height,
+                      8, edge, fill);
 
-    graphics::fill_rect(bounds.x + 7, bounds.y + 8,
-                        bounds.width, bounds.height, kSurfaceShadow);
-    const graphics::Color background = focused ? kGraphiteFocused : kGraphite;
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        focused ? kRedMuted : kTheme.border);
-
-    const graphics::Color signal = focused ? kRedBright : kSteel;
-    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height, signal);
-    graphics::fill_rect(bounds.x + 4, bounds.y,
-                        bounds.width > 142 ? 134 : bounds.width - 8, 2, signal);
+    // Forged top lip and hot-edge signature.
+    graphics::fill_rect(bounds.x + 18, bounds.y + 1,
+                        bounds.width > 190 ? 154 : bounds.width - 36,
+                        2, focused ? kCrimson : kSteelEdge);
+    graphics::fill_rect(bounds.x + 9, bounds.y + 9, 2, 17,
+                        focused ? kHotEdge : kCrimson);
     graphics::fill_rect(bounds.x + 12, bounds.y + 34,
-                        bounds.width > 162 ? 146 : bounds.width - 24, 1,
-                        focused ? kTheme.accent : kTheme.border);
-    signal_node(bounds.x + 13, bounds.y + 13, signal);
-    graphics::draw_text(bounds.x + 32, bounds.y + 11,
-                        title ? title : "SURFACE",
-                        focused ? kTheme.text : kTheme.text_muted,
-                        background, 2U, true);
+                        bounds.width - 24, 1, kSteelEdge);
+    graphics::fill_rect(bounds.x + 12, bounds.y + 34,
+                        bounds.width > 152 ? 128 : bounds.width - 24,
+                        1, focused ? kCrimson : kGlowDeep);
 
-    const graphics::Color grip = focused ? kTheme.accent : kTheme.border;
-    line(bounds.x + bounds.width - 16, bounds.y + bounds.height - 3,
-         bounds.x + bounds.width - 3, bounds.y + bounds.height - 16, grip);
-    line(bounds.x + bounds.width - 10, bounds.y + bounds.height - 3,
-         bounds.x + bounds.width - 3, bounds.y + bounds.height - 10, grip);
+    font::draw(font::Face::Display,
+               bounds.x + 24, bounds.y + 11,
+               title ? title : "SURFACE",
+               focused ? kText : kAsh,
+               fill, 1U, true);
+
+    // Bottom-right forged corner grip.
+    const graphics::Color grip = focused ? kCrimson : kSteelHairline;
+    line(bounds.x + bounds.width - 20, bounds.y + bounds.height - 3,
+         bounds.x + bounds.width - 3, bounds.y + bounds.height - 20, grip);
+    line(bounds.x + bounds.width - 13, bounds.y + bounds.height - 3,
+         bounds.x + bounds.width - 3, bounds.y + bounds.height - 13, grip);
 }
 
 void window(const Rect& bounds, const char* title) {
@@ -380,104 +374,101 @@ void window(const Rect& bounds, const char* title) {
 
 void flux_control(const Rect& bounds, FluxControl control, bool active) {
     if (bounds.width <= 8 || bounds.height <= 8) return;
-    const graphics::Color background = active ? graphics::rgb(45, 27, 31) : kGraphite;
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::fill_rect(bounds.x, bounds.y + bounds.height - 1,
-                        bounds.width, 1,
-                        active ? kTheme.accent : kTheme.border);
-
+    const graphics::Color fill = active ? graphics::rgb(44, 27, 31) : kSteelDeep;
+    fill_chamfered(bounds.x, bounds.y, bounds.width, bounds.height, 4,
+                   active ? kHotEdge : kSteelEdge);
+    fill_chamfered(bounds.x + 1, bounds.y + 1,
+                   bounds.width - 2, bounds.height - 2, 3, fill);
+    const graphics::Color glyph = active ? kHotEdge : kAsh;
     switch (control) {
-        case FluxControl::Minimize:
-            control_minimize(bounds, active ? kTheme.text : kTheme.text_muted);
-            break;
-        case FluxControl::Expand:
-            control_expand(bounds, active ? kRedBright : kSteel);
-            break;
-        case FluxControl::Dismiss:
-            control_dismiss(bounds, active ? kTheme.danger : kRedMuted);
-            break;
+        case FluxControl::Minimize: control_minimize(bounds, glyph); break;
+        case FluxControl::Expand: control_expand(bounds, glyph); break;
+        case FluxControl::Dismiss: control_dismiss(bounds, active ? kHotEdge : kCrimson); break;
     }
 }
 
 void signal_spine(const Rect& bounds, size_t window_count, size_t focused_position) {
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-    const int32_t center_x = bounds.x + bounds.width / 2;
-    graphics::fill_rect(center_x, bounds.y, 1, bounds.height, kTheme.border);
-    graphics::fill_rect(center_x + 3, bounds.y, 1, bounds.height, kRedDeep);
+    if (bounds.height <= 0) return;
 
-    const size_t visible = window_count < 10U ? window_count : 10U;
-    if (visible == 0U) {
-        signal_node(center_x - 3, bounds.y + 10, kInactiveSignal);
-        return;
+    // The WindowManager ABI still supplies the historic narrow signal rect;
+    // the 5.0 renderer intentionally expands inside the reserved left gutter to
+    // produce the forged blade shown in the design board.
+    const int32_t x = bounds.x - 2;
+    const int32_t width = 34;
+    const int32_t y = bounds.y - 4;
+    const int32_t height = bounds.height + 8;
+
+    fill_chamfered(x + 3, y + 5, width, height, 8, kShadow);
+    fill_chamfered(x, y, width, height, 8, kSteelHairline);
+    fill_chamfered(x + 1, y + 1, width - 2, height - 2, 7, kSteelDeep);
+    graphics::fill_rect(x + 6, y + 20, 2, height - 40, kSteelEdge);
+    graphics::fill_rect(x + width - 9, y + 36, 2, height - 72, kGlowDeep);
+    graphics::fill_rect(x + width - 8, y + height / 3,
+                        1, height / 3, kCrimson);
+
+    const size_t visible = window_count < 9U ? window_count : 9U;
+    const size_t slots = visible == 0U ? 4U : visible;
+    const int32_t usable = height - 90;
+    const int32_t step = slots > 1U
+        ? usable / static_cast<int32_t>(slots - 1U) : 0;
+    for (size_t index = 0U; index < slots; ++index) {
+        const int32_t node_y = y + 45 + static_cast<int32_t>(index) * step;
+        const bool selected = visible != 0U && index == focused_position;
+        const graphics::Color edge = selected ? kHotEdge : kSteelEdge;
+        fill_chamfered(x + 8, node_y - 8, 18, 18, 4, edge);
+        fill_chamfered(x + 9, node_y - 7, 16, 16, 3,
+                       selected ? graphics::rgb(45, 25, 30) : kSteel);
+        if (selected) graphics::fill_rect(x + 22, node_y - 4, 3, 10, kCrimson);
     }
 
-    const int32_t available = bounds.height > 24 ? bounds.height - 24 : bounds.height;
-    const int32_t step = visible > 1U
-        ? available / static_cast<int32_t>(visible - 1U) : 0;
-    for (size_t index = 0U; index < visible; ++index) {
-        const int32_t y = bounds.y + 8 + static_cast<int32_t>(index) * step;
-        const graphics::Color signal = index == focused_position
-            ? kRedBright
-            : (index % 2U == 0U ? kRedDeep : kInactiveSignal);
-        signal_node(center_x - 3, y, signal);
-    }
+    draw_brand(x + 3, y + height / 2 - 14, 28);
 }
 
 void dock_bar(const Rect& bounds, size_t running_count) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    graphics::fill_rect(bounds.x + 6, bounds.y + 7,
-                        bounds.width, bounds.height, kSurfaceShadow);
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        kDockSurface);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        kTheme.border);
-    graphics::fill_rect(bounds.x + 12, bounds.y, 58, 2, kRedBright);
-    graphics::fill_rect(bounds.x + bounds.width - 70, bounds.y,
-                        58, 2, running_count == 0U ? kRedDeep : kRedMuted);
-    red_chevron(bounds.x + bounds.width / 2, bounds.y + 5);
+    const graphics::Color edge = running_count == 0U ? kSteelEdge : kSteelHairline;
+    outline_chamfered(bounds.x, bounds.y, bounds.width, bounds.height,
+                      9, edge, graphics::rgb(8, 13, 16));
+    graphics::fill_rect(bounds.x + 20, bounds.y + 1,
+                        bounds.width > 130 ? 96 : bounds.width - 40,
+                        1, kCrimson);
+    graphics::fill_rect(bounds.x + bounds.width - 80, bounds.y + 1,
+                        48, 1, running_count == 0U ? kGlowDeep : kHotEdge);
 }
 
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const graphics::Color background = focused
-        ? graphics::rgb(54, 21, 27)
-        : (running ? kDockRaised : kDockSurface);
-    const graphics::Color border = focused
-        ? kRedBright
-        : (running ? kSteel : graphics::rgb(38, 40, 45));
-    graphics::fill_rect(bounds.x + 2, bounds.y + 3,
-                        bounds.width, bounds.height, kSurfaceShadow);
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
-    if (focused) graphics::fill_rect(bounds.x + 8, bounds.y, bounds.width - 16, 2, kRedBright);
-    dock_icon(bounds, icon,
-              focused ? kTheme.text : kTheme.text_muted,
-              focused || running ? kRedHot : kRedMuted);
+    const graphics::Color edge = focused ? kHotEdge : (running ? kSteelHairline : kSteelEdge);
+    const graphics::Color fill = focused ? graphics::rgb(46, 25, 30) : kSteelDeep;
+    fill_chamfered(bounds.x, bounds.y, bounds.width, bounds.height, 6, edge);
+    fill_chamfered(bounds.x + 1, bounds.y + 1,
+                   bounds.width - 2, bounds.height - 2, 5, fill);
+    if (focused) {
+        graphics::fill_rect(bounds.x + 8, bounds.y + 1,
+                            bounds.width - 16, 2, kHotEdge);
+    }
+    draw_dock_icon(bounds, icon, focused || running);
     if (running) {
-        graphics::fill_rect(bounds.x + bounds.width / 2 - 3,
-                            bounds.y + bounds.height - 5, 7, 2,
-                            focused ? kRedBright : kRedMuted);
+        graphics::fill_rect(bounds.x + bounds.width / 2 - 4,
+                            bounds.y + bounds.height - 5,
+                            8, 2, focused ? kHotEdge : kCrimson);
     }
 }
 
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const graphics::Color background = focused
-        ? graphics::rgb(49, 20, 25)
-        : (minimized ? graphics::rgb(10, 11, 13) : kGraphite);
-    const graphics::Color signal = focused
-        ? kRedBright
-        : (minimized ? kInactiveSignal : kSteel);
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        focused ? kRedMuted : kTheme.border);
-    graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
-
-    char task_label[15];
-    copy_short_label(task_label, sizeof(task_label), title ? title : "APP");
-    graphics::draw_text(bounds.x + 8, bounds.y + 9, task_label,
-                        minimized ? kTheme.text_muted : kTheme.text,
-                        background, 1U, true);
+    const graphics::Color fill = minimized ? graphics::rgb(8, 12, 15) : kSteelDeep;
+    const graphics::Color edge = focused ? kHotEdge : kSteelEdge;
+    fill_chamfered(bounds.x, bounds.y, bounds.width, bounds.height, 5, edge);
+    fill_chamfered(bounds.x + 1, bounds.y + 1,
+                   bounds.width - 2, bounds.height - 2, 4, fill);
+    graphics::fill_rect(bounds.x + 4, bounds.y + 6,
+                        focused ? 3 : 1, bounds.height - 12,
+                        focused ? kHotEdge : kCrimson);
+    char label[15];
+    copy_short_label(label, sizeof(label), title ? title : "APP");
+    font::draw(font::Face::Ui, bounds.x + 11, bounds.y + 10,
+               label, minimized ? kMuted : kAsh, fill, 1U, true);
 }
 
 void pulse_ribbon(const Rect& bounds, size_t window_count) {
@@ -488,251 +479,75 @@ void pulse_item(const Rect& bounds, const char* title, bool focused, bool minimi
     dock_task(bounds, title, focused, minimized);
 }
 
-void label(const Rect& bounds, const char* text,
-           graphics::Color color, uint32_t scale) {
-    graphics::draw_text(bounds.x, bounds.y, text,
-                        color == 0 ? kTheme.text : color,
-                        kTheme.panel, scale, true);
+void label(
+    const Rect& bounds,
+    const char* text,
+    graphics::Color color,
+    uint32_t scale) {
+    font::draw(font::Face::Ui, bounds.x, bounds.y,
+               text ? text : "",
+               color == 0U ? kText : color,
+               kSteel, scale, true);
 }
 
 void button(const Rect& bounds, const char* text, bool selected) {
-    const auto background = selected ? graphics::rgb(55, 20, 26) : kTheme.panel_alt;
-    const auto signal = selected ? kRedBright : kTheme.border;
-    graphics::fill_rect(bounds.x + 2, bounds.y + 2,
-                        bounds.width, bounds.height, kSurfaceShadow);
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
-    graphics::fill_rect(bounds.x + 3, bounds.y, bounds.width - 3, 1, signal);
-
-    const char* rendered = text;
-    if (text_equals(text, "[]")) rendered = "<>";
-    else if (text_equals(text, "-")) rendered = "_";
-    else if (text_equals(text, "X")) rendered = "x";
-
-    graphics::draw_text(bounds.x + 8,
-                        bounds.y + (bounds.height - 14) / 2,
-                        rendered ? rendered : "",
-                        kTheme.text, background, 2U, true);
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color fill = selected ? graphics::rgb(44, 27, 32) : kSteel;
+    const graphics::Color edge = selected ? kHotEdge : kSteelEdge;
+    fill_chamfered(bounds.x, bounds.y, bounds.width, bounds.height, 5, edge);
+    fill_chamfered(bounds.x + 1, bounds.y + 1,
+                   bounds.width - 2, bounds.height - 2, 4, fill);
+    graphics::fill_rect(bounds.x + 5, bounds.y + 6,
+                        selected ? 3 : 1, bounds.height - 12,
+                        selected ? kHotEdge : kCrimson);
+    font::draw(font::Face::Ui, bounds.x + 12,
+               bounds.y + (bounds.height - 8) / 2 - 1,
+               text ? text : "",
+               selected ? kText : kAsh,
+               fill, 1U, true);
 }
 
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum) {
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        kTheme.panel_alt);
-    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        kTheme.border);
-    if (maximum == 0U || bounds.width < 8 || bounds.height <= 4) return;
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    fill_chamfered(bounds.x, bounds.y, bounds.width, bounds.height,
+                   4, kSteelEdge);
+    fill_chamfered(bounds.x + 1, bounds.y + 1,
+                   bounds.width - 2, bounds.height - 2, 3, kSteelDeep);
+    if (maximum == 0U || bounds.width <= 12) return;
     if (value > maximum) value = maximum;
-
-    constexpr uint32_t segments = 12U;
-    const int32_t inner_width = bounds.width - 6;
-    const int32_t gap = 2;
-    int32_t segment_width =
-        (inner_width - gap * static_cast<int32_t>(segments - 1U)) /
-        static_cast<int32_t>(segments);
-    if (segment_width < 1) segment_width = 1;
-    const uint32_t active = static_cast<uint32_t>(
-        (static_cast<uint64_t>(value) * segments + maximum - 1U) / maximum);
-    int32_t x = bounds.x + 3;
-    for (uint32_t index = 0U; index < segments; ++index) {
-        const graphics::Color signal = index < active
-            ? (index + 2U >= segments ? kRedBright : kTheme.accent)
-            : graphics::rgb(35, 38, 44);
-        graphics::fill_rect(x, bounds.y + 3,
-                            segment_width, bounds.height - 6, signal);
-        x += segment_width + gap;
-        if (x >= bounds.x + bounds.width - 2) break;
-    }
+    const int32_t x = bounds.x + 6;
+    const int32_t y = bounds.y + bounds.height / 2 - 3;
+    const int32_t width = bounds.width - 12;
+    graphics::fill_rect(x, y, width, 6, kSteel);
+    const int32_t active = static_cast<int32_t>(
+        (static_cast<uint64_t>(width) * value) / maximum);
+    graphics::fill_rect(x, y, active, 6, kCrimson);
+    graphics::fill_rect(x, y, active > 36 ? 36 : active, 1, kHotEdge);
 }
 
 void separator(int32_t x, int32_t y, int32_t width) {
     if (width <= 0) return;
-    graphics::fill_rect(x, y, width, 1, kTheme.border);
-    if (width > 24) graphics::fill_rect(x, y, 22, 2, kTheme.accent);
+    graphics::fill_rect(x, y, width, 1, kSteelEdge);
+    graphics::fill_rect(x, y, width > 72 ? 72 : width, 1, kCrimson);
 }
 
-namespace {
-uint32_t widget_depth(
-    const ku_ui_surface& surface, const ku_ui_widget& widget) {
-    uint32_t depth = 0U;
-    uint32_t parent_id = widget.parent_id;
-    while (parent_id != 0U && depth < 3U) {
-        bool found = false;
-        for (uint32_t index = 0U; index < surface.widget_count; ++index) {
-            if (surface.widgets[index].id != parent_id) continue;
-            parent_id = surface.widgets[index].parent_id;
-            found = true;
-            ++depth;
-            break;
-        }
-        if (!found) break;
-    }
-    return depth;
-}
-
-int32_t widget_height(uint32_t type) {
-    switch (type) {
-        case KU_UI_WIDGET_PANEL: return 38;
-        case KU_UI_WIDGET_LABEL: return 26;
-        case KU_UI_WIDGET_BUTTON:
-        case KU_UI_WIDGET_INPUT:
-        case KU_UI_WIDGET_LIST_ITEM: return 36;
-        case KU_UI_WIDGET_PROGRESS: return 50;
-        case KU_UI_WIDGET_SEPARATOR: return 12;
-        default: return 0;
-    }
-}
-
-void widget_icon(const ku_ui_widget& widget, int32_t x, int32_t y, int32_t size) {
-    const auto icon = static_cast<ku_icon_id_t>(widget.icon_id);
-    if (icon == KU_ICON_NONE || !icons::valid(icon)) return;
-    icons::draw(icon, x, y, size, size);
-}
-} // namespace
-
-void native_surface(
-    const Rect& bounds, const ku_ui_surface& surface, bool focused) {
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-
-    const graphics::Color background =
-        surface.background_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color foreground =
-        surface.foreground_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color accent = surface.accent_rgb & UINT32_C(0xFFFFFF);
-    graphics::fill_rect(
-        bounds.x, bounds.y, bounds.width, bounds.height, background);
-
-    const int32_t left = bounds.x + 12;
-    const int32_t right = bounds.x + bounds.width - 12;
-    int32_t y = bounds.y + 10;
-    uint32_t visible_index = 0U;
-    uint32_t rendered = 0U;
-    const uint32_t row_limit = surface.visible_rows == 0U
-        ? KU_UI_MAX_WIDGETS : surface.visible_rows;
-
-    for (uint32_t index = 0U; index < surface.widget_count; ++index) {
-        const ku_ui_widget& widget = surface.widgets[index];
-        if ((widget.flags & KU_UI_WIDGET_HIDDEN) != 0U) continue;
-        if (visible_index++ < surface.scroll_offset) continue;
-        if (rendered++ >= row_limit) break;
-
-        const int32_t height = widget_height(widget.type);
-        if (height <= 0 || y >= bounds.y + bounds.height) break;
-        const int32_t indent = static_cast<int32_t>(
-            widget_depth(surface, widget)) * 14;
-        const Rect row{left + indent, y, right - left - indent, height - 4};
-        const bool selected =
-            (widget.flags & KU_UI_WIDGET_SELECTED) != 0U ||
-            surface.selected_id == widget.id;
-        const bool disabled = (widget.flags & KU_UI_WIDGET_DISABLED) != 0U;
-        const graphics::Color text_color = disabled ? kTheme.text_muted : foreground;
-        const int32_t icon_size = widget.type == KU_UI_WIDGET_PANEL ? 24 : 20;
-        const bool has_icon = widget.icon_id != 0U &&
-            icons::valid(static_cast<ku_icon_id_t>(widget.icon_id));
-        const int32_t text_x = row.x + (has_icon ? icon_size + 13 : 10);
-
-        switch (widget.type) {
-            case KU_UI_WIDGET_PANEL: {
-                const graphics::Color panel_background = selected
-                    ? graphics::rgb(43, 27, 31) : kGraphiteRaised;
-                graphics::fill_rect(
-                    row.x + 3, row.y + 3, row.width, row.height, kSurfaceShadow);
-                graphics::fill_rect(
-                    row.x, row.y, row.width, row.height, panel_background);
-                graphics::draw_rect(
-                    row.x, row.y, row.width, row.height,
-                    selected ? accent : kTheme.border);
-                graphics::fill_rect(
-                    row.x, row.y, 3, row.height,
-                    focused || selected ? accent : kSteel);
-                widget_icon(widget, row.x + 7, row.y + 4, icon_size);
-                graphics::draw_text(
-                    text_x, row.y + 10, widget.text, text_color,
-                    panel_background, 1U, true);
-                break;
-            }
-            case KU_UI_WIDGET_LABEL:
-                widget_icon(widget, row.x + 4, row.y + 1, icon_size);
-                graphics::draw_text(
-                    text_x, row.y + 6, widget.text, text_color,
-                    background, 1U, true);
-                break;
-            case KU_UI_WIDGET_BUTTON:
-            case KU_UI_WIDGET_INPUT:
-            case KU_UI_WIDGET_LIST_ITEM: {
-                const graphics::Color item_background = selected
-                    ? graphics::rgb(49, 27, 32) : kGraphite;
-                graphics::fill_rect(
-                    row.x + 2, row.y + 2, row.width, row.height, kSurfaceShadow);
-                graphics::fill_rect(
-                    row.x, row.y, row.width, row.height, item_background);
-                graphics::draw_rect(
-                    row.x, row.y, row.width, row.height,
-                    selected ? accent : kTheme.border);
-                graphics::fill_rect(
-                    row.x, row.y, selected ? 4 : 2, row.height,
-                    selected ? accent : kSteel);
-                if (widget.type == KU_UI_WIDGET_INPUT) {
-                    graphics::fill_rect(
-                        row.x + 8, row.y + row.height - 3,
-                        row.width - 16, 1, selected ? accent : kTheme.border);
-                }
-                widget_icon(widget, row.x + 7, row.y + 6, icon_size);
-                graphics::draw_text(
-                    text_x, row.y + 11, widget.text, text_color,
-                    item_background, 1U, true);
-                if (selected && widget.type == KU_UI_WIDGET_LIST_ITEM) {
-                    graphics::fill_rect(
-                        row.x + row.width - 8, row.y + row.height / 2 - 2,
-                        3, 5, kRedBright);
-                }
-                break;
-            }
-            case KU_UI_WIDGET_PROGRESS: {
-                graphics::fill_rect(
-                    row.x, row.y, row.width, row.height, kGraphite);
-                graphics::draw_rect(
-                    row.x, row.y, row.width, row.height, kTheme.border);
-                widget_icon(widget, row.x + 7, row.y + 5, icon_size);
-                graphics::draw_text(
-                    text_x, row.y + 8, widget.text, text_color,
-                    kGraphite, 1U, true);
-                progress(
-                    {row.x + 8, row.y + row.height - 15, row.width - 16, 9},
-                    widget.value, widget.maximum);
-                break;
-            }
-            case KU_UI_WIDGET_SEPARATOR:
-                separator(row.x, row.y + 3, row.width);
-                break;
-            default:
-                break;
-        }
-        y += height;
-    }
+void native_surface(const Rect& bounds, const ku_ui_surface& surface, bool focused) {
+    // One canonical native renderer. Keeping the compatibility symbol here
+    // prevents older diagnostic callers from falling back to the old Flux UI.
+    forged_surface(bounds, surface, focused);
 }
 
 void taskbar(const char* status) {
-    if (!graphics::available() || graphics::height() < 32 ||
-        graphics::width() < 80) return;
-
-    const int32_t screen_width = static_cast<int32_t>(graphics::width());
-    const int32_t screen_height = static_cast<int32_t>(graphics::height());
-    const int32_t x = 14;
-    const int32_t y = screen_height - 27;
-    const int32_t width = screen_width - 28;
-    const char* text = status ? status : "FORGED STEEL READY";
-    if (text_starts_with(text, "WINDOWS:")) {
-        text = "LEGACY SURFACE / FORGED STEEL COMPATIBILITY";
-    }
-
-    graphics::fill_rect(x + 3, y + 3, width, 20, kSurfaceShadow);
-    graphics::fill_rect(x, y, width, 20, kTheme.panel_alt);
-    graphics::draw_rect(x, y, width, 20, kTheme.border);
-    graphics::fill_rect(x, y, 5, 20, kTheme.accent);
-    graphics::fill_rect(x + 5, y, 38, 2, kRedBright);
-    signal_node(x + width - 14, y + 6, kRedMuted);
-    graphics::draw_text(x + 13, y + 6, text,
-                        kTheme.text_muted, kTheme.panel_alt, 1U, true);
+    if (!graphics::available()) return;
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t height = static_cast<int32_t>(graphics::height());
+    const Rect bar{18, height - 36, width - 36, 24};
+    fill_chamfered(bar.x, bar.y, bar.width, bar.height, 5, kSteelEdge);
+    fill_chamfered(bar.x + 1, bar.y + 1,
+                   bar.width - 2, bar.height - 2, 4, kSteelDeep);
+    font::draw(font::Face::Mono, bar.x + 12, bar.y + 8,
+               status ? status : "KUROGANEOS",
+               kAsh, kSteelDeep, 1U, true);
 }
 
 } // namespace ui
