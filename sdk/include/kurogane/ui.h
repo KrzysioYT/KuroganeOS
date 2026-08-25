@@ -10,45 +10,6 @@
 #define KU_UI_MAX_WIDGETS 32U
 #define KU_UI_WIDGET_TEXT_CAPACITY KU_UI_LINE_CAPACITY
 
-/*
- * ABI-v2 compatible spatial-layout encoding.
- *
- * UI v2 intentionally keeps ku_ui_widget at 96 bytes. Non-progress widgets do
- * not otherwise consume `value`/`maximum`, so KuroganeOS 5 can opt individual
- * widgets into content-local absolute geometry without changing the syscall
- * structure size or breaking existing flow-layout applications.
- *
- * value:
- *   bit 31      absolute-layout marker
- *   bits 30..16 x (0..32767)
- *   bits 15..0  y (0..65535)
- * maximum:
- *   bits 31..16 width  (1..65535)
- *   bits 15..0  height (1..65535)
- *
- * Progress widgets continue to use value/maximum as progress state and never
- * interpret this marker as geometry.
- */
-#define KU_UI_LAYOUT_ABSOLUTE UINT32_C(0x80000000)
-#define KU_UI_LAYOUT_X_MASK UINT32_C(0x7FFF)
-#define KU_UI_LAYOUT_U16_MASK UINT32_C(0xFFFF)
-
-#define KU_UI_LAYOUT_PACK_POSITION(x, y) \
-    (KU_UI_LAYOUT_ABSOLUTE | \
-     ((((uint32_t)(x)) & KU_UI_LAYOUT_X_MASK) << 16U) | \
-     (((uint32_t)(y)) & KU_UI_LAYOUT_U16_MASK))
-#define KU_UI_LAYOUT_PACK_SIZE(width, height) \
-    (((((uint32_t)(width)) & KU_UI_LAYOUT_U16_MASK) << 16U) | \
-     (((uint32_t)(height)) & KU_UI_LAYOUT_U16_MASK))
-#define KU_UI_LAYOUT_X(value) \
-    ((int32_t)(((uint32_t)(value) >> 16U) & KU_UI_LAYOUT_X_MASK))
-#define KU_UI_LAYOUT_Y(value) \
-    ((int32_t)((uint32_t)(value) & KU_UI_LAYOUT_U16_MASK))
-#define KU_UI_LAYOUT_WIDTH(maximum) \
-    ((int32_t)(((uint32_t)(maximum) >> 16U) & KU_UI_LAYOUT_U16_MASK))
-#define KU_UI_LAYOUT_HEIGHT(maximum) \
-    ((int32_t)((uint32_t)(maximum) & KU_UI_LAYOUT_U16_MASK))
-
 typedef uint32_t ku_window_t;
 #define KU_INVALID_WINDOW UINT32_C(0)
 
@@ -156,14 +117,6 @@ typedef struct ku_ui_surface {
     uint32_t reserved[2];
     ku_ui_widget widgets[KU_UI_MAX_WIDGETS];
 } ku_ui_surface;
-
-static inline int ku_ui_widget_has_absolute_layout(const ku_ui_widget* widget) {
-    return widget != (const ku_ui_widget*)0 &&
-        widget->type != KU_UI_WIDGET_PROGRESS &&
-        (widget->value & KU_UI_LAYOUT_ABSOLUTE) != 0U &&
-        KU_UI_LAYOUT_WIDTH(widget->maximum) > 0 &&
-        KU_UI_LAYOUT_HEIGHT(widget->maximum) > 0;
-}
 
 enum ku_ui_event_type {
     KU_UI_EVENT_NONE = 0,
