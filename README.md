@@ -24,14 +24,15 @@ UEFI
  -> Ring-3 applications
 ```
 
-Pełny userspace korzysta z Foundation GPT image zawierającego ESP oraz
-`Kurogane Root`.
+Pełny userspace korzysta z Foundation GPT image:
 
 ```text
 build/images/KuroganeOS-base.img   # deterministic Foundation image
 state/KuroganeOS.img               # persistent development working image
-kurogane.img                        # legacy FAT/EFI artifact, nie pełny userspace disk
+kurogane.img                        # legacy FAT/EFI artifact
 ```
+
+`kurogane.img` nie jest pełnym system disk — nie zawiera `Kurogane Root`.
 
 ## Najszybsze uruchomienie na Windows
 
@@ -45,15 +46,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -LogName forged-dev
 ```
 
-Runner wybiera working image, a gdy go nie ma — Foundation base. Na Windows
-najpierw próbuje WHPX, a następnie TCG.
+Runner wybiera working image, a gdy go nie ma — Foundation base.
 
 ```text
 [active] accelerator=whpx   # preferowane do pracy nad GUI
 [active] accelerator=tcg    # software emulation; znacznie wolniejsze
 ```
 
-Pełna instrukcja: **[docs/RUNNING.md](docs/RUNNING.md)**.
+Pełna instrukcja: [docs/RUNNING.md](docs/RUNNING.md).
 
 ## Build Windows + WSL2
 
@@ -81,7 +81,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Rebuild
 ```
 
-Bieżący kontrakt Windows media:
+Windows media contract:
 
 ```text
 dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
@@ -89,8 +89,61 @@ dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
-Stare aliasy `*-windows-qemu.img` i ogólne `*-x86_64.iso` nie są kanonicznym
-kontraktem Windows.
+## QEMU
+
+Referencyjny development hardware:
+
+```text
+Machine: q35
+Firmware: EDK2/UEFI
+NIC: Intel E1000 + QEMU user NAT
+RAM: 1024 MiB
+System image: Foundation GPT / working image
+```
+
+Do deterministycznych testów używaj `scripts/run-qemu.ps1`. Do ręcznej pracy
+nad GUI na Windows preferuj `scripts/run-qemu-fast.ps1` + WHPX.
+
+Bieżący `ShellTest` potrafi zweryfikować:
+
+```text
+PID1
+Secure Access
+Blade Launcher
+real Kurosh child-app launch
+storage/network/input markers
+```
+
+Nie czeka już bezwarunkowo na stary tekstowy prompt.
+
+## VirtualBox
+
+Użyj:
+
+```text
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+```
+
+Canonical Oracle VirtualBox profile:
+
+```text
+EFI/UEFI:       ON
+Secure Boot:    OFF
+RAM:            1024-2048 MiB
+CPU:            1-2
+Graphics:       VMSVGA / 128 MiB / 3D OFF
+System disk:    SATA / Intel AHCI
+DVD:            KuroganeOS ISO
+Network:        NAT
+NIC:            PCnet-FAST III (Am79C973)
+Audio:          Intel AC'97
+Input:          PS/2
+```
+
+QEMU i VirtualBox celowo mają obecnie inne referencyjne NIC-i. E1000 i VirtIO
+są również testowane jako profile dodatkowe.
+
+Więcej: [docs/VIRTUALBOX.md](docs/VIRTUALBOX.md).
 
 ## macOS
 
@@ -101,53 +154,28 @@ bash ./scripts/build-media-macos.sh --configuration debug --rebuild
 ./scripts/run-qemu-macos.sh --windowed --memory 1024
 ```
 
-Apple Silicon uruchamia x86-64 KuroganeOS przez QEMU TCG. Taki run jest dobry do
-funkcjonalnych testów, ale nie do oceny FPS software compositora.
+Apple Silicon uruchamia x86-64 KuroganeOS przez QEMU TCG. To dobre środowisko
+do testów funkcjonalnych, ale nie do oceny FPS software compositora.
 
 Więcej: [docs/MACOS_DEVELOPMENT.md](docs/MACOS_DEVELOPMENT.md).
 
-## VirtualBox
-
-Użyj:
-
-```text
-dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
-```
-
-Referencyjnie:
-
-```text
-EFI/UEFI:       ON
-Secure Boot:    OFF
-RAM:            1024-2048 MiB
-CPU:            1-2
-System disk:    SATA / Intel AHCI
-DVD:            KuroganeOS ISO
-Network:        NAT
-NIC:            Intel PRO/1000 MT Desktop (82540EM)
-Audio:          Intel AC'97
-Input:          PS/2
-```
-
-Więcej: [docs/VIRTUALBOX.md](docs/VIRTUALBOX.md).
-
 ## Forged Steel desktop
 
-Aktualny zestaw aplikacji:
+Aktualne aplikacje:
 
-- **Blade Launcher** — root graficznej sesji i launcher;
+- **Blade Launcher** — root graficznej sesji;
 - **Kurosh** — terminal/developer shell;
 - **Vault** — VFS file manager;
-- **Anvil** — package manager foundation;
-- **Forge Control** — ustawienia systemu;
-- **Pulse** — szybki status/system cards;
+- **Anvil** — package manager;
+- **Forge Control** — ustawienia;
+- **Pulse** — quick status/system cards;
 - **Kurogane Web** — natywna przeglądarka;
-- **Performance** — live system metrics;
+- **Performance** — live metrics;
 - **System Monitor** — runtime/process health;
 - **About**.
 
 WindowManager obsługuje focus/z-order, drag, resize, minimize, maximize,
-restore, close, dock, shortcuts, software cursor i Ring-3 native UI ABI v2.
+restore, close, dock, desktop shortcuts, software cursor i Ring-3 UI ABI v2.
 
 Kolory Forged Steel:
 
@@ -161,25 +189,39 @@ Hot Edge      #FF4A45
 
 **BUILT IN STEEL. REFINED IN FIRE.**
 
+## GUI performance
+
+Forged Steel nadal używa software compositora nad UEFI GOP. Bieżący performance
+work obejmuje:
+
+- koaleskowanie ruchów myszy;
+- ograniczenie redraw po każdym input evencie;
+- wcześniejsze dostarczanie desktop input;
+- eliminację ukrytych redrawów Blade po spawn;
+- RAM front-shadow zamiast odczytywania GOP/VRAM piksel po pikselu przy każdym
+  compositor frame;
+- dalszy rozwój damage/dirty-region rendering.
+
+WHPX jest preferowany do ręcznego GUI development na Windows. TCG może znacząco
+zaniżać FPS.
+
 ## Kurogane Web
 
-KuroganeOS ma własny E1000 + IPv4 stack z DHCP/DNS/TCP. Bieżący Web ma transport
-HTTP i **HTTPS/TLS**, trust store, redirecty, Back/Home/Reload, historię,
-aktywację linków oraz prosty natywny parser/rendering HTML/CSS.
+KuroganeOS ma własny E1000 + IPv4 stack z DHCP/DNS/TCP. Web ma transport HTTP i
+**HTTPS/TLS**, trust store, redirecty, Back/Home/Reload, historię, link activation
+i prosty natywny HTML/CSS rendering.
 
-To nadal **nie jest Chromium**. Pełny port Chromium wymaga znacznie szerszego
-POSIX/libc/process/thread/socket/filesystem/sandbox stacku.
+To nadal nie jest Chromium.
 
 ## Anvil
 
-Anvil korzysta z zewnętrznego repozytorium pakietów. Konfiguracja rootfs jest
-FAT 8.3-safe:
+Konfiguracja package repository w rootfs używa FAT 8.3-safe ścieżki:
 
 ```text
 /etc/anvil.cfg
 ```
 
-Nie używaj starego `/etc/anvil.repo`.
+Nie przywracaj starego `/etc/anvil.repo`.
 
 ## Testy
 
@@ -197,6 +239,7 @@ Focused Foundation integration:
   -DiskImagePath .\build\images\KuroganeOS-base.img `
   -ShellTest `
   -TimeoutSeconds 90 `
+  -MemoryMiB 1024 `
   -LogName focused
 ```
 
@@ -206,24 +249,7 @@ Pełna kwalifikacja:
 .\scripts\verify.ps1 -TimeoutSeconds 90 -KeepLogs
 ```
 
-`ShellTest` zachowuje historyczną nazwę parametru, ale aktualny runner rozumie
-zarówno graficzny Foundation login/session, jak i Safe Mode console.
-
-Więcej: [docs/TESTING.md](docs/TESTING.md) i
-[docs/QEMU_TESTING.md](docs/QEMU_TESTING.md).
-
-## Status wydajności GUI
-
-Forged Steel używa obecnie software compositora nad UEFI GOP. Trwa optymalizacja
-input latency, damage/redraw i scanoutu. Do ręcznych testów na Windows preferuj
-WHPX przez `run-qemu-fast.ps1`; TCG może znacząco zaniżać FPS.
-
-Hardware accelerated 3D nie jest jeszcze backendem produkcyjnym. D3D9/11/12
-compatibility work nie jest równoznaczne z pełną zgodnością DirectX.
-
 ## Dokumentacja
-
-### Użytkownik / uruchamianie
 
 - [START_HERE.md](docs/START_HERE.md)
 - [RUNNING.md](docs/RUNNING.md)
@@ -232,24 +258,11 @@ compatibility work nie jest równoznaczne z pełną zgodnością DirectX.
 - [TESTING.md](docs/TESTING.md)
 - [VIRTUALBOX.md](docs/VIRTUALBOX.md)
 - [MACOS_DEVELOPMENT.md](docs/MACOS_DEVELOPMENT.md)
-
-### Development
-
-- [DEVELOPERS/README.md](docs/DEVELOPERS/README.md)
-- [DEVELOPERS/APP_DEVELOPMENT.md](docs/DEVELOPERS/APP_DEVELOPMENT.md)
-- [DEVELOPERS/GUI_APPLICATIONS.md](docs/DEVELOPERS/GUI_APPLICATIONS.md)
-- [DEVELOPERS/API_REFERENCE.md](docs/DEVELOPERS/API_REFERENCE.md)
-- [DEVELOPERS/KERNEL_CONTRIBUTION.md](docs/DEVELOPERS/KERNEL_CONTRIBUTION.md)
-
-### System
-
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [BOOT_PROCESS.md](docs/BOOT_PROCESS.md)
+- [LINUX_DEVELOPMENT.md](docs/LINUX_DEVELOPMENT.md)
 - [GUI.md](docs/GUI.md)
-- [FILESYSTEM.md](docs/FILESYSTEM.md)
-- [NETWORKING.md](docs/NETWORKING.md)
-- [GRAPHICS_COMPATIBILITY.md](docs/GRAPHICS_COMPATIBILITY.md)
 - [CURRENT_LIMITATIONS.md](docs/CURRENT_LIMITATIONS.md)
+- [BUILD_STATUS.md](docs/BUILD_STATUS.md)
+- [DEVELOPERS/README.md](docs/DEVELOPERS/README.md)
 
 ## Licencja
 
