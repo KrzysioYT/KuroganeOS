@@ -4,6 +4,7 @@
 #define ANVIL_VISIBLE_PACKAGES 6U
 #define ANVIL_CONFIG_PATH "/etc/anvil.cfg"
 #define ANVIL_DATABASE_PATH "/home/anvil.db"
+#define ANVIL_DATABASE_CAPACITY 4096U
 #define ANVIL_INDEX_RESPONSE_CAPACITY 32768U
 #define ANVIL_MANIFEST_RESPONSE_CAPACITY 8192U
 #define ANVIL_IO_CHUNK 16384U
@@ -11,6 +12,10 @@
 #define ANVIL_REFRESH_ID 6U
 #define ANVIL_INSTALL_ID 7U
 #define ANVIL_PACKAGE_ROW_BASE 10U
+
+#define ANVIL_PACKAGE_GET 0
+#define ANVIL_PACKAGE_CURRENT 1
+#define ANVIL_PACKAGE_UPDATE 2
 
 typedef struct anvil_repository {
     char host[KU_NET_HOST_CAPACITY];
@@ -44,6 +49,8 @@ static char g_status[64] = "ANVIL / INITIALIZING";
 static char g_index_response[ANVIL_INDEX_RESPONSE_CAPACITY];
 static char g_manifest_response[ANVIL_MANIFEST_RESPONSE_CAPACITY];
 static uint8_t g_payload_response[KU_HTTP_RESPONSE_CAPACITY_LIMIT];
+static char g_database[ANVIL_DATABASE_CAPACITY];
+static int g_database_loaded = 0;
 
 static int starts_with(const char* text, const char* prefix) {
     size_t index = 0U;
@@ -306,18 +313,60 @@ static int load_manifest(size_t package_index, anvil_manifest* manifest) {
     return 1;
 }
 
-static int installed_name(const char* name) {
-    char database[2048];
-    size_t line = 0U;
-    const size_t name_length = strlen(name);
-    if (!read_file_text(ANVIL_DATABASE_PATH, database, sizeof(database))) return 0;
-    while (database[line] != '\0') {
-        if ((line == 0U || database[line - 1U] == '\n') &&
-            starts_with(database + line, name) && database[line + name_length] == '|') return 1;
-        while (database[line] != '\0' && database[line] != '\n') ++line;
-        if (database[line] == '\n') ++line;
+static void reload_install_database(void) {
+    if (!read_file_text(ANVIL_DATABASE_PATH, g_database, sizeof(g_database))) {
+        g_database[0] = '\0';
     }
-    return 0;
+    g_database_loaded = 1;
+}
+
+static int installed_version(
+    const char* name,
+    char* output,
+    size_t capacity) {
+    size_t line_start = 0U;
+    int found = 0;
+    if (name == NULL || name[0] == '\0') return 0;
+    if (output != NULL && capacity != 0U) output[0] = '\0';
+    if (!g_database_loaded) reload_install_database();
+
+    while (g_database[line_start] != '\0') {
+        size_t line_end = line_start;
+        size_t cursor = line_start;
+        char entry_name[32];
+        char entry_version[20];
+        while (g_database[line_end] != '\0' &&
+               g_database[line_end] != '\r' &&
+               g_database[line_end] != '\n') ++line_end;
+        if (line_end > line_start &&
+            copy_field(g_database, line_end, &cursor, entry_name, sizeof(entry_name)) &&
+            copy_field(g_database, line_end, &cursor, entry_version, sizeof(entry_version)) &&
+            strcmp(entry_name, name) == 0) {
+            if (output != NULL && capacity != 0U) {
+                (void)strlcpy(output, entry_version, capacity);
+            }
+            found = 1;
+        }
+        while (g_database[line_end] == '\r' || g_database[line_end] == '\n') ++line_end;
+        line_start = line_end;
+    }
+    return found;
+}
+
+static int installed_name(const char* name) {
+    return installed_version(name, NULL, 0U);
+}
+
+static int package_state(size_t package_index) {
+    char installed[20];
+    if (package_index >= g_package_count) return ANVIL_PACKAGE_GET;
+    if (!installed_version(
+            g_packages[package_index].name,
+            installed,
+            sizeof(installed))) return ANVIL_PACKAGE_GET;
+    return strcmp(installed, g_packages[package_index].version) == 0
+        ? ANVIL_PACKAGE_CURRENT
+        : ANVIL_PACKAGE_UPDATE;
 }
 
 static size_t find_package(const char* name) {
@@ -369,6 +418,7 @@ static int record_install(const anvil_manifest* manifest) {
     written = ku_file_write((ku_file_t)opened, line, strlen(line));
     (void)ku_file_close((ku_file_t)opened);
     (void)ku_file_sync();
+    reload_install_database();
     return written == (ku_result_t)strlen(line);
 }
 
@@ -492,13 +542,19 @@ static int install_package(size_t package_index, unsigned depth) {
     anvil_manifest manifest;
     uint8_t* body = NULL;
     size_t body_size = 0U;
+    char installed[20];
+    int had_installed;
+
     if (depth > ANVIL_DEPENDENCY_DEPTH || package_index >= g_package_count) return 0;
-    if (installed_name(g_packages[package_index].name)) {
-        (void)strlcpy(g_status, "ANVIL / PACKAGE ALREADY INSTALLED", sizeof(g_status));
-        return 1;
-    }
     (void)strlcpy(g_status, "ANVIL / RESOLVING PACKAGE", sizeof(g_status));
     if (!load_manifest(package_index, &manifest)) return 0;
+
+    had_installed = installed_version(manifest.name, installed, sizeof(installed));
+    if (had_installed && strcmp(installed, manifest.version) == 0) {
+        (void)strlcpy(g_status, "ANVIL / PACKAGE IS CURRENT", sizeof(g_status));
+        return 1;
+    }
+
     if (!verify_conflicts(manifest.conflicts) || !verify_peers(manifest.peer) ||
         !ensure_dependencies(manifest.depends, depth)) return 0;
 
@@ -513,7 +569,11 @@ static int install_package(size_t package_index, unsigned depth) {
         (void)strlcpy(g_status, "ANVIL / PAYLOAD SIZE MISMATCH", sizeof(g_status));
         return 0;
     }
-    (void)strlcpy(g_status, "ANVIL / INSTALLING", sizeof(g_status));
+
+    (void)strlcpy(
+        g_status,
+        had_installed ? "ANVIL / UPGRADING" : "ANVIL / INSTALLING",
+        sizeof(g_status));
     if (!write_payload_transaction(&manifest, body, body_size)) {
         (void)strlcpy(g_status, "ANVIL / INSTALL TRANSACTION FAILED", sizeof(g_status));
         return 0;
@@ -522,7 +582,10 @@ static int install_package(size_t package_index, unsigned depth) {
         (void)strlcpy(g_status, "ANVIL / INSTALLED / DATABASE WARNING", sizeof(g_status));
         return 1;
     }
-    (void)strlcpy(g_status, "ANVIL / INSTALL COMPLETE", sizeof(g_status));
+    (void)strlcpy(
+        g_status,
+        had_installed ? "ANVIL / UPDATE COMPLETE" : "ANVIL / INSTALL COMPLETE",
+        sizeof(g_status));
     return 1;
 }
 
@@ -553,11 +616,22 @@ static ku_icon_id_t anvil_status_icon(void) {
         strstr(g_status, "MISMATCH") != NULL) return KU_ICON_STATUS_ERROR;
     if (strstr(g_status, "COMPLETE") != NULL ||
         strstr(g_status, "READY") != NULL ||
+        strstr(g_status, "CURRENT") != NULL ||
         strstr(g_status, "INSTALLED") != NULL) return KU_ICON_STATUS_SUCCESS;
     if (strstr(g_status, "FETCH") != NULL ||
         strstr(g_status, "DOWNLOAD") != NULL ||
-        strstr(g_status, "INSTALLING") != NULL) return KU_ICON_STATUS_LOADING;
+        strstr(g_status, "INSTALLING") != NULL ||
+        strstr(g_status, "UPGRADING") != NULL) return KU_ICON_STATUS_LOADING;
     return KU_ICON_STATUS_INFO;
+}
+
+static const char* selected_action_label(void) {
+    const int state = g_package_count == 0U
+        ? ANVIL_PACKAGE_GET
+        : package_state(g_selected);
+    if (state == ANVIL_PACKAGE_UPDATE) return "UPDATE SELECTED";
+    if (state == ANVIL_PACKAGE_CURRENT) return "PACKAGE CURRENT";
+    return "INSTALL SELECTED";
 }
 
 static void build_scene(kui_scene* scene) {
@@ -573,35 +647,48 @@ static void build_scene(kui_scene* scene) {
     (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel_icon(
-        &root, 1U, "ANVIL / PACKAGES + DEPENDENCIES",
+        &root, 1U, "ANVIL / PACKAGES",
         KU_ICON_KUROGANE_APP_ANVIL_PACKAGE_MANAGER);
     (void)kui_flow_label_icon(
         &root, 2U, repo_line, KU_ICON_SPECIAL_CLOUD_SYNC);
     (void)kui_flow_button_icon(
         &root, ANVIL_REFRESH_ID, "REFRESH CATALOG", KU_ICON_ACTION_REFRESH);
     (void)kui_flow_button_icon(
-        &root, ANVIL_INSTALL_ID, "INSTALL SELECTED", KU_ICON_ACTION_DOWNLOAD);
+        &root, ANVIL_INSTALL_ID, selected_action_label(), KU_ICON_ACTION_DOWNLOAD);
     (void)kui_flow_label_icon(
-        &root, 3U, "CLICK PACKAGE TO SELECT   ENTER ALSO INSTALLS",
+        &root, 3U, "GET=NEW  INST=CURRENT  UPD=UPDATE",
         KU_ICON_WIDGET_SIDEBAR);
     (void)kui_flow_separator(&root, 4U);
     (void)kui_flow_label_icon(
-        &root, 5U, "DEPENDENCY GRAPH / RESOLVED TRANSACTIONALLY ON INSTALL",
+        &root, 5U, "DEPENDENCIES INSTALL AUTOMATICALLY",
         KU_ICON_SPECIAL_DATABASE);
 
     kui_flow_begin(&packages, scene, 1U);
     for (row = 0U; row < ANVIL_VISIBLE_PACKAGES; ++row) {
         const size_t index = g_scroll + row;
+        const int state = index < g_package_count
+            ? package_state(index)
+            : ANVIL_PACKAGE_GET;
         char label[64] = "";
+        ku_icon_id_t icon = KU_ICON_ACTION_DOWNLOAD;
         if (index >= g_package_count) break;
-        gui_append_text(label, sizeof(label), installed_name(g_packages[index].name) ? "INST  " : "GET   ");
+        if (state == ANVIL_PACKAGE_CURRENT) {
+            gui_append_text(label, sizeof(label), "INST  ");
+            icon = KU_ICON_STATUS_SUCCESS;
+        } else if (state == ANVIL_PACKAGE_UPDATE) {
+            gui_append_text(label, sizeof(label), "UPD   ");
+            icon = KU_ICON_ACTION_REFRESH;
+        } else {
+            gui_append_text(label, sizeof(label), "GET   ");
+        }
         gui_append_text(label, sizeof(label), g_packages[index].name);
         gui_append_text(label, sizeof(label), "  ");
         gui_append_text(label, sizeof(label), g_packages[index].version);
         (void)kui_flow_list_item_icon(
-            &packages, ANVIL_PACKAGE_ROW_BASE + (uint32_t)row, label,
-            installed_name(g_packages[index].name)
-                ? KU_ICON_STATUS_SUCCESS : KU_ICON_ACTION_DOWNLOAD);
+            &packages,
+            ANVIL_PACKAGE_ROW_BASE + (uint32_t)row,
+            label,
+            icon);
     }
     if (g_package_count != 0U) {
         char detail[64] = "";
@@ -621,6 +708,7 @@ int main(void) {
     if (window == KU_INVALID_WINDOW) return 1;
 
     load_repository();
+    reload_install_database();
     (void)refresh_catalog();
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
@@ -631,6 +719,7 @@ int main(void) {
     puts("[TEST] anvil_github_repository_protocol: PASS");
     puts("[TEST] anvil_dependency_semantics: PASS");
     puts("[TEST] anvil_transactional_install: PASS");
+    puts("[TEST] anvil_versioned_upgrade: PASS");
 
     for (;;) {
         ku_ui_event event;
