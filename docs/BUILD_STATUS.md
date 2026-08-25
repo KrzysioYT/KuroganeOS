@@ -1,170 +1,171 @@
 # Build status
 
-Data: 17 sierpnia 2026 r.
+Data: 25 sierpnia 2026 r.
 
 ## Current stage
 
-KuroganeOS **3.3.1-dev — DEV BETA VirtualBox Qualification & Enablement** jest
-aktualną linią rozwojową. 3.3.1 wzmacnia nośnik UEFI/ISO, dodaje referencyjny
-profil VirtualBox, kernelowy backend Intel ICH AC'97, stabilniejszy fallback
-sieciowy oraz beginner/developer documentation.
+Publiczna wersja pozostaje:
+
+```text
+3.3.3-dev
+DEV BETA
+```
+
+Gałąź `gpt/kuroganeos-5-gui` rozwija warstwę **Forged Steel / KuroganeOS 5**.
+Nie podnosimy numeru do 5.0.0 przed pełnym Definition of Done, release buildem i
+zieloną kwalifikacją QEMU/VirtualBox.
 
 ## Working foundation
 
-- UEFI `BOOTX64.EFI`, boot protocol v3;
+Aktualna gałąź zawiera m.in.:
+
+- UEFI `BOOTX64.EFI` i boot protocol;
 - VMM, GDT/TSS/IST, IDT;
-- Ring 3, `int 0x80`, ELF64, PID/TID;
+- Ring-3 ELF64, syscall ABI, PID/TID;
 - process spawn/wait/exit i PIT preemption;
-- `/system/init` jako PID 1;
-- AHCI, GPT, writable FAT32/VFS, persistent root;
-- PS/2 keyboard/mouse, PCI, ACPI/APIC;
-- WindowManager + Red Flux Dock;
-- software backbuffer, clipping i damage-style GOP scanout;
-- Ring-3 `libui` scene/view runtime;
-- wspólny `FluxShellCore`;
-- rzeczywisty kernelowy installer GPT/FAT32;
-- read-only package-backed VFS dla live media;
-- Intel E1000/82540EM `8086:100E`;
-- Intel ICH AC'97 `8086:2415` kernel PCM backend.
+- `/system/init` jako stabilny PID 1;
+- AHCI/GPT/FAT32/VFS + persistent `Kurogane Root`;
+- E1000 + DHCP/DNS/TCP/HTTP/HTTPS transport;
+- Intel AC'97;
+- WindowManager z session ownership;
+- native UI ABI v2, icons i cursor hints;
+- Forged Steel renderer;
+- Blade Launcher, Kurosh, Vault, Anvil, Forge Control, Pulse, Web,
+  Performance, System Monitor i About;
+- software backbuffer/GOP compositor;
+- Windows/WSL, macOS i Linux build/media tooling.
 
-## 3.3.1 DEV BETA changes
+## Ostatni potwierdzony lokalnie stan
 
-- wersja `3.3.1-dev`, kanał `DEV BETA`;
-- beginner-first `docs/START_HERE.md`;
-- osobna kompletna instrukcja `docs/VIRTUALBOX.md`;
-- developer documentation w `docs/DEVELOPERS/`;
-- referencyjny profil VirtualBox: EFI64, SATA/AHCI, E1000 82540EM, NAT, AC'97;
-- helpery tworzące referencyjną VM na Windows i Unix-like hostach;
-- naprawa nośnika El Torito: historyczny obraz 64 MiB został zastąpiony
-  obrazem FAT16 30 MiB / 61440 sektorów po 512 B;
-- El Torito platform EFI + removable-media path `EFI/BOOT/BOOTX64.EFI`;
-- ten sam EFI boot image jest wystawiany w GPT jako EFI System Partition;
-- builder ISO ma mandatory publication gate — 20 niezależnych passów;
-- osobny OVMF/QEMU optical smoke boot do rzeczywistego markera kernela;
-- Windows media build może wymusić realny Oracle VirtualBox boot przez
-  `-VirtualBoxSmoke`;
-- E1000 pozostaje referencyjnym NIC dla VirtualBox NAT;
-- brak DHCP/linku nie zatrzymuje już całego desktop boot — kernel publikuje
-  loopback fallback i zachowuje stan błędu fizycznego interfejsu;
-- dodano Intel ICH AC'97 kernel driver: PCM S16LE stereo 48 kHz, bus-master DMA32;
-- AC'97 rejestruje się przez centralny driver manager;
-- publiczny network/audio Ring-3 ABI nie został zamrożony jako blocking syscall;
-  docelowy model pozostaje asynchronicznym handle/event service;
-- dokumentacja grafiki opisuje prawdziwą ścieżkę do przyszłej zgodności D3D,
-  bez fałszywego oznaczania DirectX 11/12 jako gotowego.
+Podczas bieżącej pracy lokalny **debug build** przeszedł po usunięciu kolejnych
+blockerów kompilacji, FAT 8.3 i Foundation validation. Wcześniejsze focused QEMU
+runy dotarły do PID1 i graficznego secure-access loginu.
 
-## Automated qualification — latest code revision
-
-Automatyczny workflow x86-64/Linux dla rewizji zawierającej aktualny kod
-ISO/network/audio zakończył się sukcesem.
+Pełny `verify.ps1` nie jest jeszcze oznaczony jako finalnie zielony dla aktualnej
+gałęzi. W trakcie prac znaleziono i poprawiono m.in.:
 
 ```text
-full Linux media build:                         PASS
-installer ESP size: 30 MiB / 61440 sectors:   PASS
-mandatory builder ISO verification:            20/20 PASS
-workflow second ISO verification:              20/20 PASS
-OVMF/QEMU optical UEFI boot -> kernel marker: PASS
-qualification artifact upload:                 PASS
+Electron-like CRLF -> WSL Bash payload issues
+WindowManager host-test include path
+Foundation boot-mode assertion
+legacy FAT vs Foundation PID1 test mismatch
+PID1 slot reservation
+login role title regression
+ShellTest waiting for an obsolete text prompt
 ```
 
-Oznacza to **40 pełnych strukturalnych inspekcji tego samego modelu ISO w jednym
-workflow plus rzeczywisty boot optyczny przez niezależny firmware OVMF/QEMU**.
+Nie należy na tej podstawie publikować 5.0.0 ani deklarować release PASS.
 
-To jest mocny dowód poprawności nośnika UEFI, ale nie jest zastępowane
-marketingowym stwierdzeniem „100% na każdej konfiguracji VirtualBox”.
+## Bieżący build contract
 
-## Oracle VirtualBox qualification
-
-Realny smoke test Oracle VirtualBox jest gotowy i stanowi ostatni host-specific
-gate dla deklaracji `VirtualBox runtime PASS`:
+Development:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild `
-  -VirtualBoxSmoke
+.\scripts\build.ps1 -Configuration debug -Rebuild
 ```
 
-Oczekiwane markery:
+Najważniejsze artefakty:
 
 ```text
-[virtualbox-smoke] EFI optical boot: PASS
-[virtualbox-smoke] BOOTX64.EFI -> kernel serial marker: PASS
-[virtualbox-smoke] VIRTUALBOX REAL BOOT VERIFIED
+build/kernel.elf
+build/BOOTX64.EFI
+build/build-info.txt
+build/images/KuroganeOS-base.img
+state/KuroganeOS.img          # working image, jeżeli istnieje
+kurogane.img                   # legacy FAT/EFI artifact
+build/install.pkg
 ```
 
-Dopóki ten test nie zostanie wykonany na hoście x86-64 z Oracle VirtualBox,
-status brzmi:
-
-```text
-UEFI ISO automated qualification: PASS
-Oracle VirtualBox real smoke: AVAILABLE / NOT YET RECORDED
-```
-
-## Zalecane build commands
-
-### Windows + WSL
-
-Wymagane dodatkowe pliki:
-
-https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
+Windows media:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild
+.\scripts\build-media.ps1 -Configuration release -Rebuild
 ```
 
-### macOS
-
-```bash
-bash ./scripts/setup-macos.sh --install
-bash ./scripts/build-media-macos.sh --configuration release --rebuild
-```
-
-### Linux x86-64
-
-```bash
-bash ./scripts/setup-linux.sh --install
-bash ./scripts/build-media-linux.sh --configuration release --rebuild
-```
-
-## Expected artifacts
+Publikowane nazwy Windows:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-windows-qemu.img
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
-Jeden host tworzy swój host-specific IMG oraz wspólny ISO.
+## QEMU qualification
 
-## Runtime acceptance still open
+Pełny userspace testuje Foundation GPT, nie legacy `kurogane.img`:
 
-1. Oracle VirtualBox x86-64: ISO optical boot -> kernel marker;
-2. VirtualBox: ISO -> Try -> Login -> Home;
-3. VirtualBox: Install -> target SATA VDI -> reboot without ISO -> Login;
-4. VirtualBox NAT + 82540EM -> DHCP/gateway/DNS online path;
-5. VirtualBox AC'97 -> audible PCM smoke;
-6. live root pozostaje read-only;
-7. EN install bez hasła -> reboot -> Login -> Home;
-8. PL install z hasłem -> błędne hasło odrzucone, poprawne zaakceptowane;
-9. brak zapisu na target przed poprawnym `INSTALL`;
-10. System Monitor pozostaje bez full-screen flickera.
+```powershell
+.\scripts\run-qemu.ps1 `
+  -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -ShellTest `
+  -TimeoutSeconds 90 `
+  -MemoryMiB 1024 `
+  -LogName focused
+```
 
-## Known gaps / DEV warnings
+Publiczny `run-qemu.ps1` korzysta obecnie z graphical-aware core runnera.
+`ShellTest` zachowuje historyczną nazwę, ale potrafi rozpoznać secure-access
+login i Blade session zamiast bezwarunkowo czekać na `kurogane:user$`.
 
-- `FNV1A64-DEV` nie jest bezpiecznym password KDF;
-- brak pełnej account service/credential store/lock screen;
-- publiczne userspace sockets/DNS/ping są nadal planowanym async API;
-- AC'97 ma realny kernel backend, ale stabilne publiczne Ring-3 audio stream API
-  nadal jest planowane;
-- pełny Direct3D/DirectX 9/10/11/12 nie jest jeszcze zaimplementowany;
-- brak pełnego native graphics runtime/GPU acceleration;
-- compatibility `ku_ui_frame` pozostaje transportem części aplikacji;
-- brak kompletnego publicznego Ring-3 file capability API;
-- real-hardware qualification pozostaje węższa niż VM qualification.
+## GUI performance work
+
+Aktywnie poprawiane są:
+
+- coalescing mouse movement;
+- ograniczenie redraw po każdym input evencie;
+- wcześniejsze dostarczanie desktop input;
+- ukryte redrawy Blade po app spawn;
+- WHPX interactive development runner;
+- dalsze ograniczenie kosztu software compositor/GOP scanout.
+
+Do ręcznych pomiarów na Windows preferowany jest:
+
+```powershell
+.\scripts\run-qemu-fast.ps1 -Accelerator auto -MemoryMiB 1024
+```
+
+TCG pozostaje deterministycznym/fallback backendem i może znacząco zaniżać FPS.
+
+## Full verifier
+
+```powershell
+.\scripts\verify.ps1 -TimeoutSeconds 90 -KeepLogs
+```
+
+Wymagany zakres obejmuje:
+
+1. WSL/toolchain preflight;
+2. clean debug build;
+3. host tests;
+4. FAT validation;
+5. Foundation GPT/FAT validation;
+6. Foundation QEMU integration;
+7. Safe Mode;
+8. test profile + AHCI scratch;
+9. release build;
+10. release ISO;
+11. QEMU ISO qualification;
+12. odpowiednią kwalifikację VirtualBox dla release media.
+
+## Release blockers przed 5.0.0
+
+- pełny verifier aktualnej rewizji musi być zielony;
+- app launch/focus/dock musi przejść runtime test bez regresji;
+- compositor latency/FPS wymaga dalszej optymalizacji;
+- login/Blade/Vault/Forge/Pulse/Anvil wymagają kolejnych visual passes względem
+  `Forged_Steel_GUI_Reference.png`;
+- scalable font stack nie jest jeszcze gotowy;
+- hardware accelerated compositor/D3D nie jest produkcyjnie gotowy;
+- Web nie jest Chromium;
+- Anvil package authenticity/signing nie jest jeszcze finalnym rozwiązaniem;
+- real VirtualBox/install/reboot path musi przejść kwalifikację release.
+
+## Zobacz także
+
+- [RUNNING.md](RUNNING.md)
+- [BUILDING.md](BUILDING.md)
+- [TESTING.md](TESTING.md)
+- [QEMU_TESTING.md](QEMU_TESTING.md)
+- [CURRENT_LIMITATIONS.md](CURRENT_LIMITATIONS.md)
+- [roadmap/KUROGANEOS_5_GUI.md](roadmap/KUROGANEOS_5_GUI.md)
