@@ -1,17 +1,18 @@
 #include "../common.h"
 #include "../../../common/version.h"
-#include "../../../common/dev_credential.h"
+#include "../../../common/dev_profile.h"
 
-#define LOGIN_USERNAME_CAPACITY 24U
+#define LOGIN_USERNAME_CAPACITY KU_DEV_PROFILE_USERNAME_CAPACITY
 #define LOGIN_PASSWORD_CAPACITY 48U
 #define LOGIN_CONFIG_CAPACITY 384U
 
 typedef struct login_profile {
     char username[LOGIN_USERNAME_CAPACITY];
-    char locale[16];
+    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
     uint64_t password_hash;
     int password_required;
     int installed_profile;
+    int profile_valid;
 } login_profile;
 
 static int read_small_file(const char* path, char* output, size_t capacity) {
@@ -27,76 +28,42 @@ static int read_small_file(const char* path, char* output, size_t capacity) {
     }
 }
 
-static int copy_config_value(
-    const char* config,
-    const char* key,
-    char* output,
-    size_t capacity) {
-    size_t key_length;
-    size_t start;
-    if (config == NULL || key == NULL || output == NULL || capacity == 0U) return 0;
-    key_length = strlen(key);
-    for (start = 0U; config[start] != '\0'; ++start) {
-        size_t index = 0U;
-        if (start != 0U && config[start - 1U] != '\n') continue;
-        while (index < key_length && config[start + index] == key[index]) ++index;
-        if (index != key_length || config[start + index] != '=') continue;
-        {
-            size_t source = start + key_length + 1U;
-            size_t written = 0U;
-            while (config[source] != '\0' && config[source] != '\n' &&
-                   written + 1U < capacity) {
-                output[written++] = config[source++];
-            }
-            output[written] = '\0';
-            return 1;
-        }
-    }
-    output[0] = '\0';
-    return 0;
-}
-
-static int parse_hex64(const char* value, uint64_t* output) {
-    uint64_t result = 0U;
-    size_t index;
-    if (value == NULL || output == NULL || strlen(value) != 16U) return 0;
-    for (index = 0U; index < 16U; ++index) {
-        uint64_t digit;
-        const char ch = value[index];
-        if (ch >= '0' && ch <= '9') digit = (uint64_t)(ch - '0');
-        else if (ch >= 'A' && ch <= 'F') digit = (uint64_t)(ch - 'A' + 10);
-        else if (ch >= 'a' && ch <= 'f') digit = (uint64_t)(ch - 'a' + 10);
-        else return 0;
-        result = (result << 4U) | digit;
-    }
-    *output = result;
-    return 1;
-}
-
 static void load_profile(login_profile* profile) {
     char config[LOGIN_CONFIG_CAPACITY];
-    char value[64];
+    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
+    struct ku_dev_profile_data parsed = {{0}, 0U, 0};
+    int locale_valid = 0;
+
     if (profile == NULL) return;
     memset(profile, 0, sizeof(*profile));
     (void)strlcpy(profile->username, "developer", sizeof(profile->username));
     (void)strlcpy(profile->locale, "en-US", sizeof(profile->locale));
+    profile->profile_valid = 1;
 
-    if (read_small_file("/etc/locale.cfg", config, sizeof(config)) &&
-        copy_config_value(config, "LANG", value, sizeof(value))) {
-        (void)strlcpy(profile->locale, value, sizeof(profile->locale));
+    if (read_small_file("/etc/locale.cfg", config, sizeof(config))) {
+        locale_valid = ku_dev_profile_parse_locale(config, locale);
+        if (locale_valid) {
+            (void)strlcpy(profile->locale, locale, sizeof(profile->locale));
+        }
     }
 
     if (!read_small_file("/etc/user.cfg", config, sizeof(config))) return;
+
     profile->installed_profile = 1;
-    if (copy_config_value(config, "USERNAME", value, sizeof(value)) && value[0] != '\0') {
-        (void)strlcpy(profile->username, value, sizeof(profile->username));
+    if (!locale_valid || !ku_dev_profile_parse_user_config(config, &parsed)) {
+        /*
+         * Fail closed. A truncated/tampered installed profile must never turn
+         * into the zero-initialized no-password path.
+         */
+        profile->profile_valid = 0;
+        profile->password_required = 1;
+        profile->password_hash = 0U;
+        return;
     }
-    if (copy_config_value(config, "PASSWORD_REQUIRED", value, sizeof(value))) {
-        profile->password_required = value[0] == '1';
-    }
-    if (copy_config_value(config, "PASSWORD_HASH", value, sizeof(value))) {
-        (void)parse_hex64(value, &profile->password_hash);
-    }
+
+    (void)strlcpy(profile->username, parsed.username, sizeof(profile->username));
+    profile->password_required = parsed.password_required;
+    profile->password_hash = parsed.password_hash;
 }
 
 static int is_polish(const login_profile* profile) {
@@ -133,6 +100,19 @@ static void build_scene(
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&session, scene, 1U);
+    if (profile->installed_profile && !profile->profile_valid) {
+        (void)kui_flow_label(&session, 9U,
+            polish ? "PROFIL KONTA JEST USZKODZONY"
+                   : "ACCOUNT PROFILE IS INVALID");
+        (void)kui_flow_label(&session, 10U,
+            polish ? "LOGOWANIE ZABLOKOWANE - WYMAGANE ODZYSKIWANIE"
+                   : "LOGIN BLOCKED - RECOVERY REQUIRED");
+        (void)kui_flow_label(&session, 11U,
+            polish ? "NIE MOZNA BEZPIECZNIE ZWERYFIKOWAC KONTA"
+                   : "ACCOUNT CREDENTIALS CANNOT BE VERIFIED SAFELY");
+        return;
+    }
+
     if (!profile->installed_profile) {
         (void)kui_flow_label(&session, 9U,
             polish ? "SESJA LIVE / TYLKO DO ODCZYTU"
@@ -205,9 +185,13 @@ int main(void) {
     }
 
     puts("[TEST] red_flux_login_surface: PASS");
-    puts(profile.installed_profile
-        ? "[TEST] installed_account_profile: PASS"
-        : "[TEST] live_login_profile: PASS");
+    if (profile.installed_profile && !profile.profile_valid) {
+        puts("[TEST] installed_account_profile_invalid_blocked: PASS");
+    } else {
+        puts(profile.installed_profile
+            ? "[TEST] installed_account_profile: PASS"
+            : "[TEST] live_login_profile: PASS");
+    }
 
     for (;;) {
         ku_ui_event event;
@@ -215,6 +199,11 @@ int main(void) {
         if (available < 0 || event.type == KU_UI_EVENT_CLOSE) {
             (void)ku_ui_close(window);
             return 0;
+        }
+
+        if (profile.installed_profile && !profile.profile_valid) {
+            /* Invalid persistent credentials are a hard authentication gate. */
+            continue;
         }
 
         if (!profile.password_required &&
