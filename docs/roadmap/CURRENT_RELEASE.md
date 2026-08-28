@@ -29,26 +29,23 @@ Last audit:
 ## Active stacked development
 
 Active development version:
-`3.3.9-dev`
+`3.4.0-dev`
 
-Branch:
+Active branch:
+`dev/3.4.0-service-architecture`
+
+Red Flux closeout branch:
 `dev/3.3.9-red-flux-closeout`
 
 Combined 3.3.7 + 3.3.8 merge:
 `3e1c3a7b9e7ba12281e80b8ef41a415c929ba70d`
 
-Last fully combined automated qualification head:
-`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
-
-Current closeout regression code head:
+Verified 3.3.9 closeout code:
 `ee9e1839247600b7882892aff463b4730839c9a3`
 
-Documentation continues after the code head and does not change the qualified
-runtime code.
-
-Stacked development is not evidence that 3.3.4, 3.3.5, 3.3.6, 3.3.7, 3.3.8
-or 3.3.9 have been formally released. No immutable release tag is created while
-the earlier mandatory release gate remains open.
+Stacked development is not evidence that the earlier versions have been
+formally released. No immutable release tag is created while the mandatory
+3.3.4 real VirtualBox release gate remains open.
 
 ## Completed
 
@@ -83,17 +80,29 @@ the earlier mandatory release gate remains open.
 - [x] Real process file-handle ownership telemetry integrated.
 - [x] Runtime cleanup closes active file handles before publishing final count.
 - [x] Handle ownership regression run `33220748290` passed.
-- [x] Earlier cleanup-ordering regression run `33219888365` passed.
+- [x] Cleanup-ordering regression run `33219888365` passed.
 
 ### Stacked 3.3.9 Red Flux closeout
 
 - [x] 3.3.7 TLS and 3.3.8 userspace work combined with a real two-parent merge.
 - [x] Combined UEFI ISO qualification run `33220774861` passed.
-- [x] That run passed kernel test build, ABI/SDK tests, full host regression,
-      media build, production FAT32/VFS validation, 20-pass ISO verifier,
-      OVMF boot, and QEMU NAT with E1000, PCnet and VirtIO-net.
-- [x] Existing IPC channel/event/shared-memory tests were identified as missing
-      from the default full host regression suite and added in `ee9e1839...`.
+- [x] IPC channel/event/shared-memory tests were added to the default full host
+      regression suite in `ee9e1839...`.
+- [x] Expanded UEFI ISO qualification run `33220980716` passed on
+      `ee9e1839247600b7882892aff463b4730839c9a3`.
+- [x] Expanded run passed kernel build, ABI/SDK, full host suite including the
+      IPC tests, media build, FAT32/VFS, 20-pass verifier, OVMF, E1000, PCnet,
+      VirtIO-net and artifact publication.
+
+### Stacked 3.4.0 service architecture
+
+- [x] Clean development branch created from the verified Red Flux closeout line.
+- [x] Public `kurogane/service.h` foundation implemented over the existing real
+      PID-owned named IPC transport; no duplicate fake registry was introduced.
+- [x] SDK umbrella header exports the service API.
+- [x] ABI regression locks service types/capacities to the underlying IPC ABI.
+- [ ] Full 3.4.0 qualification run `33221125505` is still in progress and must
+      pass before this atom is marked TESTED/QUALIFIED.
 
 ## Remaining
 
@@ -105,14 +114,11 @@ the earlier mandatory release gate remains open.
 - [ ] Record final VirtualBox serial acceptance evidence.
 - [ ] Only then bump/freeze/tag 3.3.4-dev.
 
-### Active 3.3.9 closeout
+### Active 3.4.0
 
-- [ ] Complete expanded full qualification run `33220980716` for
-      `ee9e1839247600b7882892aff463b4730839c9a3`; it additionally exercises IPC
-      channel/event/shared-memory in `scripts/test.sh`.
-- [ ] If the expanded regression passes, fast-forward the clean
-      `dev/3.4.0-service-architecture` branch to the closeout head and begin the
-      3.4.0 service registry/discovery work over the existing named IPC backend.
+- [ ] Finish run `33221125505` on service API head `716d2cac...`.
+- [ ] On PASS, record the service API atom as TESTED and continue 3.4.0 service
+      discovery/registration qualification without creating parallel registry state.
 
 ## Blockers
 
@@ -128,25 +134,24 @@ PASS:
 - Combined userspace ownership regression: `33220748290`.
 - Combined real guest TLS/HTTPS qualification: `33220761526`.
 - Combined full UEFI ISO qualification: `33220774861`.
+- Expanded 3.3.9 full qualification with IPC regression coverage: `33220980716`.
 
 FAIL:
-- None known on the combined 3.3.9 code at the last completed qualification.
+- None known on verified 3.3.9 closeout code.
 
 PENDING:
-- Expanded closeout regression `33220980716` after adding IPC tests to the
-  default host suite.
+- 3.4.0 full qualification run `33221125505`.
 - Oracle VirtualBox Try/Login/Desktop real-host acceptance.
 - Oracle VirtualBox install/reboot real-host acceptance.
 
 Last verified commit:
-`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
-
-Current stacked code commit under regression:
 `ee9e1839247600b7882892aff463b4730839c9a3`
 
+Current stacked development commit under qualification:
+`716d2cac9c49a27d7e8cf11f813de56b9d29f256`
+
 Next action:
-Finish run `33220980716`. On PASS, record `ee9e1839...` as the latest verified
-3.3.9 closeout code, fast-forward `dev/3.4.0-service-architecture`, and implement
-side-effect-free service discovery plus explicit userspace service API over the
-existing PID-owned named IPC registry. Keep 3.3.4 in `QUALIFICATION` until real
-Oracle VirtualBox acceptance exists.
+Finish run `33221125505`. If it passes, document 3.4.0 service API as tested and
+continue the next smallest service-discovery/registration reliability task over
+the existing IPC backend. Keep 3.3.4 in `QUALIFICATION` until real Oracle
+VirtualBox acceptance exists.
