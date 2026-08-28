@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls]" >&2
     exit 2
 }
 
@@ -11,26 +11,28 @@ media_kind="iso"
 timeout_seconds=60
 nic_model="none"
 require_network=false
+require_tls=false
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
+        --require-tls) require_tls=true; require_network=true; shift ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
     esac
 done
 [[ -n "$media" ]] || usage
-[[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 180)) || {
+[[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 240)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
     none|e1000|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
 esac
 if $require_network && [[ "$nic_model" == "none" ]]; then
-    echo "--require-network needs --nic e1000, pcnet or virtio" >&2
+    echo "--require-network/--require-tls needs --nic e1000, pcnet or virtio" >&2
     exit 2
 fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
@@ -167,10 +169,33 @@ while ((SECONDS < deadline)); do
                 tail -n 80 "$serial" >&2 || true
                 exit 2
             fi
+
+            if $require_tls && grep -Fq '[TEST] tls_https_optional: SKIP' "$serial"; then
+                echo "KuroganeOS reached networking but real TLS/HTTPS qualification did not pass for $nic_model" >&2
+                tail -n 220 "$serial" >&2 || true
+                exit 1
+            fi
+
+            network_ready=false
             if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
                grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
                grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then
+                network_ready=true
+            fi
+
+            tls_ready=true
+            if $require_tls; then
+                tls_ready=false
+                if grep -Fq '[TEST] tls_https_optional: PASS' "$serial"; then
+                    tls_ready=true
+                fi
+            fi
+
+            if $network_ready && $tls_ready; then
                 echo "[uefi-qemu] $media_kind/$nic_model DHCP/gateway network: PASS"
+                if $require_tls; then
+                    echo "[uefi-qemu] $media_kind/$nic_model real TLS/HTTPS handshake: PASS"
+                fi
                 echo "[uefi-qemu] firmware CODE: $firmware_code"
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
@@ -196,11 +221,13 @@ while ((SECONDS < deadline)); do
     sleep 1
 done
 
-if $require_network; then
+if $require_tls; then
+    echo "OVMF/QEMU did not qualify $nic_model TLS/HTTPS within $timeout_seconds seconds" >&2
+elif $require_network; then
     echo "OVMF/QEMU did not qualify $nic_model networking within $timeout_seconds seconds" >&2
 else
     echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
-[[ -f "$serial" ]] && tail -n 180 "$serial" >&2 || true
+[[ -f "$serial" ]] && tail -n 220 "$serial" >&2 || true
 exit 1
