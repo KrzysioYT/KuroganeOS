@@ -31,6 +31,13 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_anvil_sha256.cpp \
+  -o "$OUT_DIR/test_anvil_sha256"
+
+"$OUT_DIR/test_anvil_sha256"
+
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
   kernel/fs/vfs.cpp \
   -o "$OUT_DIR/test_vfs_process_paths"
