@@ -1,17 +1,22 @@
-name: Apply 3.3.8 handle telemetry integration
+name: 3.3.8 userspace handle ownership regression
 
 on:
   push:
     branches: [ dev/3.3.8-userspace-io ]
     paths:
       - '.github/workflows/apply-handle-telemetry.yml'
+      - 'kernel/task/process.cpp'
+      - 'kernel/task/process.hpp'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'kernel/user/runtime.hpp'
+      - 'kernel/fs/**'
+      - 'tests/test_process.cpp'
+      - 'Makefile'
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  patch-and-verify:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -22,48 +27,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Wire process handle telemetry to real runtime table
-        shell: python
-        run: |
-          from pathlib import Path
-
-          process_path = Path('kernel/task/process.cpp')
-          process_text = process_path.read_text()
-          process_anchor = '''Status set_working_directory(ProcessId pid, const char* path) {\n'''
-          process_impl = '''Status set_handle_count(ProcessId pid, uint32_t handle_count) {\n    if (!g_initialized) return Status::NotInitialized;\n    size_t index = 0U;\n    if (!find(pid, &index)) return Status::NotFound;\n    g_slots[index].handle_count = handle_count;\n    return Status::Ok;\n}\n\nStatus set_working_directory(ProcessId pid, const char* path) {\n'''
-          if process_text.count(process_anchor) != 1:
-              raise SystemExit('process set_working_directory anchor mismatch')
-          process_path.write_text(process_text.replace(process_anchor, process_impl, 1))
-
-          runtime_path = Path('kernel/user/runtime_base.inc')
-          runtime_text = runtime_path.read_text()
-
-          decode_anchor = '''HandleSlot* decode_handle(Context& context, uint64_t handle) {\n    const uint64_t encoded = handle & UINT64_C(0xFFFFFFFF);\n    const uint32_t generation = static_cast<uint32_t>(handle >> 32U);\n    if (encoded < 3U || encoded >= 3U + kMaximumHandles) return nullptr;\n    HandleSlot& slot = context.handles[static_cast<size_t>(encoded - 3U)];\n    return slot.active && slot.generation == generation ? &slot : nullptr;\n}\n\n'''
-          decode_replacement = decode_anchor + '''void sync_process_handle_count(Context& context) {\n    uint32_t count = 0U;\n    for (const HandleSlot& handle : context.handles) {\n        if (handle.active) ++count;\n    }\n    static_cast<void>(process::set_handle_count(context.pid, count));\n}\n\n'''
-          if runtime_text.count(decode_anchor) != 1:
-              raise SystemExit('runtime decode_handle anchor mismatch')
-          runtime_text = runtime_text.replace(decode_anchor, decode_replacement, 1)
-
-          open_anchor = '''            slot.file = file;\n            slot.active = true;\n            frame.rax = encode_handle(slot_index, slot.generation);\n'''
-          open_replacement = '''            slot.file = file;\n            slot.active = true;\n            sync_process_handle_count(*context);\n            frame.rax = encode_handle(slot_index, slot.generation);\n'''
-          if runtime_text.count(open_anchor) != 1:
-              raise SystemExit('runtime open anchor mismatch')
-          runtime_text = runtime_text.replace(open_anchor, open_replacement, 1)
-
-          close_anchor = '''            if (status == fs::vfs::Status::Ok) {\n                slot->active = false;\n                slot->file = {};\n            }\n            frame.rax = static_cast<uint64_t>(vfs_status(status));\n'''
-          close_replacement = '''            if (status == fs::vfs::Status::Ok) {\n                slot->active = false;\n                slot->file = {};\n                sync_process_handle_count(*context);\n            }\n            frame.rax = static_cast<uint64_t>(vfs_status(status));\n'''
-          if runtime_text.count(close_anchor) != 1:
-              raise SystemExit('runtime close anchor mismatch')
-          runtime_text = runtime_text.replace(close_anchor, close_replacement, 1)
-
-          cleanup_anchor = '''    for (HandleSlot& handle : context.handles) {\n        if (!handle.active) continue;\n        if (fs::root_volume::close(handle.file) != fs::vfs::Status::Ok) {\n            result = Status::CleanupFailed;\n        }\n        handle.active = false;\n    }\n    static_cast<void>(threading::bind_address_space(nullptr));\n'''
-          cleanup_replacement = '''    for (HandleSlot& handle : context.handles) {\n        if (!handle.active) continue;\n        if (fs::root_volume::close(handle.file) != fs::vfs::Status::Ok) {\n            result = Status::CleanupFailed;\n        }\n        handle.active = false;\n        handle.file = {};\n    }\n    sync_process_handle_count(context);\n    static_cast<void>(threading::bind_address_space(nullptr));\n'''
-          if runtime_text.count(cleanup_anchor) != 1:
-              raise SystemExit('runtime cleanup anchor mismatch')
-          runtime_text = runtime_text.replace(cleanup_anchor, cleanup_replacement, 1)
-          runtime_path.write_text(runtime_text)
-
-      - name: Build process telemetry regression
+      - name: Build and run process handle telemetry regression
         run: |
           mkdir -p build/tests/handle-telemetry
           g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -DKUROGANE_HOST_TEST -c \
@@ -82,14 +46,12 @@ jobs:
             -o build/tests/handle-telemetry/process-core
           build/tests/handle-telemetry/process-core
 
+      - name: Verify production runtime owns telemetry updates
+        run: |
+          grep -Fq 'void sync_process_handle_count(Context& context)' kernel/user/runtime_base.inc
+          grep -Fq 'sync_process_handle_count(*context);' kernel/user/runtime_base.inc
+          grep -Fq 'sync_process_handle_count(context);' kernel/user/runtime_base.inc
+          grep -Fq 'Status set_handle_count(ProcessId pid, uint32_t handle_count)' kernel/task/process.cpp
+
       - name: Compile full kernel with runtime integration
         run: make CONFIG=test kernel
-
-      - name: Commit verified integration
-        run: |
-          git config user.name 'KuroganeOS CI'
-          git config user.email 'actions@users.noreply.github.com'
-          git add kernel/task/process.cpp kernel/user/runtime_base.inc
-          git diff --cached --check
-          git commit -m 'userspace: report real file-handle ownership'
-          git push origin HEAD:dev/3.3.8-userspace-io
