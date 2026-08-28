@@ -5,6 +5,7 @@
 #include <iostream>
 #include <unordered_map>
 
+#include "../common/dev_profile.h"
 #include "../kernel/fs/fat32.hpp"
 #include "../kernel/install/disk_layout.hpp"
 #include "../kernel/install/fat32_reliable_file.hpp"
@@ -51,6 +52,27 @@ storage::block::Status flush(void* context) {
     return storage::block::Status::Ok;
 }
 
+void read_text(
+    fs::fat32::FileSystem* filesystem,
+    const char* path,
+    char* output,
+    size_t capacity) {
+    assert(filesystem != nullptr);
+    assert(path != nullptr);
+    assert(output != nullptr);
+    assert(capacity >= 2U);
+    size_t bytes_read = 0U;
+    assert(fs::fat32::read(
+        filesystem,
+        path,
+        0U,
+        output,
+        capacity - 1U,
+        &bytes_read) == fs::fat32::Status::Ok);
+    assert(bytes_read < capacity);
+    output[bytes_read] = '\0';
+}
+
 void qualify_reliable_state_replace(storage::partition::Device* root) {
     fs::fat32::FileSystem filesystem{};
     assert(fs::fat32::mount(
@@ -59,7 +81,8 @@ void qualify_reliable_state_replace(storage::partition::Device* root) {
     assert(fs::fat32::mkdir(&filesystem, "/etc") == fs::fat32::Status::Ok);
 
     constexpr char old_profile[] =
-        "USERNAME=old\nPASSWORD_REQUIRED=0\nPASSWORD_HASH=0000000000000000\n";
+        "USERNAME=old\nPASSWORD_REQUIRED=0\nPASSWORD_HASH=0000000000000000\n"
+        "HASH_SCHEME=FNV1A64-DEV\n";
     assert(fs::fat32::create(&filesystem, "/etc/user.cfg") ==
            fs::fat32::Status::Ok);
     assert(fs::fat32::write(
@@ -71,9 +94,9 @@ void qualify_reliable_state_replace(storage::partition::Device* root) {
     assert(fs::fat32::sync(&filesystem) == fs::fat32::Status::Ok);
 
     constexpr char new_profile[] =
-        "USERNAME=tester\nPASSWORD_REQUIRED=1\nPASSWORD_HASH=0123456789ABCDEF\n"
+        "USERNAME=user\nPASSWORD_REQUIRED=1\nPASSWORD_HASH=57FF0F93FF125DDB\n"
         "HASH_SCHEME=FNV1A64-DEV\n";
-    const install::reliable_file::Paths paths{
+    const install::reliable_file::Paths user_paths{
         "/etc/user.cfg",
         "/etc/user.new",
         "/etc/user.bak",
@@ -81,21 +104,27 @@ void qualify_reliable_state_replace(storage::partition::Device* root) {
     };
     assert(install::fat32_reliable_file::replace(
         &filesystem,
-        paths,
+        user_paths,
         new_profile,
         sizeof(new_profile) - 1U) == install::reliable_file::Status::Ok);
 
-    char readback[192]{};
-    size_t bytes_read = 0U;
-    assert(fs::fat32::read(
+    constexpr char locale_config[] = "LANG=pl-PL\n";
+    const install::reliable_file::Paths locale_paths{
+        "/etc/locale.cfg",
+        "/etc/locale.new",
+        "/etc/locale.bak",
+        "/etc/locale.old",
+    };
+    assert(install::fat32_reliable_file::replace(
         &filesystem,
-        "/etc/user.cfg",
-        0U,
-        readback,
-        sizeof(readback) - 1U,
-        &bytes_read) == fs::fat32::Status::Ok);
-    assert(bytes_read == sizeof(new_profile) - 1U);
-    assert(std::memcmp(readback, new_profile, bytes_read) == 0);
+        locale_paths,
+        locale_config,
+        sizeof(locale_config) - 1U) == install::reliable_file::Status::Ok);
+    assert(fs::fat32::sync(&filesystem) == fs::fat32::Status::Ok);
+
+    char readback[192]{};
+    read_text(&filesystem, "/etc/user.cfg", readback, sizeof(readback));
+    assert(std::strcmp(readback, new_profile) == 0);
 
     fs::fat32::Stat info{};
     assert(fs::fat32::stat(&filesystem, "/etc/user.new", &info) ==
@@ -104,7 +133,39 @@ void qualify_reliable_state_replace(storage::partition::Device* root) {
            fs::fat32::Status::NotFound);
     assert(fs::fat32::stat(&filesystem, "/etc/user.old", &info) ==
            fs::fat32::Status::NotFound);
-    assert(fs::fat32::sync(&filesystem) == fs::fat32::Status::Ok);
+    assert(fs::fat32::stat(&filesystem, "/etc/locale.new", &info) ==
+           fs::fat32::Status::NotFound);
+    assert(fs::fat32::stat(&filesystem, "/etc/locale.bak", &info) ==
+           fs::fat32::Status::NotFound);
+    assert(fs::fat32::stat(&filesystem, "/etc/locale.old", &info) ==
+           fs::fat32::Status::NotFound);
+
+    // Simulate a reboot/remount and validate the exact config through the same
+    // fail-closed parser used by Login. This is the host-side persistence gate
+    // for the installer-generated account and locale state.
+    fs::fat32::FileSystem remounted{};
+    assert(fs::fat32::mount(
+        &remounted, storage::partition::as_block_device(root)) ==
+        fs::fat32::Status::Ok);
+
+    char persistent_profile[192]{};
+    char persistent_locale[64]{};
+    read_text(&remounted, "/etc/user.cfg", persistent_profile,
+              sizeof(persistent_profile));
+    read_text(&remounted, "/etc/locale.cfg", persistent_locale,
+              sizeof(persistent_locale));
+
+    struct ku_dev_profile_data parsed = {{0}, 0U, 0};
+    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY]{};
+    assert(ku_dev_profile_parse_user_config(persistent_profile, &parsed));
+    assert(ku_dev_profile_parse_locale(persistent_locale, locale));
+    assert(std::strcmp(parsed.username, "user") == 0);
+    assert(parsed.password_required == 1);
+    assert(std::strcmp(locale, "pl-PL") == 0);
+    assert(ku_dev_credential_verify(
+        parsed.username, "secret", parsed.password_hash));
+    assert(!ku_dev_credential_verify(
+        parsed.username, "incorrect", parsed.password_hash));
 }
 } // namespace
 
@@ -176,6 +237,6 @@ int main() {
     assert(table.partition_count == 2U);
     assert(disk.flushes >= 2U);
 
-    std::cout << "installer disk-layout tests: PASS\n";
+    std::cout << "installer disk-layout/profile persistence tests: PASS\n";
     return 0;
 }
