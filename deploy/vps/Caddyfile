@@ -1,0 +1,48 @@
+{
+    admin off
+}
+
+(common_headers) {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+}
+
+{$PORTAL_HOST} {
+    import common_headers
+    respond /healthz "kuroganeos portal ok\n" 200
+    root * /srv/site
+    try_files {path} {path}/ /index.html
+    file_server
+}
+
+{$DOCS_HOST} {
+    import common_headers
+    respond /healthz "kuroganeos docs ok\n" 200
+    root * /srv/site/docs
+    try_files {path} {path}/ /index.html
+    file_server
+}
+
+{$PACKAGES_HOST} {
+    import common_headers
+    header Access-Control-Allow-Origin "*"
+    header Cache-Control "public, max-age=60"
+    respond /healthz "kuroganeos packages ok\n" 200
+
+    @gitmeta path /.git* /.github/*
+    respond @gitmeta 404
+
+    # Native Anvil mirror layout.
+    root * /srv/packages
+    file_server
+
+    # Compatibility with the raw.githubusercontent.com base currently used by Anvil.
+    handle_path /KrzysioYT/KuroganeOS-Packages/main/* {
+        root * /srv/packages
+        file_server
+    }
+}
