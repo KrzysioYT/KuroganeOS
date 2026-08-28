@@ -1,0 +1,74 @@
+name: Qualify 3.4.1 event broker roundtrip
+
+on:
+  push:
+    branches:
+      - dev/3.4.1-event-broker
+    paths:
+      - '.github/workflows/qualify-event-broker.yml'
+      - 'sdk/include/kurogane/event_broker.h'
+      - 'sdk/include/kurogane/event.h'
+      - 'sdk/include/kurogane/service.h'
+      - 'userspace/system/eventd/**'
+      - 'userspace/system/event-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/ipc/**'
+      - 'kernel/user/runtime.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  event-broker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject qualification client launch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] event_broker_spawn: PASS\\n");\n'
+          replacement = anchor + '''\n    const ku_result_t event_probe_pid = u_spawn("/system/event-probe");
+    if (event_probe_pid <= 0) {
+        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\\n");
+        ku_exit(8);
+    }
+'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one event broker spawn anchor, found {text.count(anchor)}')
+          path.write_text(text.replace(anchor, replacement, 1))
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build media with event broker probe
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real userspace subscribe publish event roundtrip
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] event_broker_roundtrip: PASS' \
+            --timeout 180
