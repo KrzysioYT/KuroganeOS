@@ -29,20 +29,8 @@ jobs:
 
           path = Path('kernel/main.cpp')
           text = path.read_text()
-          anchor = r'''        } else {
-              terminal::println("DNS A example.com: optional online test unavailable");
-              terminal::println("[TEST] dns_resolver_online: SKIP");
-              terminal::println("[TEST] tcp_http_optional: SKIP");
-          }
-          const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-          '''
-          replacement = r'''        } else {
-              terminal::println("DNS A example.com: optional online test unavailable");
-              terminal::println("[TEST] dns_resolver_online: SKIP");
-              terminal::println("[TEST] tcp_http_optional: SKIP");
-          }
-
-          // 3.3.7 qualification: this is deliberately an online, optional boot
+          anchor = '        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};\n'
+          replacement = r'''        // 3.3.7 qualification: this is deliberately an online, optional boot
           // probe so ordinary offline boot remains possible. Dedicated release
           // qualification requires the PASS marker. net::service::https_get()
           // reaches the production DNS -> TCP/443 -> entropy/CTR_DRBG -> Mbed
@@ -79,9 +67,9 @@ jobs:
           }
 
           const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-          '''
-          if anchor not in text:
-              raise SystemExit('network self-test anchor not found; refusing blind main.cpp patch')
+'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected exactly one public_probe anchor, found {text.count(anchor)}')
           path.write_text(text.replace(anchor, replacement, 1))
 
       - name: Install build and QEMU dependencies
