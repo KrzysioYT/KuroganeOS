@@ -32,12 +32,41 @@ static inline void gui_append_text(
     (void)strlcpy(destination + used, source, capacity - used);
 }
 
+static inline int gui_min_int(int left, int right) {
+    return left < right ? left : right;
+}
+
 static inline ku_window_t gui_open(
     const char* title, int x, int y, int width, int height) {
     ku_ui_window_options options = {
         sizeof(ku_ui_window_options), x, y, width, height
     };
-    const ku_result_t result = ku_ui_create(title, strlen(title), &options);
+    ku_result_t result = ku_ui_create(title, strlen(title), &options);
+    if (result > 0) return (ku_window_t)result;
+
+    /*
+     * Application layouts express preferred bounds. The desktop work area is
+     * smaller than the physical mode because the top rail and task ribbon are
+     * reserved by WindowManager. Older apps used physical-screen coordinates,
+     * which made a perfectly valid app fail to start on otherwise supported
+     * modes (notably Kurogane Web at 1280x800).
+     *
+     * Keep the public ABI unchanged and retry with two conservative layouts.
+     * The first preserves a large working canvas on normal desktop modes; the
+     * second is deliberately small enough for the 800x600 qualification mode.
+     */
+    options.x = 60;
+    options.y = 60;
+    options.width = gui_min_int(width, 900);
+    options.height = gui_min_int(height, 600);
+    result = ku_ui_create(title, strlen(title), &options);
+    if (result > 0) return (ku_window_t)result;
+
+    options.x = 40;
+    options.y = 55;
+    options.width = gui_min_int(width, 700);
+    options.height = gui_min_int(height, 440);
+    result = ku_ui_create(title, strlen(title), &options);
     return result > 0 ? (ku_window_t)result : KU_INVALID_WINDOW;
 }
 
