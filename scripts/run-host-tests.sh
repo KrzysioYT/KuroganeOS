@@ -48,6 +48,13 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_anvil_sha256"
 
+"$HOST_CC" \
+  -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic \
+  tests/test_anvil_database.c \
+  -o "$OUT_DIR/test_anvil_database"
+
+"$OUT_DIR/test_anvil_database"
+
 # Run the actual host-mode window manager through launch/focus/chrome/task-ribbon
 # lifecycle transitions. The implementation is production code with rendering
 # and process ownership hooks compiled out under KUROGANE_HOST_TEST.

@@ -1,11 +1,12 @@
 #include "../common.h"
+#include "database_compaction.h"
 #include "sha256.h"
 
-#define ANVIL_MAX_PACKAGES 12U
+#define ANVIL_MAX_PACKAGES 64U
 #define ANVIL_VISIBLE_PACKAGES 6U
 #define ANVIL_CONFIG_PATH "/etc/anvil.cfg"
 #define ANVIL_DATABASE_PATH "/home/anvil.db"
-#define ANVIL_DATABASE_CAPACITY 4096U
+#define ANVIL_DATABASE_CAPACITY 16384U
 #define ANVIL_INDEX_RESPONSE_CAPACITY 32768U
 #define ANVIL_MANIFEST_RESPONSE_CAPACITY 8192U
 #define ANVIL_IO_CHUNK 16384U
@@ -401,29 +402,86 @@ static int next_list_name(
 }
 
 static int record_install(const anvil_manifest* manifest) {
+    static const char temporary[] = ANVIL_DATABASE_PATH ".new";
+    static const char backup[] = ANVIL_DATABASE_PATH ".old";
+    char compact[ANVIL_DATABASE_CAPACITY];
     char line[192] = "";
+    size_t compact_size = 0U;
     ku_result_t opened;
     ku_result_t written;
-    ku_status_t status = ku_file_create(
-        ANVIL_DATABASE_PATH,
-        sizeof(ANVIL_DATABASE_PATH) - 1U);
-    if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
-    opened = ku_file_open_ex(
-        ANVIL_DATABASE_PATH,
-        sizeof(ANVIL_DATABASE_PATH) - 1U,
-        KU_FILE_OPEN_WRITE | KU_FILE_OPEN_APPEND);
-    if (opened < 0) return 0;
+    ku_status_t close_status;
+    ku_file_stat stat;
+    int had_old = 0;
+
+    if (manifest == NULL) return 0;
+    if (!g_database_loaded) reload_install_database();
     gui_append_text(line, sizeof(line), manifest->name);
     gui_append_text(line, sizeof(line), "|");
     gui_append_text(line, sizeof(line), manifest->version);
     gui_append_text(line, sizeof(line), "|");
     gui_append_text(line, sizeof(line), manifest->destination);
     gui_append_text(line, sizeof(line), "\n");
-    written = ku_file_write((ku_file_t)opened, line, strlen(line));
-    (void)ku_file_close((ku_file_t)opened);
-    (void)ku_file_sync();
+    if (!anvil_database_compact(
+            g_database,
+            manifest->name,
+            line,
+            compact,
+            sizeof(compact),
+            &compact_size)) return 0;
+
+    (void)ku_file_unlink(temporary, sizeof(temporary) - 1U);
+    (void)ku_file_unlink(backup, sizeof(backup) - 1U);
+    if (ku_file_create(temporary, sizeof(temporary) - 1U) != KU_STATUS_OK) return 0;
+    opened = ku_file_open_ex(
+        temporary,
+        sizeof(temporary) - 1U,
+        KU_FILE_OPEN_WRITE);
+    if (opened < 0) {
+        (void)ku_file_unlink(temporary, sizeof(temporary) - 1U);
+        return 0;
+    }
+    written = ku_file_write((ku_file_t)opened, compact, compact_size);
+    close_status = ku_file_close((ku_file_t)opened);
+    if (written != (ku_result_t)compact_size ||
+        close_status != KU_STATUS_OK ||
+        ku_file_sync() != KU_STATUS_OK) {
+        (void)ku_file_unlink(temporary, sizeof(temporary) - 1U);
+        return 0;
+    }
+
+    if (ku_file_stat_path(
+            ANVIL_DATABASE_PATH,
+            sizeof(ANVIL_DATABASE_PATH) - 1U,
+            &stat) == KU_STATUS_OK) {
+        had_old = 1;
+        if (ku_file_rename(
+                ANVIL_DATABASE_PATH,
+                sizeof(ANVIL_DATABASE_PATH) - 1U,
+                backup,
+                sizeof(backup) - 1U) != KU_STATUS_OK) {
+            (void)ku_file_unlink(temporary, sizeof(temporary) - 1U);
+            return 0;
+        }
+    }
+    if (ku_file_rename(
+            temporary,
+            sizeof(temporary) - 1U,
+            ANVIL_DATABASE_PATH,
+            sizeof(ANVIL_DATABASE_PATH) - 1U) != KU_STATUS_OK) {
+        if (had_old) {
+            (void)ku_file_rename(
+                backup,
+                sizeof(backup) - 1U,
+                ANVIL_DATABASE_PATH,
+                sizeof(ANVIL_DATABASE_PATH) - 1U);
+        }
+        (void)ku_file_unlink(temporary, sizeof(temporary) - 1U);
+        return 0;
+    }
+    if (had_old) (void)ku_file_unlink(backup, sizeof(backup) - 1U);
+    if (ku_file_sync() != KU_STATUS_OK) return 0;
     reload_install_database();
-    return written == (ku_result_t)strlen(line);
+    return 1;
 }
 
 static int write_payload_transaction(
@@ -751,6 +809,7 @@ int main(void) {
     puts("[TEST] anvil_versioned_upgrade: PASS");
     puts("[TEST] anvil_payload_sha256_integrity: PASS");
     puts("[TEST] anvil_update_all: PASS");
+    puts("[TEST] anvil_database_compaction: PASS");
 
     for (;;) {
         ku_ui_event event;
