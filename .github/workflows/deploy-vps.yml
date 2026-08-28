@@ -1,0 +1,61 @@
+name: Deploy KuroganeOS VPS backend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS_HOST: 147.79.62.37
+      VPS_USER: root
+      KUROGANE_VPS_SSH_KEY: ${{ secrets.KUROGANE_VPS_SSH_KEY }}
+    steps:
+      - name: Require deployment key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KUROGANE_VPS_SSH_KEY}" ]]; then
+            echo "Missing repository secret KUROGANE_VPS_SSH_KEY" >&2
+            exit 1
+          fi
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KUROGANE_VPS_SSH_KEY" > ~/.ssh/kurogane_vps
+          chmod 600 ~/.ssh/kurogane_vps
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Bootstrap or update backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/kurogane_vps \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            "$VPS_USER@$VPS_HOST" \
+            'curl -fsSL https://raw.githubusercontent.com/KrzysioYT/KuroganeOS/gpt/kuroganeos-5-gui/deploy/vps/bootstrap.sh | bash'
+
+      - name: Verify public services
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if curl -fsS --max-time 10 https://kuroganeos.147-79-62-37.sslip.io/healthz \
+              && curl -fsS --max-time 10 https://docs.kuroganeos.147-79-62-37.sslip.io/healthz \
+              && curl -fsS --max-time 10 https://packages.kuroganeos.147-79-62-37.sslip.io/healthz \
+              && curl -fsS --max-time 10 https://packages.kuroganeos.147-79-62-37.sslip.io/index.kuro | grep -q '^KIDX1'; then
+              echo "KuroganeOS VPS backend is healthy"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Backend health gate failed" >&2
+          exit 1
