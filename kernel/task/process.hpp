@@ -86,6 +86,9 @@ Status run_preemptive_for(
 Status wait(ProcessId pid, int32_t* exit_code);
 Status terminate(ProcessId pid, int32_t exit_code);
 Status stat(ProcessId pid, Stat* output);
+// Runtime-owned resources update this count when their real handle table changes.
+// The value is diagnostic state only; it does not grant ownership or access.
+Status set_handle_count(ProcessId pid, uint32_t handle_count);
 Status set_working_directory(ProcessId pid, const char* path);
 Status list(ListCallback callback, void* context);
 ProcessId current();
