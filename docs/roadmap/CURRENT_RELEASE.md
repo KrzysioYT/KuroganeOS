@@ -1,152 +1,153 @@
-# Current release
+# KuroganeOS — Current Release State
 
-## Formal release gate
+Last updated: 2026-08-29
 
-Current version:
-`3.3.3-dev`
+## CURRENT FORMAL VERSION
 
-Target version:
-`3.3.4-dev`
+**3.3.3-dev — Red Flux**
 
-Generation:
-`Red Flux`
+Status: **QUALIFIED (SCOPED DEV MILESTONE)**
 
-Status:
-`QUALIFICATION`
+Progress: **100% of the defined Red Flux scope**
 
-Current task:
-`Oracle VirtualBox real-host acceptance for 3.3.4-dev`
+This does not mean that KuroganeOS is feature-complete or stable. Advanced audio services, Intel HDA, hardware GPU acceleration, SMP, NVMe parity, final security isolation, updater/recovery and other later Road-to-15 work are intentionally outside the Red Flux scope and are not counted as missing 3.3.3 work.
 
-Baseline commit:
-`17bd55091c63544b9585840192f0eb288e9cffff`
+The historical branches named `dev/3.3.5-*` through `dev/3.3.9-*` are internal 3.3.3 development workstreams. They are not separate formal releases. There is no formal `3.3.4-dev` release gate.
 
-3.3.4 candidate commit reserved for real VirtualBox acceptance:
-`662eae4fc1f2af85c8c74322e4b8863236a202b1`
+### Red Flux function status
 
-Last audit:
-`2026-08-29`
+| Area | Scoped completion | Evidence / boundary |
+|---|---:|---|
+| Boot / UEFI | 100% | UEFI media, OVMF/QEMU boot qualification |
+| Installer | 100% | GPT/ESP/root flow, recoverable profile state, install package/media regression |
+| Filesystem | 100% | writable FAT32/VFS and public Ring-3 file API regression |
+| Userspace / Ring-3 | 100% | ELF64 processes, syscalls, ownership cleanup, IPC/event/shared-memory regressions |
+| Networking | 100% | Red Flux IPv4/DHCP/DNS/TCP scope and E1000/PCnet/VirtIO QEMU NAT matrix |
+| TLS / HTTPS | 100% | real guest TLS/HTTPS qualification with certificate validation enabled |
+| Desktop | 100% | Red Flux login/session/desktop scope; final Forge Desktop is later work |
+| Audio | 100% | Red Flux bounded AC'97 Ring-3 PCM scope; mixer/HDA belongs to later milestones |
+| Graphics | 100% | Red Flux GOP/software compositor scope; hardware 3D belongs to Forge Graphics |
+| Regression / Closeout | 100% | expanded closeout suite including IPC channel/event/shared-memory |
 
-## Active stacked development
+`100%` above means completion of the deliberately bounded Red Flux scope, not completion of the final OS capability.
 
-Active development version:
-`3.3.9-dev`
+### Verified Red Flux evidence
 
-Branch:
-`dev/3.3.9-red-flux-closeout`
+- Userspace handle ownership regression: Actions run `33220748290` — **PASS**.
+- Real guest TLS/HTTPS qualification: Actions run `33220761526` — **PASS**.
+- Combined UEFI ISO qualification: Actions run `33220774861` — **PASS**.
+- Expanded closeout qualification with IPC channel/event/shared-memory in the normal host suite: Actions run `33220980716` — **PASS**.
+- Last verified closeout workstream commit: `21ba9a619e6de2ed6bf1510a7676e32313b67138`.
 
-Combined 3.3.7 + 3.3.8 merge:
-`3e1c3a7b9e7ba12281e80b8ef41a415c929ba70d`
+### External validation
 
-Last fully combined automated qualification head:
-`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
+Oracle VirtualBox host acceptance is **OPTIONAL / EXTERNAL VALIDATION**. It is not part of version progress, percentage calculation or Definition of Done. Existing VirtualBox tooling remains useful compatibility evidence when an appropriate host is available, but lack of that environment is neither FAIL nor a blocker.
 
-Current closeout regression code head:
-`ee9e1839247600b7882892aff463b4730839c9a3`
+No release tag is created solely from this documentation status.
 
-Documentation continues after the code head and does not change the qualified
-runtime code.
+---
 
-Stacked development is not evidence that 3.3.4, 3.3.5, 3.3.6, 3.3.7, 3.3.8
-or 3.3.9 have been formally released. No immutable release tag is created while
-the earlier mandatory release gate remains open.
+## ACTIVE DEVELOPMENT
 
-## Completed
+**3.4.0-dev — System Services**
 
-### 3.3.4 qualification tooling
+Current internal workstream: `dev/3.4.1-event-broker`
 
-- [x] Version source verified; no premature version bump.
-- [x] x86-64 UEFI, Ring-3 ELF64, AHCI/GPT/FAT32 persistent-root foundation verified.
-- [x] Real Oracle VirtualBox `ISO -> Try -> Login -> Desktop` smoke harness implemented.
-- [x] Real Oracle VirtualBox install harness covers SATA/IntelAHCI VDI, install,
-      ISO detach and installed-system reboot.
-- [x] Automated QEMU/OVMF media, filesystem and network qualification passed on
-      the 3.3.4 candidate.
+Status: **IN DEVELOPMENT**
 
-### Stacked 3.3.5 installer reliability
+Estimated scoped progress: **~28%**
 
-- [x] Recoverable state-file replacement implemented for locale, profile and
-      first-run state.
-- [x] Deterministic failure/recovery tests implemented.
-- [x] Production FAT32 integration test implemented and passed.
-- [x] Dedicated reliable-file workflow run `33216094288` passed.
+The branch suffix `3.4.1` is an internal workstream label, not a separate formal product version. The formal active milestone remains `3.4.0-dev`.
 
-### Stacked 3.3.7 TLS foundation
+### System Services function status
 
-- [x] Real Mbed TLS handshake path retained; no fake TLS success path introduced.
-- [x] X.509 peer certificate retention fixed for post-handshake validation.
-- [x] Certificate time validation remains enabled and fail-closed.
-- [x] Combined guest HTTPS qualification run `33220761526` passed, including
-      `Require real TLS handshake and HTTPS response` on QEMU/E1000.
+| Area | Progress | Current truth |
+|---|---:|---|
+| Service Core | 75% | named service model and lifecycle foundation implemented; metadata/versioning still missing |
+| Service Registration | 100% | real named IPC bind path, unique names, PID ownership |
+| Service Discovery | 100% | real named connect/discovery path |
+| IPC Service Layer | 85% | request/reply transport and connection lifecycle on real named IPC |
+| Event Broker | 55% | real Ring-3 service starts; subscribe/publish/unsubscribe implemented; runtime roundtrip currently FAIL |
+| Settings Service | 0% | not implemented |
+| Notification Service | 0% | not implemented |
+| Account Service | 0% | not implemented |
+| Session Service | 0% | not implemented as a service architecture component |
+| Filesystem API | 70% | clean public Ring-3 FS API already exists; service-layer integration remains to audit/finish |
+| Clipboard | 0% | not implemented |
+| Reliability / Recovery | 35% | PID cleanup/generation-safe handles exist; service crash/restart recovery missing |
+| SDK | 60% | `service.h` and Event Broker protocol exported; examples/docs/helpers incomplete |
+| Qualification | 35% | Service Architecture base qualified; Event Broker runtime gate currently failing |
 
-### Stacked 3.3.8 userspace resource ownership
+### Completed and verified base
 
-- [x] Real process file-handle ownership telemetry integrated.
-- [x] Runtime cleanup closes active file handles before publishing final count.
-- [x] Handle ownership regression run `33220748290` passed.
-- [x] Earlier cleanup-ordering regression run `33219888365` passed.
+- Real named IPC backend.
+- PID-owned endpoints/connections.
+- Generation-safe IPC/event/shared-memory handles.
+- Process-exit cleanup foundation.
+- Public `kurogane/service.h` over the real IPC backend.
+- Service Architecture full qualification: Actions run `33221125505` — **PASS**.
+- Public Event Broker protocol and ABI size/constant assertions implemented at current HEAD.
 
-### Stacked 3.3.9 Red Flux closeout
+### CURRENT TASK
 
-- [x] 3.3.7 TLS and 3.3.8 userspace work combined with a real two-parent merge.
-- [x] Combined UEFI ISO qualification run `33220774861` passed.
-- [x] That run passed kernel test build, ABI/SDK tests, full host regression,
-      media build, production FAT32/VFS validation, 20-pass ISO verifier,
-      OVMF boot, and QEMU NAT with E1000, PCnet and VirtIO-net.
-- [x] Existing IPC channel/event/shared-memory tests were identified as missing
-      from the default full host regression suite and added in `ee9e1839...`.
+**Event Broker runtime qualification**
 
-## Remaining
+Implemented code currently provides:
+- real `events.v1` Ring-3 service endpoint;
+- bounded client and subscription tables;
+- per-PID subscriptions;
+- subscribe / publish / unsubscribe requests;
+- real kernel event creation, grant and signal delivery;
+- cleanup when a client connection closes;
+- public Event Broker protocol SDK;
+- a Ring-3 qualification probe.
 
-### Formal 3.3.4 release gate
+Current result:
+- media/build step on Actions run `33221674569`: **PASS**;
+- `eventd` service startup marker: **PASS**;
+- actual subscribe → publish → wait → unsubscribe roundtrip: **FAIL**.
 
-- [ ] Run `ISO -> Try -> Login -> Desktop` on a real x86-64 Oracle VirtualBox host.
-- [ ] Run `ISO -> Install -> SATA VDI -> detach ISO -> installed-system boot` on
-      the same final candidate.
-- [ ] Record final VirtualBox serial acceptance evidence.
-- [ ] Only then bump/freeze/tag 3.3.4-dev.
+Therefore Event Broker is **IMPLEMENTED / PARTIALLY TESTED / NOT QUALIFIED**.
 
-### Active 3.3.9 closeout
+### FAIL
 
-- [ ] Complete expanded full qualification run `33220980716` for
-      `ee9e1839247600b7882892aff463b4730839c9a3`; it additionally exercises IPC
-      channel/event/shared-memory in `scripts/test.sh`.
-- [ ] If the expanded regression passes, fast-forward the clean
-      `dev/3.4.0-service-architecture` branch to the closeout head and begin the
-      3.4.0 service registry/discovery work over the existing named IPC backend.
+- Event Broker runtime roundtrip: Actions run `33221674569` — **FAIL** at the required runtime marker. This is an active implementation defect, not an environmental blocker.
 
-## Blockers
+### PENDING / UNVERIFIED
 
-- [ ] `PENDING REAL VIRTUALBOX HOST ACCEPTANCE` — connected CI cannot execute the
-      required Oracle VirtualBox real-host release gate. This blocks formal
-      3.3.4 closure, not independent stacked development.
+- Event Broker negative cases and stress coverage.
+- Event Broker full regression after runtime fix.
+- Cross-host userspace builder parity for the new service binaries.
+- Service metadata and version negotiation.
+- Settings, notifications, account, session, clipboard and service recovery workstreams.
 
-## Test results
+### LAST COMMIT
 
-PASS:
-- 3.3.4 automated candidate qualification, including QEMU/OVMF and NAT matrix.
-- Installer reliable-file fault injection and production FAT32 integration.
-- Combined userspace ownership regression: `33220748290`.
-- Combined real guest TLS/HTTPS qualification: `33220761526`.
-- Combined full UEFI ISO qualification: `33220774861`.
+Current development HEAD before this documentation update: `6e4ad9975a65fa4b36e761cedce1012566b8e4b3`
 
-FAIL:
-- None known on the combined 3.3.9 code at the last completed qualification.
+`test: lock event broker protocol ABI`
 
-PENDING:
-- Expanded closeout regression `33220980716` after adding IPC tests to the
-  default host suite.
-- Oracle VirtualBox Try/Login/Desktop real-host acceptance.
-- Oracle VirtualBox install/reboot real-host acceptance.
+### NEXT ACTION
 
-Last verified commit:
-`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
+Diagnose the real Event Broker roundtrip failure, add stage-specific negative diagnostics, fix the backend/protocol defect, rerun the real QEMU Ring-3 roundtrip, then run broader regression. After a real PASS, continue automatically with service metadata/version negotiation.
 
-Current stacked code commit under regression:
-`ee9e1839247600b7882892aff463b4730839c9a3`
+---
 
-Next action:
-Finish run `33220980716`. On PASS, record `ee9e1839...` as the latest verified
-3.3.9 closeout code, fast-forward `dev/3.4.0-service-architecture`, and implement
-side-effect-free service discovery plus explicit userspace service API over the
-existing PID-owned named IPC registry. Keep 3.3.4 in `QUALIFICATION` until real
-Oracle VirtualBox acceptance exists.
+## ROAD TO 15 — FORMAL MILESTONES
+
+- `3.3.3-dev` — Red Flux — **100% scoped / QUALIFIED**
+- `3.4.0-dev` — System Services — **~28% / IN DEVELOPMENT**
+- `3.5.0-dev` — Connected Userspace — **0%**
+- `3.6.0-dev` — Flux Stabilization — **0%**
+- `4.0.0-dev` — Pre-Steel — **0%**
+- `5.0.0-dev` — Steel / Hardware — **0%**
+- `6.0.0-dev` — Core Steel — **0%**
+- `7.0.0-dev` — Iron Shield — **0%**
+- `8.0.0-dev` — Connected Steel — **0%**
+- `9.0.0-dev` — Forge Graphics — **0%**
+- `10.0.0-dev` — Steel Applications — **0%**
+- `11.0.0-dev` — Anvil — **0%**
+- `12.0.0-dev` — Platform / Web — **0%**
+- `13.0.0-dev` — Forge Design — **0%**
+- `14.0.0-rc` — Forge Desktop — **0%**
+- `15.0.0` — STABLE — **0%**
