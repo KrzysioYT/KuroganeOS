@@ -3,6 +3,8 @@
 #include <cstring>
 #include <iostream>
 
+#include <kurogane/desktop.h>
+
 #include "../kernel/ui/window_manager.hpp"
 
 namespace {
@@ -32,7 +34,7 @@ input::Event click_at(const ui::Rect& bounds) {
     return event;
 }
 
-windowing::WindowInfo query(windowing::WindowId id) {
+windowing::WindowInfo query_info(windowing::WindowId id) {
     windowing::WindowInfo info{};
     assert(windowing::query(id, &info) == windowing::Status::Ok);
     return info;
@@ -61,7 +63,7 @@ int main() {
         input_trace,
         &launcher_trace,
         &launcher) == Status::Ok);
-    assert(query(launcher).state == WindowState::Minimized);
+    assert(query_info(launcher).state == WindowState::Minimized);
 
     WindowId kurosh = INVALID_WINDOW;
     WindowId vault = INVALID_WINDOW;
@@ -73,8 +75,8 @@ int main() {
         nullptr, nullptr, nullptr, &vault) == Status::Ok);
     assert(window_count() == 3U);
     assert(focused_window() == vault);
-    assert(query(vault).focused);
-    assert(!query(kurosh).focused);
+    assert(query_info(vault).focused);
+    assert(!query_info(kurosh).focused);
 
     // Alt+Tab rotates focus through exposed, non-home windows.
     input::Event alt_tab{};
@@ -88,20 +90,20 @@ int main() {
     ChromeGeometry chrome{};
     assert(chrome_geometry(kurosh, &chrome) == Status::Ok);
     assert(dispatch(click_at(chrome.minimize_control)) == Status::Ok);
-    assert(query(kurosh).state == WindowState::Minimized);
+    assert(query_info(kurosh).state == WindowState::Minimized);
     assert(focused_window() == vault);
 
     ui::Rect task0{};
     assert(pulse_item_geometry(0U, &task0) == Status::Ok);
     assert(dispatch(click_at(task0)) == Status::Ok);
-    assert(query(kurosh).state == WindowState::Normal);
+    assert(query_info(kurosh).state == WindowState::Normal);
     assert(focused_window() == kurosh);
 
     // Expand control maximizes and the same control restores original geometry.
-    const ui::Rect original = query(kurosh).bounds;
+    const ui::Rect original = query_info(kurosh).bounds;
     assert(chrome_geometry(kurosh, &chrome) == Status::Ok);
     assert(dispatch(click_at(chrome.expand_control)) == Status::Ok);
-    WindowInfo maximized = query(kurosh);
+    WindowInfo maximized = query_info(kurosh);
     assert(maximized.state == WindowState::Maximized);
     assert(maximized.bounds.x == workspace.work_area.x);
     assert(maximized.bounds.y == workspace.work_area.y);
@@ -110,7 +112,7 @@ int main() {
 
     assert(chrome_geometry(kurosh, &chrome) == Status::Ok);
     assert(dispatch(click_at(chrome.expand_control)) == Status::Ok);
-    WindowInfo restored = query(kurosh);
+    WindowInfo restored = query_info(kurosh);
     assert(restored.state == WindowState::Normal);
     assert(restored.bounds.x == original.x);
     assert(restored.bounds.y == original.y);
@@ -123,7 +125,7 @@ int main() {
     alt_f4.key = drivers::keyboard::KeyCode::F4;
     alt_f4.alt = true;
     assert(dispatch(alt_f4) == Status::Ok);
-    assert(query(kurosh, &restored) == Status::NotFound);
+    assert(windowing::query(kurosh, &restored) == Status::NotFound);
     assert(window_count() == 2U);
     assert(focused_window() == vault);
 
@@ -131,7 +133,7 @@ int main() {
     assert(restore(launcher) == Status::Ok);
     assert(focused_window() == launcher);
     assert(close(launcher) == Status::Ok);
-    assert(query(launcher).state == WindowState::Minimized);
+    assert(query_info(launcher).state == WindowState::Minimized);
     assert(window_count() == 2U);
     assert(focused_window() == vault);
 
@@ -145,8 +147,8 @@ int main() {
         nullptr, nullptr, nullptr, &replacement) == Status::Ok);
     assert(replacement != old_vault);
     WindowInfo ignored{};
-    assert(query(old_vault, &ignored) == Status::NotFound);
-    assert(query(replacement, &ignored) == Status::Ok);
+    assert(windowing::query(old_vault, &ignored) == Status::NotFound);
+    assert(windowing::query(replacement, &ignored) == Status::Ok);
 
     // Desktop pin ABI remains stable and the immutable home pin cannot be disabled.
     bool pinned = false;
