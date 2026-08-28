@@ -1,0 +1,35 @@
+name: Installer reliable-file regression
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'kernel/install/reliable_file.*'
+      - 'tests/test_reliable_file.cpp'
+      - '.github/workflows/reliable-file.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'kernel/install/reliable_file.*'
+      - 'tests/test_reliable_file.cpp'
+      - '.github/workflows/reliable-file.yml'
+  workflow_dispatch:
+
+jobs:
+  reliable-file:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build reliable-file regression
+        run: |
+          mkdir -p build/tests/reliable-file
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/test_reliable_file.cpp \
+            kernel/install/reliable_file.cpp \
+            -o build/tests/reliable-file/test_reliable_file
+
+      - name: Run reliable-file regression
+        run: build/tests/reliable-file/test_reliable_file
