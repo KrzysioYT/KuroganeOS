@@ -3,6 +3,7 @@
 #include <kurogane/event.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
+#include <kurogane/service.h>
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
@@ -10,6 +11,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <type_traits>
 
 int main() {
     static_assert(KU_SYS_EXIT == 1);
@@ -107,6 +109,12 @@ int main() {
     static_assert(sizeof(ku_ipc_message) == 272);
     static_assert(offsetof(ku_ipc_message, sender_pid) == 8);
     static_assert(offsetof(ku_ipc_message, data) == 16);
+
+    static_assert(KU_SERVICE_NAME_CAPACITY == KU_IPC_SERVICE_NAME_CAPACITY);
+    static_assert(KU_SERVICE_MESSAGE_CAPACITY == KU_IPC_MESSAGE_CAPACITY);
+    static_assert(std::is_same_v<ku_service_endpoint_t, ku_ipc_handle_t>);
+    static_assert(std::is_same_v<ku_service_connection_t, ku_ipc_handle_t>);
+    static_assert(std::is_same_v<ku_service_message, ku_ipc_message>);
 
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
