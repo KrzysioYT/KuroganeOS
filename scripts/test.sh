@@ -140,6 +140,13 @@ echo "[build] process-core"
 echo "[run] process-core"
 "$out/process-core"
 echo "[pass] process-core"
+run_test ipc-channel "$root/tests/test_ipc.cpp" \
+    "$root/kernel/ipc/channel.cpp"
+run_test ipc-event "$root/tests/test_event.cpp" \
+    "$root/kernel/ipc/event.cpp"
+run_test ipc-shared-memory "$root/tests/test_shared_memory.cpp" \
+    "$root/kernel/ipc/shared_memory.cpp" \
+    "$root/kernel/memory/physical_memory.cpp"
 run_test network "$root/tests/test_network.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
