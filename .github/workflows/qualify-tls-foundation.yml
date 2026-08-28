@@ -1,0 +1,117 @@
+name: Qualify 3.3.7 real TLS handshake
+
+on:
+  push:
+    branches: [ dev/3.3.7-tls-foundation ]
+    paths:
+      - '.github/workflows/qualify-tls-foundation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tls-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev/3.3.7-tls-foundation
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Add real guest TLS qualification probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/main.cpp')
+          text = path.read_text()
+          anchor = r'''        } else {
+              terminal::println("DNS A example.com: optional online test unavailable");
+              terminal::println("[TEST] dns_resolver_online: SKIP");
+              terminal::println("[TEST] tcp_http_optional: SKIP");
+          }
+          const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+          '''
+          replacement = r'''        } else {
+              terminal::println("DNS A example.com: optional online test unavailable");
+              terminal::println("[TEST] dns_resolver_online: SKIP");
+              terminal::println("[TEST] tcp_http_optional: SKIP");
+          }
+
+          // 3.3.7 qualification: this is deliberately an online, optional boot
+          // probe so ordinary offline boot remains possible. Dedicated release
+          // qualification requires the PASS marker. net::service::https_get()
+          // reaches the production DNS -> TCP/443 -> entropy/CTR_DRBG -> Mbed
+          // TLS handshake -> SNI -> X.509/hostname/time validation -> HTTP path.
+          uint8_t tls_probe_buffer[1024]{};
+          size_t tls_probe_length = 0U;
+          uint16_t tls_http_status = 0U;
+          const net::Status tls_probe_status = net::service::https_get(
+              "www.google.com",
+              "/",
+              tls_probe_buffer,
+              sizeof(tls_probe_buffer),
+              &tls_probe_length,
+              &tls_http_status);
+          const bool tls_probe_ok =
+              (tls_probe_status == net::Status::Ok ||
+               tls_probe_status == net::Status::BufferTooSmall) &&
+              tls_probe_length != 0U &&
+              tls_http_status >= 200U && tls_http_status < 500U;
+          if (tls_probe_ok) {
+              terminal::write("TLS HTTPS www.google.com status=");
+              terminal::write_u64(tls_http_status);
+              terminal::write(" bytes=");
+              terminal::write_u64(tls_probe_length);
+              terminal::println();
+              terminal::println("[TEST] tls_https_optional: PASS");
+          } else {
+              terminal::write("TLS HTTPS www.google.com optional probe unavailable status=");
+              terminal::write_u64(static_cast<uint64_t>(tls_probe_status));
+              terminal::write(" http=");
+              terminal::write_u64(tls_http_status);
+              terminal::println();
+              terminal::println("[TEST] tls_https_optional: SKIP");
+          }
+
+          const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+          '''
+          if anchor not in text:
+              raise SystemExit('network self-test anchor not found; refusing blind main.cpp patch')
+          path.write_text(text.replace(anchor, replacement, 1))
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build release media with TLS probe
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real TLS handshake and HTTPS response
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --nic e1000 \
+            --require-tls \
+            --timeout 240
+
+      - name: Commit qualified guest probe
+        run: |
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add kernel/main.cpp
+          git diff --cached --check
+          git commit -m 'net: add real TLS HTTPS boot qualification probe'
+          git push origin HEAD:dev/3.3.7-tls-foundation
