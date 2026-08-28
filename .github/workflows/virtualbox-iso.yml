@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev/3.3.9-red-flux-closeout
+      - dev/3.4.0-service-architecture
     paths:
       - 'boot/**'
       - 'common/**'
