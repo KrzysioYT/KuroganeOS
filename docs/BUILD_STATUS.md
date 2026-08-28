@@ -1,119 +1,162 @@
 # Build status
 
-Data: 28 sierpnia 2026 r.
-Audited HEAD: `17bd55091c63544b9585840192f0eb288e9cffff`
+Data: 29 sierpnia 2026 r.
+Formal release candidate: `662eae4fc1f2af85c8c74322e4b8863236a202b1`
 
 ## Current stage
 
 KuroganeOS **3.3.3-dev — DEV BETA** pozostaje bieżącym numerem wersji w kodzie.
-Następny release, **3.3.4-dev**, jest w fazie `QUALIFICATION` i skupia się na
-pełnej kwalifikacji Oracle VirtualBox, bez sztucznego podbijania wersji przed
-realnym PASS.
+Następny release, **3.3.4-dev**, pozostaje w fazie `QUALIFICATION` wyłącznie
+z powodu wymaganego realnego Oracle VirtualBox acceptance. Kod nie został
+sztucznie podbity do 3.3.4-dev i nie istnieje release tag `v3.3.4-dev`.
 
-## Working foundation
+Niezależna praca 3.3.5–3.3.8 jest prowadzona na stacked branches. Nie oznacza
+to zamknięcia ani przeskoczenia release gate 3.3.4.
 
-- własny x86-64 UEFI `BOOTX64.EFI` i boot protocol v3;
-- VMM, GDT/TSS/IST, IDT;
-- Ring 3, ELF64, PID/TID, spawn/wait/exit i `/system/init` jako PID 1;
-- AHCI, GPT, writable FAT32/VFS i persistent root;
-- publiczny Ring-3 filesystem ABI obejmujący podstawowy odczyt/zapis oraz
-  operacje katalogowe obecnej generacji;
-- Try/Install media i read-only live package root;
-- instalator GPT/FAT32 z językiem, profilem i opcjonalnym hasłem DEV;
-- PS/2, PCI i ACPI/MADT/APIC discovery;
-- Red Flux Login/Desktop i aplikacje Ring 3;
-- software framebuffer/backbuffer i damage-style GOP scanout;
-- natywny stos sieciowy z obsługiwanymi w obecnej generacji wirtualnymi NIC;
-- aktywne poprawki TCP/TLS transportu w bieżącym HEAD;
-- Intel ICH AC'97 kernel PCM backend i bounded Ring-3 playback;
-- build tooling dla Windows/WSL, macOS i Linux x86-64;
-- ISO z El Torito EFI + GPT ESP i strukturalnym verifierem;
-- GitHub Actions z host tests, full regression suite, media build, FAT32/VFS
-  image validation, OVMF/QEMU boot i QEMU NAT network qualification.
+## Status vocabulary
+
+Dokument rozróżnia:
+
+- `IMPLEMENTED` — istnieje prawdziwa implementacja/backend;
+- `TESTED` — istnieje test i został wykonany;
+- `QUALIFIED` — wymagany release/środowiskowy gate przeszedł;
+- `EXPERIMENTAL` — działa tylko w ograniczonym lub wczesnym zakresie;
+- `PENDING` — implementacja może istnieć, ale wymagany gate nie został wykonany;
+- `UNSUPPORTED` — brak wspieranej implementacji.
+
+Samo skompilowanie kodu nie oznacza `QUALIFIED`.
+
+## Current working foundation
+
+- x86-64 UEFI `BOOTX64.EFI` / boot protocol v3 — `IMPLEMENTED / TESTED`;
+- VMM, GDT/TSS/IST, IDT — `IMPLEMENTED / TESTED`;
+- Ring 3, ELF64, PID/TID, spawn/wait/exit, `/system/init` PID 1 — `IMPLEMENTED / TESTED`;
+- AHCI, GPT, writable FAT32/VFS persistent root — `IMPLEMENTED / TESTED`;
+- Try/Install media — `IMPLEMENTED / TESTED`;
+- Red Flux Login/Desktop Ring-3 path — `IMPLEMENTED / TESTED`;
+- software framebuffer/backbuffer + GOP presentation — `IMPLEMENTED / TESTED`;
+- E1000, PCnet, VirtIO-net paths used by current VM qualification — `IMPLEMENTED / TESTED` in QEMU;
+- AC'97 bounded PCM backend — `IMPLEMENTED / TESTED` at current foundation level;
+- build tooling Windows/WSL, macOS, Linux x86-64 — `IMPLEMENTED`;
+- ISO El Torito EFI + GPT ESP structural verifier — `IMPLEMENTED / TESTED`.
 
 ## 3.3.4 VirtualBox qualification
 
-Istniejący `scripts/smoke-virtualbox-iso.ps1` tworzy prawdziwą VM Oracle
-VirtualBox i obejmuje znaczną część ścieżki instalacyjnej:
+Real Oracle VirtualBox tooling is complete:
 
 ```text
-EFI64
--> ISO boot
--> installer
--> SATA / IntelAHCI VDI
--> install
--> detach ISO
--> disk-first reboot
--> persistent FAT32 root
--> PID 1
--> DHCP / gateway / DNS checks
-```
-
-Brakującym gate przed 3.3.4 jest osobna kwalifikacja:
-
-```text
+ISO -> EFI64
 ISO -> Try -> Login -> Red Flux Desktop
+ISO -> Install
+SATA / IntelAHCI VDI
+install
+power off
+ISO detach
+installed-disk boot
+persistent FAT32 root
+PID 1
+network boot markers
 ```
 
-Ten gate jest implementowany na gałęzi rozwojowej `dev/road-to-15` i musi
-zostać wykonany na realnym hoście x86-64 z Oracle VirtualBox przed zamknięciem
-3.3.4-dev.
-
-## Automated qualification state
-
-Workflow `.github/workflows/virtualbox-iso.yml` zawiera realne automatyczne gate:
-
-```text
-kernel test configuration
-host ABI / SDK regression tests
-full host regression suite
-Linux IMG + ISO build
-production FAT32/VFS image validation
-20-pass ISO structure verifier
-OVMF/QEMU optical UEFI boot
-QEMU E1000 NAT qualification
-QEMU PCnet NAT qualification
-QEMU VirtIO-net NAT qualification
-artifact publication
-```
-
-Dla zmian tworzonych po tym audycie wynik jest `PENDING`, dopóki odpowiedni
-workflow na kandydacie nie zakończy się sukcesem. Historyczny PASS nie jest
-przenoszony automatycznie na nowy commit.
-
-## Oracle VirtualBox status
+Status:
 
 ```text
 VirtualBox qualification tooling: IMPLEMENTED
-Install -> VDI -> reboot tooling: IMPLEMENTED
-Try -> Login -> Desktop gate: IN PROGRESS
-Final 3.3.4 real-host run: PENDING
+Try -> Login -> Desktop harness: IMPLEMENTED
+Install -> VDI -> reboot harness: IMPLEMENTED
+Automated candidate qualification: PASS
+Real Oracle VirtualBox host execution: PENDING
+Release closure: PENDING
 ```
 
-Środowisko wykonawcze bieżącej sesji nie posiada dostępu do Oracle VirtualBox,
-więc nie wolno oznaczyć runtime jako PASS wyłącznie na podstawie inspekcji kodu.
+GitHub Actions run `33216094295` / qualification run `509` passed on candidate
+`662eae4f`, including:
+
+- kernel test build;
+- ABI/SDK regression;
+- full host regression suite;
+- IMG/ISO media build;
+- production FAT32/VFS validation;
+- 20-pass ISO verifier;
+- OVMF/QEMU boot;
+- QEMU E1000 NAT;
+- QEMU PCnet NAT;
+- QEMU VirtIO-net NAT.
+
+This is not a substitute for the required Oracle VirtualBox real-host run.
+
+## Installer reliability — stacked 3.3.5 work
+
+- recoverable state-file transactions for profile/locale/first-run state — `IMPLEMENTED / TESTED`;
+- production FAT32 fault/recovery integration — `TESTED`;
+- shared installer/Login `FNV1A64-DEV` verifier — `IMPLEMENTED / TESTED`;
+- fail-closed installed profile parsing — `IMPLEMENTED / TESTED`;
+- good-password acceptance / bad-password rejection — `TESTED`;
+- EN/PL profile persistence through sync + reopen/remount-style path — `TESTED`;
+- secure password KDF — `UNSUPPORTED` in this generation; `FNV1A64-DEV` remains explicitly development-only.
+
+## Network stabilization — stacked 3.3.6 work
+
+- TCP graceful close no longer reports success after a failed FIN transmission — `IMPLEMENTED / TESTED`;
+- bounded graceful teardown / CLOSE-WAIT handling — `IMPLEMENTED / TESTED`;
+- explicit reset/abort fallback — `IMPLEMENTED / TESTED`;
+- existing TCP regression suite after the fix — `PASS`.
+
+## TLS foundation — stacked 3.3.7 work
+
+- production DNS -> TCP/443 -> Mbed TLS path — `IMPLEMENTED`;
+- entropy/CTR_DRBG — `IMPLEMENTED`;
+- CA PEM parsing — `IMPLEMENTED / OBSERVED IN GUEST`;
+- SNI and required certificate verification — `IMPLEMENTED`;
+- explicit certificate validity interval check against KuroganeOS wall time — `IMPLEMENTED`;
+- real HTTPS guest qualification — `NOT QUALIFIED` until a current run passes.
+
+The TLS gate has intentionally failed when security prerequisites were not met.
+Recent failures exposed:
+
+1. transient CMOS snapshot instability during certificate-time validation;
+2. Mbed TLS peer certificate retention was disabled while KuroganeOS required
+   `mbedtls_ssl_get_peer_cert()` for a post-handshake validity check.
+
+RTC snapshot handling has been hardened and short transient CMOS failures can be
+bridged only from a previously verified hardware RTC snapshot using monotonic PIT
+time within a bounded window. Certificate expiry checks have not been bypassed.
+
+Commit `626a1fb3eb34fedbbfe21d7c11e32570c763fab6` enables
+`MBEDTLS_SSL_KEEP_PEER_CERTIFICATE` so the already-verified peer certificate is
+actually available to the explicit post-handshake security check. Real guest
+HTTPS workflow run `33219821941` is the authoritative requalification for that
+fix and remains `PENDING` until it completes successfully.
+
+## Userspace I/O ownership — stacked 3.3.8 work
+
+- `process::Stat.handle_count` is backed by the real runtime file-handle table — `IMPLEMENTED / TESTED`;
+- open/close operations synchronize ownership count — `IMPLEMENTED`;
+- runtime cleanup closes active file handles, clears slots, then publishes final count — `IMPLEMENTED`;
+- repeatable process/handle regression + full test-kernel compile — `PASS` in run `33219449804`;
+- additional cleanup-order regression added after that run — `PENDING` current CI result;
+- complete exit/fault/forced-termination end-to-end qualification — `PENDING`.
 
 ## Known gaps / DEV warnings
 
-- `FNV1A64-DEV` nie jest bezpiecznym password KDF;
-- brak finalnego users/groups/ACL/capability security model;
-- brak SMP i SMP-aware schedulera;
-- NVMe nie jest jeszcze równorzędnym, produkcyjnie kwalifikowanym backendem;
-- USB/xHCI wymaga dalszej implementacji i kwalifikacji;
-- Intel HDA nie jest jeszcze docelowym audio backendem;
-- userspace networking pozostaje przed docelowym async service/socket ABI;
-- TLS nie jest oznaczone jako complete; bieżący HEAD zawiera aktywne prace nad
-  retry/backpressure/CLOSE-WAIT/TLS transportem;
-- brak Direct3D 9/10/11/12 i produkcyjnego GPU acceleration;
-- real-hardware qualification jest węższa niż VM qualification;
-- brak finalnego recovery environment i transakcyjnego updatera.
+- `FNV1A64-DEV` is not a secure password KDF;
+- no final users/groups/ACL/capability security model;
+- no qualified SMP/SMP-aware scheduler;
+- NVMe is not a production-qualified storage backend;
+- USB/xHCI is not yet release-qualified;
+- Intel HDA is not the qualified primary audio backend;
+- userspace networking is not yet the target async service/socket architecture;
+- TLS is `IMPLEMENTED / UNDER QUALIFICATION`, not `QUALIFIED`;
+- no Direct3D 9/10/11/12 compatibility layer and no qualified hardware GPU acceleration;
+- real-hardware qualification is incomplete;
+- no final recovery environment or transactional system updater.
 
 ## Source of truth
 
-Postęp release: `docs/roadmap/CURRENT_RELEASE.md`
+Release checkpoint: `docs/roadmap/CURRENT_RELEASE.md`
 
-Plan do 15.0.0: `docs/roadmap/MASTER_ROADMAP_15.md`
+Roadmap to 15.0.0: `docs/roadmap/MASTER_ROADMAP_15.md`
 
-Ograniczenia: `docs/CURRENT_LIMITATIONS.md`
+Limitations: `docs/CURRENT_LIMITATIONS.md`
 
-Audyt baseline: `docs/audits/HEAD_AUDIT_2026-08-28.md`
+Baseline audit: `docs/audits/HEAD_AUDIT_2026-08-28.md`
