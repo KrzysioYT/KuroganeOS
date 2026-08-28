@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   tls-runtime:
@@ -128,16 +128,3 @@ jobs:
             --nic e1000 \
             --require-tls \
             --timeout 240
-
-      - name: Commit qualified guest probe
-        run: |
-          git config user.name 'KuroganeOS CI'
-          git config user.email 'actions@users.noreply.github.com'
-          git add kernel/main.cpp
-          if git diff --cached --quiet; then
-            echo 'TLS qualification probe already committed; nothing to commit.'
-            exit 0
-          fi
-          git diff --cached --check
-          git commit -m 'net: add real TLS HTTPS boot qualification probe'
-          git push origin HEAD:dev/3.3.7-tls-foundation
