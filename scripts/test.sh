@@ -146,6 +146,12 @@ run_test network "$root/tests/test_network.cpp" \
 run_test network-protocols "$root/tests/test_network_protocols.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
+run_test tcp-client -DKUROGANE_HOST_TEST \
+    "$root/tests/test_tcp_client.cpp" \
+    "$root/kernel/net/tcp_client.cpp"
+run_test tcp-close -DKUROGANE_HOST_TEST \
+    "$root/tests/test_tcp_close.cpp" \
+    "$root/kernel/net/tcp_client.cpp"
 run_test profiler -DKUROGANE_HOST_TEST "$root/tests/test_profiler.cpp" \
     "$root/tests/host_network_service_stub.cpp" \
     "$root/kernel/diagnostics/profiler.cpp" \
