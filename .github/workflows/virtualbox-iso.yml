@@ -42,7 +42,7 @@ on:
 jobs:
   iso-qualification:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -56,7 +56,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential binutils python3 \
-            qemu-system-x86 ovmf \
+            qemu-system-x86 ovmf imagemagick \
             mtools dosfstools gdisk xorriso
 
       - name: Resolve KuroganeOS version
@@ -87,6 +87,26 @@ jobs:
           chmod +x scripts/*.sh
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s "$KUROGANE_LIVE_IMG"
+
+      - name: Capture real QEMU runtime screenshots
+        continue-on-error: true
+        run: |
+          chmod +x scripts/capture-qemu-screenshots.sh
+          bash ./scripts/capture-qemu-screenshots.sh \
+            "$KUROGANE_LIVE_IMG" \
+            build/screenshots
+
+      - name: Publish real QEMU runtime screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuroganeos-${{ env.KUROGANE_VERSION }}-real-qemu-screenshots
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/screenshots/*.png
+            build/screenshots/serial.log
+            build/screenshots/qemu.log
 
       - name: Validate Foundation image through production FAT32/VFS
         run: |
