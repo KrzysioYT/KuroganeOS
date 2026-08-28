@@ -1,6 +1,7 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
 #include <kurogane/event.h>
+#include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
 #include <kurogane/service.h>
@@ -115,6 +116,16 @@ int main() {
     static_assert(std::is_same_v<ku_service_endpoint_t, ku_ipc_handle_t>);
     static_assert(std::is_same_v<ku_service_connection_t, ku_ipc_handle_t>);
     static_assert(std::is_same_v<ku_service_message, ku_ipc_message>);
+
+    static_assert(KU_EVENT_BROKER_SERVICE_NAME_SIZE == 9U);
+    static_assert(KU_EVENT_BROKER_TOPIC_CAPACITY == 32U);
+    static_assert(KU_EVENT_BROKER_SUBSCRIBE == 1);
+    static_assert(KU_EVENT_BROKER_PUBLISH == 2);
+    static_assert(KU_EVENT_BROKER_UNSUBSCRIBE == 3);
+    static_assert(sizeof(ku_event_broker_request) == 40);
+    static_assert(sizeof(ku_event_broker_response) == 16);
+    static_assert(offsetof(ku_event_broker_request, topic) == 8);
+    static_assert(offsetof(ku_event_broker_response, value) == 8);
 
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
