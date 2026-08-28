@@ -36,6 +36,19 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_anvil_sha256"
 
+# Run the actual host-mode window manager through launch/focus/chrome/task-ribbon
+# lifecycle transitions. The implementation is production code with rendering
+# and process ownership hooks compiled out under KUROGANE_HOST_TEST.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -DKUROGANE_HOST_TEST \
+  -Isdk/include \
+  tests/test_window_lifecycle.cpp \
+  kernel/ui/window_manager.cpp \
+  -o "$OUT_DIR/test_window_lifecycle"
+
+"$OUT_DIR/test_window_lifecycle"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
