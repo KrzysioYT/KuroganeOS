@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT]" >&2
     exit 2
 }
 
@@ -12,6 +12,7 @@ timeout_seconds=60
 nic_model="none"
 require_network=false
 require_tls=false
+require_marker=""
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
@@ -19,6 +20,7 @@ while (($#)); do
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
+        --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_marker="$2"; shift 2 ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
@@ -53,9 +55,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Modern OVMF packages normally ship split CODE + VARS pflash images. Feeding
-# OVMF_CODE_4M.fd through QEMU's legacy -bios path is not portable and fails on
-# Ubuntu 24.04. Discover a matched pair and give VARS a private writable copy.
 firmware_code="${OVMF_CODE:-}"
 firmware_vars_template="${OVMF_VARS:-}"
 
@@ -130,8 +129,6 @@ fi
 
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
-    # Network qualification requires a Foundation/live image without install.pkg.
-    # Setup images intentionally enter the installer before normal networking.
     media_args=(
         -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
         -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
@@ -158,10 +155,28 @@ qemu-system-x86_64 \
     >"$qemu_log" 2>&1 &
 pid=$!
 
+failure_marker=""
+if [[ -n "$require_marker" && "$require_marker" == *": PASS" ]]; then
+    failure_marker="${require_marker%: PASS}: FAIL"
+fi
+
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
-        if $require_network; then
+        if [[ -n "$require_marker" ]]; then
+            if grep -Fq "$require_marker" "$serial"; then
+                echo "[uefi-qemu] required runtime marker: PASS"
+                echo "[uefi-qemu] marker: $require_marker"
+                echo "[uefi-qemu] firmware CODE: $firmware_code"
+                echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
+                exit 0
+            fi
+            if [[ -n "$failure_marker" ]] && grep -Fq "$failure_marker" "$serial"; then
+                echo "KuroganeOS reported failure for required runtime marker" >&2
+                tail -n 220 "$serial" >&2 || true
+                exit 1
+            fi
+        elif $require_network; then
             if grep -Fq '[TEST] installer_package_preflight: PASS' "$serial"; then
                 echo "QEMU network qualification received installer/setup media instead of a Foundation/live image." >&2
                 echo "The guest entered INSTALLER MODE before the normal network runtime could start." >&2
@@ -221,7 +236,9 @@ while ((SECONDS < deadline)); do
     sleep 1
 done
 
-if $require_tls; then
+if [[ -n "$require_marker" ]]; then
+    echo "OVMF/QEMU did not observe required marker within $timeout_seconds seconds: $require_marker" >&2
+elif $require_tls; then
     echo "OVMF/QEMU did not qualify $nic_model TLS/HTTPS within $timeout_seconds seconds" >&2
 elif $require_network; then
     echo "OVMF/QEMU did not qualify $nic_model networking within $timeout_seconds seconds" >&2
