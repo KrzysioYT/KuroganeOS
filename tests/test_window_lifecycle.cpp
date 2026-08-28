@@ -156,9 +156,9 @@ int main() {
     assert(pinned);
     assert(desktop_pin(KU_DESKTOP_APP_HOME, KU_DESKTOP_PIN_SET, false, &pinned) == Status::Ok);
     assert(pinned);
-    assert(desktop_pin(KU_DESKTOP_APP_KUROSH, KU_DESKTOP_PIN_SET, true, &pinned) == Status::Ok);
+    assert(desktop_pin(KU_DESKTOP_APP_TERMINAL, KU_DESKTOP_PIN_SET, true, &pinned) == Status::Ok);
     assert(pinned);
-    assert(desktop_pin(KU_DESKTOP_APP_KUROSH, KU_DESKTOP_PIN_TOGGLE, false, &pinned) == Status::Ok);
+    assert(desktop_pin(KU_DESKTOP_APP_TERMINAL, KU_DESKTOP_PIN_TOGGLE, false, &pinned) == Status::Ok);
     assert(!pinned);
 
     assert(render_if_needed());
