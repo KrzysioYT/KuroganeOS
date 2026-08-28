@@ -97,6 +97,13 @@ h1 span { color: var(--red); }
 .capability-grid article > span { color: var(--red); font: 11px var(--mono); }
 .capability-grid h3 { margin: 34px 0 12px; font: 700 18px var(--mono); text-transform: uppercase; }
 .capability-grid p { margin: 0; color: var(--muted); }
+.qualification { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 18px; border: 1px solid var(--line); background: rgba(9,13,16,.82); }
+.qualification div { position: relative; padding: 17px 18px 16px 34px; border-right: 1px solid var(--line); font-family: var(--mono); }
+.qualification div:last-child { border-right: 0; }
+.qualification i { position: absolute; left: 17px; top: 23px; width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px rgba(118,198,108,.65); }
+.qualification b, .qualification span { display: block; }
+.qualification b { color: #dfe3e4; font-size: 11px; letter-spacing: .05em; }
+.qualification span { margin-top: 3px; color: var(--muted); font-size: 9px; }
 .truth-note, .doc-callout { margin-top: 22px; padding: 18px 22px; border: 1px solid #553035; border-left: 3px solid var(--red); background: #100d10; color: #aeb4b8; }
 .truth-note b, .doc-callout b { color: var(--red); font-family: var(--mono); }
 
@@ -154,6 +161,8 @@ footer a:hover { color: var(--red); }
   .shell-grid, .download-section { grid-template-columns: 1fr; }
   .hero { min-height: auto; }
   .capability-grid { grid-template-columns: repeat(2, 1fr); }
+  .qualification { grid-template-columns: repeat(3, 1fr); }
+  .qualification div { border-bottom: 1px solid var(--line); }
   .docs-shell { grid-template-columns: 1fr; }
   .docs-nav { display: none; }
 }
@@ -167,6 +176,8 @@ footer a:hover { color: var(--red); }
   .section-heading { grid-template-columns: 1fr; }
   .section-heading .eyebrow { grid-column: auto; }
   .capability-grid, .gallery, .docs-grid { grid-template-columns: 1fr; }
+  .qualification { grid-template-columns: 1fr; }
+  .qualification div { border-right: 0; }
   .gallery-wide { grid-column: auto; }
   .gallery figcaption { flex-direction: column; gap: 4px; }
   .download-section { gap: 36px; }

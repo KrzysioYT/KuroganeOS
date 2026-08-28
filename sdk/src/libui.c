@@ -257,7 +257,7 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     int64_t next;
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     count = visible_view_count(scene);
-    rows = scene->visible_rows == 0U ? KU_UI_MAX_LINES : scene->visible_rows;
+    rows = scene->visible_rows == 0U ? KUI_MAX_VIEWS : scene->visible_rows;
     maximum = count > rows ? count - rows : 0U;
     next = (int64_t)scene->scroll_offset + (int64_t)delta;
     if (next < 0) next = 0;
@@ -268,6 +268,11 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
 
 ku_status_t kui_scene_select(kui_scene* scene, uint32_t id) {
     uint32_t index;
+    uint32_t visible_index = 0U;
+    uint32_t selected_position = 0U;
+    uint32_t visible_count;
+    uint32_t rows;
+    uint32_t maximum;
     kui_view* target;
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     target = find_view(scene, id);
@@ -277,6 +282,24 @@ ku_status_t kui_scene_select(kui_scene* scene, uint32_t id) {
     }
     target->flags |= KUI_VIEW_SELECTED;
     scene->selected_id = id;
+
+    /* Keep keyboard/pointer selection inside the transported viewport. */
+    for (index = 0U; index < scene->view_count; ++index) {
+        const kui_view* view = &scene->views[index];
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (view->id == id) selected_position = visible_index;
+        ++visible_index;
+    }
+    visible_count = visible_index;
+    rows = scene->visible_rows == 0U ? KUI_MAX_VIEWS : scene->visible_rows;
+    if (rows == 0U) rows = 1U;
+    maximum = visible_count > rows ? visible_count - rows : 0U;
+    if (scene->scroll_offset > maximum) scene->scroll_offset = maximum;
+    if (selected_position < scene->scroll_offset) {
+        scene->scroll_offset = selected_position;
+    } else if (selected_position >= scene->scroll_offset + rows) {
+        scene->scroll_offset = selected_position - rows + 1U;
+    }
     return KU_STATUS_OK;
 }
 

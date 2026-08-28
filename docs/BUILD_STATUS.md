@@ -1,6 +1,6 @@
 # Build status
 
-Data: 25 sierpnia 2026 r.
+Data: 28 sierpnia 2026 r.
 
 ## Current stage
 
@@ -35,26 +35,21 @@ Aktualna gałąź zawiera m.in.:
 - software backbuffer/GOP compositor;
 - Windows/WSL, macOS i Linux build/media tooling.
 
-## Ostatni potwierdzony lokalnie stan
+## Ostatni potwierdzony stan
 
-Podczas bieżącej pracy lokalny **debug build** przeszedł po usunięciu kolejnych
-blockerów kompilacji, FAT 8.3 i Foundation validation. Wcześniejsze focused QEMU
-runy dotarły do PID1 i graficznego secure-access loginu.
+Aktualny pion systemu przeszedł lokalne host tests, pełny zestaw `scripts/test.sh`
+oraz kompilację Linux release. Oficjalny workflow GitHub zbudował ISO i IMG,
+wykonał 20 kontroli struktury ISO, uruchomił obraz przez OVMF i zakończył zielono
+osobne kwalifikacje E1000, PCnet oraz VirtIO-net.
 
-Pełny `verify.ps1` nie jest jeszcze oznaczony jako finalnie zielony dla aktualnej
-gałęzi. W trakcie prac znaleziono i poprawiono m.in.:
+Runtime potwierdził m.in. start PID 1, aplikacje Ring-3, VFS, pulpit Forged Steel,
+DHCP, DNS, TCP i HTTP. Oficjalny bundle Mozilla CA jest ładowany z obrazu; build
+nie importuje magazynu zaufania hosta.
 
-```text
-Electron-like CRLF -> WSL Bash payload issues
-WindowManager host-test include path
-Foundation boot-mode assertion
-legacy FAT vs Foundation PID1 test mismatch
-PID1 slot reservation
-login role title regression
-ShellTest waiting for an obsolete text prompt
-```
-
-Nie należy na tej podstawie publikować 5.0.0 ani deklarować release PASS.
+Publiczne `docs.kuroganeos.dev` i `repo.kuroganeos.dev` nie mogą jeszcze przejść
+końcowego testu DNS/HTTPS, dopóki rekordy domeny nie wskazują na publikowany
+portal. Brak DNS jest raportowany fail-closed i nie jest zastępowany wynikiem
+pozorowanym.
 
 ## Bieżący build contract
 
@@ -108,16 +103,18 @@ Publiczny `run-qemu.ps1` korzysta obecnie z graphical-aware core runnera.
 `ShellTest` zachowuje historyczną nazwę, ale potrafi rozpoznać secure-access
 login i Blade session zamiast bezwarunkowo czekać na `kurogane:user$`.
 
-## GUI performance work
+## GUI i aplikacje
 
-Aktywnie poprawiane są:
+Aktualna implementacja obejmuje:
 
-- coalescing mouse movement;
-- ograniczenie redraw po każdym input evencie;
-- wcześniejsze dostarczanie desktop input;
-- ukryte redrawy Blade po app spawn;
+- stały panel Blade z Home, Vault, System, Terminal, Docs i Anvil;
+- pełny topbar i dolny Pulse Ribbon z aktywnymi oknami;
+- focus, minimalizację, maksymalizację, move/resize i przywracanie z ribbonu;
+- automatyczne utrzymanie aktywnego widgetu w widocznym obszarze;
+- natywny Kurogane Web z historią, redirectami, ekstrakcją tekstu i linków;
+- ograniczenie redraw po wejściu i coalescing ruchu myszy;
 - WHPX interactive development runner;
-- dalsze ograniczenie kosztu software compositor/GOP scanout.
+- programowy compositor/GOP scanout.
 
 Do ręcznych pomiarów na Windows preferowany jest:
 
@@ -150,8 +147,7 @@ Wymagany zakres obejmuje:
 
 ## Release blockers przed 5.0.0
 
-- pełny verifier aktualnej rewizji musi być zielony;
-- app launch/focus/dock musi przejść runtime test bez regresji;
+- publiczny DNS i końcowy HTTPS dla docs/repo/downloads muszą być zielone;
 - compositor latency/FPS wymaga dalszej optymalizacji;
 - login/Blade/Vault/Forge/Pulse/Anvil wymagają kolejnych visual passes względem
   `Forged_Steel_GUI_Reference.png`;
@@ -159,7 +155,8 @@ Wymagany zakres obejmuje:
 - hardware accelerated compositor/D3D nie jest produkcyjnie gotowy;
 - Web nie jest Chromium;
 - Anvil package authenticity/signing nie jest jeszcze finalnym rozwiązaniem;
-- real VirtualBox/install/reboot path musi przejść kwalifikację release.
+- real VirtualBox/install/reboot path oraz szerszy sprzęt fizyczny muszą przejść
+  kwalifikację release.
 
 ## Zobacz także
 

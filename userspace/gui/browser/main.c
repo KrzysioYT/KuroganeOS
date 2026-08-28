@@ -4,8 +4,8 @@
 
 #define BROWSER_ADDRESS_CAPACITY 224U
 #define BROWSER_HISTORY_CAPACITY 8U
-#define BROWSER_TEXT_LINES 4U
-#define BROWSER_LINKS 4U
+#define BROWSER_TEXT_LINES 8U
+#define BROWSER_LINKS 6U
 #define BROWSER_LINK_LABEL_CAPACITY 58U
 #define BROWSER_LINK_URL_CAPACITY 224U
 #define BROWSER_REDIRECT_LIMIT 3U
@@ -340,7 +340,6 @@ static void parse_document_text(const char* html) {
     const char* cursor = html;
     size_t written = 0U;
     size_t line = 0U;
-    size_t column = 0U;
     int in_tag = 0;
     int pending_space = 0;
 
@@ -385,15 +384,21 @@ static void parse_document_text(const char* html) {
     line = 0U;
     cursor = plain;
     while (*cursor != '\0' && line < BROWSER_TEXT_LINES) {
-        if (column + 1U >= KU_UI_WIDGET_TEXT_CAPACITY) {
-            g_text[line][column] = '\0';
-            ++line;
-            column = 0U;
-            continue;
+        const size_t remaining = strlen(cursor);
+        size_t take = remaining;
+        size_t split;
+        if (take >= KU_UI_WIDGET_TEXT_CAPACITY) {
+            take = KU_UI_WIDGET_TEXT_CAPACITY - 1U;
+            split = take;
+            while (split != 0U && cursor[split] != ' ') --split;
+            if (split != 0U) take = split;
         }
-        g_text[line][column++] = *cursor++;
+        memcpy(g_text[line], cursor, take);
+        g_text[line][take] = '\0';
+        cursor += take;
+        while (*cursor == ' ') ++cursor;
+        ++line;
     }
-    if (line < BROWSER_TEXT_LINES) g_text[line][column] = '\0';
 }
 
 static void parse_links(const char* html, const browser_url* base) {
@@ -620,6 +625,7 @@ static void build_scene(kui_scene* scene) {
     size_t index;
     char address_label[KU_UI_WIDGET_TEXT_CAPACITY];
     kui_scene_initialize(scene);
+    scene->visible_rows = 12U;
     gui_apply_forged_theme(scene, 1);
     (void)kui_scene_set_cursor(
         scene, g_editing ? KU_UI_CURSOR_TEXT : KU_UI_CURSOR_HAND);

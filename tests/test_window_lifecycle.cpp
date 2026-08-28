@@ -65,6 +65,31 @@ int main() {
         &launcher) == Status::Ok);
     assert(query_info(launcher).state == WindowState::Minimized);
 
+    // The permanent Blade rail exposes six stable, non-overlapping targets.
+    // Clicking Terminal must route the real launcher command ('t') even while
+    // the launcher surface itself remains minimized.
+    ui::Rect previous_blade{};
+    for (size_t position = 0U; position < 6U; ++position) {
+        ui::Rect blade{};
+        assert(blade_item_geometry(position, &blade) == Status::Ok);
+        assert(blade.x >= workspace.signal_spine.x);
+        assert(blade.y >= workspace.signal_spine.y);
+        assert(blade.x + blade.width <=
+            workspace.signal_spine.x + workspace.signal_spine.width);
+        assert(blade.y + blade.height <=
+            workspace.signal_spine.y + workspace.signal_spine.height);
+        if (position != 0U) {
+            assert(previous_blade.y + previous_blade.height <= blade.y);
+        }
+        previous_blade = blade;
+    }
+    assert(blade_item_geometry(6U, &previous_blade) == Status::NotFound);
+    ui::Rect terminal_blade{};
+    assert(blade_item_geometry(3U, &terminal_blade) == Status::Ok);
+    assert(dispatch(click_at(terminal_blade)) == Status::Ok);
+    assert(launcher_trace.calls == 1U);
+    assert(launcher_trace.last_character == 't');
+
     WindowId kurosh = INVALID_WINDOW;
     WindowId vault = INVALID_WINDOW;
     assert(create_window(

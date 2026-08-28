@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 HOST_CXX="${HOST_CXX:-c++}"
+HOST_CC="${HOST_CC:-cc}"
 HOST_PYTHON="${HOST_PYTHON:-python3}"
 OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
 
@@ -28,6 +29,17 @@ echo "[host-tests] python:   $HOST_PYTHON"
   -o "$OUT_DIR/test_graphics_runtime"
 
 "$OUT_DIR/test_graphics_runtime"
+
+"$HOST_CC" \
+  -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic \
+  -Isdk/include \
+  tests/test_libui_scene.c \
+  sdk/src/libui.c \
+  -o "$OUT_DIR/test_libui_scene"
+
+"$OUT_DIR/test_libui_scene"
+
+"$HOST_PYTHON" scripts/verify-site.py
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \

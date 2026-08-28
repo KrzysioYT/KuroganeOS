@@ -1027,6 +1027,14 @@ Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     return Status::Ok;
 }
 
+Status blade_item_geometry(size_t position, ui::Rect* out_bounds) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_bounds == nullptr) return Status::InvalidArgument;
+    if (position >= BLADE_PIN_COUNT) return Status::NotFound;
+    *out_bounds = blade_item_rect(position);
+    return Status::Ok;
+}
+
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     if (!g_initialized) return Status::NotInitialized;
     if (out_bounds == nullptr) return Status::InvalidArgument;

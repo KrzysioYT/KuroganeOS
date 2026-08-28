@@ -25,18 +25,25 @@ requirement.
 
 The release must not be tagged until these are qualified:
 
-1. clean boot -> login -> desktop -> application launch repeatedly;
+1. public DNS and strict HTTPS for docs/repo/downloads;
 2. macOS QEMU functional run on the current release image;
-3. DHCP + DNS + TCP against QEMU user NAT;
-4. HTTP and HTTPS/TLS against real external endpoints;
-5. Kurogane Web loads a real page without blocking application startup;
-6. HTML/CSS layout and framebuffer paint produce stable visible output;
-7. image/2D graphics rendering does not corrupt neighboring windows or memory;
-8. Ring-3 application crashes cannot kill the shell;
-9. filesystem write/read/sync survives reboot where media is writable;
-10. QEMU E1000, PCnet and VirtIO network qualification passes;
-11. VirtualBox reference profile passes;
-12. Linux, Windows and macOS build/media scripts produce consistent artifacts.
+3. Kurogane Web completes a real public TLS page load;
+4. richer HTML/CSS layout and stable framebuffer paint;
+5. image/2D graphics rendering does not corrupt neighboring windows or memory;
+6. Ring-3 application crashes cannot kill the shell;
+7. filesystem write/read/sync survives reboot where media is writable;
+8. VirtualBox reference profile passes;
+9. Linux, Windows and macOS build/media scripts produce consistent artifacts;
+10. wider physical-hardware qualification.
+
+## Qualified in current QEMU pipeline
+
+- ISO and IMG production plus 20 ISO structure checks;
+- OVMF boot through login and the Forged Steel desktop;
+- application/window lifecycle host coverage including the permanent Blade rail;
+- DHCP, DNS, TCP and HTTP against QEMU user NAT;
+- separate E1000, PCnet and VirtIO-net qualification paths;
+- source-controlled Mozilla CA bundle validation and fail-closed TLS setup.
 
 ## Performance policy
 
