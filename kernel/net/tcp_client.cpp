@@ -805,21 +805,128 @@ Status close(Client* client) {
         return Status::Ok;
     }
 
-    client->state = State::FinWait1;
-    const Status status = send_tcp(
-        client->stack,
-        client->peer,
-        client->local_port,
-        client->remote_port,
-        client->send_next,
+    // A peer RST already terminated the transport. Releasing local
+    // bookkeeping is therefore a completed close, not a fake FIN.
+    if (client->state == State::Reset) {
+        initialize(client);
+        return Status::Ok;
+    }
+    if (client->state == State::Error) {
+        initialize(client);
+        return Status::InterfaceError;
+    }
+
+    constexpr uint64_t kGracefulCloseTimeoutMs = UINT64_C(1500);
+    constexpr uint64_t kAbortTimeoutMs = UINT64_C(500);
+
+    // A previous close attempt may have queued FIN successfully but
+    // failed to queue its bounded abort. Never send a second FIN at
+    // a new sequence: retry only the explicit RST cleanup.
+    if (client->state == State::FinWait1) {
+        const Status abort_status = queue_segment_with_backpressure(
+            client,
+            client->send_next,
+            client->receive_next,
+            TcpRst | TcpAck,
+            nullptr,
+            0U,
+            kAbortTimeoutMs);
+        if (abort_status == Status::Ok) {
+            initialize(client);
+            return Status::Ok;
+        }
+        return abort_status;
+    }
+
+    if (client->state != State::Established &&
+        client->state != State::CloseWait) {
+        return Status::InterfaceError;
+    }
+
+    // close() currently has no residual-byte close queue. Refuse to
+    // advance sequence space while application data remains
+    // unacknowledged; callers can retry after transport progress.
+    if (client->send_unacknowledged != client->send_next) {
+        return Status::WouldBlock;
+    }
+
+    const State starting_state = client->state;
+    const uint32_t fin_sequence = client->send_next;
+    const uint32_t expected_ack = fin_sequence + 1U;
+    Status status = queue_segment_with_backpressure(
+        client,
+        fin_sequence,
         client->receive_next,
         TcpFin | TcpAck,
-        advertised_window(*client),
         nullptr,
-        0U);
-    if (status == Status::Ok) ++client->send_next;
-    initialize(client);
-    return retryable_transmit_status(status) ? Status::Ok : status;
+        0U,
+        kGracefulCloseTimeoutMs);
+    if (status != Status::Ok) {
+        // No FIN was confirmed queued. Keep the connection and its
+        // original sequence space intact; importantly, do not return
+        // success for local TX backpressure.
+        client->state = starting_state;
+        return status;
+    }
+
+    client->state = State::FinWait1;
+    client->send_next = expected_ack;
+
+    const uint64_t started = drivers::pit::ticks();
+    for (size_t attempt = 0U;
+         window_open(started, kGracefulCloseTimeoutMs, attempt);
+         ++attempt) {
+        TcpSegment segment{};
+        status = take_or_poll_one(client, &segment);
+        if (status == Status::WouldBlock || status == Status::NotForUs) {
+            wait_for_progress();
+            continue;
+        }
+        if (status != Status::Ok) {
+            client->state = State::FinWait1;
+            return status;
+        }
+
+        status = process_incoming(client, segment);
+        if (client->state == State::Reset) {
+            // Remote RST is an explicit peer-side termination.
+            initialize(client);
+            return Status::Ok;
+        }
+        if (status != Status::Ok && status != Status::NotForUs) {
+            client->state = State::FinWait1;
+            return status;
+        }
+
+        const bool fin_acknowledged =
+            !sequence_before(client->send_unacknowledged, expected_ack);
+        if (fin_acknowledged && client->peer_closed) {
+            initialize(client);
+            return Status::Ok;
+        }
+        wait_for_progress();
+    }
+
+    // Bounded cleanup policy for 3.3.x: if the graceful FIN exchange
+    // does not fully terminate, explicitly abort the half-open
+    // transport. Success is reported only after the RST itself was
+    // really queued. This prevents CLOSE-WAIT/FIN-WAIT leakage while
+    // avoiding an unbounded kernel wait.
+    const Status abort_status = queue_segment_with_backpressure(
+        client,
+        client->send_next,
+        client->receive_next,
+        TcpRst | TcpAck,
+        nullptr,
+        0U,
+        kAbortTimeoutMs);
+    if (abort_status == Status::Ok) {
+        initialize(client);
+        return Status::Ok;
+    }
+
+    client->state = State::FinWait1;
+    return abort_status;
 }
 
 } // namespace net::tcp_client
