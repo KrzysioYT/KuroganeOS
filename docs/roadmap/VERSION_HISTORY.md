@@ -1,67 +1,69 @@
 # KuroganeOS Version History
 
-This document tracks the architectural generations of KuroganeOS. Release-specific technical truth belongs in `docs/releases/<version>.md`; this file records the evolution and release-line intent.
+This file tracks formal product milestones. Branch/task suffixes are preserved only as historical engineering references.
 
-## 3.x — Red Flux
+## Versioning rule
 
-State: active closeout generation.
+Formal Road-to-15 milestones are:
 
-Red Flux established the current native x86-64 UEFI kernel/userspace system: Ring 3, ELF64 applications, syscalls, process lifecycle, writable FAT32/VFS, AHCI/GPT installation, the current desktop, networking foundations and AC'97 output. The remaining 3.x work is stabilization, userspace services/network I/O foundations and removal of avoidable Red Flux coupling before architecture migration.
+`3.3.3-dev` → `3.4.0-dev` → `3.5.0-dev` → `3.6.0-dev` → `4.0.0-dev` → `5.0.0-dev` → `6.0.0-dev` → `7.0.0-dev` → `8.0.0-dev` → `9.0.0-dev` → `10.0.0-dev` → `11.0.0-dev` → `12.0.0-dev` → `13.0.0-dev` → `14.0.0-rc` → `15.0.0`.
 
-Current audited baseline: `3.3.3-dev` at `17bd55091c63544b9585840192f0eb288e9cffff`.
+Historical names `3.3.4` through `3.3.9`, and internal names such as `3.4.1`, are workstream/branch labels rather than separate formal product releases.
 
-## 4.x — Pre-Steel
+## 3.3.3-dev — Red Flux
 
-Purpose: formalize Device Model 2.0, Driver Manager 2.0, kernel/driver/userspace boundaries, structured status/error handling, capabilities, ownership and diagnostics before the Steel generation.
+Status: **QUALIFIED scoped DEV milestone**.
 
-## 5.x — Steel Foundation
+Initial baseline: `17bd55091c63544b9585840192f0eb288e9cffff`.
 
-Purpose: hardware and driver generation. Device lifecycle, PCI/PCIe, ACPI/APIC, SMP, common storage, hardened AHCI, real NVMe, xHCI/USB, Intel HDA foundations and hardware qualification.
+The Red Flux milestone was subsequently completed through internal workstreams covering installer reliability, network stabilization, TLS/HTTPS, userspace I/O/resource ownership and regression closeout. Those changes remain logically part of 3.3.3-dev rather than creating additional formal 3.3.x releases.
 
-## 6.x — Core Steel
+Verified closeout evidence includes Actions runs:
+- `33220748290` — userspace ownership regression PASS;
+- `33220761526` — real guest TLS/HTTPS PASS;
+- `33220774861` — combined UEFI/media/network qualification PASS;
+- `33220980716` — expanded closeout including IPC channel/event/shared-memory PASS.
 
-Purpose: Kernel Core 2.0, hardened PMM/VMM, SMP-aware scheduling, threads/processes/jobs, IPC 2.0, shared synchronization primitives, VFS 2.0 and syscall ABI qualification.
+Last closeout workstream commit recorded: `21ba9a619e6de2ed6bf1510a7676e32313b67138`.
 
-## 7.x — Iron Shield
+Oracle VirtualBox host execution is optional external compatibility validation and is not a formal-version blocker.
 
-Purpose: highest-priority security/reliability generation. Threat model, syscall/user-pointer hardening, process/address-space isolation, identity/permissions, secure credentials/KDF, capability sandbox, watchdog/crash recovery, fuzzing and stress qualification.
+## Historical Red Flux workstream labels
 
-Security fixes are never deferred until 7.x when a critical issue is discovered earlier.
+- `dev/3.3.5-installer-reliability` — internal installer reliability workstream.
+- `dev/3.3.6-network-stabilization` — internal network stabilization workstream.
+- `dev/3.3.7-tls-foundation` — internal TLS foundation workstream.
+- `dev/3.3.8-userspace-io` — internal userspace I/O workstream.
+- `dev/3.3.9-red-flux-closeout` — internal Red Flux closeout workstream.
 
-## 8.x — Connected Steel
+These are not entries in the formal release sequence.
 
-Purpose: Network Service 2.0, async sockets, hardened IPv4, IPv6, DHCP/DNS services, TLS 1.3, CA/certificate validation, HTTPS/secure socket APIs and network security qualification.
+## 3.4.0-dev — System Services
 
-## 9.x — Forge Graphics
+Status: **IN DEVELOPMENT**.
 
-Purpose: real Forge Graphics API, resources, commands, synchronization, presentation, shader pipeline, real software 3D rasterization and later real hardware acceleration. Direct3D compatibility may exist only as an honest layer over a working Forge Graphics backend.
+Qualified foundation:
+- named IPC registration/discovery;
+- PID ownership and process-exit cleanup;
+- generation-safe IPC/event/shared-memory handles;
+- public Service SDK;
+- Service Architecture qualification run `33221125505` PASS.
 
-## 10.x — Steel Applications
+Current internal workstream: Event Broker (`dev/3.4.1-event-broker`). A real `events.v1` Ring-3 endpoint, subscription table, event grants/signals and public protocol exist. Runtime roundtrip run `33221674569` currently FAILS, so Event Broker is not yet qualified.
 
-Purpose: Application Runtime 2.0 and core applications: Kurosh 2.0, Vault, Performance, Forge Control, Pulse backend and Kurogane Web shell, with isolation and lifecycle qualification.
+## Future formal milestones
 
-## 11.x — Anvil Ecosystem
-
-Purpose: package format/manifests/repositories, dependency resolution, SHA-256/signatures, transactional operations, update/upgrade integration and Kurogane SDK. Official repository target: `repo.kuroganeos.dev`.
-
-## 12.x — Kurogane Platform / Web
-
-Purpose: native web-engine architecture, HTTP/HTTPS navigation, HTML/DOM, CSS/layout/Flexbox/Grid, images/media groundwork, JavaScript foundation, JS-DOM integration and browser security/qualification.
-
-## 13.x — Forge Design
-
-Purpose: centralized Forge design system. Tokens, palette, typography, spacing, industrial blade/forged geometry, shared controls, iconography and motion. This is where final style work begins.
-
-## 14.x — Forge Release Preparation
-
-Purpose: final Forge Desktop shell and user experience, then feature freeze, beta and release-candidate qualification. `14.0.7-beta` freezes major features; `14.0.8-rc` performs broad qualification; `14.0.9-rc` accepts release blockers only.
-
-## 15.0.0 — First Official Steel Release
-
-Channel: `STABLE`.
-
-Meaning: the first officially supported KuroganeOS release after boot/install/recovery, security, hardware, networking, graphics, applications, package/update platform and reliability gates are actually satisfied on QEMU, VirtualBox and at least one supported real-hardware class.
-
-`15.0.0` is never reached by version-number advancement alone.
-
-**Built in Steel. Refined in Fire.**
+- `3.5.0-dev` — Connected Userspace.
+- `3.6.0-dev` — Flux Stabilization.
+- `4.0.0-dev` — Pre-Steel.
+- `5.0.0-dev` — Steel / Hardware.
+- `6.0.0-dev` — Core Steel.
+- `7.0.0-dev` — Iron Shield.
+- `8.0.0-dev` — Connected Steel.
+- `9.0.0-dev` — Forge Graphics.
+- `10.0.0-dev` — Steel Applications.
+- `11.0.0-dev` — Anvil.
+- `12.0.0-dev` — Platform / Web.
+- `13.0.0-dev` — Forge Design.
+- `14.0.0-rc` — Forge Desktop.
+- `15.0.0` — first STABLE release.
