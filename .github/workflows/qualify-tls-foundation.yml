@@ -67,7 +67,7 @@ jobs:
           }
 
           const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-'''
+          '''
           if text.count(anchor) != 1:
               raise SystemExit(f'expected exactly one public_probe anchor, found {text.count(anchor)}')
           path.write_text(text.replace(anchor, replacement, 1))
