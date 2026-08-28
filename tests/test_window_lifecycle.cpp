@@ -87,15 +87,18 @@ int main() {
     assert(focused_window() == kurosh);
 
     // Minimize via real window chrome and restore by clicking its task-ribbon item.
+    // Focusing Kurosh moves it to the top of the z-order, so after minimization
+    // the ribbon order is Vault (0), Kurosh (1). Minimized windows deliberately
+    // remain in the ribbon so they can be restored from there.
     ChromeGeometry chrome{};
     assert(chrome_geometry(kurosh, &chrome) == Status::Ok);
     assert(dispatch(click_at(chrome.minimize_control)) == Status::Ok);
     assert(query_info(kurosh).state == WindowState::Minimized);
     assert(focused_window() == vault);
 
-    ui::Rect task0{};
-    assert(pulse_item_geometry(0U, &task0) == Status::Ok);
-    assert(dispatch(click_at(task0)) == Status::Ok);
+    ui::Rect kurosh_task{};
+    assert(pulse_item_geometry(1U, &kurosh_task) == Status::Ok);
+    assert(dispatch(click_at(kurosh_task)) == Status::Ok);
     assert(query_info(kurosh).state == WindowState::Normal);
     assert(focused_window() == kurosh);
 
