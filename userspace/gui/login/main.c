@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "../../../common/version.h"
+#include "../../../common/dev_credential.h"
 
 #define LOGIN_USERNAME_CAPACITY 24U
 #define LOGIN_PASSWORD_CAPACITY 48U
@@ -12,29 +13,6 @@ typedef struct login_profile {
     int password_required;
     int installed_profile;
 } login_profile;
-
-static uint64_t credential_hash(const char* username, const char* password) {
-    uint64_t hash = UINT64_C(1469598103934665603);
-    const char domain[] = "KuroganeOS-3.3-dev:";
-    size_t index;
-    for (index = 0U; domain[index] != '\0'; ++index) {
-        hash ^= (uint8_t)domain[index];
-        hash *= UINT64_C(1099511628211);
-    }
-    {
-        const char* fields[3] = {username, ":", password};
-        size_t field;
-        for (field = 0U; field < 3U; ++field) {
-            const char* value = fields[field];
-            if (value == NULL) continue;
-            for (index = 0U; value[index] != '\0'; ++index) {
-                hash ^= (uint8_t)value[index];
-                hash *= UINT64_C(1099511628211);
-            }
-        }
-    }
-    return hash;
-}
 
 static int read_small_file(const char* path, char* output, size_t capacity) {
     const ku_result_t opened = ku_open(path, strlen(path), KU_OPEN_READ);
@@ -259,10 +237,12 @@ int main(void) {
             password[0] = '\0';
             error = NULL;
         } else if (gui_key_activate(&event)) {
-            if (credential_hash(profile.username, password) == profile.password_hash) {
+            if (ku_dev_credential_verify(
+                    profile.username, password, profile.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
                 return start_session(window);
             }
+            puts("[TEST] installed_login_bad_password_rejected: PASS");
             password_length = 0U;
             password[0] = '\0';
             error = is_polish(&profile)
