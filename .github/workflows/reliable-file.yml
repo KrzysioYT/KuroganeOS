@@ -4,13 +4,27 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'kernel/fs/fat32.*'
+      - 'kernel/install/disk_layout.*'
+      - 'kernel/install/fat32_reliable_file.*'
+      - 'kernel/install/installer.cpp'
       - 'kernel/install/reliable_file.*'
+      - 'kernel/storage/gpt.*'
+      - 'kernel/storage/partition_device.*'
+      - 'tests/test_install_disk_layout.cpp'
       - 'tests/test_reliable_file.cpp'
       - '.github/workflows/reliable-file.yml'
   pull_request:
     branches: [ main ]
     paths:
+      - 'kernel/fs/fat32.*'
+      - 'kernel/install/disk_layout.*'
+      - 'kernel/install/fat32_reliable_file.*'
+      - 'kernel/install/installer.cpp'
       - 'kernel/install/reliable_file.*'
+      - 'kernel/storage/gpt.*'
+      - 'kernel/storage/partition_device.*'
+      - 'tests/test_install_disk_layout.cpp'
       - 'tests/test_reliable_file.cpp'
       - '.github/workflows/reliable-file.yml'
   workflow_dispatch:
@@ -23,7 +37,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build reliable-file regression
+      - name: Build reliable-file fault-injection regression
         run: |
           mkdir -p build/tests/reliable-file
           g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
@@ -31,5 +45,22 @@ jobs:
             kernel/install/reliable_file.cpp \
             -o build/tests/reliable-file/test_reliable_file
 
-      - name: Run reliable-file regression
+      - name: Run reliable-file fault-injection regression
         run: build/tests/reliable-file/test_reliable_file
+
+      - name: Build production FAT32 integration regression
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+            tests/test_install_disk_layout.cpp \
+            tests/host_system_metrics_stub.cpp \
+            kernel/install/disk_layout.cpp \
+            kernel/install/fat32_reliable_file.cpp \
+            kernel/install/reliable_file.cpp \
+            kernel/storage/gpt.cpp \
+            kernel/storage/partition_device.cpp \
+            kernel/fs/fat32.cpp \
+            kernel/libk/crc.cpp \
+            -o build/tests/reliable-file/test_fat32_reliable_file
+
+      - name: Run production FAT32 integration regression
+        run: build/tests/reliable-file/test_fat32_reliable_file
