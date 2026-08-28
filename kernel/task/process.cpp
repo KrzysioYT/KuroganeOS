@@ -449,6 +449,14 @@ Status stat(ProcessId pid, Stat* output) {
     return Status::Ok;
 }
 
+Status set_handle_count(ProcessId pid, uint32_t handle_count) {
+    if (!g_initialized) return Status::NotInitialized;
+    size_t index = 0U;
+    if (!find(pid, &index)) return Status::NotFound;
+    g_slots[index].handle_count = handle_count;
+    return Status::Ok;
+}
+
 Status set_working_directory(ProcessId pid, const char* path) {
     if (!g_initialized) return Status::NotInitialized;
     if (path == nullptr || path[0] != '/') return Status::InvalidArgument;
