@@ -41,12 +41,13 @@ jobs:
           path = Path('userspace/system/init/main.c')
           text = path.read_text()
           anchor = '    (void)u_puts("[TEST] event_broker_spawn: PASS\\n");\n'
-          replacement = anchor + '''\n    const ku_result_t event_probe_pid = u_spawn("/system/event-probe");
-    if (event_probe_pid <= 0) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\\n");
-        ku_exit(8);
-    }
-'''
+          replacement = anchor + (
+              '    const ku_result_t event_probe_pid = u_spawn("/system/event-probe");\n'
+              '    if (event_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\\n");\n'
+              '        ku_exit(8);\n'
+              '    }\n'
+          )
           if text.count(anchor) != 1:
               raise SystemExit(f'expected one event broker spawn anchor, found {text.count(anchor)}')
           path.write_text(text.replace(anchor, replacement, 1))
