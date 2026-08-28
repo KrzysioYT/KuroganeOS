@@ -1,0 +1,84 @@
+name: 3.3.8 userspace handle ownership regression
+
+on:
+  push:
+    branches: [ dev/3.3.8-userspace-io ]
+    paths:
+      - '.github/workflows/apply-handle-telemetry.yml'
+      - 'kernel/task/process.cpp'
+      - 'kernel/task/process.hpp'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'kernel/user/runtime.hpp'
+      - 'kernel/fs/**'
+      - 'tests/test_process.cpp'
+      - 'Makefile'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev/3.3.8-userspace-io
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build and run process handle telemetry regression
+        run: |
+          mkdir -p build/tests/handle-telemetry
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -DKUROGANE_HOST_TEST -c \
+            tests/test_process.cpp -o build/tests/handle-telemetry/test-process.o
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -DKUROGANE_HOST_TEST -c \
+            kernel/task/process.cpp -o build/tests/handle-telemetry/process.o
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -DKUROGANE_HOST_TEST -c \
+            kernel/task/thread.cpp -o build/tests/handle-telemetry/thread.o
+          g++ -DKUROGANE_HOST_TEST -c -x assembler-with-cpp \
+            kernel/arch/x86_64/context_switch.asm \
+            -o build/tests/handle-telemetry/context-switch.o
+          g++ build/tests/handle-telemetry/test-process.o \
+            build/tests/handle-telemetry/process.o \
+            build/tests/handle-telemetry/thread.o \
+            build/tests/handle-telemetry/context-switch.o \
+            -o build/tests/handle-telemetry/process-core
+          build/tests/handle-telemetry/process-core
+
+      - name: Verify production runtime owns telemetry updates
+        run: |
+          grep -Fq 'void sync_process_handle_count(Context& context)' kernel/user/runtime_base.inc
+          grep -Fq 'sync_process_handle_count(*context);' kernel/user/runtime_base.inc
+          grep -Fq 'sync_process_handle_count(context);' kernel/user/runtime_base.inc
+          grep -Fq 'Status set_handle_count(ProcessId pid, uint32_t handle_count)' kernel/task/process.cpp
+
+      - name: Guard cleanup close-before-accounting ordering
+        shell: python
+        run: |
+          from pathlib import Path
+
+          text = Path('kernel/user/runtime_base.inc').read_text()
+          start = text.find('Status cleanup(Context& context) {')
+          end = text.find('\n}\n\nStatus ', start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('could not isolate runtime cleanup implementation')
+          cleanup = text[start:end]
+          required = [
+              'for (HandleSlot& handle : context.handles)',
+              'fs::root_volume::close(handle.file)',
+              'handle.active = false;',
+              'handle.file = {};',
+              'sync_process_handle_count(context);',
+          ]
+          positions = []
+          for token in required:
+              position = cleanup.find(token)
+              if position < 0:
+                  raise SystemExit(f'cleanup ownership token missing: {token}')
+              positions.append(position)
+          if positions != sorted(positions):
+              raise SystemExit('cleanup must close and clear real handles before publishing the final count')
+
+      - name: Compile full kernel with runtime integration
+        run: make CONFIG=test kernel

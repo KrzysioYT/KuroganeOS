@@ -43,19 +43,37 @@ int main() {
     assert(process::spawn("/apps/second", &second) == process::Status::Ok);
     assert(first != second);
 
+    // Handle telemetry must report real runtime ownership instead of the
+    // previous permanently-zero placeholder field.
+    assert(process::set_handle_count(first, 3U) == process::Status::Ok);
+    assert(process::set_handle_count(second, 1U) == process::Status::Ok);
+    assert(process::set_handle_count(UINT64_C(0xFFFFFFFF), 2U) ==
+           process::Status::NotFound);
+    process::Stat first_stat{};
+    process::Stat second_stat{};
+    assert(process::stat(first, &first_stat) == process::Status::Ok);
+    assert(process::stat(second, &second_stat) == process::Status::Ok);
+    assert(first_stat.handle_count == 3U);
+    assert(second_stat.handle_count == 1U);
+
     int32_t code = 0;
     assert(process::wait(first, &code) == process::Status::WouldBlock);
     process::RunResult result{};
     assert(process::run_ready(16, &result) == process::Status::Ok);
     assert(result.completed_threads == 3 && result.zombies == 3);
 
-    process::Stat first_stat{};
-    process::Stat second_stat{};
     assert(process::stat(first, &first_stat) == process::Status::Ok);
     assert(process::stat(second, &second_stat) == process::Status::Ok);
     assert(first_stat.state == process::State::Zombie);
     assert(first_stat.observed_pid == first);
     assert(second_stat.observed_pid == second);
+    // Runtime owns lifecycle changes. The core must preserve the last measured
+    // value until runtime cleanup reports zero, rather than inventing a value.
+    assert(first_stat.handle_count == 3U);
+
+    assert(process::set_handle_count(first, 0U) == process::Status::Ok);
+    assert(process::stat(first, &first_stat) == process::Status::Ok);
+    assert(first_stat.handle_count == 0U);
 
     assert(process::wait(first, &code) == process::Status::Ok && code == 7);
     assert(process::wait(second, &code) == process::Status::Ok && code == 9);

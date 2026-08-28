@@ -337,6 +337,14 @@ HandleSlot* decode_handle(Context& context, uint64_t handle) {
     return slot.active && slot.generation == generation ? &slot : nullptr;
 }
 
+void sync_process_handle_count(Context& context) {
+    uint32_t count = 0U;
+    for (const HandleSlot& handle : context.handles) {
+        if (handle.active) ++count;
+    }
+    static_cast<void>(process::set_handle_count(context.pid, count));
+}
+
 ku_status_t vfs_status(fs::vfs::Status status) {
     switch (status) {
         case fs::vfs::Status::Ok: return KU_STATUS_OK;
@@ -713,6 +721,7 @@ void syscall_handler(
             if (slot.generation == 0U) ++slot.generation;
             slot.file = file;
             slot.active = true;
+            sync_process_handle_count(*context);
             frame.rax = encode_handle(slot_index, slot.generation);
             return;
         }
@@ -726,6 +735,7 @@ void syscall_handler(
             if (status == fs::vfs::Status::Ok) {
                 slot->active = false;
                 slot->file = {};
+                sync_process_handle_count(*context);
             }
             frame.rax = static_cast<uint64_t>(vfs_status(status));
             return;
@@ -1455,7 +1465,9 @@ Status cleanup(Context& context) {
             result = Status::CleanupFailed;
         }
         handle.active = false;
+        handle.file = {};
     }
+    sync_process_handle_count(context);
     static_cast<void>(threading::bind_address_space(nullptr));
     if (memory::kernel_virtual_memory::activate_kernel() !=
         memory::kernel_virtual_memory::Status::Ok) {
