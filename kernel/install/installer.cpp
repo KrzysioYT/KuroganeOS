@@ -1,6 +1,7 @@
 #include "installer.hpp"
 
 #include "disk_layout.hpp"
+#include "fat32_reliable_file.hpp"
 #include "package.hpp"
 #include "../drivers/framebuffer.hpp"
 #include "../drivers/keyboard.hpp"
@@ -538,19 +539,64 @@ bool verify_destination(const package::View& payload, uint32_t destination) {
     return true;
 }
 
+bool reliable_state_paths(
+    const char* path,
+    ::install::reliable_file::Paths* output) {
+    if (path == nullptr || output == nullptr) return false;
+    if (strings_equal(path, "/etc/locale.cfg")) {
+        *output = {
+            path,
+            "/etc/locale.new",
+            "/etc/locale.bak",
+            "/etc/locale.old",
+        };
+        return true;
+    }
+    if (strings_equal(path, "/etc/user.cfg")) {
+        *output = {
+            path,
+            "/etc/user.new",
+            "/etc/user.bak",
+            "/etc/user.old",
+        };
+        return true;
+    }
+    if (strings_equal(path, "/etc/first.run")) {
+        *output = {
+            path,
+            "/etc/first.new",
+            "/etc/first.bak",
+            "/etc/first.old",
+        };
+        return true;
+    }
+    return false;
+}
+
 bool replace_root_file(const char* path, const char* data) {
     if (ensure_parent_directories(&g_root, path) != fs::fat32::Status::Ok) {
         return false;
     }
-    const fs::fat32::Status removed = fs::fat32::unlink(&g_root, path);
-    if (removed != fs::fat32::Status::Ok &&
-        removed != fs::fat32::Status::NotFound) {
+
+    ::install::reliable_file::Paths paths{};
+    if (!reliable_state_paths(path, &paths)) {
+        terminal::write("[INSTALL][STATE] unsupported transactional path=");
+        terminal::println(path == nullptr ? "(null)" : path);
         return false;
     }
-    if (fs::fat32::create(&g_root, path) != fs::fat32::Status::Ok) return false;
+
     const size_t size = text_length(data);
-    return size == 0U ||
-        fs::fat32::write(&g_root, path, 0U, data, size) == fs::fat32::Status::Ok;
+    const ::install::reliable_file::Status status =
+        ::install::fat32_reliable_file::replace(
+            &g_root, paths, data, size);
+    if (status != ::install::reliable_file::Status::Ok) {
+        terminal::write("[INSTALL][STATE] path=");
+        terminal::write(path);
+        terminal::write(" status=");
+        terminal::println(::install::reliable_file::status_message(status));
+        return false;
+    }
+    return true;
 }
 
 bool write_profile(const InstallProfile& profile) {
