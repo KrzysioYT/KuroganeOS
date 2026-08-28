@@ -5,6 +5,18 @@ on:
     branches: [ dev/3.3.7-tls-foundation ]
     paths:
       - '.github/workflows/qualify-tls-foundation.yml'
+      - 'kernel/drivers/rtc.cpp'
+      - 'kernel/drivers/rtc.hpp'
+      - 'kernel/net/tls/**'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/net/tcp_client.cpp'
+      - 'kernel/net/tcp_client.hpp'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/build-installer-linux.sh'
+      - 'Makefile'
   workflow_dispatch:
 
 permissions:
@@ -31,12 +43,15 @@ jobs:
           text = path.read_text()
           include_anchor = '#include "drivers/pit.hpp"\n'
           include_replacement = '#include "drivers/pit.hpp"\n#include "drivers/rtc.hpp"\n'
-          if text.count(include_anchor) != 1:
-              raise SystemExit(f'expected exactly one PIT include anchor, found {text.count(include_anchor)}')
-          text = text.replace(include_anchor, include_replacement, 1)
+          if '#include "drivers/rtc.hpp"\n' not in text:
+              if text.count(include_anchor) != 1:
+                  raise SystemExit(f'expected exactly one PIT include anchor, found {text.count(include_anchor)}')
+              text = text.replace(include_anchor, include_replacement, 1)
 
-          anchor = '        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};\n'
-          replacement = r'''        // 3.3.7 qualification: this is deliberately an online, optional boot
+          marker = '[TEST] tls_https_optional: PASS'
+          if marker not in text:
+              anchor = '        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};\n'
+              replacement = r'''        // 3.3.7 qualification: this is deliberately an online, optional boot
           // probe so ordinary offline boot remains possible. Dedicated release
           // qualification requires the PASS marker. net::service::https_get()
           // reaches the production DNS -> TCP/443 -> entropy/CTR_DRBG -> Mbed
@@ -86,9 +101,10 @@ jobs:
 
           const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
           '''
-          if text.count(anchor) != 1:
-              raise SystemExit(f'expected exactly one public_probe anchor, found {text.count(anchor)}')
-          path.write_text(text.replace(anchor, replacement, 1))
+              if text.count(anchor) != 1:
+                  raise SystemExit(f'expected exactly one public_probe anchor, found {text.count(anchor)}')
+              text = text.replace(anchor, replacement, 1)
+          path.write_text(text)
 
       - name: Install build and QEMU dependencies
         run: |
@@ -118,6 +134,10 @@ jobs:
           git config user.name 'KuroganeOS CI'
           git config user.email 'actions@users.noreply.github.com'
           git add kernel/main.cpp
+          if git diff --cached --quiet; then
+            echo 'TLS qualification probe already committed; nothing to commit.'
+            exit 0
+          fi
           git diff --cached --check
           git commit -m 'net: add real TLS HTTPS boot qualification probe'
           git push origin HEAD:dev/3.3.7-tls-foundation
