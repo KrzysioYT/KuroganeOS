@@ -60,6 +60,13 @@ void copy_short_label(char* destination, size_t capacity, const char* source) {
     destination[index] = '\0';
 }
 
+size_t short_text_length(const char* text) {
+    if (text == nullptr) return 0U;
+    size_t length = 0U;
+    while (text[length] != '\0') ++length;
+    return length;
+}
+
 int32_t iabs(int32_t value) {
     return value < 0 ? -value : value;
 }
@@ -304,34 +311,39 @@ void desktop(const char* title) {
                    graphics::rgb(48, 12, 18), graphics::rgb(27, 15, 19));
     }
 
-    // Top identity rail.
-    const int32_t brand_width = width > 480 ? 360 : width - 36;
-    graphics::fill_rect(18, 10, brand_width, 31, kHeaderBand);
-    graphics::fill_rect(18, 10, 4, 31, kTheme.accent);
-    graphics::fill_rect(22, 39, brand_width > 156 ? 156 : brand_width - 4,
-                        2, kRedBright);
-    brand_mark(40, 25, 1, kRedBright, kRedMuted);
-    graphics::draw_text(61, 17, title ? title : "KUROGANEOS / FORGED STEEL",
+    // Full-width Forged Steel identity/status rail from the 5.0 design target.
+    const int32_t rail_x = 8;
+    const int32_t rail_y = 7;
+    const int32_t rail_width = width - 16;
+    const int32_t rail_height = 48;
+    graphics::fill_rect(rail_x + 4, rail_y + 4,
+                        rail_width, rail_height, kSurfaceShadow);
+    graphics::fill_rect(rail_x, rail_y, rail_width, rail_height, kHeaderBand);
+    graphics::draw_rect(rail_x, rail_y, rail_width, rail_height, kTheme.border);
+    graphics::fill_rect(rail_x, rail_y, 4, rail_height, kRedBright);
+    graphics::fill_rect(rail_x + 4, rail_y,
+                        rail_width > 230 ? 226 : rail_width - 4, 2, kRedBright);
+    brand_mark(36, 31, 1, kRedBright, kRedMuted);
+    graphics::draw_text(58, 14,
+                        title ? title : "KUROGANEOS 5 / FORGED STEEL",
                         kTheme.text, kHeaderBand, 2U, true);
+    graphics::draw_text(58, 36, "BUILT IN STEEL. REFINED IN FIRE.",
+                        kTheme.text_muted, kHeaderBand, 1U, true);
 
-    if (width > 640) {
-        const int32_t status_x = width - 238;
-        graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
-        graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
-        graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
-        graphics::draw_text(status_x + 14, 19, "SESSION / FORGED STEEL",
-                            kTheme.text_muted, kTheme.panel_alt, 1U, true);
+    if (width > 780) {
+        graphics::draw_text(width / 2 - 108, 25, "DESKTOP SESSION:",
+                            kTheme.text_muted, kHeaderBand, 1U, true);
+        graphics::draw_text(width / 2 + 28, 25, "ONLINE",
+                            graphics::rgb(86, 201, 138), kHeaderBand, 1U, true);
+        signal_node(width / 2 + 90, 21, graphics::rgb(86, 201, 138));
     }
-
-    // Signature rail retained from early Flux, now reduced to a background
-    // status element rather than a competing navigation surface.
-    graphics::fill_rect(17, 58, 2, height > 142 ? height - 142 : 1,
-                        kRedDeep);
-    graphics::fill_rect(20, 58, 1, height > 142 ? height - 142 : 1,
-                        kTheme.border);
-    signal_node(14, 59, kRedBright);
-
-    if (width > 620) red_chevron(width / 2, 24);
+    if (width > 1080) {
+        graphics::draw_text(width - 276, 18, "DISPLAY  AUDIO  NET",
+                            kTheme.text_muted, kHeaderBand, 1U, true);
+        graphics::draw_text(width - 276, 36, "1280x720  ON   READY",
+                            kTheme.text, kHeaderBand, 1U, true);
+    }
+    if (width > 620) red_chevron(width / 2, rail_y + rail_height - 8);
 }
 
 void panel(const Rect& bounds, bool raised) {
@@ -420,6 +432,69 @@ void signal_spine(const Rect& bounds, size_t window_count, size_t focused_positi
             ? kRedBright
             : (index % 2U == 0U ? kRedDeep : kInactiveSignal);
         signal_node(center_x - 3, y, signal);
+    }
+}
+
+void blade_bar(const Rect& bounds) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    graphics::fill_rect(bounds.x + 5, bounds.y + 6,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        kDockSurface);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        kTheme.border);
+    graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, kRedBright);
+    graphics::fill_rect(bounds.x + 3, bounds.y,
+                        bounds.width > 62 ? 59 : bounds.width - 3,
+                        2, kRedBright);
+    graphics::draw_text(bounds.x + 17, bounds.y + 10, "BLADE",
+                        kTheme.text_muted, kDockSurface, 1U, true);
+    graphics::fill_rect(bounds.x + 10, bounds.y + 27,
+                        bounds.width - 20, 1, kTheme.border);
+}
+
+void blade_item(
+    const Rect& bounds,
+    DockIcon icon,
+    const char* label,
+    bool running,
+    bool focused) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = focused
+        ? graphics::rgb(48, 19, 24)
+        : (running ? kDockRaised : kDockSurface);
+    const graphics::Color border = focused
+        ? kRedBright
+        : (running ? kSteel : graphics::rgb(38, 40, 45));
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
+    graphics::fill_rect(bounds.x, bounds.y, focused ? 4 : 2,
+                        bounds.height, focused ? kRedBright : kRedDeep);
+
+    const Rect icon_bounds{
+        bounds.x + (bounds.width - 38) / 2,
+        bounds.y + 5,
+        38,
+        38,
+    };
+    dock_icon(icon_bounds, icon,
+              focused ? kTheme.text : kTheme.text_muted,
+              focused || running ? kRedHot : kRedMuted);
+    char item_label[11];
+    copy_short_label(item_label, sizeof(item_label), label ? label : "APP");
+    const int32_t label_width = static_cast<int32_t>(short_text_length(item_label)) * 8;
+    graphics::draw_text(
+        bounds.x + (bounds.width - label_width) / 2,
+        bounds.y + bounds.height - 15,
+        item_label,
+        focused ? kTheme.text : kTheme.text_muted,
+        background,
+        1U,
+        true);
+    if (running) {
+        graphics::fill_rect(bounds.x + bounds.width - 7,
+                            bounds.y + bounds.height / 2 - 3,
+                            2, 7, focused ? kRedBright : kRedMuted);
     }
 }
 

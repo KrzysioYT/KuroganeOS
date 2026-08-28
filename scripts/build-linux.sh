@@ -123,6 +123,14 @@ done
 CC="$cc" CXX="$cxx" AR="${AR:-${target_prefix}ar}" READELF="$readelf" \
     bash "$root/scripts/build-sdk.sh"
 
+# Keep the live and installed trust policy identical and independent of the
+# Linux host's CA database.
+python3 "$root/scripts/verify-trust-store.py" \
+    "$root/rootfs/etc/ssl/certs.pem"
+mkdir -p "$root/build/userspace/rootfs/etc/ssl"
+cp "$root/rootfs/etc/ssl/certs.pem" \
+    "$root/build/userspace/rootfs/etc/ssl/certs.pem"
+
 "$cc" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
     -ffreestanding -fshort-wchar -m64 -mno-red-zone -mno-mmx -mno-sse \
     -fno-stack-protector -fno-omit-frame-pointer -fPIE -fno-plt -fno-builtin \

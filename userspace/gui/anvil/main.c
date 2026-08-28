@@ -110,10 +110,10 @@ static int config_value(
 
 static void load_repository(void) {
     char config[384];
-    (void)strlcpy(g_repo.host, "raw.githubusercontent.com", sizeof(g_repo.host));
+    (void)strlcpy(g_repo.host, "repo.kuroganeos.dev", sizeof(g_repo.host));
     (void)strlcpy(
         g_repo.base,
-        "/KrzysioYT/KuroganeOS-Packages/main",
+        "",
         sizeof(g_repo.base));
     if (!read_file_text(ANVIL_CONFIG_PATH, config, sizeof(config))) return;
     (void)config_value(config, "HOST", g_repo.host, sizeof(g_repo.host));

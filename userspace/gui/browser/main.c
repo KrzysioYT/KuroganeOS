@@ -36,7 +36,7 @@ typedef struct browser_link {
 } browser_link;
 
 static uint8_t g_response[KU_HTTP_RESPONSE_CAPACITY_LIMIT + 1U];
-static char g_address[BROWSER_ADDRESS_CAPACITY] = "https://example.com/";
+static char g_address[BROWSER_ADDRESS_CAPACITY] = "https://docs.kuroganeos.dev/";
 static char g_loaded_url[BROWSER_ADDRESS_CAPACITY] = "";
 static char g_history[BROWSER_HISTORY_CAPACITY][BROWSER_ADDRESS_CAPACITY];
 static size_t g_history_count = 0U;
@@ -605,7 +605,7 @@ static void select_next(int direction) {
 
 static void activate(uint32_t id) {
     if (id == VIEW_BACK) navigate_back();
-    else if (id == VIEW_HOME) (void)navigate_to("https://example.com/", 1);
+    else if (id == VIEW_HOME) (void)navigate_to("https://docs.kuroganeos.dev/", 1);
     else if (id == VIEW_RELOAD) {
         (void)navigate_to(g_loaded_url[0] != '\0' ? g_loaded_url : g_address, 0);
     } else if (id == VIEW_ADDRESS) {

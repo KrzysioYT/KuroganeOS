@@ -169,7 +169,7 @@ echo "[qemu-macos] accelerator: TCG (x86-64 guest)"
 echo "[qemu-macos] serial: $serial"
 echo "[qemu-macos] audio: Intel AC97 -> CoreAudio"
 echo "[qemu-macos] network: E1000 -> QEMU user IPv4 NAT"
-$functional && echo "[qemu-macos] functional qualification: login -> Blade -> Web -> HTTPS example.com"
+$functional && echo "[qemu-macos] functional qualification: login -> Blade -> Web -> HTTPS docs.kuroganeos.dev"
 
 if $display; then
     echo "[qemu-macos] display: Cocoa $( $fullscreen && echo fullscreen || echo windowed ) + zoom-to-fit"

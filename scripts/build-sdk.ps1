@@ -45,8 +45,8 @@ Copy-Item -Path (Join-Path $RootDir 'sdk\include\*') `
 Copy-Item -LiteralPath (Join-Path $RootDir 'userspace\linker.ld') `
     -Destination (Join-Path $LibraryDir 'kurogane-user.ld') -Force
 
-$AnvilRepoHost = if ($env:ANVIL_REPO_HOST) { $env:ANVIL_REPO_HOST } else { 'raw.githubusercontent.com' }
-$AnvilRepoBase = if ($env:ANVIL_REPO_BASE) { $env:ANVIL_REPO_BASE } else { '/KrzysioYT/KuroganeOS-Packages/main' }
+$AnvilRepoHost = if ($env:ANVIL_REPO_HOST) { $env:ANVIL_REPO_HOST } else { 'repo.kuroganeos.dev' }
+$AnvilRepoBase = if ($null -ne $env:ANVIL_REPO_BASE) { $env:ANVIL_REPO_BASE } else { '' }
 @("HOST=$AnvilRepoHost", "BASE=$AnvilRepoBase") | Set-Content `
     -LiteralPath (Join-Path $OverlayEtc 'anvil.cfg') -Encoding ascii
 

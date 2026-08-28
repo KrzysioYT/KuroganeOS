@@ -3,16 +3,21 @@ services:
     image: caddy:2.8-alpine
     restart: unless-stopped
     environment:
-      PORTAL_HOST: ${PORTAL_HOST:-kuroganeos.147-79-62-37.sslip.io}
-      DOCS_HOST: ${DOCS_HOST:-docs.kuroganeos.147-79-62-37.sslip.io}
-      PACKAGES_HOST: ${PACKAGES_HOST:-packages.kuroganeos.147-79-62-37.sslip.io}
+      PORTAL_HOST: ${PORTAL_HOST:-kuroganeos.dev}
+      WWW_HOST: ${WWW_HOST:-www.kuroganeos.dev}
+      DOCS_HOST: ${DOCS_HOST:-docs.kuroganeos.dev}
+      PACKAGES_HOST: ${PACKAGES_HOST:-repo.kuroganeos.dev}
+      DOWNLOADS_HOST: ${DOWNLOADS_HOST:-downloads.kuroganeos.dev}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./site:/srv/site:ro
+      - ../..:/srv/repository:ro
+      - ../../docs:/srv/source-docs:ro
       - packages:/srv/packages:ro
+      - ${DOWNLOADS_DIR:-/opt/kuroganeos/downloads}:/srv/downloads:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

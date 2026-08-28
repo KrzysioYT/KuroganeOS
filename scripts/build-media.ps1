@@ -12,8 +12,9 @@ $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $WindowsBuildFilesUrl = 'https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing'
 $Toolchain = Join-Path $RootDir 'tools\compiler\x86_64-elf\bin\x86_64-elf-g++.exe'
 $WslBridge = Join-Path $PSScriptRoot 'wsl-path.ps1'
-$TrustExporter = Join-Path $PSScriptRoot 'export-windows-trust-store.ps1'
+$TrustSource = Join-Path $RootDir 'rootfs\etc\ssl\certs.pem'
 $TrustOutput = Join-Path $RootDir 'build\userspace\rootfs\etc\ssl\certs.pem'
+$TrustVerifier = Join-Path $PSScriptRoot 'verify-trust-store.py'
 $FoundationBuilder = Join-Path $PSScriptRoot 'build-foundation-image.ps1'
 $InstallerBuilder = Join-Path $PSScriptRoot 'build-installer.ps1'
 
@@ -23,7 +24,7 @@ if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
 if ($null -eq (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     throw 'WSL is required by the current Windows image/ISO tooling.'
 }
-foreach ($requiredScript in @($WslBridge, $TrustExporter, $FoundationBuilder, $InstallerBuilder)) {
+foreach ($requiredScript in @($WslBridge, $TrustVerifier, $FoundationBuilder, $InstallerBuilder)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "Missing Windows media helper: $requiredScript"
     }
@@ -39,18 +40,19 @@ if ($Rebuild) {
 }
 if (-not $?) { throw 'KuroganeOS Windows build failed.' }
 
-# build.ps1 creates the userspace overlay first. Replace the two-repository-root
-# bootstrap bundle with the Windows machine's trusted LocalMachine Root store,
-# then rebuild only the filesystem/package/media layers that consume that
-# overlay. This mirrors build-macos.sh, which exports the macOS system roots.
-& $TrustExporter -OutputPath $TrustOutput
-if (-not $?) { throw 'Windows Web PKI trust-store export failed.' }
+# Build media must not inherit security policy from the host. Validate and
+# stage the reviewed repository bundle into the userspace overlay.
+& python.exe $TrustVerifier $TrustSource
+if (-not $?) { throw 'KuroganeOS Web PKI trust-store validation failed.' }
+[System.IO.Directory]::CreateDirectory(
+    [System.IO.Path]::GetDirectoryName($TrustOutput)) | Out-Null
+Copy-Item -LiteralPath $TrustSource -Destination $TrustOutput -Force
 
 & $FoundationBuilder -NoWorkingImage
-if (-not $?) { throw 'Foundation image rebuild with Windows trust roots failed.' }
+if (-not $?) { throw 'Foundation image rebuild with KuroganeOS trust roots failed.' }
 
 & $InstallerBuilder -Configuration $Configuration -NoBuild
-if (-not $?) { throw 'Installer ISO/package rebuild with Windows trust roots failed.' }
+if (-not $?) { throw 'Installer ISO/package rebuild with KuroganeOS trust roots failed.' }
 
 $VersionHeader = Join-Path $RootDir 'common\version.h'
 $versionText = Get-Content -LiteralPath $VersionHeader -Raw

@@ -8,8 +8,8 @@ case "$configuration" in
 esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export ANVIL_REPO_HOST="packages.kuroganeos.147-79-62-37.sslip.io"
-export ANVIL_REPO_BASE="/KrzysioYT/KuroganeOS-Packages/main"
+export ANVIL_REPO_HOST="repo.kuroganeos.dev"
+export ANVIL_REPO_BASE=""
 
 echo "[official] Anvil endpoint: https://${ANVIL_REPO_HOST}/index.kuro"
 

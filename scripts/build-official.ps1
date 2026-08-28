@@ -12,10 +12,10 @@ $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 $previousHost = $env:ANVIL_REPO_HOST
 $previousBase = $env:ANVIL_REPO_BASE
 try {
-    $env:ANVIL_REPO_HOST = 'packages.kuroganeos.147-79-62-37.sslip.io'
-    $env:ANVIL_REPO_BASE = '/KrzysioYT/KuroganeOS-Packages/main'
+    $env:ANVIL_REPO_HOST = 'repo.kuroganeos.dev'
+    $env:ANVIL_REPO_BASE = ''
 
-    Write-Host '[official] Anvil endpoint: https://packages.kuroganeos.147-79-62-37.sslip.io/index.kuro'
+    Write-Host '[official] Anvil endpoint: https://repo.kuroganeos.dev/index.kuro'
     $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$BuildScript,'-Configuration',$Configuration)
     if ($Rebuild) { $arguments += '-Rebuild' }
     & powershell.exe @arguments

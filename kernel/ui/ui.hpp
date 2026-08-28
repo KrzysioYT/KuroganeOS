@@ -56,6 +56,13 @@ void window(const Rect& bounds, const char* title);
 void flux_window(const Rect& bounds, const char* title, bool focused);
 void flux_control(const Rect& bounds, FluxControl control, bool active = false);
 void signal_spine(const Rect& bounds, size_t window_count, size_t focused_position);
+void blade_bar(const Rect& bounds);
+void blade_item(
+    const Rect& bounds,
+    DockIcon icon,
+    const char* label,
+    bool running,
+    bool focused);
 void dock_bar(const Rect& bounds, size_t running_count);
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused);
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized);

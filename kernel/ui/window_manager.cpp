@@ -14,14 +14,14 @@ namespace {
 constexpr int32_t HEADER_HEIGHT = 36;
 constexpr int32_t MINIMUM_WIDTH = 260;
 constexpr int32_t MINIMUM_HEIGHT = 160;
-constexpr int32_t WORKSPACE_LEFT = 34;
-constexpr int32_t WORKSPACE_TOP = 50;
+constexpr int32_t WORKSPACE_LEFT = 112;
+constexpr int32_t WORKSPACE_TOP = 64;
 constexpr int32_t WORKSPACE_RIGHT = 12;
 constexpr int32_t DOCK_HEIGHT = 58;
-constexpr int32_t DOCK_BOTTOM = 12;
-constexpr int32_t WORKSPACE_BOTTOM = DOCK_HEIGHT + DOCK_BOTTOM + 12;
-constexpr int32_t SPINE_X = 8;
-constexpr int32_t SPINE_WIDTH = 18;
+constexpr int32_t DOCK_BOTTOM = 8;
+constexpr int32_t WORKSPACE_BOTTOM = DOCK_HEIGHT + DOCK_BOTTOM + 8;
+constexpr int32_t SPINE_X = 9;
+constexpr int32_t SPINE_WIDTH = 90;
 constexpr int32_t CONTROL_WIDTH = 22;
 constexpr int32_t CONTROL_HEIGHT = 20;
 constexpr int32_t CONTROL_GAP = 4;
@@ -36,9 +36,10 @@ constexpr int32_t DESKTOP_SHORTCUT_HEIGHT = 78;
 constexpr int32_t DESKTOP_SHORTCUT_STEP_X = 88;
 constexpr int32_t DESKTOP_SHORTCUT_STEP_Y = 84;
 constexpr int32_t RIBBON_GAP = 6;
-constexpr int32_t RIBBON_ITEM_MAX = 96;
-constexpr int32_t RIBBON_ITEM_MIN = 48;
+constexpr int32_t RIBBON_ITEM_MAX = 184;
+constexpr int32_t RIBBON_ITEM_MIN = 72;
 constexpr size_t DOCK_PIN_COUNT = KU_DESKTOP_APP_COUNT;
+constexpr size_t BLADE_PIN_COUNT = 6U;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
@@ -78,6 +79,12 @@ constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
     {"ANVIL", 'i', ui::DockIcon::Anvil, "ANVIL"},
     {"PULSE", 'u', ui::DockIcon::Pulse, "PULSE"},
 };
+
+// Permanent Blade rail order mirrors the reference desktop while the full
+// catalogue remains available from the Home launcher.
+constexpr size_t kBladePins[BLADE_PIN_COUNT] = {0U, 2U, 6U, 1U, 4U, 8U};
+constexpr const char* kBladeLabels[BLADE_PIN_COUNT] = {
+    "HOME", "VAULT", "SYSTEM", "TERMINAL", "DOCS", "ANVIL"};
 
 Slot g_slots[MAX_WINDOWS]{};
 uint8_t g_order[MAX_WINDOWS]{};
@@ -237,9 +244,7 @@ bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
 }
 
 int32_t pinned_section_width() {
-    return DOCK_HOME_WIDTH +
-        static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_SIZE +
-        static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_GAP;
+    return DOCK_HOME_WIDTH;
 }
 
 WorkspaceGeometry calculate_workspace() {
@@ -261,21 +266,9 @@ WorkspaceGeometry calculate_workspace() {
         work_height > 24 ? work_height - 16 : work_height,
     };
 
-    const size_t tasks = exposed_window_count();
-    const int32_t dock_max_width = g_screen_width - 48;
-    const int32_t fixed_width = DOCK_PADDING * 2 + pinned_section_width() +
-        DOCK_SEPARATOR;
-    int32_t requested_width = fixed_width;
-    if (tasks != 0U) {
-        requested_width += static_cast<int32_t>(tasks) * RIBBON_ITEM_MAX +
-            static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
-    }
-    const int32_t minimum_width = fixed_width < dock_max_width
-        ? fixed_width : dock_max_width;
-    const int32_t dock_width = clamp_size(
-        requested_width, minimum_width, dock_max_width);
+    const int32_t dock_width = g_screen_width > 16 ? g_screen_width - 16 : 1;
     geometry.pulse_ribbon = {
-        (g_screen_width - dock_width) / 2,
+        8,
         g_screen_height - DOCK_HEIGHT - DOCK_BOTTOM,
         dock_width,
         DOCK_HEIGHT,
@@ -308,7 +301,7 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
 
 ui::Rect dock_pin_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
-    if (position >= DOCK_PIN_COUNT) return {};
+    if (position != 0U || position >= DOCK_PIN_COUNT) return {};
     const int32_t base_x = workspace.pulse_ribbon.x + DOCK_PADDING;
     if (position == 0U) {
         return {
@@ -318,12 +311,23 @@ ui::Rect dock_pin_rect(size_t position) {
             DOCK_PIN_SIZE,
         };
     }
+    return {};
+}
+
+ui::Rect blade_item_rect(size_t position) {
+    if (position >= BLADE_PIN_COUNT) return {};
+    const WorkspaceGeometry workspace = calculate_workspace();
+    const int32_t top = workspace.signal_spine.y + 36;
+    const int32_t available = workspace.signal_spine.height - 44;
+    const int32_t gap = 5;
+    int32_t height = (available - gap * static_cast<int32_t>(BLADE_PIN_COUNT - 1U)) /
+        static_cast<int32_t>(BLADE_PIN_COUNT);
+    height = clamp_size(height, 54, 74);
     return {
-        base_x + DOCK_HOME_WIDTH + DOCK_PIN_GAP +
-            static_cast<int32_t>(position - 1U) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
-        workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
-        DOCK_PIN_SIZE,
-        DOCK_PIN_SIZE,
+        workspace.signal_spine.x + 7,
+        top + static_cast<int32_t>(position) * (height + gap),
+        workspace.signal_spine.width - 14,
+        height,
     };
 }
 
@@ -387,19 +391,28 @@ bool valid_bounds(const ui::Rect& bounds) {
 }
 
 ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requested) {
-    if (!is_performance_surface(title)) return requested;
     const WorkspaceGeometry workspace = calculate_workspace();
-    if (workspace.work_area.width < 300 || workspace.work_area.height < 240) {
-        return requested;
+    ui::Rect normalized = requested;
+    if (is_performance_surface(title) &&
+        workspace.work_area.width >= 300 && workspace.work_area.height >= 240) {
+        const int32_t width = workspace.work_area.width >= 390 ? 360 : 300;
+        const int32_t height = workspace.work_area.height >= 350 ? 310 : 240;
+        normalized = {
+            workspace.work_area.x + workspace.work_area.width - width - 18,
+            workspace.work_area.y + (workspace.work_area.height - height) / 2,
+            width,
+            height,
+        };
     }
-    const int32_t width = workspace.work_area.width >= 390 ? 360 : 300;
-    const int32_t height = workspace.work_area.height >= 350 ? 310 : 240;
-    return {
-        workspace.work_area.x + workspace.work_area.width - width - 18,
-        workspace.work_area.y + (workspace.work_area.height - height) / 2,
-        width,
-        height,
-    };
+    normalized.x = clamp_position(
+        normalized.x,
+        workspace.work_area.x,
+        workspace.work_area.x + workspace.work_area.width - normalized.width);
+    normalized.y = clamp_position(
+        normalized.y,
+        workspace.work_area.y,
+        workspace.work_area.y + workspace.work_area.height - normalized.height);
+    return normalized;
 }
 
 void update_z_order() {
@@ -446,17 +459,6 @@ void choose_top_focus() {
         }
     }
     update_z_order();
-}
-
-size_t focused_position() {
-    size_t exposed_position = 0U;
-    for (size_t position = 0U; position < g_count; ++position) {
-        const Slot& slot = g_slots[g_order[position]];
-        if (!exposed(slot) || is_home_surface(slot.info.title)) continue;
-        if (slot.info.id == g_focused) return exposed_position;
-        ++exposed_position;
-    }
-    return exposed_window_count();
 }
 
 bool title_hit(const Slot& slot, int32_t x, int32_t y) {
@@ -573,6 +575,11 @@ ui::icons::Cursor cursor_for_position(int32_t x, int32_t y) {
     if (login_surface() != nullptr) return ui::icons::Cursor::Default;
 
     const WorkspaceGeometry workspace = calculate_workspace();
+    for (size_t position = 0U; position < BLADE_PIN_COUNT; ++position) {
+        if (rect_contains(blade_item_rect(position), x, y)) {
+            return ui::icons::Cursor::Hand;
+        }
+    }
     if (rect_contains(workspace.pulse_ribbon, x, y)) {
         for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
             if (rect_contains(dock_pin_rect(index), x, y)) {
@@ -714,7 +721,17 @@ void render_layers() {
     ui::desktop("KUROGANEOS 5 / FORGED STEEL");
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
-    ui::signal_spine(workspace.signal_spine, tasks, focused_position());
+    ui::blade_bar(workspace.signal_spine);
+    for (size_t position = 0U; position < BLADE_PIN_COUNT; ++position) {
+        const size_t app = kBladePins[position];
+        const Slot* running = find_by_title(kDockPins[app].title);
+        ui::blade_item(
+            blade_item_rect(position),
+            kDockPins[app].icon,
+            kBladeLabels[position],
+            running != nullptr,
+            running != nullptr && running->info.focused);
+    }
 
     const ui::Theme& theme = ui::default_theme();
     for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
@@ -742,7 +759,7 @@ void render_layers() {
     }
 
     ui::dock_bar(workspace.pulse_ribbon, tasks);
-    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+    for (size_t index = 0U; index < 1U; ++index) {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
         ui::dock_item(
@@ -1072,6 +1089,14 @@ Status dispatch(const input::Event& event) {
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {
         const WorkspaceGeometry workspace = calculate_workspace();
+        if (login_surface() == nullptr &&
+            rect_contains(workspace.signal_spine, event.x, event.y)) {
+            for (size_t position = 0U; position < BLADE_PIN_COUNT; ++position) {
+                if (rect_contains(blade_item_rect(position), event.x, event.y)) {
+                    return activate_dock_pin(kBladePins[position]);
+                }
+            }
+        }
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
             for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {

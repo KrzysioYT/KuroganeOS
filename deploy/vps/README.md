@@ -2,13 +2,16 @@
 
 This directory defines the public KuroganeOS backend: portal, browser-friendly docs and the official Anvil package mirror.
 
-## Default public hosts
+## Public hosts
 
-- `https://kuroganeos.147-79-62-37.sslip.io`
-- `https://docs.kuroganeos.147-79-62-37.sslip.io`
-- `https://packages.kuroganeos.147-79-62-37.sslip.io`
+- `https://kuroganeos.dev`
+- `https://docs.kuroganeos.dev`
+- `https://repo.kuroganeos.dev`
+- `https://downloads.kuroganeos.dev`
 
-`sslip.io` resolves the embedded IPv4 address automatically, so these names need no DNS-zone ownership. Caddy obtains normal public TLS certificates with HTTP-01 once ports 80 and 443 reach the VPS.
+The apex and all listed subdomains must have `A` records pointing to
+`147.79.62.37`. Caddy obtains public TLS certificates once DNS and ports 80/443
+reach the VPS.
 
 ## Deploy
 
@@ -37,8 +40,10 @@ cd /opt/kuroganeos/repo/deploy/vps
 ./scripts/check.sh
 ```
 
-The package container synchronizes `KrzysioYT/KuroganeOS-Packages` every five minutes. Caddy serves the current `index.kuro`, manifests and payload ELF files directly from the mirror volume.
+The package container synchronizes `KrzysioYT/KuroganeOS-Packages` every five minutes. Caddy serves the current `index.kuro`, manifests and payload ELF files directly from the mirror volume. Release media and `latest.json` live in `/opt/kuroganeos/downloads` and are published separately from the Git checkout.
 
-## Custom domain later
+## DNS records
 
-Copy `.env.example` to `.env` and replace `PORTAL_HOST`, `DOCS_HOST`, and `PACKAGES_HOST`. Caddy will request certificates for the new names after their A/AAAA records point at the VPS.
+Create `A` records for `@`, `www`, `docs`, `repo` and `downloads`, all pointing
+to `147.79.62.37`. Do not create an `AAAA` record unless the VPS has working
+public IPv6.

@@ -17,6 +17,7 @@ apt-get install -y ca-certificates curl git docker.io docker-compose-plugin
 systemctl enable --now docker
 
 mkdir -p "$INSTALL_ROOT"
+install -d -m 0755 "$INSTALL_ROOT/downloads"
 if [[ -d "$CHECKOUT/.git" ]]; then
     git -C "$CHECKOUT" fetch origin "$BRANCH"
     git -C "$CHECKOUT" checkout "$BRANCH"
@@ -40,6 +41,7 @@ if command -v ufw >/dev/null 2>&1; then
 fi
 
 printf '\nKuroganeOS backend deployed.\n'
-printf 'Portal:   https://kuroganeos.147-79-62-37.sslip.io\n'
-printf 'Docs:     https://docs.kuroganeos.147-79-62-37.sslip.io\n'
-printf 'Packages: https://packages.kuroganeos.147-79-62-37.sslip.io/index.kuro\n'
+printf 'Portal:    https://kuroganeos.dev\n'
+printf 'Docs:      https://docs.kuroganeos.dev\n'
+printf 'Packages:  https://repo.kuroganeos.dev/index.kuro\n'
+printf 'Downloads: https://downloads.kuroganeos.dev\n'
