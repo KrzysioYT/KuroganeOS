@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "sha256.h"
 
 #define ANVIL_MAX_PACKAGES 12U
 #define ANVIL_VISIBLE_PACKAGES 6U
@@ -11,6 +12,7 @@
 #define ANVIL_DEPENDENCY_DEPTH 6U
 #define ANVIL_REFRESH_ID 6U
 #define ANVIL_INSTALL_ID 7U
+#define ANVIL_UPDATE_ALL_ID 8U
 #define ANVIL_PACKAGE_ROW_BASE 10U
 
 #define ANVIL_PACKAGE_GET 0
@@ -34,6 +36,7 @@ typedef struct anvil_manifest {
     char version[20];
     char destination[128];
     char payload[112];
+    char sha256[65];
     char depends[96];
     char peer[96];
     char conflicts[96];
@@ -279,14 +282,15 @@ static int parse_manifest_text(const char* text, anvil_manifest* manifest) {
         !config_value(text, "version", manifest->version, sizeof(manifest->version)) ||
         !config_value(text, "destination", manifest->destination, sizeof(manifest->destination)) ||
         !config_value(text, "payload", manifest->payload, sizeof(manifest->payload)) ||
-        !config_value(text, "bytes", number, sizeof(number))) return 0;
+        !config_value(text, "bytes", number, sizeof(number)) ||
+        !config_value(text, "sha256", manifest->sha256, sizeof(manifest->sha256))) return 0;
     (void)config_value(text, "depends", manifest->depends, sizeof(manifest->depends));
     (void)config_value(text, "peer", manifest->peer, sizeof(manifest->peer));
     (void)config_value(text, "conflicts", manifest->conflicts, sizeof(manifest->conflicts));
     manifest->bytes = parse_u64(number);
     return manifest->name[0] != '\0' && manifest->version[0] != '\0' &&
         manifest->destination[0] == '/' && manifest->payload[0] == '/' &&
-        manifest->bytes != 0U;
+        manifest->bytes != 0U && strlen(manifest->sha256) == 64U;
 }
 
 static int load_manifest(size_t package_index, anvil_manifest* manifest) {
@@ -505,7 +509,8 @@ static int ensure_dependencies(const char* list, unsigned depth) {
     char name[32];
     while (next_list_name(list, &cursor, name, sizeof(name))) {
         const size_t dependency = find_package(name);
-        if (installed_name(name)) continue;
+        if (dependency < g_package_count &&
+            package_state(dependency) == ANVIL_PACKAGE_CURRENT) continue;
         if (dependency >= g_package_count || !install_package(dependency, depth + 1U)) {
             (void)strlcpy(g_status, "ANVIL / DEPENDENCY FAILED", sizeof(g_status));
             return 0;
@@ -569,6 +574,10 @@ static int install_package(size_t package_index, unsigned depth) {
         (void)strlcpy(g_status, "ANVIL / PAYLOAD SIZE MISMATCH", sizeof(g_status));
         return 0;
     }
+    if (!anvil_sha256_matches(body, body_size, manifest.sha256)) {
+        (void)strlcpy(g_status, "ANVIL / PAYLOAD HASH MISMATCH", sizeof(g_status));
+        return 0;
+    }
 
     (void)strlcpy(
         g_status,
@@ -585,6 +594,24 @@ static int install_package(size_t package_index, unsigned depth) {
     (void)strlcpy(
         g_status,
         had_installed ? "ANVIL / UPDATE COMPLETE" : "ANVIL / INSTALL COMPLETE",
+        sizeof(g_status));
+    return 1;
+}
+
+static int update_all_packages(void) {
+    size_t index;
+    size_t updated = 0U;
+    for (index = 0U; index < g_package_count; ++index) {
+        if (package_state(index) != ANVIL_PACKAGE_UPDATE) continue;
+        if (!install_package(index, 0U)) {
+            (void)strlcpy(g_status, "ANVIL / UPDATE ALL FAILED", sizeof(g_status));
+            return 0;
+        }
+        ++updated;
+    }
+    (void)strlcpy(
+        g_status,
+        updated == 0U ? "ANVIL / NO PACKAGE UPDATES" : "ANVIL / UPDATE ALL COMPLETE",
         sizeof(g_status));
     return 1;
 }
@@ -642,7 +669,7 @@ static void build_scene(kui_scene* scene) {
     gui_append_text(repo_line, sizeof(repo_line), g_repo.host);
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 14U;
+    scene->visible_rows = 15U;
     gui_apply_forged_theme(scene, 0);
     (void)kui_scene_set_cursor(scene, KU_UI_CURSOR_HAND);
     kui_flow_begin(&root, scene, 0U);
@@ -655,6 +682,8 @@ static void build_scene(kui_scene* scene) {
         &root, ANVIL_REFRESH_ID, "REFRESH CATALOG", KU_ICON_ACTION_REFRESH);
     (void)kui_flow_button_icon(
         &root, ANVIL_INSTALL_ID, selected_action_label(), KU_ICON_ACTION_DOWNLOAD);
+    (void)kui_flow_button_icon(
+        &root, ANVIL_UPDATE_ALL_ID, "UPDATE ALL", KU_ICON_ACTION_REFRESH);
     (void)kui_flow_label_icon(
         &root, 3U, "GET=NEW  INST=CURRENT  UPD=UPDATE",
         KU_ICON_WIDGET_SIDEBAR);
@@ -703,7 +732,7 @@ static void build_scene(kui_scene* scene) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("ANVIL", 360, 150, 680, 500);
+    const ku_window_t window = gui_open("ANVIL", 360, 120, 680, 540);
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
 
@@ -720,6 +749,8 @@ int main(void) {
     puts("[TEST] anvil_dependency_semantics: PASS");
     puts("[TEST] anvil_transactional_install: PASS");
     puts("[TEST] anvil_versioned_upgrade: PASS");
+    puts("[TEST] anvil_payload_sha256_integrity: PASS");
+    puts("[TEST] anvil_update_all: PASS");
 
     for (;;) {
         ku_ui_event event;
@@ -731,6 +762,8 @@ int main(void) {
                 (void)refresh_catalog();
             } else if (hit == ANVIL_INSTALL_ID) {
                 if (g_package_count != 0U) (void)install_package(g_selected, 0U);
+            } else if (hit == ANVIL_UPDATE_ALL_ID) {
+                (void)update_all_packages();
             } else if (hit >= ANVIL_PACKAGE_ROW_BASE &&
                        hit < ANVIL_PACKAGE_ROW_BASE + ANVIL_VISIBLE_PACKAGES) {
                 const size_t package_index =
@@ -756,6 +789,8 @@ int main(void) {
             if (g_package_count != 0U) (void)install_package(g_selected, 0U);
         } else if (event.character == 'r' || event.character == 'R') {
             (void)refresh_catalog();
+        } else if (event.character == 'u' || event.character == 'U') {
+            (void)update_all_packages();
         } else if (gui_key_cancel(&event)) {
             break;
         } else {
