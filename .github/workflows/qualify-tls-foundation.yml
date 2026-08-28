@@ -29,12 +29,30 @@ jobs:
 
           path = Path('kernel/main.cpp')
           text = path.read_text()
+          include_anchor = '#include "drivers/pit.hpp"\n'
+          include_replacement = '#include "drivers/pit.hpp"\n#include "drivers/rtc.hpp"\n'
+          if text.count(include_anchor) != 1:
+              raise SystemExit(f'expected exactly one PIT include anchor, found {text.count(include_anchor)}')
+          text = text.replace(include_anchor, include_replacement, 1)
+
           anchor = '        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};\n'
           replacement = r'''        // 3.3.7 qualification: this is deliberately an online, optional boot
           // probe so ordinary offline boot remains possible. Dedicated release
           // qualification requires the PASS marker. net::service::https_get()
           // reaches the production DNS -> TCP/443 -> entropy/CTR_DRBG -> Mbed
           // TLS handshake -> SNI -> X.509/hostname/time validation -> HTTP path.
+          rtc::DateTime tls_rtc{};
+          const bool tls_rtc_read = rtc::read(tls_rtc);
+          terminal::write("TLS RTC read=");
+          terminal::write_u64(tls_rtc_read ? 1U : 0U);
+          terminal::write(" y="); terminal::write_u64(tls_rtc.year);
+          terminal::write(" m="); terminal::write_u64(tls_rtc.month);
+          terminal::write(" d="); terminal::write_u64(tls_rtc.day);
+          terminal::write(" h="); terminal::write_u64(tls_rtc.hour);
+          terminal::write(" min="); terminal::write_u64(tls_rtc.minute);
+          terminal::write(" s="); terminal::write_u64(tls_rtc.second);
+          terminal::println();
+
           uint8_t tls_probe_buffer[1024]{};
           size_t tls_probe_length = 0U;
           uint16_t tls_http_status = 0U;
