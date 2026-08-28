@@ -5,6 +5,7 @@
 #include <kurogane/desktop.h>
 #include <kurogane/direct3d.h>
 #include <kurogane/event.h>
+#include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/graphics.h>
 #include <kurogane/ipc.h>
