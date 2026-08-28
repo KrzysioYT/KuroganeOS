@@ -1,86 +1,152 @@
 # Current release
 
-Current:
+## Formal release gate
+
+Current version:
 `3.3.3-dev`
 
-Target:
+Target version:
 `3.3.4-dev`
+
+Generation:
+`Red Flux`
 
 Status:
 `QUALIFICATION`
 
+Current task:
+`Oracle VirtualBox real-host acceptance for 3.3.4-dev`
+
 Baseline commit:
 `17bd55091c63544b9585840192f0eb288e9cffff`
 
-Candidate commit:
+3.3.4 candidate commit reserved for real VirtualBox acceptance:
 `662eae4fc1f2af85c8c74322e4b8863236a202b1`
 
 Last audit:
 `2026-08-29`
 
+## Active stacked development
+
+Active development version:
+`3.3.9-dev`
+
+Branch:
+`dev/3.3.9-red-flux-closeout`
+
+Combined 3.3.7 + 3.3.8 merge:
+`3e1c3a7b9e7ba12281e80b8ef41a415c929ba70d`
+
+Last fully combined automated qualification head:
+`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
+
+Current closeout regression code head:
+`ee9e1839247600b7882892aff463b4730839c9a3`
+
+Documentation continues after the code head and does not change the qualified
+runtime code.
+
+Stacked development is not evidence that 3.3.4, 3.3.5, 3.3.6, 3.3.7, 3.3.8
+or 3.3.9 have been formally released. No immutable release tag is created while
+the earlier mandatory release gate remains open.
+
 ## Completed
 
-- [x] Version source verified: `common/version.h` still reports `3.3.3-dev` / `DEV BETA`; no premature release bump was made.
-- [x] x86-64 UEFI boot architecture exists.
-- [x] Ring-3 ELF64 process/userspace path exists.
-- [x] AHCI + GPT + writable FAT32/VFS persistent-root path exists.
-- [x] Try/Install setup flow exists.
-- [x] Login and Red Flux desktop session gate exist.
-- [x] Added a real Oracle VirtualBox `ISO -> Try -> Login -> Desktop` smoke harness driven through guest PS/2 scan codes and serial markers.
-- [x] Existing VirtualBox install qualification covers a real SATA/IntelAHCI VDI, install, ISO detach and installed-system reboot.
-- [x] Added recoverable installer state-file replacement instead of destructive `unlink -> create -> write` for `/etc/locale.cfg`, `/etc/user.cfg` and `/etc/first.run`.
-- [x] Added deterministic fault-injection regression tests for staging, publish, sync and recovery failure paths.
-- [x] Added production KuroganeOS FAT32 integration coverage for recoverable state replacement.
-- [x] GitHub Actions run `33216094295` / qualification run `509` passed on candidate `662eae4f`.
-- [x] Kernel test configuration build passed.
-- [x] Host ABI/SDK regression passed.
-- [x] Full host regression suite passed.
-- [x] Linux IMG/ISO media build passed.
-- [x] Production FAT32/VFS image validation passed.
-- [x] 20-pass ISO structure verification passed.
-- [x] OVMF/QEMU ISO boot passed.
-- [x] QEMU E1000 NAT qualification passed.
-- [x] QEMU PCnet NAT qualification passed.
-- [x] QEMU VirtIO-net NAT qualification passed.
-- [x] Installer reliable-file workflow passed with fake-backend fault injection and production FAT32 integration.
+### 3.3.4 qualification tooling
 
-## Remaining for 3.3.4-dev
+- [x] Version source verified; no premature version bump.
+- [x] x86-64 UEFI, Ring-3 ELF64, AHCI/GPT/FAT32 persistent-root foundation verified.
+- [x] Real Oracle VirtualBox `ISO -> Try -> Login -> Desktop` smoke harness implemented.
+- [x] Real Oracle VirtualBox install harness covers SATA/IntelAHCI VDI, install,
+      ISO detach and installed-system reboot.
+- [x] Automated QEMU/OVMF media, filesystem and network qualification passed on
+      the 3.3.4 candidate.
 
-- [ ] Run `ISO -> Try -> Login -> Desktop` on a real x86-64 Oracle VirtualBox host using the candidate commit.
-- [ ] Run `ISO -> Install -> SATA VDI -> detach ISO -> installed-system boot` on the same final candidate.
+### Stacked 3.3.5 installer reliability
+
+- [x] Recoverable state-file replacement implemented for locale, profile and
+      first-run state.
+- [x] Deterministic failure/recovery tests implemented.
+- [x] Production FAT32 integration test implemented and passed.
+- [x] Dedicated reliable-file workflow run `33216094288` passed.
+
+### Stacked 3.3.7 TLS foundation
+
+- [x] Real Mbed TLS handshake path retained; no fake TLS success path introduced.
+- [x] X.509 peer certificate retention fixed for post-handshake validation.
+- [x] Certificate time validation remains enabled and fail-closed.
+- [x] Combined guest HTTPS qualification run `33220761526` passed, including
+      `Require real TLS handshake and HTTPS response` on QEMU/E1000.
+
+### Stacked 3.3.8 userspace resource ownership
+
+- [x] Real process file-handle ownership telemetry integrated.
+- [x] Runtime cleanup closes active file handles before publishing final count.
+- [x] Handle ownership regression run `33220748290` passed.
+- [x] Earlier cleanup-ordering regression run `33219888365` passed.
+
+### Stacked 3.3.9 Red Flux closeout
+
+- [x] 3.3.7 TLS and 3.3.8 userspace work combined with a real two-parent merge.
+- [x] Combined UEFI ISO qualification run `33220774861` passed.
+- [x] That run passed kernel test build, ABI/SDK tests, full host regression,
+      media build, production FAT32/VFS validation, 20-pass ISO verifier,
+      OVMF boot, and QEMU NAT with E1000, PCnet and VirtIO-net.
+- [x] Existing IPC channel/event/shared-memory tests were identified as missing
+      from the default full host regression suite and added in `ee9e1839...`.
+
+## Remaining
+
+### Formal 3.3.4 release gate
+
+- [ ] Run `ISO -> Try -> Login -> Desktop` on a real x86-64 Oracle VirtualBox host.
+- [ ] Run `ISO -> Install -> SATA VDI -> detach ISO -> installed-system boot` on
+      the same final candidate.
 - [ ] Record final VirtualBox serial acceptance evidence.
-- [ ] Bump version to `3.3.4-dev` only after the real VirtualBox release gate passes.
-- [ ] Freeze release notes and create immutable tag `v3.3.4-dev` only after release closeout.
+- [ ] Only then bump/freeze/tag 3.3.4-dev.
 
-## Blocked
+### Active 3.3.9 closeout
 
-- [ ] `PENDING REAL VIRTUALBOX HOST ACCEPTANCE`: this connected development environment cannot execute Oracle VirtualBox. This blocks only release closure; independent later development may continue on stacked branches.
+- [ ] Complete expanded full qualification run `33220980716` for
+      `ee9e1839247600b7882892aff463b4730839c9a3`; it additionally exercises IPC
+      channel/event/shared-memory in `scripts/test.sh`.
+- [ ] If the expanded regression passes, fast-forward the clean
+      `dev/3.4.0-service-architecture` branch to the closeout head and begin the
+      3.4.0 service registry/discovery work over the existing named IPC backend.
 
-## Tests
+## Blockers
+
+- [ ] `PENDING REAL VIRTUALBOX HOST ACCEPTANCE` — connected CI cannot execute the
+      required Oracle VirtualBox real-host release gate. This blocks formal
+      3.3.4 closure, not independent stacked development.
+
+## Test results
 
 PASS:
-- Audit and baseline verification.
-- PowerShell qualification-script parser gate.
-- Kernel test build.
-- Host ABI/SDK regression.
-- Full host regression suite.
-- Installer reliable-file fault-injection regression.
-- Production FAT32 reliable-file integration regression.
-- Linux media build.
-- FAT32/VFS image validation.
-- 20-pass ISO verifier.
-- OVMF/QEMU boot.
-- QEMU E1000/PCnet/VirtIO-net NAT qualification.
+- 3.3.4 automated candidate qualification, including QEMU/OVMF and NAT matrix.
+- Installer reliable-file fault injection and production FAT32 integration.
+- Combined userspace ownership regression: `33220748290`.
+- Combined real guest TLS/HTTPS qualification: `33220761526`.
+- Combined full UEFI ISO qualification: `33220774861`.
 
 FAIL:
-- None known on candidate `662eae4f` from automated qualification.
+- None known on the combined 3.3.9 code at the last completed qualification.
 
 PENDING:
-- Oracle VirtualBox Try/Login/Desktop runtime acceptance.
-- Oracle VirtualBox final install/reboot runtime acceptance.
+- Expanded closeout regression `33220980716` after adding IPC tests to the
+  default host suite.
+- Oracle VirtualBox Try/Login/Desktop real-host acceptance.
+- Oracle VirtualBox install/reboot real-host acceptance.
 
-Current commit:
-`662eae4fc1f2af85c8c74322e4b8863236a202b1`
+Last verified commit:
+`61c917e58ebbfc7ad4f0a8ee6d974e6d088a2860`
+
+Current stacked code commit under regression:
+`ee9e1839247600b7882892aff463b4730839c9a3`
 
 Next action:
-Keep 3.3.4 in `QUALIFICATION`, preserve candidate `662eae4f` for real VirtualBox acceptance, and continue independent 3.3.5 installer-reliability work on a stacked branch without claiming 3.3.4 COMPLETE.
+Finish run `33220980716`. On PASS, record `ee9e1839...` as the latest verified
+3.3.9 closeout code, fast-forward `dev/3.4.0-service-architecture`, and implement
+side-effect-free service discovery plus explicit userspace service API over the
+existing PID-owned named IPC registry. Keep 3.3.4 in `QUALIFICATION` until real
+Oracle VirtualBox acceptance exists.
