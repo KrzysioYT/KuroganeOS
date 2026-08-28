@@ -2,7 +2,9 @@ name: 3.3.8 userspace handle ownership regression
 
 on:
   push:
-    branches: [ dev/3.3.8-userspace-io ]
+    branches:
+      - dev/3.3.8-userspace-io
+      - dev/3.3.9-red-flux-closeout
     paths:
       - '.github/workflows/apply-handle-telemetry.yml'
       - 'kernel/task/process.cpp'
@@ -20,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout branch
+      - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
-          ref: dev/3.3.8-userspace-io
+          ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
 
