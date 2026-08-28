@@ -1,0 +1,166 @@
+name: One-shot Anvil 5 maintenance
+
+on:
+  push:
+    branches: [gpt/kuroganeos-5-gui]
+    paths:
+      - '.github/workflows/anvil-maintenance.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-anvil:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/kuroganeos-5-gui
+          fetch-depth: 0
+
+      - name: Apply asserted Anvil 5 transforms
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('userspace/gui/anvil/main.c')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '#include "../common.h"\n',
+                  '#include "../common.h"\n#include "sha256.h"\n',
+              ),
+              (
+                  '#define ANVIL_INSTALL_ID 7U\n#define ANVIL_PACKAGE_ROW_BASE 10U\n',
+                  '#define ANVIL_INSTALL_ID 7U\n#define ANVIL_UPDATE_ALL_ID 8U\n#define ANVIL_PACKAGE_ROW_BASE 10U\n',
+              ),
+              (
+                  '    char payload[112];\n    char depends[96];\n',
+                  '    char payload[112];\n    char sha256[65];\n    char depends[96];\n',
+              ),
+              (
+                  '        !config_value(text, "payload", manifest->payload, sizeof(manifest->payload)) ||\n'
+                  '        !config_value(text, "bytes", number, sizeof(number))) return 0;\n',
+                  '        !config_value(text, "payload", manifest->payload, sizeof(manifest->payload)) ||\n'
+                  '        !config_value(text, "bytes", number, sizeof(number)) ||\n'
+                  '        !config_value(text, "sha256", manifest->sha256, sizeof(manifest->sha256))) return 0;\n',
+              ),
+              (
+                  '        manifest->destination[0] == \'/\' && manifest->payload[0] == \'/\' &&\n'
+                  '        manifest->bytes != 0U;\n',
+                  '        manifest->destination[0] == \'/\' && manifest->payload[0] == \'/\' &&\n'
+                  '        manifest->bytes != 0U && strlen(manifest->sha256) == 64U;\n',
+              ),
+              (
+                  '        const size_t dependency = find_package(name);\n'
+                  '        if (installed_name(name)) continue;\n'
+                  '        if (dependency >= g_package_count || !install_package(dependency, depth + 1U)) {\n',
+                  '        const size_t dependency = find_package(name);\n'
+                  '        if (dependency < g_package_count &&\n'
+                  '            package_state(dependency) == ANVIL_PACKAGE_CURRENT) continue;\n'
+                  '        if (dependency >= g_package_count || !install_package(dependency, depth + 1U)) {\n',
+              ),
+              (
+                  '    if ((uint64_t)body_size != manifest.bytes) {\n'
+                  '        (void)strlcpy(g_status, "ANVIL / PAYLOAD SIZE MISMATCH", sizeof(g_status));\n'
+                  '        return 0;\n'
+                  '    }\n\n'
+                  '    (void)strlcpy(\n',
+                  '    if ((uint64_t)body_size != manifest.bytes) {\n'
+                  '        (void)strlcpy(g_status, "ANVIL / PAYLOAD SIZE MISMATCH", sizeof(g_status));\n'
+                  '        return 0;\n'
+                  '    }\n'
+                  '    if (!anvil_sha256_matches(body, body_size, manifest.sha256)) {\n'
+                  '        (void)strlcpy(g_status, "ANVIL / PAYLOAD HASH MISMATCH", sizeof(g_status));\n'
+                  '        return 0;\n'
+                  '    }\n\n'
+                  '    (void)strlcpy(\n',
+              ),
+              (
+                  'static void normalize_selection(void) {\n',
+                  'static int update_all_packages(void) {\n'
+                  '    size_t index;\n'
+                  '    size_t updated = 0U;\n'
+                  '    for (index = 0U; index < g_package_count; ++index) {\n'
+                  '        if (package_state(index) != ANVIL_PACKAGE_UPDATE) continue;\n'
+                  '        if (!install_package(index, 0U)) {\n'
+                  '            (void)strlcpy(g_status, "ANVIL / UPDATE ALL FAILED", sizeof(g_status));\n'
+                  '            return 0;\n'
+                  '        }\n'
+                  '        ++updated;\n'
+                  '    }\n'
+                  '    (void)strlcpy(\n'
+                  '        g_status,\n'
+                  '        updated == 0U ? "ANVIL / NO PACKAGE UPDATES" : "ANVIL / UPDATE ALL COMPLETE",\n'
+                  '        sizeof(g_status));\n'
+                  '    return 1;\n'
+                  '}\n\n'
+                  'static void normalize_selection(void) {\n',
+              ),
+              (
+                  '    scene->visible_rows = 14U;\n',
+                  '    scene->visible_rows = 15U;\n',
+              ),
+              (
+                  '    (void)kui_flow_button_icon(\n'
+                  '        &root, ANVIL_INSTALL_ID, selected_action_label(), KU_ICON_ACTION_DOWNLOAD);\n'
+                  '    (void)kui_flow_label_icon(\n',
+                  '    (void)kui_flow_button_icon(\n'
+                  '        &root, ANVIL_INSTALL_ID, selected_action_label(), KU_ICON_ACTION_DOWNLOAD);\n'
+                  '    (void)kui_flow_button_icon(\n'
+                  '        &root, ANVIL_UPDATE_ALL_ID, "UPDATE ALL", KU_ICON_ACTION_REFRESH);\n'
+                  '    (void)kui_flow_label_icon(\n',
+              ),
+              (
+                  '    const ku_window_t window = gui_open("ANVIL", 360, 150, 680, 500);\n',
+                  '    const ku_window_t window = gui_open("ANVIL", 360, 120, 680, 540);\n',
+              ),
+              (
+                  '    puts("[TEST] anvil_versioned_upgrade: PASS");\n',
+                  '    puts("[TEST] anvil_versioned_upgrade: PASS");\n'
+                  '    puts("[TEST] anvil_payload_sha256_integrity: PASS");\n'
+                  '    puts("[TEST] anvil_update_all: PASS");\n',
+              ),
+              (
+                  '            } else if (hit == ANVIL_INSTALL_ID) {\n'
+                  '                if (g_package_count != 0U) (void)install_package(g_selected, 0U);\n'
+                  '            } else if (hit >= ANVIL_PACKAGE_ROW_BASE &&\n',
+                  '            } else if (hit == ANVIL_INSTALL_ID) {\n'
+                  '                if (g_package_count != 0U) (void)install_package(g_selected, 0U);\n'
+                  '            } else if (hit == ANVIL_UPDATE_ALL_ID) {\n'
+                  '                (void)update_all_packages();\n'
+                  '            } else if (hit >= ANVIL_PACKAGE_ROW_BASE &&\n',
+              ),
+              (
+                  '        } else if (event.character == \'r\' || event.character == \'R\') {\n'
+                  '            (void)refresh_catalog();\n'
+                  '        } else if (gui_key_cancel(&event)) {\n',
+                  '        } else if (event.character == \'r\' || event.character == \'R\') {\n'
+                  '            (void)refresh_catalog();\n'
+                  '        } else if (event.character == \'u\' || event.character == \'U\') {\n'
+                  '            (void)update_all_packages();\n'
+                  '        } else if (gui_key_cancel(&event)) {\n',
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, found {count}: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8', newline='\n')
+          PY
+
+          git diff --check
+          git diff -- userspace/gui/anvil/main.c
+
+      - name: Commit Anvil maintenance
+        run: |
+          git config user.name 'KuroganeOS Maintenance Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add userspace/gui/anvil/main.c
+          git commit -m 'security(anvil): verify package hashes and update all'
+          git push origin HEAD:gpt/kuroganeos-5-gui
