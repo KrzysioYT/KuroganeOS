@@ -104,38 +104,47 @@ This is not a substitute for the required Oracle VirtualBox real-host run.
 
 ## TLS foundation — stacked 3.3.7 work
 
-- production DNS -> TCP/443 -> Mbed TLS path — `IMPLEMENTED`;
-- entropy/CTR_DRBG — `IMPLEMENTED`;
+- production DNS -> TCP/443 -> Mbed TLS path — `IMPLEMENTED / TESTED`;
+- entropy/CTR_DRBG — `IMPLEMENTED / TESTED` in the qualified positive path;
 - CA PEM parsing — `IMPLEMENTED / OBSERVED IN GUEST`;
-- SNI and required certificate verification — `IMPLEMENTED`;
-- explicit certificate validity interval check against KuroganeOS wall time — `IMPLEMENTED`;
-- real HTTPS guest qualification — `NOT QUALIFIED` until a current run passes.
+- SNI and required certificate verification — `IMPLEMENTED / TESTED` in the qualified positive path;
+- explicit certificate validity interval check against KuroganeOS wall time — `IMPLEMENTED / TESTED`;
+- real HTTPS guest qualification on QEMU/OVMF E1000 — `QUALIFIED`.
 
-The TLS gate has intentionally failed when security prerequisites were not met.
-Recent failures exposed:
+The TLS gate intentionally failed while security prerequisites were incomplete.
+Those failures exposed two real issues instead of being suppressed:
 
 1. transient CMOS snapshot instability during certificate-time validation;
 2. Mbed TLS peer certificate retention was disabled while KuroganeOS required
    `mbedtls_ssl_get_peer_cert()` for a post-handshake validity check.
 
-RTC snapshot handling has been hardened and short transient CMOS failures can be
-bridged only from a previously verified hardware RTC snapshot using monotonic PIT
-time within a bounded window. Certificate expiry checks have not been bypassed.
+RTC snapshot handling was hardened and transient raw CMOS failures can be bridged
+only from a previously verified hardware RTC snapshot using monotonic PIT time
+inside a bounded window. Certificate expiry checks were not bypassed.
 
 Commit `626a1fb3eb34fedbbfe21d7c11e32570c763fab6` enables
 `MBEDTLS_SSL_KEEP_PEER_CERTIFICATE` so the already-verified peer certificate is
-actually available to the explicit post-handshake security check. Real guest
-HTTPS workflow run `33219821941` is the authoritative requalification for that
-fix and remains `PENDING` until it completes successfully.
+available to the explicit post-handshake check.
+
+Workflow run `33219821941` completed successfully on that commit. Runtime evidence:
+
+```text
+[uefi-qemu] disk/e1000 DHCP/gateway network: PASS
+[uefi-qemu] disk/e1000 real TLS/HTTPS handshake: PASS
+```
+
+Scope matters: this qualifies the current QEMU/OVMF E1000 positive HTTPS path.
+Oracle VirtualBox, real hardware, negative certificate cases and broader TLS
+stress remain `PENDING`.
 
 ## Userspace I/O ownership — stacked 3.3.8 work
 
 - `process::Stat.handle_count` is backed by the real runtime file-handle table — `IMPLEMENTED / TESTED`;
-- open/close operations synchronize ownership count — `IMPLEMENTED`;
-- runtime cleanup closes active file handles, clears slots, then publishes final count — `IMPLEMENTED`;
+- open/close operations synchronize ownership count — `IMPLEMENTED / TESTED`;
+- runtime cleanup closes active file handles, clears slots, then publishes final count — `IMPLEMENTED / TESTED`;
 - repeatable process/handle regression + full test-kernel compile — `PASS` in run `33219449804`;
-- additional cleanup-order regression added after that run — `PENDING` current CI result;
-- complete exit/fault/forced-termination end-to-end qualification — `PENDING`.
+- close-before-accounting cleanup-order regression + full kernel compile — `PASS` in run `33219888365`;
+- complete fault/forced-termination end-to-end resource-lifetime qualification — `PENDING`.
 
 ## Known gaps / DEV warnings
 
@@ -146,7 +155,7 @@ fix and remains `PENDING` until it completes successfully.
 - USB/xHCI is not yet release-qualified;
 - Intel HDA is not the qualified primary audio backend;
 - userspace networking is not yet the target async service/socket architecture;
-- TLS is `IMPLEMENTED / UNDER QUALIFICATION`, not `QUALIFIED`;
+- TLS QEMU/E1000 positive HTTPS path is qualified, but TLS 1.3, broad CA coverage, negative-certificate matrix, VirtualBox and real-hardware TLS remain incomplete;
 - no Direct3D 9/10/11/12 compatibility layer and no qualified hardware GPU acceleration;
 - real-hardware qualification is incomplete;
 - no final recovery environment or transactional system updater.
