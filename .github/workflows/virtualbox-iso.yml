@@ -2,7 +2,9 @@ name: KuroganeOS UEFI ISO qualification
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - dev/3.3.9-red-flux-closeout
     paths:
       - 'boot/**'
       - 'common/**'
