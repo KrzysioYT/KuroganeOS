@@ -17,6 +17,13 @@ static void fill_topic(char* destination, const char* source) {
     while (index < KU_EVENT_BROKER_TOPIC_CAPACITY) destination[index++] = '\0';
 }
 
+static void fail_stage(const char* stage) {
+    (void)u_puts("[TEST] event_broker_stage: FAIL ");
+    (void)u_puts(stage);
+    (void)u_puts("\n");
+    (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+}
+
 static ku_status_t wait_response(
     ku_service_connection_t connection,
     ku_event_broker_response* response) {
@@ -61,42 +68,70 @@ __attribute__((noreturn)) void _start(void) {
         (void)ku_sleep(1U);
     }
     if (connected <= 0) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+        fail_stage("connect");
         ku_exit(1);
     }
 
     const ku_service_connection_t connection = (ku_service_connection_t)connected;
     ku_event_broker_response response;
     ku_status_t status = request(connection, KU_EVENT_BROKER_SUBSCRIBE, &response);
-    if (status != KU_STATUS_OK || response.status != KU_STATUS_OK || response.value == 0U) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+    if (status != KU_STATUS_OK) {
+        fail_stage("subscribe-transport");
         (void)ku_service_close(connection);
         ku_exit(2);
+    }
+    if (response.status != KU_STATUS_OK) {
+        fail_stage("subscribe-status");
+        (void)ku_service_close(connection);
+        ku_exit(3);
+    }
+    if (response.value == 0U) {
+        fail_stage("subscribe-handle");
+        (void)ku_service_close(connection);
+        ku_exit(4);
     }
     const ku_event_handle_t event = (ku_event_handle_t)response.value;
 
     status = request(connection, KU_EVENT_BROKER_PUBLISH, &response);
-    if (status != KU_STATUS_OK || response.status != KU_STATUS_OK || response.value != 1U) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+    if (status != KU_STATUS_OK) {
+        fail_stage("publish-transport");
         (void)ku_event_close(event);
         (void)ku_service_close(connection);
-        ku_exit(3);
+        ku_exit(5);
+    }
+    if (response.status != KU_STATUS_OK) {
+        fail_stage("publish-status");
+        (void)ku_event_close(event);
+        (void)ku_service_close(connection);
+        ku_exit(6);
+    }
+    if (response.value != 1U) {
+        fail_stage("publish-count");
+        (void)ku_event_close(event);
+        (void)ku_service_close(connection);
+        ku_exit(7);
     }
 
     status = ku_event_wait(event);
     if (status != KU_STATUS_OK) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+        fail_stage("wait-event");
         (void)ku_event_close(event);
         (void)ku_service_close(connection);
-        ku_exit(4);
+        ku_exit(8);
     }
 
     status = request(connection, KU_EVENT_BROKER_UNSUBSCRIBE, &response);
-    if (status != KU_STATUS_OK || response.status != KU_STATUS_OK) {
-        (void)u_puts("[TEST] event_broker_roundtrip: FAIL\n");
+    if (status != KU_STATUS_OK) {
+        fail_stage("unsubscribe-transport");
         (void)ku_event_close(event);
         (void)ku_service_close(connection);
-        ku_exit(5);
+        ku_exit(9);
+    }
+    if (response.status != KU_STATUS_OK) {
+        fail_stage("unsubscribe-status");
+        (void)ku_event_close(event);
+        (void)ku_service_close(connection);
+        ku_exit(10);
     }
 
     (void)ku_event_close(event);
