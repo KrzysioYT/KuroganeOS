@@ -53,5 +53,32 @@ jobs:
           grep -Fq 'sync_process_handle_count(context);' kernel/user/runtime_base.inc
           grep -Fq 'Status set_handle_count(ProcessId pid, uint32_t handle_count)' kernel/task/process.cpp
 
+      - name: Guard cleanup close-before-accounting ordering
+        shell: python
+        run: |
+          from pathlib import Path
+
+          text = Path('kernel/user/runtime_base.inc').read_text()
+          start = text.find('Status cleanup(Context& context) {')
+          end = text.find('\n}\n\nStatus ', start + 1)
+          if start < 0 or end < 0:
+              raise SystemExit('could not isolate runtime cleanup implementation')
+          cleanup = text[start:end]
+          required = [
+              'for (HandleSlot& handle : context.handles)',
+              'fs::root_volume::close(handle.file)',
+              'handle.active = false;',
+              'handle.file = {};',
+              'sync_process_handle_count(context);',
+          ]
+          positions = []
+          for token in required:
+              position = cleanup.find(token)
+              if position < 0:
+                  raise SystemExit(f'cleanup ownership token missing: {token}')
+              positions.append(position)
+          if positions != sorted(positions):
+              raise SystemExit('cleanup must close and clear real handles before publishing the final count')
+
       - name: Compile full kernel with runtime integration
         run: make CONFIG=test kernel
