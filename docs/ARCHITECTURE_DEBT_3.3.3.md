@@ -1,10 +1,13 @@
 # KuroganeOS 3.3.3-dev architecture debt
 
-Status: post-VirtualBox audit, clean-room architecture work.
+Status: **OPEN / NOT COMPLETE — release-blocking MUST HAVE work remains.**
 
 This is a concrete debt list, not a roadmap of features. The goal is to stop
 kernel mechanisms, Red Flux policy, recovery code and test scaffolding from
 becoming mutually dependent as the system grows.
+
+**3.3.3-dev must not be considered architecture-complete while any item marked
+`MUST HAVE` below is missing or only represented by a mock/stub.**
 
 Linux may be inspected for architecture and public-interface concepts only.
 No Linux implementation code is to be copied into KuroganeOS.
@@ -147,6 +150,124 @@ Target:
 - propagate a typed transport reason to TLS and then to Kurogane Web;
 - only tune retry/timeout values after the failing transport condition is known.
 
+## 10. MUST HAVE — Kurogane Fatal Diagnostic Screen / kernel panic snapshot
+
+**Release gate:** 3.3.3-dev is not considered complete until KuroganeOS has a
+real fatal-error diagnostic path. This must be implemented from live kernel
+state; a static mock screen, PNG-only UI or hard-coded example values do not
+satisfy this requirement.
+
+The purpose is not to imitate Windows BSOD. KuroganeOS must expose its own
+Red Flux-compatible fatal diagnostic surface: near-black/graphite background,
+minimal red accents, monospaced text and primitives rendered directly by the
+system wherever possible. External bitmap assets are optional and must never be
+required for the diagnostic information itself.
+
+### Required panic snapshot
+
+At the first fatal transition, before normal scheduling/recovery can destroy
+useful context, capture an immutable best-effort snapshot containing at least:
+
+- panic/exception code and symbolic reason;
+- faulting module/component and source/build identifier when available;
+- CPU/APIC id, current PID/TID and process/thread name;
+- RIP, RSP, RFLAGS and general-purpose x86-64 registers;
+- fault address and architecture-specific exception data such as CR2/error code
+  for page faults;
+- privilege level / execution context (kernel, userspace, IRQ where known);
+- bounded stack trace / return-address trace with symbol names when available;
+- kernel version, full `3.3.3-dev` build id and commit/source identifier;
+- system uptime and wall-clock timestamp when RTC time is trustworthy;
+- physical/virtual memory usage and paging state;
+- active driver/device context when the failure can be attributed safely;
+- bounded `LAST KERNEL EVENTS` ring containing the final diagnostic records
+  immediately preceding the panic;
+- dump status, path/id and whether the dump is full, partial or unavailable.
+
+### LAST KERNEL EVENTS
+
+Maintain a bounded, allocation-safe kernel diagnostic ring so the panic screen
+can show the final sequence that led to the failure instead of only the final
+exception. The panic path must be able to read this ring without allocating
+memory or depending on userspace.
+
+Each event should carry, where available:
+
+- monotonic timestamp;
+- subsystem/category;
+- severity;
+- CPU id;
+- PID/TID;
+- short event code;
+- bounded text payload with secrets and user payload data excluded.
+
+A typical diagnostic chain should make sequences such as
+`driver init -> allocation -> IRQ -> page fault -> panic` visible to a developer.
+
+### Panic renderer requirements
+
+- no dependency on Red Flux userspace being alive;
+- no dependency on heap allocation after the panic transition where avoidable;
+- render through an emergency framebuffer/text path using fonts/primitives
+  already resident in memory;
+- remain legible if only a minimal text renderer is available;
+- deterministic layout at supported framebuffer sizes with graceful truncation;
+- serial output must mirror the essential panic data for headless debugging;
+- nested/double panic falls back to a smaller guaranteed-safe emergency view;
+- the diagnostic screen must never attempt ordinary window management,
+  application launching or network access.
+
+### Crash dump
+
+Provide a bounded crash-dump writer when the storage path is known safe.
+A dump failure must never replace or hide the original panic.
+
+Minimum metadata:
+
+- dump format/version;
+- kernel/build/commit id;
+- panic reason and registers;
+- process/thread identity;
+- stack trace;
+- last kernel events;
+- selected memory/system metadata;
+- checksum/integrity field when practical.
+
+If persistent storage cannot be trusted, keep the screen + serial snapshot and
+report `DUMP UNAVAILABLE` with a typed reason rather than blocking indefinitely.
+
+### Recovery behavior
+
+The screen may expose a restart action only after the diagnostic snapshot is
+stable. Automatic restart must be optional/development-policy controlled so a
+developer can inspect the panic indefinitely.
+
+The footer should expose concise state such as:
+
+- `STATUS: CRITICAL`;
+- dump state;
+- safe-mode availability;
+- restart key when supported.
+
+### Acceptance criteria
+
+This MUST HAVE is complete only when all of the following are proven:
+
+1. A deliberately triggered kernel exception reaches the fatal screen.
+2. Displayed registers and fault metadata come from the actual trap frame.
+3. PID/TID/process information matches the faulting execution context.
+4. `LAST KERNEL EVENTS` contains real events emitted before the test panic.
+5. Essential diagnostics are mirrored to serial output.
+6. A dump is written and can be parsed, or a typed safe failure reason is shown.
+7. A second panic inside the normal panic path reaches the minimal fallback
+   instead of recursively crashing forever.
+8. QEMU and VirtualBox smoke tests can detect a deliberate panic marker without
+   confusing it with an ordinary boot failure.
+9. No PNG or external visual asset is necessary to understand or operate the
+   fatal diagnostic view.
+10. No mock values, TODO-only paths or hard-coded register/stack examples remain
+    in the production panic implementation.
+
 ## Recommended migration order
 
 1. Rebuild current media and prove the stale-artifact mismatch is gone.
@@ -154,6 +275,9 @@ Target:
 3. Remove kernel desktop autolaunch after PID 1 handoff.
 4. Make NIC/test labels backend-neutral and serialize diagnostics.
 5. Instrument the remaining persistence and TLS/TCP failures.
-6. Convert userspace shell command dispatch toward executable lookup.
-7. Establish generic display/input IPC and migrate Red Flux dock/window policy
-   out of the kernel incrementally.
+6. Build the allocation-safe diagnostic ring and trap-frame panic snapshot.
+7. Implement the Kurogane Fatal Diagnostic Screen, serial mirror and nested-panic fallback.
+8. Add bounded crash-dump persistence and deliberate panic smoke coverage.
+9. Convert userspace shell command dispatch toward executable lookup.
+10. Establish generic display/input IPC and migrate Red Flux dock/window policy
+    out of the kernel incrementally.
