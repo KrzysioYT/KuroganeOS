@@ -2,7 +2,7 @@
 
 #define SESSION_PATH "/gui/login"
 #define EVENT_BROKER_PATH "/system/eventd"
-#define SETTINGS_SERVICE_PATH "/system/settingsd"
+#define SETTINGS_SERVICE_PATH "/system/setd"
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
@@ -57,7 +57,7 @@ __attribute__((noreturn)) void _start(void) {
 
     const uint64_t settings_service_pid = spawn_settings_service();
     if (settings_service_pid == 0U) {
-        (void)u_puts("init: cannot spawn /system/settingsd\n");
+        (void)u_puts("init: cannot spawn /system/setd\n");
         (void)u_puts("[TEST] settings_service_spawn: FAIL\n");
         ku_exit(5);
     }
