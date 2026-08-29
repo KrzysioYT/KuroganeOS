@@ -1,4 +1,5 @@
 #include "ac97.hpp"
+#include "ac97_buffer_layout.hpp"
 
 #include "../../arch/x86_64/io.hpp"
 #include "../pci.hpp"
@@ -12,8 +13,6 @@ constexpr uint16_t kIchAc97Device = 0x2415U;
 constexpr uint32_t kSampleRate = 48000U;
 constexpr uint8_t kChannels = 2U;
 constexpr uint8_t kBitsPerSample = 16U;
-constexpr size_t kBytesPerFrame = 4U;
-constexpr size_t kMaximumFrames = 4096U / kBytesPerFrame;
 
 constexpr uint16_t kMixerReset = 0x00U;
 constexpr uint16_t kMixerMasterVolume = 0x02U;
@@ -56,14 +55,14 @@ struct __attribute__((packed)) BufferDescriptor {
 };
 
 static_assert(sizeof(BufferDescriptor) == 8U, "AC97 BDL entry ABI");
-static_assert(32U * sizeof(BufferDescriptor) <= 4096U,
+static_assert(detail::kDescriptorCount * sizeof(BufferDescriptor) <= detail::kDmaPageBytes,
               "AC97 BDL must fit one DMA page");
 
 const pci::Device* g_pci_device = nullptr;
 uint16_t g_mixer_base = 0U;
 uint16_t g_bus_master_base = 0U;
 storage::dma::Page g_bdl_page{};
-storage::dma::Page g_pcm_page{};
+storage::dma::Page g_pcm_pages[detail::kDescriptorCount]{};
 bool g_initialized = false;
 bool g_busy = false;
 Status g_status = Status::NotInitialized;
@@ -173,8 +172,10 @@ bool reset_codec() {
 }
 
 void release_dma() {
-    if (g_pcm_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&g_pcm_page));
+    for (size_t index = 0U; index < detail::kDescriptorCount; ++index) {
+        if (g_pcm_pages[index].allocated) {
+            static_cast<void>(storage::dma::release_page(&g_pcm_pages[index]));
+        }
     }
     if (g_bdl_page.allocated) {
         static_cast<void>(storage::dma::release_page(&g_bdl_page));
@@ -209,22 +210,37 @@ Status initialize() {
     command = static_cast<uint16_t>(command | UINT16_C(0x0005));
     pci::write16(g_pci_device->address, 0x04U, command);
 
-    if (storage::dma::allocate_page(false, &g_bdl_page) !=
-            storage::dma::Status::Ok ||
-        storage::dma::allocate_page(false, &g_pcm_page) !=
+    if (storage::dma::allocate_page(false, &g_bdl_page) != storage::dma::Status::Ok) {
+        release_dma();
+        g_status = Status::DmaAllocationFailed;
+        return g_status;
+    }
+    for (size_t index = 0U; index < detail::kDescriptorCount; ++index) {
+        if (storage::dma::allocate_page(false, &g_pcm_pages[index]) !=
             storage::dma::Status::Ok) {
+            release_dma();
+            g_status = Status::DmaAllocationFailed;
+            return g_status;
+        }
+    }
+
+    if (g_bdl_page.physical_address >= storage::dma::DMA32_ADDRESS_LIMIT) {
         release_dma();
         g_status = Status::DmaAllocationFailed;
         return g_status;
     }
-    if (g_bdl_page.physical_address >= storage::dma::DMA32_ADDRESS_LIMIT ||
-        g_pcm_page.physical_address >= storage::dma::DMA32_ADDRESS_LIMIT) {
-        release_dma();
-        g_status = Status::DmaAllocationFailed;
-        return g_status;
+    for (size_t index = 0U; index < detail::kDescriptorCount; ++index) {
+        if (g_pcm_pages[index].physical_address >= storage::dma::DMA32_ADDRESS_LIMIT) {
+            release_dma();
+            g_status = Status::DmaAllocationFailed;
+            return g_status;
+        }
     }
-    clear_bytes(g_bdl_page.virtual_address, 4096U);
-    clear_bytes(g_pcm_page.virtual_address, 4096U);
+
+    clear_bytes(g_bdl_page.virtual_address, detail::kDmaPageBytes);
+    for (size_t index = 0U; index < detail::kDescriptorCount; ++index) {
+        clear_bytes(g_pcm_pages[index].virtual_address, detail::kDmaPageBytes);
+    }
 
     if (!reset_codec() || !reset_pcm_engine()) {
         release_dma();
@@ -250,7 +266,7 @@ bool initialized() { return g_initialized; }
 Status initialization_status() { return g_status; }
 
 Capabilities capabilities() {
-    return {kSampleRate, kChannels, kBitsPerSample, kMaximumFrames};
+    return {kSampleRate, kChannels, kBitsPerSample, detail::kMaximumFrames};
 }
 
 Status set_master_volume(uint32_t percent, bool muted_value) {
@@ -268,31 +284,55 @@ bool muted() { return g_muted; }
 Status play_pcm16_stereo(const int16_t* samples, size_t frame_count) {
     if (!g_initialized) return Status::NotInitialized;
     if (samples == nullptr || frame_count == 0U) return Status::InvalidArgument;
-    if (frame_count > kMaximumFrames) return Status::BufferTooLarge;
+    if (!detail::frame_count_supported(frame_count)) return Status::BufferTooLarge;
     if (g_busy) {
         const Status poll_status = poll();
         if (poll_status == Status::DeviceFault) return poll_status;
         if (g_busy) return Status::DeviceBusy;
     }
 
-    const size_t bytes = frame_count * kBytesPerFrame;
-    copy_bytes(g_pcm_page.virtual_address, samples, bytes);
+    if (!reset_pcm_engine()) {
+        g_status = Status::DeviceFault;
+        return g_status;
+    }
 
     auto* descriptors = static_cast<BufferDescriptor*>(g_bdl_page.virtual_address);
-    clear_bytes(descriptors, 32U * sizeof(BufferDescriptor));
-    const size_t sample_words = bytes / sizeof(int16_t);
-    descriptors[0].address = static_cast<uint32_t>(g_pcm_page.physical_address);
-    descriptors[0].length_control =
-        static_cast<uint32_t>(sample_words) |
-        kDescriptorInterruptOnCompletion |
-        kDescriptorBufferUnderrunPolicy;
+    clear_bytes(descriptors, detail::kDescriptorCount * sizeof(BufferDescriptor));
+
+    const auto* source = reinterpret_cast<const uint8_t*>(samples);
+    const size_t descriptor_count = detail::descriptor_count_for_frames(frame_count);
+    size_t source_offset = 0U;
+    for (size_t index = 0U; index < descriptor_count; ++index) {
+        const size_t descriptor_frames =
+            detail::frames_for_descriptor(frame_count, index);
+        const size_t descriptor_bytes = descriptor_frames * detail::kBytesPerFrame;
+
+        copy_bytes(
+            g_pcm_pages[index].virtual_address,
+            source + source_offset,
+            descriptor_bytes);
+        source_offset += descriptor_bytes;
+
+        descriptors[index].address =
+            static_cast<uint32_t>(g_pcm_pages[index].physical_address);
+        uint32_t length_control = static_cast<uint32_t>(
+            detail::sample_words_for_frames(descriptor_frames));
+        if (index + 1U == descriptor_count) {
+            length_control |=
+                kDescriptorInterruptOnCompletion |
+                kDescriptorBufferUnderrunPolicy;
+        }
+        descriptors[index].length_control = length_control;
+    }
 
     __asm__ volatile("sfence" : : : "memory");
     bus_write16(kPcmOutStatus, kStatusWriteOneToClear);
     bus_write32(
         kPcmOutBdbase,
         static_cast<uint32_t>(g_bdl_page.physical_address));
-    bus_write8(kPcmOutLvi, 0U);
+    bus_write8(
+        kPcmOutLvi,
+        static_cast<uint8_t>(descriptor_count - 1U));
     bus_write8(kPcmOutControl, kControlRun);
     g_busy = true;
     g_status = Status::Ok;
