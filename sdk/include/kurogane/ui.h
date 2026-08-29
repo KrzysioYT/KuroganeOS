@@ -2,8 +2,9 @@
 #define KUROGANE_SDK_UI_H
 
 #include <kurogane/syscall.h>
+#include <kurogane/text.h>
 
-#define KU_UI_ABI_VERSION UINT32_C(1)
+#define KU_UI_ABI_VERSION UINT32_C(3)
 #define KU_UI_MAX_LINES 12U
 #define KU_UI_LINE_CAPACITY 64U
 
@@ -41,6 +42,49 @@ typedef struct ku_ui_window_options {
     int32_t height;
 } ku_ui_window_options;
 
+enum ku_ui_line_style_flags {
+    /* Use frame foreground/background when the per-line color is zero. */
+    KU_UI_LINE_STYLE_INHERIT_COLORS = UINT32_C(1) << 0,
+    /* Leave the line cell background untouched while drawing glyphs. */
+    KU_UI_LINE_STYLE_TRANSPARENT_BACKGROUND = UINT32_C(1) << 1,
+    /* Marks page/document content so browser styling is never inherited from
+     * the desktop theme by accident. It is metadata, not a CSS override. */
+    KU_UI_LINE_STYLE_DOCUMENT_CONTENT = UINT32_C(1) << 2,
+    /* Visual state supplied by libui; rendered without text prefixes. */
+    KU_UI_LINE_STYLE_SELECTED = UINT32_C(1) << 3,
+    KU_UI_LINE_STYLE_MUTED = UINT32_C(1) << 4,
+    KU_UI_LINE_STYLE_ACCENT = UINT32_C(1) << 5
+};
+
+/*
+ * Visual roles keep widget semantics separate from literal text. Geometry is
+ * optional: width/height == 0 retains the compatibility vertical flow.
+ */
+enum ku_ui_visual_role {
+    KU_UI_VISUAL_TEXT = 0,
+    KU_UI_VISUAL_PANEL = 1,
+    KU_UI_VISUAL_BUTTON = 2,
+    KU_UI_VISUAL_INPUT = 3,
+    KU_UI_VISUAL_LIST_ITEM = 4,
+    KU_UI_VISUAL_PROGRESS = 5,
+    KU_UI_VISUAL_SEPARATOR = 6,
+    KU_UI_VISUAL_CARD = 7
+};
+
+typedef struct ku_ui_line_style {
+    ku_text_style text;
+    uint32_t foreground_rgb;
+    uint32_t background_rgb;
+    uint32_t flags;
+    uint32_t reserved;
+    int32_t layout_x;
+    int32_t layout_y;
+    int32_t layout_width;
+    int32_t layout_height;
+    uint32_t corner_radius;
+    uint32_t visual_role;
+} ku_ui_line_style;
+
 typedef struct ku_ui_frame {
     uint32_t structure_size;
     uint32_t background_rgb;
@@ -51,6 +95,7 @@ typedef struct ku_ui_frame {
     uint32_t progress_maximum;
     uint32_t reserved;
     char lines[KU_UI_MAX_LINES][KU_UI_LINE_CAPACITY];
+    ku_ui_line_style line_styles[KU_UI_MAX_LINES];
 } ku_ui_frame;
 
 enum ku_ui_event_type {
@@ -103,11 +148,13 @@ static inline ku_status_t ku_ui_close(ku_window_t window) {
 #if defined(__cplusplus)
 static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
-static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+static_assert(sizeof(ku_ui_line_style) == 72, "UI line style ABI mismatch");
+static_assert(sizeof(ku_ui_frame) == 1664, "UI frame ABI mismatch");
 #else
 _Static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
 _Static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
-_Static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
+_Static_assert(sizeof(ku_ui_line_style) == 72, "UI line style ABI mismatch");
+_Static_assert(sizeof(ku_ui_frame) == 1664, "UI frame ABI mismatch");
 #endif
 
 #endif

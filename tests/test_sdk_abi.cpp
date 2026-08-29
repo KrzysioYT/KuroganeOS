@@ -6,6 +6,7 @@
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
+#include <kurogane/text.h>
 #include <kurogane/ui.h>
 
 #include <cassert>
@@ -108,11 +109,66 @@ int main() {
     static_assert(offsetof(ku_ipc_message, sender_pid) == 8);
     static_assert(offsetof(ku_ipc_message, data) == 16);
 
+    static_assert(KU_TEXT_ABI_VERSION == 1U);
+    static_assert(KU_UI_ABI_VERSION == 3U);
+    static_assert(sizeof(ku_text_style) == 32);
     static_assert(sizeof(ku_ui_window_options) == 20);
-    static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_line_style) == 72);
+    static_assert(sizeof(ku_ui_frame) == 1664);
     static_assert(sizeof(ku_ui_event) == 32);
+    static_assert(offsetof(ku_ui_frame, line_styles) == 800);
+    static_assert(offsetof(ku_ui_line_style, layout_x) == 48);
+    static_assert(offsetof(ku_ui_line_style, layout_y) == 52);
+    static_assert(offsetof(ku_ui_line_style, layout_width) == 56);
+    static_assert(offsetof(ku_ui_line_style, layout_height) == 60);
+    static_assert(offsetof(ku_ui_line_style, corner_radius) == 64);
+    static_assert(offsetof(ku_ui_line_style, visual_role) == 68);
+    static_assert(KU_UI_LINE_STYLE_SELECTED == (UINT32_C(1) << 3));
+    static_assert(KU_UI_LINE_STYLE_MUTED == (UINT32_C(1) << 4));
+    static_assert(KU_UI_LINE_STYLE_ACCENT == (UINT32_C(1) << 5));
+    static_assert(KU_UI_VISUAL_TEXT == 0);
+    static_assert(KU_UI_VISUAL_PANEL == 1);
+    static_assert(KU_UI_VISUAL_BUTTON == 2);
+    static_assert(KU_UI_VISUAL_INPUT == 3);
+    static_assert(KU_UI_VISUAL_LIST_ITEM == 4);
+    static_assert(KU_UI_VISUAL_PROGRESS == 5);
+    static_assert(KU_UI_VISUAL_SEPARATOR == 6);
+    static_assert(KU_UI_VISUAL_CARD == 7);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);
+
+    const ku_text_style system_style =
+        ku_text_default_style(KU_TEXT_CONTEXT_SYSTEM_UI);
+    const ku_text_style document_style =
+        ku_text_default_style(KU_TEXT_CONTEXT_DOCUMENT);
+    assert(ku_text_style_valid(&system_style));
+    assert(ku_text_style_valid(&document_style));
+    assert(system_style.family == KU_FONT_FAMILY_SYSTEM_UI);
+    assert(document_style.family == KU_FONT_FAMILY_SANS_SERIF);
+    assert(document_style.family != system_style.family);
+
+    ku_text_style invalid_style = document_style;
+    invalid_style.weight = 450U;
+    assert(!ku_text_style_valid(&invalid_style));
+    invalid_style = document_style;
+    invalid_style.size_px = KU_TEXT_MAX_SIZE_PX + 1U;
+    assert(!ku_text_style_valid(&invalid_style));
+
+    ku_ui_line_style geometry_style{};
+    geometry_style.text = system_style;
+    geometry_style.flags = KU_UI_LINE_STYLE_INHERIT_COLORS |
+        KU_UI_LINE_STYLE_SELECTED;
+    geometry_style.layout_x = 16;
+    geometry_style.layout_y = 24;
+    geometry_style.layout_width = 320;
+    geometry_style.layout_height = 48;
+    geometry_style.corner_radius = 12U;
+    geometry_style.visual_role = KU_UI_VISUAL_CARD;
+    assert(geometry_style.text.family == KU_FONT_FAMILY_SYSTEM_UI);
+    assert(geometry_style.layout_width > 0);
+    assert(geometry_style.layout_height > 0);
+    assert(geometry_style.corner_radius == 12U);
+    assert(geometry_style.visual_role == KU_UI_VISUAL_CARD);
 
     assert(ku_system_ticks_to_milliseconds(0U) == 0U);
     assert(ku_system_ticks_to_milliseconds(1U) == 10U);
