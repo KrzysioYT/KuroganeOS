@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/3.4.1-event-broker
+      - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/qualify-event-broker.yml'
       - 'sdk/include/kurogane/event_broker.h'
