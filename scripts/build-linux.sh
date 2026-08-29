@@ -49,8 +49,9 @@ cc="${CC:-${target_prefix}gcc}"
 cxx="${CXX:-${target_prefix}g++}"
 ld="${LD:-${target_prefix}ld}"
 objcopy="${OBJCOPY:-${target_prefix}objcopy}"
+objdump="${OBJDUMP:-${target_prefix}objdump}"
 readelf="${READELF:-${target_prefix}readelf}"
-for tool in "$cc" "$cxx" "$ld" "$objcopy" "$readelf" python3 make; do
+for tool in "$cc" "$cxx" "$ld" "$objcopy" "$objdump" "$readelf" python3 make; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing build tool: $tool" >&2
         echo "run: bash ./scripts/setup-linux.sh --install" >&2
@@ -102,7 +103,8 @@ for spec in "${applications[@]}"; do
     object="build/userspace/$name.o"
     target="build/userspace/rootfs/$output"
     mkdir -p "$(dirname "$target")"
-    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone -Wa,--noexecstack \
+    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone \
+        -mno-mmx -mno-sse -msoft-float -Wa,--noexecstack \
         -I sdk/include -I userspace/runtime -I common)
     if [[ "$kind" == asm ]]; then
         "$cc" "${common[@]}" -c -x assembler-with-cpp "$source" -o "$object"
@@ -116,6 +118,10 @@ for spec in "${applications[@]}"; do
     "$readelf" -hW "$target" | grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' || exit 1
     if "$readelf" -lW "$target" | grep -Eq '^[[:space:]]*(LOAD|GNU_STACK).*RWE'; then
         echo "userspace image has W+X segment/stack: $name" >&2; exit 1
+    fi
+    if "$objdump" -d "$target" | grep -Eq '%(xmm|ymm|zmm|mm)[0-9]+'; then
+        echo "userspace image uses unsupported SIMD/FPU register state: $name" >&2
+        exit 1
     fi
     echo "[userspace] /$output"
 done
