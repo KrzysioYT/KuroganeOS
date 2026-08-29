@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/3.4.1-event-broker
+      - chatgpt/3.4-syscall-scheduler-integration
     paths:
       - '.github/workflows/qualify-event-broker.yml'
       - 'sdk/include/kurogane/event_broker.h'
