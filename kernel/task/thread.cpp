@@ -594,6 +594,14 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
 
     const size_t next = find_ready(previous);
     if (next == kInvalidSlot) {
+        // A sleeping thread may be the only runnable execution context. Keep
+        // it asleep and return to its kernel-side wait loop; the next timer
+        // interrupt will either wake it at its deadline or select another
+        // thread that became ready in the meantime.
+        if (old.state == State::Sleeping) {
+            old.yield_requested = false;
+            return &frame;
+        }
         if (old.state != State::Running) {
             old.state = State::Running;
             old.wake_tick = 0U;
@@ -669,9 +677,31 @@ Status sleep_current(uint64_t timer_count) {
     if (timer_count == 0U || timer_count > UINT64_MAX - g_timer_ticks) {
         return Status::InvalidArgument;
     }
+
     Slot& slot = g_slots[g_current];
-    slot.wake_tick = g_timer_ticks + timer_count;
+    const uint64_t wake_tick = g_timer_ticks + timer_count;
+    slot.wake_tick = wake_tick;
     slot.state = State::Sleeping;
+
+#if !defined(KUROGANE_HOST_TEST)
+    if (g_preemptive_active) {
+        // Syscalls enter through an interrupt gate, so IF is cleared while the
+        // handler runs. Sleeping must not return to Ring-3 until at least the
+        // requested timer deadline. Temporarily enable interrupts and halt the
+        // current CPU. IRQ0 can then run the normal preemptive scheduler; if a
+        // peer is ready it switches away using this thread's nested interrupt
+        // frame, and when this thread is selected again execution resumes here.
+        while (slot.state == State::Sleeping && g_timer_ticks < wake_tick) {
+            __asm__ volatile("sti; hlt; cli" : : : "memory");
+        }
+        if (slot.state == State::Ready && g_current != kInvalidSlot &&
+            g_slots[g_current].id == slot.id) {
+            slot.state = State::Running;
+            slot.wake_tick = 0U;
+        }
+    }
+#endif
+
     return Status::Ok;
 }
 
