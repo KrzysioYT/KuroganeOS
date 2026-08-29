@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Road to 15 versioning
+
+- Normalized the formal Road-to-15 sequence: `3.3.3-dev` Red Flux is followed by `3.4.0-dev` System Services; patch-like `3.3.5`-`3.3.9` and `3.4.1` names are internal development workstreams rather than separate formal product releases.
+- Recorded `3.3.3-dev — Red Flux` as a QUALIFIED scoped DEV milestone based on completed host/kernel/ABI/SDK/media/OVMF/QEMU/network/TLS regressions, without claiming later Steel/Forge/security/update capabilities.
+- Reclassified Oracle VirtualBox host acceptance as OPTIONAL / EXTERNAL VALIDATION, excluded from Definition of Done and progress percentages when the environment is unavailable.
+
+### System Services
+
+- Added a public Service SDK over the real named IPC backend with PID-owned, generation-safe connections and process-exit cleanup.
+- Began the real Ring-3 Event Broker (`events.v1`) with bounded subscriptions, unsubscribe, publish dispatch through real waitable kernel events, PID ownership and a public Event Broker protocol.
+- Added a QEMU runtime qualification probe for subscribe → publish → event wait → unsubscribe; the current workstream keeps runtime failures explicit and unqualified until the roundtrip passes.
+
 ### Licensing
 
 - Adopted KuroganeOS Source-Available License 2.0 (KSAL-2.0) for current revisions.
@@ -78,58 +90,3 @@
 - Added native macOS builds for the x86-64 kernel, basic Ring-3 userspace, the SDK libraries, the external SDK example and the desktop userspace applications.
 - Added a portable Python PE32+ converter so `BOOTX64.EFI` can be rebuilt on macOS from the same standalone loader source.
 - Added a macOS GPT/FAT32 Foundation-image builder containing the EFI loader, kernel, persistent root filesystem and generated userspace overlay.
-- Added a QEMU macOS runner with Homebrew EDK2 discovery, E1000 user networking, serial logging, required-test failure detection and PID 1/global-success smoke-test gating.
-- Added `build-app-macos.sh` for compiling C/C++ applications against the KuroganeOS SDK and optionally installing them into the development root filesystem.
-- Added `docs/MACOS_DEVELOPMENT.md` with setup, build, application development and QEMU testing instructions.
-- Bumped the product version to KuroganeOS 2.1.1.
-
-### Compatibility
-
-- The guest architecture and application ABI remain x86-64; macOS is a development host, not a separate KuroganeOS target.
-- Apple Silicon hosts use QEMU TCG to emulate the x86-64 guest.
-- Existing Windows/WSL build and test workflows remain available and are not replaced by the macOS backend.
-
-## 2.1.0 - 2026-08-16
-
-### Installable system
-
-- Added UEFI installation media carrying `BOOTX64.EFI`, the kernel and the installer payload.
-- Added explicit SATA/AHCI installation-target discovery.
-- Added protective MBR plus primary and backup GPT creation.
-- Added FAT32 formatting for the EFI System Partition and the KuroganeOS persistent root.
-- Added installation of `EFI/BOOT/BOOTX64.EFI`, the kernel and the userspace filesystem.
-- Added installer verification and flush before reporting a successful installation.
-- Added installed-system UEFI boot from the virtual HDD after the installation medium is removed.
-- Added writable persistent-root mounting and reboot persistence checks.
-
-### Userspace and processes
-
-- Added the x86-64 Ring-3 runtime and the `int 0x80` syscall gate.
-- Added private user address spaces, ELF64 process loading and process spawn/wait/exit lifecycle support.
-- Added timer-preempted kernel threads and userspace processes.
-- Added `/system/init` as the userspace PID 1 entry point and userspace console bootstrap.
-- Added userspace shell/app images and experimental Ring-3 desktop applications.
-
-### Storage and platform
-
-- Added/expanded PCI, ACPI MADT and APIC discovery.
-- Added SATA/AHCI read, write and flush support.
-- Added GPT parsing and writable FAT32/VFS support.
-- Added PS/2 keyboard, PS/2 mouse and the common input queue.
-- Preserved loopback networking fallback while the physical network stack continues to evolve.
-
-### Release and testing
-
-- Bumped the product version to KuroganeOS 2.1.
-- Added canonical versioned installer output under `dist/`.
-- Added `dist/SHA256SUMS.txt` generation for the release ISO.
-- Kept a generated root `kurogane.iso` only as a compatibility artifact for existing emulator helpers.
-- Added generated-artifact ignores so build images and emulator state are not treated as source files.
-- Corrected required-test ordering so global success is emitted only after the required PID 1 userspace start succeeds.
-- The committed QEMU installer logs cover installer-medium boot, deployment to a blank AHCI disk and the subsequent installed-system boot.
-- VirtualBox has an EFI/AHCI smoke-test helper and documented manual installation acceptance flow.
-
-### Licensing
-
-- At this release, current revisions used the project's then-current custom source-available license.
-- Historical revisions previously distributed under MIT remain documented by `LICENSE-MIT-LEGACY`.
