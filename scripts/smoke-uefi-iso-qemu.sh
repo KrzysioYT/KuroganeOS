@@ -2,12 +2,13 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT]" >&2
     exit 2
 }
 
 media=""
 media_kind="iso"
+persistent_disk=false
 timeout_seconds=60
 nic_model="none"
 require_network=false
@@ -16,6 +17,7 @@ require_marker=""
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
+        --persistent-disk) persistent_disk=true; shift ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
@@ -27,6 +29,10 @@ while (($#)); do
     esac
 done
 [[ -n "$media" ]] || usage
+if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
+    echo "--persistent-disk requires --disk" >&2
+    exit 2
+fi
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 240)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
@@ -129,10 +135,17 @@ fi
 
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
-    media_args=(
-        -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
-        -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
-    )
+    if $persistent_disk; then
+        media_args=(
+            -drive "if=none,id=kurogane_system,format=raw,file=$media,cache=directsync"
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+        )
+    else
+        media_args=(
+            -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+        )
+    fi
 else
     media_args=(
         -boot order=d,menu=off
