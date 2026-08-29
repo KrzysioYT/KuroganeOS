@@ -20,6 +20,7 @@ typedef struct eventd_subscription {
 
 static eventd_client clients[EVENTD_MAX_CLIENTS];
 static eventd_subscription subscriptions[EVENTD_MAX_SUBSCRIPTIONS];
+static int accept_wait_reported;
 
 static int topic_character_valid(char value) {
     return (value >= 'a' && value <= 'z') ||
@@ -205,12 +206,32 @@ static void handle_request(eventd_client* client, const ku_service_message* mess
     }
 }
 
+static void report_accept_error(ku_result_t accepted) {
+    if (accepted == KU_STATUS_ACCESS_DENIED)
+        (void)u_puts("[TEST] event_broker_accept_error: ACCESS_DENIED\n");
+    else if (accepted == KU_STATUS_INVALID_ARGUMENT)
+        (void)u_puts("[TEST] event_broker_accept_error: INVALID_ARGUMENT\n");
+    else if (accepted == KU_STATUS_NOT_FOUND)
+        (void)u_puts("[TEST] event_broker_accept_error: NOT_FOUND\n");
+    else
+        (void)u_puts("[TEST] event_broker_accept_error: OTHER\n");
+}
+
 static void accept_clients(ku_service_endpoint_t endpoint) {
     for (;;) {
         const ku_result_t accepted = ku_service_accept(endpoint);
         size_t index = 0U;
-        if (accepted == KU_STATUS_WOULD_BLOCK) return;
-        if (accepted <= 0) return;
+        if (accepted == KU_STATUS_WOULD_BLOCK) {
+            if (!accept_wait_reported) {
+                accept_wait_reported = 1;
+                (void)u_puts("[TEST] event_broker_accept_wait: PASS\n");
+            }
+            return;
+        }
+        if (accepted <= 0) {
+            report_accept_error(accepted);
+            return;
+        }
         (void)u_puts("[TEST] event_broker_accept: PASS\n");
         for (; index < EVENTD_MAX_CLIENTS; ++index) {
             if (!clients[index].active) {
