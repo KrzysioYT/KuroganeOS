@@ -1,0 +1,89 @@
+name: Qualify 3.4.2 settings service persistence
+
+on:
+  push:
+    branches:
+      - dev/3.4.2-settings-service
+    paths:
+      - '.github/workflows/qualify-settings-service.yml'
+      - 'sdk/include/kurogane/settings.h'
+      - 'sdk/include/kurogane/service.h'
+      - 'sdk/include/kurogane/filesystem.h'
+      - 'userspace/system/settingsd/**'
+      - 'userspace/system/settings-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/fs/**'
+      - 'kernel/ipc/**'
+      - 'kernel/task/**'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  settings-persistence-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject settings qualification probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] settings_service_spawn: PASS\\n");\n'
+          replacement = anchor + (
+              '    const ku_result_t settings_probe_pid = u_spawn("/system/setprobe");\n'
+              '    if (settings_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] settings_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(12);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one settings service spawn anchor, found {text.count(anchor)}')
+          path.write_text(text.replace(anchor, replacement, 1))
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build media with settings service and probe
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: First boot writes typed settings to persistent disk
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --persistent-disk \
+            --require-marker '[TEST] settings_service_persist_write: PASS' \
+            --timeout 180
+
+      - name: Second boot reloads settings from persistent disk
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --persistent-disk \
+            --require-marker '[TEST] settings_service_persist_reload: PASS' \
+            --timeout 180
