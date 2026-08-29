@@ -44,7 +44,7 @@ jobs:
           text = path.read_text()
           anchor = '    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n'
           replacement = anchor + (
-              '    const ku_result_t notification_probe_pid = u_spawn("/system/notifprobe");\n'
+              '    const ku_result_t notification_probe_pid = u_spawn("/system/ntfprobe");\n'
               '    if (notification_probe_pid <= 0) {\n'
               '        (void)u_puts("[TEST] notification_service_roundtrip: FAIL\\n");\n'
               '        ku_exit(16);\n'
