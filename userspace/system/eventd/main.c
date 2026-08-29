@@ -21,6 +21,7 @@ typedef struct eventd_subscription {
 static eventd_client clients[EVENTD_MAX_CLIENTS];
 static eventd_subscription subscriptions[EVENTD_MAX_SUBSCRIPTIONS];
 static int accept_wait_reported;
+static int loop_resume_reported;
 
 static int topic_character_valid(char value) {
     return (value >= 'a' && value <= 'z') ||
@@ -103,19 +104,25 @@ static void cleanup_subscriber(uint64_t pid) {
 }
 
 static ku_status_t subscribe(uint64_t subscriber_pid, const char* topic, uint64_t* event_value) {
-    eventd_subscription* existing = find_subscription(subscriber_pid, topic);
+    eventd_subscription* existing;
+    eventd_subscription* subscription;
+    ku_event_handle_t event;
+    ku_result_t created;
+    ku_status_t grant_status;
+
     if (event_value == (uint64_t*)0) return KU_STATUS_INVALID_ARGUMENT;
     *event_value = 0U;
+    existing = find_subscription(subscriber_pid, topic);
     if (existing != (eventd_subscription*)0) {
         *event_value = existing->event;
         return KU_STATUS_ALREADY_EXISTS;
     }
-    eventd_subscription* subscription = reserve_subscription();
+    subscription = reserve_subscription();
     if (subscription == (eventd_subscription*)0) return KU_STATUS_OUT_OF_MEMORY;
-    const ku_result_t created = ku_event_create(KU_EVENT_AUTO_RESET, 0);
+    created = ku_event_create(KU_EVENT_AUTO_RESET, 0);
     if (created <= 0) return (ku_status_t)created;
-    const ku_event_handle_t event = (ku_event_handle_t)created;
-    const ku_status_t grant_status = ku_event_grant(event, subscriber_pid);
+    event = (ku_event_handle_t)created;
+    grant_status = ku_event_grant(event, subscriber_pid);
     if (grant_status != KU_STATUS_OK) {
         (void)ku_event_close(event);
         return grant_status;
@@ -130,8 +137,9 @@ static ku_status_t subscribe(uint64_t subscriber_pid, const char* topic, uint64_
 
 static ku_status_t unsubscribe(uint64_t subscriber_pid, const char* topic) {
     eventd_subscription* subscription = find_subscription(subscriber_pid, topic);
+    ku_status_t close_status;
     if (subscription == (eventd_subscription*)0) return KU_STATUS_NOT_FOUND;
-    const ku_status_t close_status = ku_event_close(subscription->event);
+    close_status = ku_event_close(subscription->event);
     clear_subscription(subscription);
     return close_status;
 }
@@ -143,8 +151,9 @@ static ku_status_t publish(const char* topic, uint64_t* signal_count) {
     if (signal_count == (uint64_t*)0) return KU_STATUS_INVALID_ARGUMENT;
     for (; index < EVENTD_MAX_SUBSCRIPTIONS; ++index) {
         eventd_subscription* subscription = &subscriptions[index];
+        ku_status_t status;
         if (!subscription->active || !topic_equal(subscription->topic, topic)) continue;
-        const ku_status_t status = ku_event_signal(subscription->event);
+        status = ku_event_signal(subscription->event);
         if (status == KU_STATUS_OK) ++count;
         else if (result == KU_STATUS_OK) result = status;
     }
@@ -164,6 +173,8 @@ static void handle_request(eventd_client* client, const ku_service_message* mess
     const ku_event_broker_request* request;
     ku_status_t status = KU_STATUS_INVALID_ARGUMENT;
     uint64_t value = 0U;
+    ku_status_t reply_status;
+
     if (client == (eventd_client*)0 || message == (const ku_service_message*)0) return;
     if (message->data_size != sizeof(ku_event_broker_request)) {
         (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, 0U);
@@ -198,7 +209,7 @@ static void handle_request(eventd_client* client, const ku_service_message* mess
             break;
     }
 
-    const ku_status_t reply_status = send_response(client->connection, status, value);
+    reply_status = send_response(client->connection, status, value);
     if (request->operation == KU_EVENT_BROKER_SUBSCRIBE) {
         (void)u_puts(reply_status == KU_STATUS_OK
             ? "[TEST] event_broker_subscribe_reply: PASS\n"
@@ -219,7 +230,7 @@ static void report_accept_error(ku_result_t accepted) {
 
 static void accept_clients(ku_service_endpoint_t endpoint) {
     for (;;) {
-        const ku_result_t accepted = ku_service_accept(endpoint);
+        ku_result_t accepted = ku_service_accept(endpoint);
         size_t index = 0U;
         if (accepted == KU_STATUS_WOULD_BLOCK) {
             if (!accept_wait_reported) {
@@ -270,15 +281,15 @@ static void service_clients(void) {
 }
 
 __attribute__((noreturn)) void _start(void) {
-    const ku_result_t endpoint = ku_service_register(
+    ku_result_t endpoint = ku_service_register(
         KU_EVENT_BROKER_SERVICE_NAME,
         KU_EVENT_BROKER_SERVICE_NAME_SIZE);
-    int loop_resume_reported = 0;
     if (endpoint <= 0) {
         (void)u_puts("eventd: service registration failed\n");
         (void)u_puts("[TEST] event_broker_service: FAIL\n");
         ku_exit(1);
     }
+
     (void)u_puts("eventd: events.v1 online\n");
     (void)u_puts("[TEST] event_broker_service: PASS\n");
     for (;;) {
@@ -289,6 +300,5 @@ __attribute__((noreturn)) void _start(void) {
             loop_resume_reported = 1;
             (void)u_puts("[TEST] event_broker_loop_resumed: PASS\n");
         }
-        (void)ku_yield();
     }
 }
