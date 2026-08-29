@@ -98,6 +98,52 @@ int main() {
     CHECK(rebound != endpoint);
     CHECK(ipc::close(server_pid, rebound) == Status::Ok);
 
+    // Regression for the service-loop order used by Ring-3 daemons: the
+    // server may poll accept before a client exists. A later client must stay
+    // pending even if it queues data before the server accepts the channel.
+    constexpr ipc::ProcessId deferred_server_pid = 300U;
+    constexpr ipc::ProcessId deferred_client_pid = 400U;
+    constexpr char deferred_service[] = "event-regression";
+    Handle deferred_endpoint = ipc::INVALID_HANDLE;
+    Handle deferred_server = ipc::INVALID_HANDLE;
+    Handle deferred_client = ipc::INVALID_HANDLE;
+    CHECK(ipc::bind(
+        deferred_server_pid,
+        deferred_service,
+        sizeof(deferred_service) - 1U,
+        &deferred_endpoint) == Status::Ok);
+    CHECK(ipc::accept(
+        deferred_server_pid,
+        deferred_endpoint,
+        &deferred_server) == Status::WouldBlock);
+    CHECK(deferred_server == ipc::INVALID_HANDLE);
+    CHECK(ipc::connect(
+        deferred_client_pid,
+        deferred_service,
+        sizeof(deferred_service) - 1U,
+        &deferred_client) == Status::Ok);
+    CHECK(ipc::send(
+        deferred_client_pid,
+        deferred_client,
+        request,
+        sizeof(request) - 1U) == Status::Ok);
+    CHECK(ipc::accept(
+        deferred_server_pid,
+        deferred_endpoint,
+        &deferred_server) == Status::Ok);
+    CHECK(deferred_server != ipc::INVALID_HANDLE);
+    message = {};
+    CHECK(ipc::receive(
+        deferred_server_pid,
+        deferred_server,
+        &message) == Status::Ok);
+    CHECK(message.sender_pid == deferred_client_pid);
+    CHECK(message.size == sizeof(request) - 1U);
+    CHECK(bytes_equal(message.bytes, request, message.size));
+    CHECK(ipc::close(deferred_server_pid, deferred_server) == Status::Ok);
+    CHECK(ipc::close(deferred_client_pid, deferred_client) == Status::Ok);
+    CHECK(ipc::close(deferred_server_pid, deferred_endpoint) == Status::Ok);
+
     Handle invalid = ipc::INVALID_HANDLE;
     constexpr char bad_name[] = "bad/name";
     CHECK(ipc::bind(
