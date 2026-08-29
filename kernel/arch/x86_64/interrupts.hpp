@@ -9,11 +9,15 @@ constexpr size_t IDT_ENTRY_COUNT = 256;
 constexpr uint8_t IRQ_VECTOR_BASE = 0x20;
 constexpr uint8_t IRQ_COUNT = 16;
 
-// Layout produced by interrupt_stubs.asm. Ring-3 entries include the complete
-// SS:RSP/RFLAGS:CS:RIP return state. Same-CPL kernel IRQs contain only the
-// hardware frame required by IRETQ for that privilege level; scheduler code
-// must therefore never treat a kernel-interrupted frame as a resumable user
-// context.
+// Layout produced by interrupt_stubs.asm for 64-bit IDT gates. In 64-bit mode
+// the processor pushes SS:RSP unconditionally, including same-CPL kernel
+// interrupts and exceptions, and IRETQ pops that state unconditionally. This
+// gives every entry a fixed hardware tail: SS:RSP/RFLAGS:CS:RIP (plus an error
+// code for exceptions that define one; the stubs synthesize zero otherwise).
+//
+// A complete hardware frame does not make a nested CPL0 IRQ a resumable user
+// context: scheduler code must still switch process contexts only at the
+// explicit user/software scheduling boundary.
 struct InterruptFrame {
     uint64_t r15;
     uint64_t r14;
