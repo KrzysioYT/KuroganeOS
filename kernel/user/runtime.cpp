@@ -139,6 +139,19 @@ bool extended_syscall_number(uint64_t number) {
         (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
 }
 
+Context* registered_context_for_current_thread() {
+    const threading::ThreadId tid = threading::current();
+    const uint64_t root =
+        memory::kernel_virtual_memory::active_root_table_physical();
+    for (Context* context : g_contexts) {
+        if (context != nullptr && context->tid == tid &&
+            context->address_space.address_space.root_table_physical == root) {
+            return context;
+        }
+    }
+    return nullptr;
+}
+
 RuntimeSharedMapping* find_shared_mapping(
     Context& context,
     ipc::shared_memory::Handle handle) {
@@ -278,6 +291,21 @@ void cleanup_shared_mappings(Context& context) {
 
 void extended_syscall_handler(
     arch::x86_64::interrupts::InterruptFrame& frame) {
+    // Context::active describes whether the userspace image may continue
+    // executing; registration lasts until cleanup unregisters the Context.
+    // A late saved Ring-3 frame can therefore arrive after SYS_EXIT marked the
+    // image inactive but before the owning kernel thread has fully unwound.
+    // Resolve that registered owner by the scheduler identity and CR3 and
+    // deterministically return it to the kernel instead of feeding a BAD_STATE
+    // result back into an already-terminated userspace image.
+    if ((frame.cs & 3U) == 3U) {
+        Context* registered = registered_context_for_current_thread();
+        if (registered != nullptr && !registered->active) {
+            finish_from_interrupt(*registered, frame, registered->result.exit_code);
+            return;
+        }
+    }
+
     if (!extended_syscall_number(frame.rax) && frame.rax != KU_SYS_EXIT) {
         syscall_handler(frame);
         return;
