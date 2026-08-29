@@ -255,6 +255,131 @@ void reap_terminated() {
     }
 }
 
+#if !defined(KUROGANE_HOST_TEST)
+arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
+    size_t previous) {
+    Slot& old = g_slots[previous];
+    if (old.state == State::Running) {
+        old.state = State::Ready;
+    }
+    g_current = kInvalidSlot;
+    g_preemptive_active = false;
+    g_preemptive_timed_out = true;
+    g_timeout_return_frame = {};
+    uintptr_t top = reinterpret_cast<uintptr_t>(
+        g_timeout_return_stack + sizeof(g_timeout_return_stack));
+    top &= ~static_cast<uintptr_t>(0xFU);
+    const uintptr_t target_stack = top - sizeof(uint64_t);
+    *reinterpret_cast<uint64_t*>(target_stack) = 0U;
+    g_timeout_return_frame.rip = reinterpret_cast<uint64_t>(
+        &x86_64_thread_timeout_return);
+    g_timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
+    g_timeout_return_frame.rflags = UINT64_C(0x2);
+    g_timeout_return_frame.rsp = target_stack;
+    g_timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
+    static_cast<void>(activate_slot(kInvalidSlot));
+    return &g_timeout_return_frame;
+}
+#endif
+
+arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
+    uint8_t vector,
+    arch::x86_64::interrupts::InterruptFrame& frame) {
+    static_cast<void>(vector);
+    if (!g_preemptive_active || !g_run_active ||
+        g_current == kInvalidSlot || (frame.cs & 3U) != 3U) {
+        return &frame;
+    }
+
+    const size_t previous = g_current;
+    Slot& old = g_slots[previous];
+    if (old.process_id == 0U) {
+        return &frame;
+    }
+
+#if !defined(KUROGANE_HOST_TEST)
+    // The syscall gate is a trap gate, so IF may still be set. Publish and
+    // select frames with interrupts disabled; the chosen IRET frame restores
+    // the destination's interrupt state atomically.
+    __asm__ volatile("cli" : : : "memory");
+#endif
+
+    // A software interrupt from Ring-3 is the only point where the complete
+    // user return frame is guaranteed to be available while the syscall may
+    // have changed the thread state to Sleeping/Blocked or requested yield.
+    old.interrupt_frame = &frame;
+    const bool yield_requested = old.yield_requested;
+    old.yield_requested = false;
+    if (yield_requested && old.state == State::Running) {
+        old.state = State::Ready;
+    }
+    if (!yield_requested && old.state == State::Running) {
+        return &frame;
+    }
+
+    for (;;) {
+#if !defined(KUROGANE_HOST_TEST)
+        if (g_preemptive_limit != 0U &&
+            g_timer_ticks - g_preemptive_start_tick >= g_preemptive_limit) {
+            return prepare_timeout_return(previous);
+        }
+#endif
+
+        const size_t next = find_ready(previous);
+        if (next != kInvalidSlot) {
+            auto* next_frame = g_slots[next].interrupt_frame;
+            if (next_frame == nullptr) {
+                g_slots[next].state = State::Terminated;
+                continue;
+            }
+            const State old_state = old.state;
+            g_slots[next].state = State::Running;
+            ++old.switches;
+            ++g_slots[next].switches;
+            g_current = next;
+            if (!activate_slot(next)) {
+                g_current = previous;
+                g_slots[next].state = State::Ready;
+                old.state = old_state;
+                static_cast<void>(activate_slot(previous));
+                if (old.state == State::Ready) {
+                    old.state = State::Running;
+                    return &frame;
+                }
+                continue;
+            }
+            return next_frame;
+        }
+
+        // PIT IRQs that interrupt this kernel-side scheduling boundary only
+        // advance time and wake sleepers; they never replace the saved user
+        // frame. Once this thread wakes, resume exactly the syscall frame that
+        // entered here.
+        if (old.state == State::Ready) {
+            old.state = State::Running;
+            old.wake_tick = 0U;
+            g_current = previous;
+            static_cast<void>(activate_slot(previous));
+            return &frame;
+        }
+        if (old.state == State::Running) {
+            return &frame;
+        }
+        if (old.state != State::Sleeping && old.state != State::Blocked) {
+            old.state = State::Running;
+            g_current = previous;
+            static_cast<void>(activate_slot(previous));
+            return &frame;
+        }
+
+#if defined(KUROGANE_HOST_TEST)
+        return &frame;
+#else
+        __asm__ volatile("sti; hlt; cli" : : : "memory");
+#endif
+    }
+}
+
 } // namespace
 
 Status initialize() {
@@ -277,6 +402,13 @@ Status initialize() {
     g_preemptive_limit = 0U;
     g_preemptive_start_tick = 0U;
     g_preemptive_timed_out = false;
+#if !defined(KUROGANE_HOST_TEST)
+    if (!arch::x86_64::interrupts::register_software_schedule_hook(
+            software_interrupt_schedule)) {
+        restore_interrupts(flags);
+        return Status::CorruptContext;
+    }
+#endif
     g_initialized = true;
     restore_interrupts(flags);
     return Status::Ok;
@@ -405,9 +537,9 @@ Status yield() {
         return Status::NotRunning;
     }
     if (g_preemptive_active) {
-        // The preemptive path saves resumable state only at an IRQ boundary.
-        // A future syscall-yield will synthesize such a frame; for now a
-        // cooperative request is a safe no-op and timer scheduling continues.
+        // Ring-3 KU_SYS_YIELD records a request that is consumed by the
+        // post-software-interrupt scheduler. Direct kernel callers remain a
+        // safe no-op while timer preemption continues.
         return Status::Ok;
     }
     const uint64_t flags = save_and_disable_interrupts();
@@ -560,6 +692,17 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
     }
     const size_t previous = g_current;
     Slot& old = g_slots[previous];
+
+    // IRQ0 may nest while a Ring-3 process is still executing its syscall
+    // handler or the software-schedule hook. A same-CPL kernel IRQ does not
+    // contain the SS:RSP half of a resumable user frame, so it may advance
+    // time and wake sleepers but must never replace/schedule that process'
+    // saved Ring-3 frame. Kernel threads (process_id == 0) retain normal IRQ
+    // preemption, preserving the kernel preemption qualification.
+    if (old.process_id != 0U && (frame.cs & 3U) == 0U) {
+        return &frame;
+    }
+
     old.interrupt_frame = &frame;
 
     if (g_preemptive_limit != 0U &&
@@ -594,10 +737,6 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
 
     const size_t next = find_ready(previous);
     if (next == kInvalidSlot) {
-        // A sleeping thread may be the only runnable execution context. Keep
-        // it asleep and return to its kernel-side wait loop; the next timer
-        // interrupt will either wake it at its deadline or select another
-        // thread that became ready in the meantime.
         if (old.state == State::Sleeping) {
             old.yield_requested = false;
             return &frame;
@@ -679,29 +818,12 @@ Status sleep_current(uint64_t timer_count) {
     }
 
     Slot& slot = g_slots[g_current];
-    const uint64_t wake_tick = g_timer_ticks + timer_count;
-    slot.wake_tick = wake_tick;
+    slot.wake_tick = g_timer_ticks + timer_count;
     slot.state = State::Sleeping;
 
-#if !defined(KUROGANE_HOST_TEST)
-    if (g_preemptive_active) {
-        // Syscalls enter through an interrupt gate, so IF is cleared while the
-        // handler runs. Sleeping must not return to Ring-3 until at least the
-        // requested timer deadline. Temporarily enable interrupts and halt the
-        // current CPU. IRQ0 can then run the normal preemptive scheduler; if a
-        // peer is ready it switches away using this thread's nested interrupt
-        // frame, and when this thread is selected again execution resumes here.
-        while (slot.state == State::Sleeping && g_timer_ticks < wake_tick) {
-            __asm__ volatile("sti; hlt; cli" : : : "memory");
-        }
-        if (slot.state == State::Ready && g_current != kInvalidSlot &&
-            g_slots[g_current].id == slot.id) {
-            slot.state = State::Running;
-            slot.wake_tick = 0U;
-        }
-    }
-#endif
-
+    // Do not schedule from inside the syscall handler. The post-software-
+    // interrupt hook owns the complete Ring-3 return frame and either switches
+    // to a peer or waits for IRQ0 to wake this slot before returning to user.
     return Status::Ok;
 }
 
@@ -792,7 +914,7 @@ Status list(ListCallback callback, void* context) {
         snapshot.priority = slot.priority;
         for (size_t index = 0U; index <= MAX_THREAD_NAME; ++index) {
             snapshot.name[index] = slot.name[index];
-            if (slot.name[index] == '\0') {
+            if (snapshot.name[index] == '\0') {
                 break;
             }
         }
