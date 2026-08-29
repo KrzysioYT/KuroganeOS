@@ -15,7 +15,9 @@ on:
       - 'scripts/build-linux.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'kernel/ipc/**'
+      - 'kernel/task/**'
       - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
   workflow_dispatch:
 
 permissions:
