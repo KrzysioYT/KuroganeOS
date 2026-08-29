@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/3.4.2-settings-service
+      - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/qualify-settings-service.yml'
       - 'sdk/include/kurogane/settings.h'
