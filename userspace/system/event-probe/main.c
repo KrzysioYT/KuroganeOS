@@ -42,7 +42,7 @@ static ku_status_t wait_response(
         ku_service_message message;
         const ku_status_t status = ku_service_receive(connection, &message);
         if (status == KU_STATUS_WOULD_BLOCK) {
-            (void)ku_sleep(1U);
+            (void)ku_yield();
             continue;
         }
         if (status != KU_STATUS_OK) return status;
