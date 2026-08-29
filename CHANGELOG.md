@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### 3.3.3-dev completion status
+
+- Changed the 3.3.3-dev completion state to **OPEN / NOT COMPLETE**.
+- Added the **Kurogane Fatal Diagnostic Screen / kernel panic snapshot** as a release-blocking **MUST HAVE** requirement.
+- 3.3.3-dev must not be treated as architecture-complete until the panic path uses real trap/kernel state, preserves the final kernel-event history, mirrors essential diagnostics to serial, handles nested panic safely and provides a bounded crash-dump path or a typed reason why dumping is unavailable.
+- A static mock screen, hard-coded diagnostic values or a PNG-only crash UI does not satisfy the completion gate.
+
 ### Licensing
 
 - Adopted KuroganeOS Source-Available License 2.0 (KSAL-2.0) for current revisions.
