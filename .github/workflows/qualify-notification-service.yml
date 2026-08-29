@@ -1,0 +1,77 @@
+name: Qualify 3.4.0 notification service lifecycle
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-notification-service.yml'
+      - 'sdk/include/kurogane/notification.h'
+      - 'sdk/include/kurogane/service.h'
+      - 'userspace/system/notificationd/**'
+      - 'userspace/system/notification-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/ipc/**'
+      - 'kernel/task/**'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notification-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject notification qualification probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n'
+          replacement = anchor + (
+              '    const ku_result_t notification_probe_pid = u_spawn("/system/notifprobe");\n'
+              '    if (notification_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] notification_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(16);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'expected one notification service spawn anchor, found {text.count(anchor)}')
+          path.write_text(text.replace(anchor, replacement, 1))
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build media with notification service and probe
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real notification lifecycle roundtrip
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] notification_service_roundtrip: PASS' \
+            --timeout 180
