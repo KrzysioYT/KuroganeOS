@@ -2,6 +2,7 @@
 #include "gdt.hpp"
 
 #include "../../core/log.hpp"
+#include "../../diagnostics/panic.hpp"
 #include "../../drivers/pic.hpp"
 
 extern "C" void (*interrupt_stub_table[256])();
@@ -299,6 +300,17 @@ x86_64_interrupt_dispatch(
         if (vector == 14) {
             g_last_page_fault_address = read_cr2();
         }
+
+        // A CPL0 exception is fatal kernel state. Capture it before entering
+        // the legacy registered handler so the production snapshot cannot be
+        // replaced by hard-coded PID/TID values or the invalid same-CPL RSP
+        // pseudo-fields beyond the hardware frame. Ring-3 exceptions still
+        // reach the userspace runtime handler first and retain process fault
+        // isolation instead of escalating every application fault to panic.
+        if ((frame->cs & UINT64_C(3)) == UINT64_C(0)) {
+            diagnostics::panic::fatal_exception(*frame);
+        }
+
         if (vector == 13 && (frame->cs & UINT64_C(3)) == UINT64_C(3)) {
             log::write_hex(log::Level::Warn, "GP", "error_code=", frame->error_code);
             log::write_hex(log::Level::Warn, "GP", "rip=", frame->rip);
