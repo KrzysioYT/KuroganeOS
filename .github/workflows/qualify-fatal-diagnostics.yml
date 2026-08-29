@@ -1,0 +1,156 @@
+name: Qualify 3.3.3 fatal diagnostics
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-fatal-diagnostics.yml'
+      - 'Makefile'
+      - 'kernel/arch/x86_64/interrupts.cpp'
+      - 'kernel/arch/x86_64/interrupts.hpp'
+      - 'kernel/arch/x86_64/interrupt_stubs.asm'
+      - 'kernel/diagnostics/**'
+      - 'kernel/drivers/framebuffer.*'
+      - 'kernel/drivers/serial.*'
+      - 'kernel/task/**'
+      - 'kernel/memory/**'
+      - 'scripts/check-panic-serial.py'
+      - 'scripts/smoke-panic-qemu.sh'
+      - 'scripts/smoke-panic-virtualbox.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_diagnostic_event_ring.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-and-production-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 mtools dosfstools gdisk
+
+      - name: Host regression including bounded event ring
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build production fatal path
+        run: |
+          BUILD_ID=production-ci COMMIT_ID="${GITHUB_SHA::12}" \
+            bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
+          test -s build/kernel.elf
+          readelf -hW build/kernel.elf
+
+  deliberate-panic-qemu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [full, nested]
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk
+
+      - name: Inject deliberate panic qualifier at late kernel boot
+        env:
+          PANIC_MODE: ${{ matrix.mode }}
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+
+          path = Path('kernel/main.cpp')
+          text = path.read_text()
+          declaration_anchor = 'extern "C" unsigned char kernel_stack_top[];\n'
+          declaration = declaration_anchor + (
+              '\nnamespace diagnostics::panic {\n'
+              '[[noreturn]] void inject_invalid_opcode();\n'
+              'void arm_nested_fallback_for_test();\n'
+              '}\n'
+          )
+          if text.count(declaration_anchor) != 1:
+              raise SystemExit('panic declaration anchor changed')
+          text = text.replace(declaration_anchor, declaration, 1)
+
+          call_anchor = '    if (context.safe_mode) {\n        shell::initialize(false);\n'
+          nested = os.environ['PANIC_MODE'] == 'nested'
+          nested_line = (
+              '            diagnostics::panic::arm_nested_fallback_for_test();\n'
+              if nested else ''
+          )
+          injection = (
+              '    threading::ThreadId panic_qualifier_tid = threading::INVALID_THREAD_ID;\n'
+              '    const threading::Status panic_qualifier_status = threading::create(\n'
+              '        "panic-qualifier",\n'
+              '        +[](void*) {\n'
+              '            __asm__ volatile(\n'
+              '                "movabs $0x4B55524F50414E49, %%r12\\n\\t"\n'
+              '                "movabs $0x435452415046524D, %%r13"\n'
+              '                : : : "r12", "r13", "memory");\n'
+              + nested_line +
+              '            diagnostics::panic::inject_invalid_opcode();\n'
+              '        },\n'
+              '        nullptr,\n'
+              '        &panic_qualifier_tid);\n'
+              '    if (panic_qualifier_status != threading::Status::Ok ||\n'
+              '        panic_qualifier_tid == threading::INVALID_THREAD_ID) {\n'
+              '        boot_failure("PANIC-TEST", "cannot create panic qualifier thread");\n'
+              '    }\n'
+              '    threading::RunResult panic_qualifier_run{};\n'
+              '    const threading::Status panic_run_status = threading::run_until_idle(\n'
+              '        4U, &panic_qualifier_run);\n'
+              '    static_cast<void>(panic_run_status);\n'
+              '    boot_failure("PANIC-TEST", "deliberate invalid opcode returned unexpectedly");\n\n'
+          )
+          if text.count(call_anchor) != 1:
+              raise SystemExit('late-boot panic injection anchor changed')
+          path.write_text(text.replace(call_anchor, injection + call_anchor, 1))
+
+      - name: Build panic-test disk image
+        run: |
+          chmod +x scripts/*.sh scripts/check-panic-serial.py
+          PANIC_TEST=1 BUILD_ID="panic-${{ matrix.mode }}-qemu" \
+            COMMIT_ID="${GITHUB_SHA::12}" \
+            bash ./scripts/build-linux.sh --configuration test --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Qualify deliberate panic in QEMU/OVMF
+        run: |
+          args=(build/images/KuroganeOS-linux.img --timeout 180)
+          if [[ '${{ matrix.mode }}' == nested ]]; then
+            args+=(--nested)
+          fi
+          bash ./scripts/smoke-panic-qemu.sh "${args[@]}"
+
+      - name: Confirm VirtualBox panic smoke support is present
+        run: |
+          bash -n scripts/smoke-panic-virtualbox.sh
+          grep -Fq 'VBoxManage convertfromraw' scripts/smoke-panic-virtualbox.sh
+          grep -Fq 'scripts/check-panic-serial.py' scripts/smoke-panic-virtualbox.sh
+          echo 'VirtualBox runtime remains PENDING/EXTERNAL on GitHub-hosted Linux runners.'
