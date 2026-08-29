@@ -72,7 +72,6 @@ def validate_full(text: str) -> None:
     expected = {
         "REASON": "invalid opcode",
         "VECTOR": "6",
-        "ERROR_CODE": "0x0",
         "CONTEXT": "KERNEL",
         "PROCESS": "kernel",
         "THREAD": "panic-qualifier",
@@ -82,6 +81,9 @@ def validate_full(text: str) -> None:
         actual = values.get(key)
         if actual != wanted:
             fail(f"{key} expected {wanted!r}, got {actual!r}")
+
+    if parse_hex(values, "ERROR_CODE") != 0:
+        fail("invalid-opcode error code must be zero")
 
     if values.get("BUILD_ID", "").endswith("unavailable"):
         fail("build identifier is unavailable")
