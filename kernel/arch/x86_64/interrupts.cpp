@@ -347,6 +347,13 @@ x86_64_interrupt_dispatch(
         handler(*frame);
     }
 
+    // User-callable software gates are trap gates, so IF can remain set while
+    // the syscall handler runs. Once the handler has completed, frame state,
+    // process lifecycle transitions, and scheduler selection must be atomic.
+    // This also covers SYS_EXIT, whose handler rewrites CS to ring 0 before
+    // the scheduler hook can recognize the frame as a ring-3 origin.
+    disable();
+
     SoftwareScheduleHook schedule_hook = g_software_schedule_hook;
     if (schedule_hook != nullptr) {
         InterruptFrame* selected = schedule_hook(vector, *frame);
