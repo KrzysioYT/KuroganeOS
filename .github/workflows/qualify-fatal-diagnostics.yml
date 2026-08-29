@@ -109,10 +109,6 @@ jobs:
               '    const threading::Status panic_qualifier_status = threading::create(\n'
               '        "panic-qualifier",\n'
               '        +[](void*) {\n'
-              '            __asm__ volatile(\n'
-              '                "movabs $0x4B55524F50414E49, %%r12\\n\\t"\n'
-              '                "movabs $0x435452415046524D, %%r13"\n'
-              '                : : : "r12", "r13", "memory");\n'
               + nested_line +
               '            diagnostics::panic::inject_invalid_opcode();\n'
               '        },\n'
@@ -131,6 +127,24 @@ jobs:
           if text.count(call_anchor) != 1:
               raise SystemExit('late-boot panic injection anchor changed')
           path.write_text(text.replace(call_anchor, injection + call_anchor, 1))
+
+          # The register sentinels must be written in the same basic asm block
+          # as UD2. Setting callee-saved registers in the caller is not a valid
+          # trap-frame test: a C++ callee may use R12/R13 before the fault and
+          # is only required to restore them when it returns.
+          panic_path = Path('kernel/diagnostics/panic.cpp')
+          panic_text = panic_path.read_text()
+          ud2_anchor = '    __asm__ volatile("ud2");\n'
+          ud2_with_sentinels = (
+              '    __asm__ volatile(\n'
+              '        "movabs $0x4B55524F50414E49, %%r12\\n\\t"\n'
+              '        "movabs $0x435452415046524D, %%r13\\n\\t"\n'
+              '        "ud2"\n'
+              '        : : : "r12", "r13", "memory");\n'
+          )
+          if panic_text.count(ud2_anchor) != 1:
+              raise SystemExit('panic UD2 qualification anchor changed')
+          panic_path.write_text(panic_text.replace(ud2_anchor, ud2_with_sentinels, 1))
 
       - name: Build panic-test disk image
         run: |
