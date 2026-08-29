@@ -9,9 +9,11 @@ constexpr size_t IDT_ENTRY_COUNT = 256;
 constexpr uint8_t IRQ_VECTOR_BASE = 0x20;
 constexpr uint8_t IRQ_COUNT = 16;
 
-// Layout produced by interrupt_stubs.asm. In IA-32e mode the processor saves
-// a uniform SS:RSP/RFLAGS/CS:RIP frame, including same-privilege entries, so a
-// scheduler may resume a complete frame on another kernel stack.
+// Layout produced by interrupt_stubs.asm. Ring-3 entries include the complete
+// SS:RSP/RFLAGS:CS:RIP return state. Same-CPL kernel IRQs contain only the
+// hardware frame required by IRETQ for that privilege level; scheduler code
+// must therefore never treat a kernel-interrupted frame as a resumable user
+// context.
 struct InterruptFrame {
     uint64_t r15;
     uint64_t r14;
@@ -67,6 +69,9 @@ using IrqHandler = void (*)();
 using IrqScheduleHook = InterruptFrame* (*)(
     uint8_t irq,
     InterruptFrame& frame);
+using SoftwareScheduleHook = InterruptFrame* (*)(
+    uint8_t vector,
+    InterruptFrame& frame);
 
 enum class GatePrivilege : uint8_t {
     Kernel = 0,
@@ -101,6 +106,14 @@ void unregister_irq_handler(uint8_t irq);
 // switch in the common assembly epilogue. Intended for the thread scheduler.
 bool register_irq_schedule_hook(IrqScheduleHook hook);
 void unregister_irq_schedule_hook(IrqScheduleHook hook);
+
+// Installs a post-handler scheduler hook for software-defined interrupt gates.
+// This is the safe boundary for a blocking/yielding Ring-3 syscall: the frame
+// still contains the complete user return state, so the scheduler may save it
+// and return another process' frame without ever switching from a nested
+// kernel IRQ frame.
+bool register_software_schedule_hook(SoftwareScheduleHook hook);
+void unregister_software_schedule_hook(SoftwareScheduleHook hook);
 
 void enable();
 void disable();
