@@ -97,6 +97,8 @@ applications=(
     "init|userspace/system/init/main.c|system/init|c"
     "eventd|userspace/system/eventd/main.c|system/eventd|c"
     "evprobe|userspace/system/event-probe/main.c|system/evprobe|c"
+    "settingsd|userspace/system/settingsd/main.c|system/settingsd|c"
+    "setprobe|userspace/system/settings-probe/main.c|system/setprobe|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"
