@@ -1,6 +1,7 @@
 #include "interrupts.hpp"
 #include "gdt.hpp"
 
+#include "../../core/log.hpp"
 #include "../../drivers/pic.hpp"
 
 extern "C" void (*interrupt_stub_table[256])();
@@ -297,6 +298,14 @@ x86_64_interrupt_dispatch(
         g_last_exception_error_code = frame->error_code;
         if (vector == 14) {
             g_last_page_fault_address = read_cr2();
+        }
+        if (vector == 13 && (frame->cs & UINT64_C(3)) == UINT64_C(3)) {
+            log::write_hex(log::Level::Warn, "GP", "error_code=", frame->error_code);
+            log::write_hex(log::Level::Warn, "GP", "rip=", frame->rip);
+            log::write_hex(log::Level::Warn, "GP", "cs=", frame->cs);
+            log::write_hex(log::Level::Warn, "GP", "rflags=", frame->rflags);
+            log::write_hex(log::Level::Warn, "GP", "rsp=", frame->rsp);
+            log::write_hex(log::Level::Warn, "GP", "ss=", frame->ss);
         }
 
         InterruptHandler handler =
