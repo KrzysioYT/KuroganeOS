@@ -94,7 +94,9 @@ __attribute__((noreturn)) void _start(void) {
         (void)ku_service_close(connection);
         ku_exit(2);
     }
+    (void)u_puts("[TRACE] evprobe_subscribe_wait: ENTER\n");
     status = wait_response(connection, &response);
+    (void)u_puts("[TRACE] evprobe_subscribe_wait: RESUMED\n");
     if (status != KU_STATUS_OK) {
         fail_receive_stage("subscribe", status);
         (void)ku_service_close(connection);
@@ -112,6 +114,7 @@ __attribute__((noreturn)) void _start(void) {
     }
     const ku_event_handle_t event = (ku_event_handle_t)response.value;
 
+    (void)u_puts("[TRACE] evprobe_publish_send: ENTER\n");
     status = send_request(connection, KU_EVENT_BROKER_PUBLISH);
     if (status != KU_STATUS_OK) {
         fail_stage("publish-send");
