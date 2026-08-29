@@ -61,14 +61,6 @@ void copy_string(char* destination, size_t capacity, const char* source) {
     }
 }
 
-uint16_t read_ss() {
-    uint16_t value = 0U;
-#if defined(__x86_64__)
-    __asm__ volatile("mov %%ss, %0" : "=r"(value));
-#endif
-    return value;
-}
-
 uint32_t current_cpu() {
     return arch::x86_64::apic::prepared()
         ? arch::x86_64::apic::local_apic_id()
@@ -85,21 +77,6 @@ Context context_from_frame(
         return Context::Kernel;
     }
     return Context::Unknown;
-}
-
-uint64_t interrupted_rsp(
-    arch::x86_64::interrupts::InterruptFrame& frame,
-    Context context) {
-    if (context == Context::Userspace) {
-        return frame.rsp;
-    }
-    // Same-CPL x86-64 exceptions do not push SS:RSP. At C++ entry the first
-    // byte after the saved RFLAGS is therefore the interrupted kernel RSP.
-    // Do not read frame.rsp in this case: that memory is not part of the
-    // hardware frame and would be a fabricated register value.
-    return static_cast<uint64_t>(
-        reinterpret_cast<uintptr_t>(&frame) +
-        offsetof(arch::x86_64::interrupts::InterruptFrame, rsp));
 }
 
 void capture_identity(FatalSnapshot& snapshot) {
@@ -209,11 +186,13 @@ void capture_snapshot(
         : 0U;
     snapshot.wall_time_trustworthy = false;
     snapshot.dump_status = DumpStatus::UnavailableNoSafeWriter;
+
+    // In 64-bit mode the processor saves SS:RSP for every interrupt/exception
+    // frame, including same-CPL faults and entries that switch stacks through
+    // IST. Preserve the hardware frame verbatim: reconstructing kernel RSP or
+    // sampling the handler's current SS would destroy the interrupted state.
     snapshot.registers = frame;
-    snapshot.registers.rsp = interrupted_rsp(frame, snapshot.context);
-    snapshot.registers.ss = snapshot.context == Context::Userspace
-        ? frame.ss
-        : static_cast<uint64_t>(read_ss());
+
     copy_string(snapshot.reason, IDENTITY_CAPACITY, exception_name(snapshot.vector));
     copy_string(snapshot.subsystem, NAME_CAPACITY, "CPU/EXCEPTION");
     copy_string(snapshot.version, NAME_CAPACITY, KUROGANE_VERSION_STRING);
