@@ -62,6 +62,16 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_event"
 
+# AC97 playback is split over the controller's 32-entry buffer descriptor
+# list. Keep the production layout math host-testable so a future buffer-size
+# change cannot silently overflow the 16-bit sample-count field or the BDL.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_ac97_buffer_layout.cpp \
+  -o "$OUT_DIR/test_ac97_buffer_layout"
+
+"$OUT_DIR/test_ac97_buffer_layout"
+
 # Exercise the production TCP client with a deterministic fake wire. This
 # protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
 # without relying on host sockets or libc networking.
