@@ -40,6 +40,7 @@ alignas(16) static IdtEntry g_idt[IDT_ENTRY_COUNT];
 static InterruptHandler g_handlers[IDT_ENTRY_COUNT];
 static IrqHandler g_irq_handlers[IRQ_COUNT];
 static IrqScheduleHook g_irq_schedule_hook = nullptr;
+static SoftwareScheduleHook g_software_schedule_hook = nullptr;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
 
 static bool g_initialized = false;
@@ -111,6 +112,7 @@ void initialize() {
         g_irq_handlers[i] = nullptr;
     }
     g_irq_schedule_hook = nullptr;
+    g_software_schedule_hook = nullptr;
 
     g_last_exception_vector = 0xFF;
     g_last_exception_error_code = 0;
@@ -220,6 +222,20 @@ void unregister_irq_schedule_hook(IrqScheduleHook hook) {
     }
 }
 
+bool register_software_schedule_hook(SoftwareScheduleHook hook) {
+    if (!g_initialized || hook == nullptr || g_software_schedule_hook != nullptr) {
+        return false;
+    }
+    g_software_schedule_hook = hook;
+    return true;
+}
+
+void unregister_software_schedule_hook(SoftwareScheduleHook hook) {
+    if (hook != nullptr && g_software_schedule_hook == hook) {
+        g_software_schedule_hook = nullptr;
+    }
+}
+
 void enable() {
     __asm__ volatile("sti" : : : "memory");
 }
@@ -320,6 +336,14 @@ x86_64_interrupt_dispatch(
         __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
     if (handler != nullptr) {
         handler(*frame);
+    }
+
+    SoftwareScheduleHook schedule_hook = g_software_schedule_hook;
+    if (schedule_hook != nullptr) {
+        InterruptFrame* selected = schedule_hook(vector, *frame);
+        if (selected != nullptr) {
+            return selected;
+        }
     }
     return frame;
 }
