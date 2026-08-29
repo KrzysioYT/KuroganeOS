@@ -252,6 +252,7 @@ __attribute__((noreturn)) void _start(void) {
     const ku_result_t endpoint = ku_service_register(
         KU_EVENT_BROKER_SERVICE_NAME,
         KU_EVENT_BROKER_SERVICE_NAME_SIZE);
+    int loop_resume_reported = 0;
     if (endpoint <= 0) {
         (void)u_puts("eventd: service registration failed\n");
         (void)u_puts("[TEST] event_broker_service: FAIL\n");
@@ -263,6 +264,10 @@ __attribute__((noreturn)) void _start(void) {
         accept_clients((ku_service_endpoint_t)endpoint);
         service_clients();
         (void)ku_sleep(1U);
+        if (!loop_resume_reported) {
+            loop_resume_reported = 1;
+            (void)u_puts("[TEST] event_broker_loop_resumed: PASS\n");
+        }
         (void)ku_yield();
     }
 }
