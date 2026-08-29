@@ -15,6 +15,7 @@ on:
       - 'scripts/build-linux.sh'
       - 'scripts/build-media-linux.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/arch/x86_64/user_entry.asm'
       - 'kernel/fs/**'
       - 'kernel/ipc/**'
       - 'kernel/task/**'
