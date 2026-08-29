@@ -30,16 +30,12 @@ x86_64_enter_user:
     iretq
     .size x86_64_enter_user, .-x86_64_enter_user
 
-    /* SYS_EXIT rewrites the interrupt frame to return here at CPL0 with IF
-       clear. IRETQ does not consume RSP:SS when its target remains CPL0, so
-       the two words left above the hardware return state start with the
-       kernel RSP saved by x86_64_enter_user. Recover that launch stack before
-       restoring the callee-saved state. */
+    /* SYS_EXIT changes the interrupt frame to return here at CPL0 with IF
+       clear. Move off the TSS entry stack before restoring the launch flags. */
     .global x86_64_interrupt_return_to_kernel
     .type x86_64_interrupt_return_to_kernel, @function
 x86_64_interrupt_return_to_kernel:
     cli
-    movq (%rsp), %rsp
     movw $0x10, %ax
     movw %ax, %ds
     movw %ax, %es
