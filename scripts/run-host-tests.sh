@@ -62,6 +62,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_event"
 
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -DKUROGANE_HOST_TEST \
+  tests/test_diagnostic_event_ring.cpp \
+  kernel/diagnostics/event_ring.cpp \
+  -o "$OUT_DIR/test_diagnostic_event_ring"
+
+"$OUT_DIR/test_diagnostic_event_ring"
+
 # Exercise the production TCP client with a deterministic fake wire. This
 # protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
 # without relying on host sockets or libc networking.
