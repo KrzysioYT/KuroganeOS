@@ -72,14 +72,6 @@ jobs:
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
 
-      - name: Disassemble event probe resume site
-        run: |
-          test -x build/userspace/rootfs/system/evprobe
-          objdump -d \
-            --start-address=0x400000000050 \
-            --stop-address=0x4000000000b0 \
-            build/userspace/rootfs/system/evprobe
-
       - name: Require real userspace subscribe publish event roundtrip
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
