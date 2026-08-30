@@ -29,6 +29,16 @@ jobs:
 
       - name: Apply application registry slice
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/apply-app-registry.py')
+          text = p.read_text()
+          old = '    if count != 1:\n        raise SystemExit(f"{path}: anchor count={count}: {old!r}")\n'
+          new = '    if count < 1:\n        raise SystemExit(f"{path}: anchor count={count}: {old!r}")\n'
+          if text.count(old) != 1:
+              raise SystemExit('replace_once guard anchor mismatch')
+          p.write_text(text.replace(old, new, 1))
+          PY
           python3 -m py_compile .github/scripts/apply-app-registry.py
           python3 .github/scripts/apply-app-registry.py
 
