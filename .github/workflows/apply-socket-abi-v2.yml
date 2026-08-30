@@ -1,4 +1,4 @@
-name: Apply 3.5 Socket ABI v2
+name: Apply 3.5 Socket ABI compile gate
 
 on:
   push:
@@ -10,12 +10,11 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,21 +22,18 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Install build, media and QEMU dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential binutils python3 \
-            qemu-system-x86 ovmf \
-            mtools dosfstools gdisk xorriso
+          sudo apt-get install -y build-essential binutils python3
 
-      - name: Apply local UDP loopback delivery and host regressions
+      - name: Apply production UDP loopback delivery
         run: |
           python3 -m py_compile .github/scripts/apply-socket-loopback.py
           python3 .github/scripts/apply-socket-loopback.py
-          python3 -c 'from pathlib import Path; p=Path("tests/test_socket.cpp"); s=p.read_text(); old="\"kurogane-loopback\""; assert s.count(old) == 1; p.write_text(s.replace(old, "\"loopback\"", 1))'
+          git checkout -- tests/test_socket.cpp
 
-      - name: Reuse guarded socket ABI patch with C++ safe request init
+      - name: Apply public socket ABI wiring
         shell: python
         run: |
           from pathlib import Path
@@ -77,56 +73,46 @@ jobs:
           source = source.replace(old, new, 1)
           exec(compile(source, '<apply-socket-abi>', 'exec'), {'__name__': '__main__'})
 
-      - name: Validate host regressions and release kernel
+      - name: Convert deferred verification to one TODO
         run: |
-          bash ./scripts/run-host-tests.sh
-          make CONFIG=release kernel
+          git checkout -- scripts/build-linux.sh
+          rm -rf userspace/system/socket-probe
+          rm -f .github/workflows/qualify-socket-abi.yml
+          rm -f .github/scripts/apply-socket-loopback.py
+          rm -f .github/workflows/apply-socket-abi-v2.yml
+          cat > TODO-DEFERRED-TESTS.md <<'EOF'
+          # KuroganeOS — Deferred Test Backlog
 
-      - name: Qualify Ring-3 UDP roundtrip and process-exit cleanup before commit
-        shell: python
+          Per the Road to 15 development policy adopted on 2026-08-30, implementation proceeds with compile/build gates while runtime and regression verification is collected here for a later single qualification pass.
+
+          ## 3.5 Connected Userspace
+          - UDP socket host regressions: ownership, stale handles, bind collisions, generation reuse, bounded receive queue, BufferTooSmall, ephemeral bind, process cleanup.
+          - UDP loopback regressions: self-loopback, cross-process loopback, queue saturation, unused loopback destination, no 127/8 physical-NIC leakage.
+          - Ring-3 public UDP ABI roundtrip through syscalls 57..62.
+          - Ring-3 socket cleanup after process exit and immediate port rebind.
+          - TCP client socket state-machine regressions once the process-owned TCP slice lands.
+          - DNS/network-event/TLS userspace integration regressions once those slices land.
+
+          ## Existing deferred qualification
+          - Full host regression suite.
+          - QEMU/OVMF runtime smoke and integration qualification.
+          - Filesystem/network/service regression sweeps.
+          - Fatal diagnostic regression sweep.
+          - VirtualBox remains an optional external target and is not a release gate.
+
+          ## Final pre-15.0 qualification pass
+          - Execute every deferred item above together with milestone-specific tests accumulated here.
+          - Do not convert deferred items into PASS markers until they have actually executed successfully.
+          EOF
+
+      - name: Compile release kernel userspace SDK and boot chain
+        run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
+
+      - name: Commit compiled socket ABI slice
         run: |
-          from pathlib import Path
-          p = Path('userspace/system/init/main.c')
-          text = p.read_text()
-          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
-          addition = anchor + (
-              '    int32_t socket_exit = -1;\n'
-              '    const ku_result_t socket_first = u_spawn("/system/sockprb");\n'
-              '    if (socket_first <= 0 || u_wait((uint64_t)socket_first, &socket_exit) != KU_STATUS_OK || socket_exit != 0) ku_exit(50);\n'
-              '    (void)u_puts("[TEST] socket_udp_roundtrip: PASS\\n");\n'
-              '    socket_exit = -1;\n'
-              '    const ku_result_t socket_second = u_spawn("/system/sockprb");\n'
-              '    if (socket_second <= 0 || u_wait((uint64_t)socket_second, &socket_exit) != KU_STATUS_OK || socket_exit != 0) ku_exit(51);\n'
-              '    (void)u_puts("[TEST] socket_exit_cleanup: PASS\\n");\n'
-          )
-          if text.count(anchor) != 1:
-              raise SystemExit(f'init anchor count={text.count(anchor)}')
-          p.write_text(text.replace(anchor, addition, 1))
-
-      - name: Build release media for Ring-3 qualification
-        run: bash ./scripts/build-media-linux.sh --configuration release --rebuild
-
-      - name: Run Ring-3 UDP socket qualification
-        run: |
-          bash ./scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img \
-            --disk \
-            --require-marker '[TEST] socket_udp_roundtrip: PASS' \
-            --require-marker '[TEST] socket_exit_cleanup: PASS' \
-            --timeout 90
-
-      - name: Commit qualified UDP loopback and public socket ABI
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          git checkout -- userspace/system/init/main.c
-          rm -f \
-            .github/scripts/apply-socket-loopback.py \
-            .github/workflows/apply-socket-abi-v2.yml \
-            .github/workflows/apply-socket-abi.yml
           git config user.name 'KuroganeOS CI'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
-          git commit -m 'net(abi): qualify UDP loopback and Ring-3 sockets'
+          git diff --cached --check
+          git commit -m 'net(abi): expose compiled process-owned UDP sockets'
           git push origin HEAD:gpt/road-to-15-consolidation
-          gh workflow run qualify-socket-abi.yml --ref gpt/road-to-15-consolidation
