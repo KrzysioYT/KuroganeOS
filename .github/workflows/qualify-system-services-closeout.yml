@@ -51,28 +51,46 @@ jobs:
 
           init = Path('userspace/system/init/main.c')
           text = init.read_text()
+          start_anchor = '__attribute__((noreturn)) void _start(void) {\n'
+          wait_helper = (
+              'static int closeout_wait_probe(uint64_t pid) {\n'
+              '    uint32_t attempts;\n'
+              '    for (attempts = 0U; attempts < 2000U; ++attempts) {\n'
+              '        int32_t exit_code = 0;\n'
+              '        const ku_status_t status = ku_wait(pid, &exit_code);\n'
+              '        if (status == KU_STATUS_OK) return exit_code == 0;\n'
+              '        if (status != KU_STATUS_WOULD_BLOCK) return 0;\n'
+              '        (void)ku_sleep(1U);\n'
+              '    }\n'
+              '    return 0;\n'
+              '}\n\n'
+          )
+          if text.count(start_anchor) != 1:
+              raise SystemExit(f'closeout start anchor count={text.count(start_anchor)}')
+          text = text.replace(start_anchor, wait_helper + start_anchor, 1)
+
           anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
           probes = anchor + (
               '    const ku_result_t closeout_svcmeta_pid = u_spawn("/system/svcmeta");\n'
               '    if (closeout_svcmeta_pid <= 0) ku_exit(40);\n'
-              '    const ku_result_t closeout_event_pid = u_spawn("/system/evprobe");\n'
-              '    if (closeout_event_pid <= 0) ku_exit(41);\n'
-              '    const ku_result_t closeout_notification_pid = u_spawn("/system/ntfprobe");\n'
-              '    if (closeout_notification_pid <= 0) ku_exit(42);\n'
-              '    const ku_result_t closeout_account_pid = u_spawn("/system/acctprb");\n'
-              '    if (closeout_account_pid <= 0) ku_exit(43);\n'
-              '    const ku_result_t closeout_session_pid = u_spawn("/system/sesprobe");\n'
-              '    if (closeout_session_pid <= 0) ku_exit(44);\n'
-              '    const ku_result_t closeout_settings_change_pid = u_spawn("/system/setchprb");\n'
-              '    if (closeout_settings_change_pid <= 0) ku_exit(45);\n'
-              '    const ku_result_t closeout_clipboard_pid = u_spawn("/system/clipprb");\n'
-              '    if (closeout_clipboard_pid <= 0) ku_exit(46);\n'
-              '    const ku_result_t closeout_filesystem_pid = u_spawn("/system/fsprobe");\n'
-              '    if (closeout_filesystem_pid <= 0) ku_exit(47);\n'
-              '    const ku_result_t closeout_negotiation_pid = u_spawn("/system/svcneg");\n'
-              '    if (closeout_negotiation_pid <= 0) ku_exit(48);\n'
-              '    const ku_result_t closeout_lookup_pid = u_spawn("/system/svclook");\n'
-              '    if (closeout_lookup_pid <= 0) ku_exit(49);\n'
+              '    ku_result_t closeout_probe_pid = u_spawn("/system/evprobe");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(41);\n'
+              '    closeout_probe_pid = u_spawn("/system/ntfprobe");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(42);\n'
+              '    closeout_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(43);\n'
+              '    closeout_probe_pid = u_spawn("/system/sesprobe");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(44);\n'
+              '    closeout_probe_pid = u_spawn("/system/setchprb");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(45);\n'
+              '    closeout_probe_pid = u_spawn("/system/clipprb");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(46);\n'
+              '    closeout_probe_pid = u_spawn("/system/fsprobe");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(47);\n'
+              '    closeout_probe_pid = u_spawn("/system/svcneg");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(48);\n'
+              '    closeout_probe_pid = u_spawn("/system/svclook");\n'
+              '    if (closeout_probe_pid <= 0 || !closeout_wait_probe((uint64_t)closeout_probe_pid)) ku_exit(49);\n'
           )
           if text.count(anchor) != 1:
               raise SystemExit(f'closeout init anchor count={text.count(anchor)}')
@@ -85,6 +103,7 @@ jobs:
           grep -F 'system/svcmeta' scripts/build-linux.sh
           grep -F 'system/svcneg' scripts/build-linux.sh
           grep -F 'system/svclook' scripts/build-linux.sh
+          grep -F 'closeout_wait_probe' userspace/system/init/main.c
           grep -F 'system/setchprb' userspace/system/init/main.c
           [[ ${#fsprobe} -le 8 ]]
           [[ ${#svcmeta} -le 8 ]]
@@ -104,32 +123,6 @@ jobs:
           chmod +x scripts/*.sh
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
-
-      - name: Map previous teardown panic address
-        run: |
-          echo '[closeout] address mapping for RIP 0x00000000000A3C01'
-          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01 || true
-          nm -n -C build/kernel.elf > build/kernel.nm
-          python3 - <<'PY'
-          target = 0xA3C01
-          previous = None
-          with open('build/kernel.nm', encoding='utf-8', errors='replace') as handle:
-              for raw in handle:
-                  fields = raw.strip().split(maxsplit=2)
-                  if len(fields) < 3 or fields[1] not in ('t', 'T'):
-                      continue
-                  try:
-                      address = int(fields[0], 16)
-                  except ValueError:
-                      continue
-                  if address <= target:
-                      previous = raw.rstrip()
-                      continue
-                  print('previous:', previous or '<none>')
-                  print('next:', raw.rstrip())
-                  break
-          PY
-          grep -i -B3 -A3 '00000000000a3c' build/kernel.map || true
 
       - name: Require combined 3.4 Ring-3 service contract
         run: |
