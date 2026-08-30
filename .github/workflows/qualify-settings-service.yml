@@ -1,3 +1,4 @@
+# Road-to-15 requalification after Ring-3 frame ownership hardening.
 name: Qualify 3.4.2 settings service persistence
 
 on:
