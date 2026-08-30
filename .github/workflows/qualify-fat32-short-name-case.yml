@@ -1,0 +1,333 @@
+name: Qualify FAT32 Short Name Case
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-fat32-short-name-case.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate FAT32 short-name case candidate
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/fs/fat32.cpp')
+          text = path.read_text()
+
+          old_encoder = '''Status encode_short_name(const char* name, uint8_t output[11]) {
+              if (name == nullptr || output == nullptr || name[0] == '\\0') {
+                  return Status::InvalidArgument;
+              }
+              size_t length = 0U;
+              size_t dot = SIZE_MAX;
+              while (name[length] != '\\0') {
+                  if (name[length] == '.') {
+                      if (dot != SIZE_MAX) {
+                          return Status::Unsupported;
+                      }
+                      dot = length;
+                  }
+                  ++length;
+                  if (length > 12U) {
+                      return Status::Unsupported;
+                  }
+              }
+              const size_t base_length = dot == SIZE_MAX ? length : dot;
+              const size_t extension_length = dot == SIZE_MAX ? 0U : length - dot - 1U;
+              if (base_length == 0U || base_length > 8U || extension_length > 3U ||
+                  (dot != SIZE_MAX && extension_length == 0U)) {
+                  return Status::Unsupported;
+              }
+              for (size_t index = 0U; index < 11U; ++index) {
+                  output[index] = static_cast<uint8_t>(' ');
+              }
+              for (size_t index = 0U; index < base_length; ++index) {
+                  const char character = ascii_upper(name[index]);
+                  const uint8_t value = static_cast<uint8_t>(character);
+                  if (character == ' ' || !valid_short_name_byte(value)) {
+                      return Status::Unsupported;
+                  }
+                  output[index] = value;
+              }
+              for (size_t index = 0U; index < extension_length; ++index) {
+                  const char character = ascii_upper(name[dot + 1U + index]);
+                  const uint8_t value = static_cast<uint8_t>(character);
+                  if (character == ' ' || !valid_short_name_byte(value)) {
+                      return Status::Unsupported;
+                  }
+                  output[8U + index] = value;
+              }
+              return Status::Ok;
+          }
+          '''
+          new_encoder = '''Status encode_short_name(
+              const char* name,
+              uint8_t output[11],
+              uint8_t* case_flags) {
+              if (name == nullptr || output == nullptr || case_flags == nullptr ||
+                  name[0] == '\\0') {
+                  return Status::InvalidArgument;
+              }
+              size_t length = 0U;
+              size_t dot = SIZE_MAX;
+              while (name[length] != '\\0') {
+                  if (name[length] == '.') {
+                      if (dot != SIZE_MAX) {
+                          return Status::Unsupported;
+                      }
+                      dot = length;
+                  }
+                  ++length;
+                  if (length > 12U) {
+                      return Status::Unsupported;
+                  }
+              }
+              const size_t base_length = dot == SIZE_MAX ? length : dot;
+              const size_t extension_length = dot == SIZE_MAX ? 0U : length - dot - 1U;
+              if (base_length == 0U || base_length > 8U || extension_length > 3U ||
+                  (dot != SIZE_MAX && extension_length == 0U)) {
+                  return Status::Unsupported;
+              }
+              for (size_t index = 0U; index < 11U; ++index) {
+                  output[index] = static_cast<uint8_t>(' ');
+              }
+              bool base_lower = false;
+              bool base_upper = false;
+              bool extension_lower = false;
+              bool extension_upper = false;
+              for (size_t index = 0U; index < base_length; ++index) {
+                  const char source = name[index];
+                  const char character = ascii_upper(source);
+                  const uint8_t value = static_cast<uint8_t>(character);
+                  if (character == ' ' || !valid_short_name_byte(value)) {
+                      return Status::Unsupported;
+                  }
+                  if (source >= 'a' && source <= 'z') base_lower = true;
+                  if (source >= 'A' && source <= 'Z') base_upper = true;
+                  output[index] = value;
+              }
+              for (size_t index = 0U; index < extension_length; ++index) {
+                  const char source = name[dot + 1U + index];
+                  const char character = ascii_upper(source);
+                  const uint8_t value = static_cast<uint8_t>(character);
+                  if (character == ' ' || !valid_short_name_byte(value)) {
+                      return Status::Unsupported;
+                  }
+                  if (source >= 'a' && source <= 'z') extension_lower = true;
+                  if (source >= 'A' && source <= 'Z') extension_upper = true;
+                  output[8U + index] = value;
+              }
+              *case_flags = 0U;
+              if (base_lower && !base_upper) *case_flags |= 0x08U;
+              if (extension_lower && !extension_upper) *case_flags |= 0x10U;
+              return Status::Ok;
+          }
+          '''
+          if text.count(old_encoder) != 1:
+              raise SystemExit(f'encoder anchor count={text.count(old_encoder)}')
+          text = text.replace(old_encoder, new_encoder, 1)
+
+          old_publish_sig = '''Status publish_directory_entry(
+              FileSystem* filesystem,
+              const DirectorySlot& slot,
+              const uint8_t short_name[11],
+              uint8_t attributes,
+              uint32_t first_cluster,
+              uint32_t size) {
+          '''
+          new_publish_sig = '''Status publish_directory_entry(
+              FileSystem* filesystem,
+              const DirectorySlot& slot,
+              const uint8_t short_name[11],
+              uint8_t case_flags,
+              uint8_t attributes,
+              uint32_t first_cluster,
+              uint32_t size) {
+          '''
+          if text.count(old_publish_sig) != 1:
+              raise SystemExit('publish signature anchor changed')
+          text = text.replace(old_publish_sig, new_publish_sig, 1)
+
+          old_attributes = '''    entry[11] = attributes;
+              // A deterministic, valid FAT date is preferable to zeroed month/day
+          '''
+          new_attributes = '''    entry[11] = attributes;
+              entry[12] = static_cast<uint8_t>(case_flags & 0x18U);
+              // A deterministic, valid FAT date is preferable to zeroed month/day
+          '''
+          if text.count(old_attributes) != 1:
+              raise SystemExit('publish attributes anchor changed')
+          text = text.replace(old_attributes, new_attributes, 1)
+
+          # Three user-name encodes: create, rename, mkdir.
+          old_encode_call = '''    uint8_t short_name[11]{};
+              status = encode_short_name(leaf, short_name);
+          '''
+          new_encode_call = '''    uint8_t short_name[11]{};
+              uint8_t short_name_case_flags = 0U;
+              status = encode_short_name(leaf, short_name, &short_name_case_flags);
+          '''
+          if text.count(old_encode_call) != 2:
+              raise SystemExit(f'leaf encode count={text.count(old_encode_call)}')
+          text = text.replace(old_encode_call, new_encode_call)
+
+          old_rename_encode = '''    uint8_t short_name[11]{};
+              status = encode_short_name(destination_leaf, short_name);
+          '''
+          new_rename_encode = '''    uint8_t short_name[11]{};
+              uint8_t short_name_case_flags = 0U;
+              status = encode_short_name(
+                  destination_leaf, short_name, &short_name_case_flags);
+          '''
+          if text.count(old_rename_encode) != 1:
+              raise SystemExit('rename encode anchor changed')
+          text = text.replace(old_rename_encode, new_rename_encode, 1)
+
+          old_create_publish = '''    return publish_directory_entry(
+                  filesystem, free_slot, short_name, 0x20U, 0U, 0U);
+          '''
+          new_create_publish = '''    return publish_directory_entry(
+                  filesystem,
+                  free_slot,
+                  short_name,
+                  short_name_case_flags,
+                  0x20U,
+                  0U,
+                  0U);
+          '''
+          if text.count(old_create_publish) != 1:
+              raise SystemExit('create publish anchor changed')
+          text = text.replace(old_create_publish, new_create_publish, 1)
+
+          old_dot_publish = '''        dot,
+                  ATTRIBUTE_DIRECTORY,
+          '''
+          new_dot_publish = '''        dot,
+                  0U,
+                  ATTRIBUTE_DIRECTORY,
+          '''
+          if text.count(old_dot_publish) != 1:
+              raise SystemExit('dot publish anchor changed')
+          text = text.replace(old_dot_publish, new_dot_publish, 1)
+
+          old_dotdot_publish = '''            dot_dot,
+                      ATTRIBUTE_DIRECTORY,
+          '''
+          new_dotdot_publish = '''            dot_dot,
+                      0U,
+                      ATTRIBUTE_DIRECTORY,
+          '''
+          if text.count(old_dotdot_publish) != 1:
+              raise SystemExit('dotdot publish anchor changed')
+          text = text.replace(old_dotdot_publish, new_dotdot_publish, 1)
+
+          old_parent_publish = '''            short_name,
+                      ATTRIBUTE_DIRECTORY,
+          '''
+          new_parent_publish = '''            short_name,
+                      short_name_case_flags,
+                      ATTRIBUTE_DIRECTORY,
+          '''
+          if text.count(old_parent_publish) != 1:
+              raise SystemExit('mkdir publish anchor changed')
+          text = text.replace(old_parent_publish, new_parent_publish, 1)
+
+          old_rename_write = '''    for (size_t index = 0U; index < 11U; ++index) {
+                  sector[source_slot.offset + index] = short_name[index];
+              }
+              return write_sector(filesystem, source_slot.sector, sector);
+          '''
+          new_rename_write = '''    for (size_t index = 0U; index < 11U; ++index) {
+                  sector[source_slot.offset + index] = short_name[index];
+              }
+              sector[source_slot.offset + 12U] =
+                  static_cast<uint8_t>(short_name_case_flags & 0x18U);
+              return write_sector(filesystem, source_slot.sector, sector);
+          '''
+          if text.count(old_rename_write) != 1:
+              raise SystemExit('rename publish anchor changed')
+          text = text.replace(old_rename_write, new_rename_write, 1)
+
+          path.write_text(text)
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          entry = '    "filesystemprobe|userspace/system/filesystem-probe/main.c|system/fsprobe|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + entry, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          launch = anchor + (
+              '    const ku_result_t fs_case_probe_pid = u_spawn("/system/fsprobe");\n'
+              '    if (fs_case_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] filesystem_service_api: FAIL code=0\\n");\n'
+              '        ku_exit(51);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, launch, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'uint8_t* case_flags' kernel/fs/fat32.cpp
+          grep -F 'entry[12] = static_cast<uint8_t>(case_flags & 0x18U);' kernel/fs/fat32.cpp
+          grep -F 'short_name_case_flags & 0x18U' kernel/fs/fat32.cpp
+          grep -F 'system/fsprobe' scripts/build-linux.sh
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require public filesystem API with case-preserving readdir
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] filesystem_service_api: PASS' \
+            --timeout 240
+
+      - name: Restore qualification-only launch changes
+        run: |
+          git checkout -- scripts/build-linux.sh userspace/system/init/main.c
+
+      - name: Land qualified FAT32 case fix
+        run: |
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add kernel/fs/fat32.cpp
+          git rm .github/workflows/qualify-fat32-short-name-case.yml
+          git commit -m 'fs(fat32): preserve lowercase 8.3 names'
+          git push origin HEAD:gpt/road-to-15-consolidation
