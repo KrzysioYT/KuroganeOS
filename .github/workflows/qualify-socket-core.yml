@@ -1,0 +1,41 @@
+name: Qualify 3.5 Socket Core
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'kernel/net/socket.cpp'
+      - 'kernel/net/socket.hpp'
+      - 'tests/test_socket.cpp'
+      - '.github/workflows/qualify-socket-core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  socket-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build socket ownership test
+        run: |
+          mkdir -p build/tests/host
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_socket.cpp kernel/net/socket.cpp \
+            -o build/tests/host/test_socket
+
+      - name: Run socket ownership test
+        run: build/tests/host/test_socket
+
+      - name: Build release kernel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3
+          make CONFIG=release kernel
