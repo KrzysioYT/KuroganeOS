@@ -78,6 +78,42 @@ jobs:
               raise SystemExit(f'closeout init anchor count={text.count(anchor)}')
           init.write_text(text.replace(anchor, probes, 1))
 
+          runtime = Path('kernel/user/runtime_base.inc')
+          text = runtime.read_text()
+          anchor = (
+              'void finish_from_interrupt(\n'
+              '    Context& context,\n'
+              '    arch::x86_64::interrupts::InterruptFrame& frame,\n'
+              '    int32_t exit_code) {\n'
+              '    const uint64_t interrupt_flags = save_and_disable_interrupts();\n'
+          )
+          diagnostic = (
+              'void finish_from_interrupt(\n'
+              '    Context& context,\n'
+              '    arch::x86_64::interrupts::InterruptFrame& frame,\n'
+              '    int32_t exit_code) {\n'
+              '    threading::Stat exit_thread{};\n'
+              '    const threading::Status exit_stat_status =\n'
+              '        threading::stat(context.tid, &exit_thread);\n'
+              '    const uintptr_t saved_kernel_rsp =\n'
+              '        static_cast<uintptr_t>(context.return_state.kernel_rsp);\n'
+              '    uint64_t saved_return = 0U;\n'
+              '    if (exit_stat_status == threading::Status::Ok &&\n'
+              '        saved_kernel_rsp >= exit_thread.stack_bottom &&\n'
+              '        exit_thread.stack_top >= 7U * sizeof(uint64_t) &&\n'
+              '        saved_kernel_rsp <= exit_thread.stack_top - 7U * sizeof(uint64_t)) {\n'
+              '        saved_return = reinterpret_cast<const uint64_t*>(saved_kernel_rsp)[6];\n'
+              '    }\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "kernel_rsp=", saved_kernel_rsp);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "saved_return=", saved_return);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "stack_bottom=", exit_thread.stack_bottom);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "stack_top=", exit_thread.stack_top);\n'
+              '    const uint64_t interrupt_flags = save_and_disable_interrupts();\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'finish_from_interrupt anchor count={text.count(anchor)}')
+          runtime.write_text(text.replace(anchor, diagnostic, 1))
+
           panic = Path('kernel/diagnostics/panic.cpp')
           text = panic.read_text()
           decl = 'extern "C" unsigned char kernel_stack_top[];\n'
@@ -134,6 +170,7 @@ jobs:
           grep -F '=== KUROGANE_FATAL_BEGIN ===' build/closeout-panic.log
           grep -F 'KERNEL_LOAD_BASE=' build/closeout-panic.log
           grep -F 'RIP_NORMALIZED=' build/closeout-panic.log
+          grep -F '[INFO][EXIT-DIAG]' build/closeout-panic.log
 
       - name: Normalize and symbolize exact runtime RIP
         run: |
@@ -150,17 +187,22 @@ jobs:
             readelf -hW build/kernel.elf
             echo '=== PROGRAM HEADERS ==='
             readelf -lW build/kernel.elf
-            echo '=== SYMBOL ==='
-            addr2line -e build/kernel.elf -f -C -i "$normalized"
+            if [[ "$normalized" == 0x* ]]; then
+              echo '=== SYMBOL ==='
+              addr2line -e build/kernel.elf -f -C -i "$normalized"
+              echo '=== DISASSEMBLY +/- 64 ==='
+              start=$(( normalized - 64 ))
+              stop=$(( normalized + 65 ))
+              objdump -dC -S \
+                --start-address="$start" \
+                --stop-address="$stop" \
+                build/kernel.elf
+            else
+              echo '=== SYMBOL ==='
+              echo 'outside kernel PT_LOAD range; control-flow corruption'
+            fi
             echo '=== NEAREST SYMBOLS ==='
             nm -n -C build/kernel.elf
-            echo '=== DISASSEMBLY +/- 64 ==='
-            start=$(( normalized - 64 ))
-            stop=$(( normalized + 65 ))
-            objdump -dC -S \
-              --start-address="$start" \
-              --stop-address="$stop" \
-              build/kernel.elf
           } > build/rip-report.txt
           cat build/rip-report.txt
 
