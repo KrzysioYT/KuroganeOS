@@ -1,0 +1,161 @@
+name: Qualify account integration v3
+
+on:
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths: ['.github/workflows/account-integration-v3.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate account daemon and PID1 supervision
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "notifprobe|userspace/system/notification-probe/main.c|system/ntfprobe|c"\n'
+          addition = (
+              '    "accountd|userspace/system/accountd/main.c|system/accountd|c"\n'
+              '    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit('build anchor changed')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          define = '#define NOTIFICATION_SERVICE_PATH "/system/notifd"\n'
+          if text.count(define) != 1:
+              raise SystemExit('define anchor changed')
+          text = text.replace(define, define + '#define ACCOUNT_SERVICE_PATH "/system/accountd"\n', 1)
+
+          spawn = (
+              'static uint64_t spawn_notification_service(void) {\n'
+              '    const ku_result_t result = u_spawn(NOTIFICATION_SERVICE_PATH);\n'
+              '    return result > 0 ? (uint64_t)result : 0U;\n'
+              '}\n'
+          )
+          spawn_account = spawn + (
+              '\nstatic uint64_t spawn_account_service(void) {\n'
+              '    const ku_result_t result = u_spawn(ACCOUNT_SERVICE_PATH);\n'
+              '    return result > 0 ? (uint64_t)result : 0U;\n'
+              '}\n'
+          )
+          if text.count(spawn) != 1:
+              raise SystemExit('spawn anchor changed')
+          text = text.replace(spawn, spawn_account, 1)
+
+          startup = '    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n\n'
+          account_startup = startup + (
+              '    const uint64_t account_service_pid = spawn_account_service();\n'
+              '    if (account_service_pid == 0U) {\n'
+              '        (void)u_puts("init: cannot spawn /system/accountd\\n");\n'
+              '        (void)u_puts("[TEST] account_service_spawn: FAIL\\n");\n'
+              '        ku_exit(16);\n'
+              '    }\n'
+              '    (void)u_puts("[TEST] account_service_spawn: PASS\\n");\n'
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n\n'
+          )
+          if text.count(startup) != 1:
+              raise SystemExit('startup anchor changed')
+          text = text.replace(startup, account_startup, 1)
+
+          early = '    (void)u_puts("[TEST] notification_service_liveness: PASS\\n");\n\n'
+          account_early = early + (
+              '    service_status = 0;\n'
+              '    const ku_status_t account_early = ku_wait(account_service_pid, &service_status);\n'
+              '    if (account_early != KU_STATUS_WOULD_BLOCK) {\n'
+              '        (void)u_puts("[TEST] account_service_liveness: FAIL\\n");\n'
+              '        ku_exit(17);\n'
+              '    }\n'
+              '    (void)u_puts("[TEST] account_service_liveness: PASS\\n");\n\n'
+          )
+          if text.count(early) != 1:
+              raise SystemExit('early liveness anchor changed')
+          text = text.replace(early, account_early, 1)
+
+          session_wait = (
+              '        status = 0;\n'
+              '        const ku_status_t wait_status = ku_wait(session_pid, &status);'
+          )
+          supervision = (
+              '        service_status = 0;\n'
+              '        const ku_status_t account_wait = ku_wait(account_service_pid, &service_status);\n'
+              '        if (account_wait == KU_STATUS_OK || account_wait == KU_STATUS_NOT_FOUND) {\n'
+              '            (void)u_puts("init: account service terminated\\n");\n'
+              '            (void)u_puts("[TEST] account_service_liveness: FAIL\\n");\n'
+              '            ku_exit(18);\n'
+              '        }\n'
+              '        if (account_wait != KU_STATUS_WOULD_BLOCK) {\n'
+              '            (void)u_puts("init: account service supervision failed\\n");\n'
+              '            ku_exit(19);\n'
+              '        }\n\n'
+          ) + session_wait
+          if text.count(session_wait) != 1:
+              raise SystemExit(f'session wait anchor count={text.count(session_wait)}')
+          init.write_text(text.replace(session_wait, supervision, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'system/accountd' scripts/build-linux.sh
+          grep -F 'system/acctprb' scripts/build-linux.sh
+          grep -F 'account service terminated\n' userspace/system/init/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real account lookup lifecycle
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img --disk --require-marker '[TEST] account_service_roundtrip: PASS' --timeout 180
+
+      - name: Remove qualification-only probe
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          probe = (
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('probe stanza changed')
+          path.write_text(text.replace(probe, '', 1))
+
+      - name: Land qualified account integration
+        run: |
+          git rm -f .github/workflows/account-service-breakthrough.yml .github/workflows/account-service-v2.yml .github/workflows/account-integration.yml .github/workflows/account-integration-v3.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add scripts/build-linux.sh userspace/system/init/main.c
+          git commit -m 'service(account): integrate account daemon lifecycle'
+          git push origin HEAD:gpt/road-to-15-consolidation
