@@ -11,28 +11,28 @@ Progress is counted only from verifiable implementation and evidence: code, host
 
 Oracle VirtualBox host acceptance is `OPTIONAL / EXTERNAL VALIDATION`. It is not a Definition-of-Done item, a percentage input or a blocker for formal milestone progression. If an environment cannot be executed, its state stays external/unverified rather than being converted to PASS or FAIL.
 
+The compiled runtime version may remain `3.3.3-dev` while later engineering milestones are qualified. Roadmap qualification does not silently rewrite the version embedded in already-built media.
+
 ## Formal versioning model
 
-The Road to 15 has exactly these formal milestones:
-
-| Formal milestone | Generation / focus |
-|---|---|
-| `3.3.3-dev` | Red Flux |
-| `3.4.0-dev` | System Services |
-| `3.5.0-dev` | Connected Userspace |
-| `3.6.0-dev` | Flux Stabilization |
-| `4.0.0-dev` | Pre-Steel |
-| `5.0.0-dev` | Steel / Hardware |
-| `6.0.0-dev` | Core Steel |
-| `7.0.0-dev` | Iron Shield |
-| `8.0.0-dev` | Connected Steel |
-| `9.0.0-dev` | Forge Graphics |
-| `10.0.0-dev` | Steel Applications |
-| `11.0.0-dev` | Anvil |
-| `12.0.0-dev` | Platform / Web |
-| `13.0.0-dev` | Forge Design |
-| `14.0.0-rc` | Forge Desktop / release candidate |
-| `15.0.0` | STABLE |
+| Formal milestone | Generation / focus | Current state |
+|---|---|---|
+| `3.3.3-dev` | Red Flux | QUALIFIED |
+| `3.4.0-dev` | System Services | QUALIFIED |
+| `3.5.0-dev` | Connected Userspace | ACTIVE |
+| `3.6.0-dev` | Flux Stabilization | PENDING |
+| `4.0.0-dev` | Pre-Steel | PENDING |
+| `5.0.0-dev` | Steel / Hardware | PENDING |
+| `6.0.0-dev` | Core Steel | PENDING |
+| `7.0.0-dev` | Iron Shield | PENDING |
+| `8.0.0-dev` | Connected Steel | PENDING |
+| `9.0.0-dev` | Forge Graphics | PENDING |
+| `10.0.0-dev` | Steel Applications | PENDING |
+| `11.0.0-dev` | Anvil | PENDING |
+| `12.0.0-dev` | Platform / Web | PENDING |
+| `13.0.0-dev` | Forge Design | PENDING |
+| `14.0.0-rc` | Forge Desktop / release candidate | PENDING |
+| `15.0.0` | STABLE | FINAL TARGET |
 
 Names such as `3.3.5`, `3.3.9` or `3.4.1` may remain in branch/history names as **internal development workstreams only**. They are not separate formal product versions or release gates.
 
@@ -40,41 +40,87 @@ Names such as `3.3.5`, `3.3.9` or `3.4.1` may remain in branch/history names as 
 
 Status: **QUALIFIED (scoped DEV milestone)**.
 
-Historical workstreams folded into 3.3.3-dev:
-- installer reliability and persistent profile/locale state;
-- network stabilization;
-- TLS foundation and real HTTPS qualification;
-- userspace I/O and resource ownership cleanup;
-- closeout/regression;
-- VirtualBox harness work retained as optional external compatibility tooling.
-
 Red Flux DoD covers UEFI/OVMF boot, Try/install media, persistent FAT32 root, recoverable installer state, Ring-3 ELF64/syscalls, bounded filesystem I/O, IPv4/DHCP/DNS/TCP, real TLS/HTTPS, Red Flux login/desktop, bounded AC'97 PCM, GOP/software graphics and full closeout regression.
+
+The reopened Kurogane Fatal Diagnostic MUST HAVE is also qualified. It remains kernel-owned, heap-independent after the fatal transition, userspace/PNG-independent, with real exception/register/process state, bounded kernel event history, serial mirror and nested fallback. Actions run `33315953767` passed after the 3.4 runtime stack fix, proving that System Services work did not regress this Red Flux release gate.
 
 Hardware 3D, HDA/mixer service, SMP, NVMe parity, final security isolation, updater/recovery and package infrastructure belong to later formal milestones and do not reduce Red Flux completion.
 
 ## 3.4.0-dev — System Services
 
-Status: **IN DEVELOPMENT**.
+Status: **QUALIFIED**.
 
-Scope:
-- Service Core: registration/unregister, discovery/lookup, PID ownership, unique names, lifecycle/state, metadata and version negotiation;
-- service-oriented IPC: request/reply, async messages, endpoint discovery, lifecycle and truthful failure propagation;
-- Event Broker: subscriptions/unsubscribe, dispatch, waitable events, async delivery, ownership and cleanup;
-- Settings Service: persistent per-user/system settings, read/write and change notifications;
-- Notification Service: app/system notifications, type/priority metadata and lifecycle;
-- Account Service: account lookup/profile/identity and public API;
-- Session Service: login/session creation/ownership/termination, Home and app association;
-- clean public filesystem service API for stat/readdir/create/unlink/rename/mkdir/rmdir;
-- clipboard and desktop-neutral services;
-- service crash detection, stale cleanup, restart/recovery foundation and stress tests;
-- SDK: `service.h`, `event_broker.h`, helpers, stable contracts, examples and docs;
-- full host/ABI/SDK/Ring-3/IPC/event/media/OVMF/QEMU qualification.
+Completed scope:
+- named IPC registration, unregister, discovery and endpoint lookup;
+- PID ownership, generation-safe handles and process-exit cleanup;
+- service metadata and version negotiation;
+- Event Broker subscribe/unsubscribe/publish/wait/wakeup integrated with Ring-3 scheduling;
+- typed persistent Settings Service and change notifications;
+- Notification Service lifecycle/roundtrip/liveness;
+- Account Service lifecycle/roundtrip/liveness;
+- Session Service ownership, Login integration, roundtrip/liveness;
+- Clipboard Service bounded state, ownership, lifecycle and recovery;
+- public persistent FAT32/VFS filesystem API;
+- stale endpoint protection and service restart/rebind foundation;
+- 256-iteration service-channel churn qualification;
+- host/kernel/VFS/IPC/TCP/SDK regression;
+- clean release media and OVMF/QEMU combined-runtime qualification.
 
-Current priority: Event Broker real Ring-3 roundtrip. Service Architecture base is already qualified; Event Broker remains NOT QUALIFIED until the current runtime failure is fixed and rerun.
+### 3.4 root-cause closure
+
+The historical `fsprobe` closeout panic was caused by kernel stack ownership, not by filesystem data corruption or a deliberate kernel `ud2`. The fatal `RIP=0xA3C01` was outside the loaded PIE kernel. Diagnostics resolved the expected saved return to normalized `0x4A678`, immediately after `x86_64_enter_user` in `user::runtime::run()`, and proved that the saved return had been overwritten to zero after the deep FAT32 probe.
+
+Commit `66fffaf225447261abc264500d5cf6f36165e7b9` restores the invariant by enlarging the per-thread kernel stack to 96 KiB and separating a 64 KiB Ring-3 syscall/IRQ entry area from the retained 32 KiB suspended launch chain.
+
+A later closeout timeout was a test-harness process-table overcommit. Commit `76ac39e4421a1ae0ba720f46b040de10cf9e2096` serializes and reaps the real one-shot probes while retaining bounded `MAX_PROCESSES=16` / `MAX_THREADS=16` production limits and the full required marker contract.
+
+Authoritative evidence:
+- Event Broker: `33315953868` PASS;
+- Settings persistence: `33315953774` PASS;
+- Notification lifecycle: `33315953760` PASS;
+- Fatal Diagnostic regression: `33315953767` PASS;
+- combined System Services closeout: `33317140601` PASS;
+- full 3.4 regression sweep: `33317520153` PASS.
+
+No known 3.4 blocker remains after the combined closeout and regression sweep.
 
 ## 3.5.0-dev — Connected Userspace
 
-Public socket ABI, async UDP/TCP/DNS, network status/events, userspace TLS/HTTPS, async audio service, application registry/manifests and connected-userspace regression.
+Status: **ACTIVE**.
+
+Preserve existing IPv4, DHCP, DNS, TCP, TLS/HTTPS, Ring-3 runtime, Event Broker and scheduler wait/wakeup foundations. The public DNS A-resolution ABI is already implemented and is the first Connected Userspace component; networking is not to be recreated from scratch.
+
+### Work order
+
+1. **Public process-owned socket ABI**
+   - bounded socket table;
+   - generation-safe socket handles;
+   - explicit PID ownership;
+   - typed socket type/protocol/status contracts;
+   - `socket()` and `close()`;
+   - deterministic `release_process(pid)` cleanup.
+2. **Endpoint and transport operations**
+   - `bind()`;
+   - `connect()`;
+   - `send()`;
+   - `recv()`;
+   - real passive TCP implementation before `listen()` / `accept()` can be claimed.
+3. **Asynchronous UDP**
+   - endpoint demultiplexing;
+   - bounded datagram receive queues;
+   - Event Broker / waitable readiness;
+   - no permanent busy-loop polling.
+4. **Asynchronous TCP**
+   - process-owned connection state;
+   - bounded send/receive state;
+   - wait/wakeup for connect/read/write/close transitions.
+5. DNS Service integration and network status/events.
+6. Userspace TLS ownership and userspace HTTPS API.
+7. Async Audio Service.
+8. App Registry and application manifests.
+9. Connected-userspace regression and failure/recovery qualification.
+
+Every socket/process exit path must release sockets, pending receives/sends, subscriptions, buffers and associated handles. A stale handle may never accidentally identify a newly-created socket.
 
 ## 3.6.0-dev — Flux Stabilization
 
@@ -86,7 +132,9 @@ Device Model 2.0, Driver Manager 2.0, kernel/driver boundaries, userspace/device
 
 ## 5.0.0-dev — Steel / Hardware
 
-PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, SMP/per-CPU state, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
+PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
+
+SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
 
 ## 6.0.0-dev — Core Steel
 
@@ -98,7 +146,7 @@ Security architecture, user/kernel memory validation, process isolation, users/g
 
 ## 8.0.0-dev — Connected Steel
 
-Network Service 2.0, async sockets, IPv4 hardening, IPv6, DHCP/DNS service, routing/configuration, TLS 1.3, CA store/certificate validation, HTTPS API and firewall foundation.
+Network Service 2.0, async sockets hardening, IPv4 hardening, IPv6, DHCP/DNS service, routing/configuration, TLS 1.3, CA store/certificate validation, HTTPS API and firewall foundation.
 
 ## 9.0.0-dev — Forge Graphics
 
