@@ -580,6 +580,9 @@ void finish_from_interrupt(
     Context& context,
     arch::x86_64::interrupts::InterruptFrame& frame,
     int32_t exit_code) {
+    const uint64_t interrupt_flags = save_and_disable_interrupts();
+    const threading::Status retirement_status =
+        threading::retire_current_user_frame();
     context.result.exit_code = exit_code;
     context.active = false;
     frame.rip = reinterpret_cast<uint64_t>(&x86_64_interrupt_return_to_kernel);
@@ -588,6 +591,13 @@ void finish_from_interrupt(
     frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
     frame.rflags = UINT64_C(0x2);
     frame.rdi = context.return_state.kernel_rflags;
+    restore_interrupts(interrupt_flags);
+    if (retirement_status != threading::Status::Ok) {
+        log::write(
+            log::Level::Error,
+            "RUNTIME",
+            threading::status_message(retirement_status));
+    }
 }
 
 void syscall_handler(

@@ -779,6 +779,30 @@ uint64_t current_process() {
         : g_slots[g_current].process_id;
 }
 
+Status retire_current_user_frame() {
+    if (!g_initialized) return Status::NotInitialized;
+    const uint64_t flags = save_and_disable_interrupts();
+    if (g_current == kInvalidSlot || !g_run_active) {
+        restore_interrupts(flags);
+        return Status::NotRunning;
+    }
+    Slot& slot = g_slots[g_current];
+    if (slot.process_id == 0U || slot.state != State::Running) {
+        restore_interrupts(flags);
+        return Status::CorruptContext;
+    }
+
+    // Once userspace has committed to SYS_EXIT, no scheduler path may retain
+    // a resumable frame for that address space. The current interrupt frame
+    // is rewritten to a CPL0 trampoline by runtime::finish_from_interrupt;
+    // this clears only the older scheduler-owned resume pointer.
+    slot.interrupt_frame = nullptr;
+    slot.wake_tick = 0U;
+    slot.yield_requested = false;
+    restore_interrupts(flags);
+    return Status::Ok;
+}
+
 Status bind_address_space(
     memory::kernel_virtual_memory::OwnedAddressSpace* address_space,
     uintptr_t user_stack) {

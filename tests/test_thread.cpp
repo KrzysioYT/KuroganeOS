@@ -23,6 +23,7 @@ char trace[8]{};
 size_t trace_size = 0;
 uintptr_t stack_a = 0;
 uintptr_t stack_b = 0;
+bool process_retired = false;
 
 void append(char value) {
     trace[trace_size++] = value;
@@ -42,6 +43,12 @@ void second(void*) {
     append('B');
     assert(threading::yield() == threading::Status::Ok);
     append('D');
+}
+
+void process_retire_probe(void*) {
+    assert(threading::current_process() == UINT64_C(42));
+    assert(threading::retire_current_user_frame() == threading::Status::Ok);
+    process_retired = true;
 }
 
 } // namespace
@@ -73,5 +80,15 @@ int main() {
     assert(stack_b >= second_stat.stack_bottom && stack_b < second_stat.stack_top);
     assert(stack_a != stack_b);
     assert(threading::current() == threading::INVALID_THREAD_ID);
+    assert(threading::retire_current_user_frame() == threading::Status::NotRunning);
+
+    threading::ThreadId process_id = 0;
+    assert(threading::create_for_process(
+               "retire-probe", process_retire_probe, nullptr, UINT64_C(42), 0U,
+               &process_id) == threading::Status::Ok);
+    threading::RunResult process_result{};
+    assert(threading::run_until_idle(8, &process_result) == threading::Status::Ok);
+    assert(process_result.completed == 1U);
+    assert(process_retired);
     return 0;
 }

@@ -116,6 +116,10 @@ uint64_t current_process();
 Status bind_address_space(
     memory::kernel_virtual_memory::OwnedAddressSpace* address_space,
     uintptr_t user_stack = 0U);
+// Atomically retires the saved resumable Ring-3 frame for the currently
+// running process thread. Used when SYS_EXIT commits to kernel teardown so a
+// stale user frame can never be selected after its runtime Context is gone.
+Status retire_current_user_frame();
 Status request_yield();
 Status sleep_current(uint64_t timer_ticks);
 uint64_t timer_ticks();
