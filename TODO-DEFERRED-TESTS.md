@@ -16,6 +16,9 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Application registry regressions: manifest discovery, malformed manifest rejection, duplicate IDs, bounded capacity, lookup/index/count IPC, supervisor restart.
 - Async Audio Service regressions: multi-client open/submit/gain/close, bounded queue backpressure, PCM saturation mixing, disconnect cleanup, AC97 busy/error recovery, PID1 supervisor restart.
 
+## 3.6 Flux Stabilization
+- Damage-region regressions: bounded region capacity/fallback-to-full, clipping/overflow edges, overlap merge, per-window UI_PRESENT invalidation, minimized-window silence, full redraw on geometry/z-order changes, partial GOP span presentation and cursor interaction.
+
 ## 4.0 KuroFS deferred tests
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 

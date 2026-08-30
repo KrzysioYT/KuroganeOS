@@ -1104,7 +1104,7 @@ void syscall_handler(
             context->ui.frame = *user_frame;
             system_metrics::record_graphics_work(
                 UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
-            windowing::invalidate();
+            windowing::invalidate_window(context->ui.window);
             frame.rax = KU_STATUS_OK;
             return;
         }

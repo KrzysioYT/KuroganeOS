@@ -9,6 +9,13 @@ namespace graphics {
 
 using Color = uint32_t;
 
+struct DamageRect {
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+};
+
 constexpr Color rgb(uint8_t red, uint8_t green, uint8_t blue) {
     return (static_cast<Color>(red) << 16) |
            (static_cast<Color>(green) << 8) |
@@ -27,6 +34,7 @@ uint32_t height();
 // Oversized modes safely keep the existing direct-render path.
 bool begin_frame();
 void end_frame();
+void end_frame_regions(const DamageRect* regions, size_t count);
 bool frame_active();
 
 // All primitive drawing honors the current clip. WindowManager uses this to

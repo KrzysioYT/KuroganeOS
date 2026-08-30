@@ -9,6 +9,7 @@
 namespace windowing {
 
 constexpr size_t MAX_WINDOWS = 12U;
+constexpr size_t MAX_DAMAGE_REGIONS = 16U;
 using WindowId = uint32_t;
 constexpr WindowId INVALID_WINDOW = 0U;
 
@@ -96,6 +97,8 @@ Status desktop_pin(
     bool* out_pinned);
 
 void invalidate();
+void invalidate_window(WindowId id);
+void invalidate_region(const ui::Rect& region);
 bool render_if_needed();
 size_t window_count();
 WindowId focused_window();

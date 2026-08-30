@@ -42,6 +42,7 @@ constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
+    Regions,
     Full,
 };
 
@@ -85,6 +86,8 @@ WindowId g_resized = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
+ui::Rect g_damage_regions[MAX_DAMAGE_REGIONS]{};
+size_t g_damage_count = 0U;
 bool g_initialized = false;
 #ifndef KUROGANE_HOST_TEST
 process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
@@ -98,6 +101,7 @@ int32_t g_cursor_y = 0;
 
 void mark_full_dirty() {
     g_dirty = DirtyMode::Full;
+    g_damage_count = 0U;
 }
 
 size_t text_length(const char* text, size_t maximum) {
@@ -224,6 +228,80 @@ bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
     return x >= rectangle.x && y >= rectangle.y &&
         x < rectangle.x + rectangle.width &&
         y < rectangle.y + rectangle.height;
+}
+
+
+ui::Rect clip_damage_region(const ui::Rect& input) {
+    if (input.width <= 0 || input.height <= 0 ||
+        g_screen_width <= 0 || g_screen_height <= 0) return {};
+    int64_t left = input.x;
+    int64_t top = input.y;
+    int64_t right = static_cast<int64_t>(input.x) + input.width;
+    int64_t bottom = static_cast<int64_t>(input.y) + input.height;
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > g_screen_width) right = g_screen_width;
+    if (bottom > g_screen_height) bottom = g_screen_height;
+    if (left >= right || top >= bottom) return {};
+    return {
+        static_cast<int32_t>(left),
+        static_cast<int32_t>(top),
+        static_cast<int32_t>(right - left),
+        static_cast<int32_t>(bottom - top),
+    };
+}
+
+bool damage_regions_touch(const ui::Rect& left, const ui::Rect& right) {
+    const int64_t left_right = static_cast<int64_t>(left.x) + left.width;
+    const int64_t left_bottom = static_cast<int64_t>(left.y) + left.height;
+    const int64_t right_right = static_cast<int64_t>(right.x) + right.width;
+    const int64_t right_bottom = static_cast<int64_t>(right.y) + right.height;
+    return static_cast<int64_t>(left.x) <= right_right &&
+        static_cast<int64_t>(right.x) <= left_right &&
+        static_cast<int64_t>(left.y) <= right_bottom &&
+        static_cast<int64_t>(right.y) <= left_bottom;
+}
+
+ui::Rect unite_damage_regions(const ui::Rect& left, const ui::Rect& right) {
+    const int64_t x1 = left.x < right.x ? left.x : right.x;
+    const int64_t y1 = left.y < right.y ? left.y : right.y;
+    const int64_t left_right = static_cast<int64_t>(left.x) + left.width;
+    const int64_t right_right = static_cast<int64_t>(right.x) + right.width;
+    const int64_t left_bottom = static_cast<int64_t>(left.y) + left.height;
+    const int64_t right_bottom = static_cast<int64_t>(right.y) + right.height;
+    const int64_t x2 = left_right > right_right ? left_right : right_right;
+    const int64_t y2 = left_bottom > right_bottom ? left_bottom : right_bottom;
+    return {
+        static_cast<int32_t>(x1), static_cast<int32_t>(y1),
+        static_cast<int32_t>(x2 - x1), static_cast<int32_t>(y2 - y1),
+    };
+}
+
+void add_damage_region(const ui::Rect& requested) {
+    if (!g_initialized || g_dirty == DirtyMode::Full) return;
+    ui::Rect region = clip_damage_region(requested);
+    if (region.width <= 0 || region.height <= 0) return;
+
+    size_t index = 0U;
+    while (index < g_damage_count) {
+        if (!damage_regions_touch(region, g_damage_regions[index])) {
+            ++index;
+            continue;
+        }
+        region = unite_damage_regions(region, g_damage_regions[index]);
+        for (size_t move = index + 1U; move < g_damage_count; ++move) {
+            g_damage_regions[move - 1U] = g_damage_regions[move];
+        }
+        --g_damage_count;
+        index = 0U;
+    }
+
+    if (g_damage_count >= MAX_DAMAGE_REGIONS) {
+        mark_full_dirty();
+        return;
+    }
+    g_damage_regions[g_damage_count++] = region;
+    g_dirty = DirtyMode::Regions;
 }
 
 int32_t pinned_section_width() {
@@ -1077,16 +1155,48 @@ void invalidate() {
     mark_full_dirty();
 }
 
+void invalidate_window(WindowId id) {
+    if (!g_initialized) return;
+    Slot* slot = find(id);
+    if (slot == nullptr || !slot->occupied ||
+        slot->info.state == WindowState::Minimized) return;
+    add_damage_region(slot->info.bounds);
+}
+
+void invalidate_region(const ui::Rect& region) {
+    add_damage_region(region);
+}
+
 bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
+    const DirtyMode pending_mode = g_dirty;
+    const size_t pending_count = g_damage_count;
+    ui::Rect pending[MAX_DAMAGE_REGIONS]{};
+    for (size_t index = 0U; index < pending_count; ++index) {
+        pending[index] = g_damage_regions[index];
+    }
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
     const bool buffered = graphics::begin_frame();
     render_layers();
-    if (buffered) graphics::end_frame();
+    if (buffered) {
+        if (pending_mode == DirtyMode::Full || pending_count == 0U) {
+            graphics::end_frame();
+        } else {
+            graphics::DamageRect regions[MAX_DAMAGE_REGIONS]{};
+            for (size_t index = 0U; index < pending_count; ++index) {
+                regions[index] = {
+                    pending[index].x, pending[index].y,
+                    pending[index].width, pending[index].height,
+                };
+            }
+            graphics::end_frame_regions(regions, pending_count);
+        }
+    }
     show_cursor(input::pointer_x(), input::pointer_y());
 #endif
     g_dirty = DirtyMode::None;
+    g_damage_count = 0U;
     return true;
 }
 

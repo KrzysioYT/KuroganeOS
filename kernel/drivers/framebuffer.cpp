@@ -201,47 +201,71 @@ bool begin_frame() {
     return true;
 }
 
-void end_frame() {
+void end_frame_regions(const DamageRect* regions, size_t count) {
     if (!g_available || !g_frame_active) return;
 
-    // Present only changed spans instead of copying the complete GOP frame on
-    // every userspace UI update. Animated widgets such as System Monitor's
-    // heartbeat used to force a full-screen row-by-row scanout once per
-    // sample, which is visibly expensive under QEMU/TCG and can look like a
-    // desktop flash. The compositor still renders a complete frame into the
-    // software backbuffer, but GOP receives only pixels that actually differ.
-    auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
-    const uint32_t frame_width = g_framebuffer.width;
-    for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
-        auto* destination_row = reinterpret_cast<uint32_t*>(
-            framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
-        const auto* source_row = g_backbuffer +
-            static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+    if (regions != nullptr) {
+        auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
+        const uint32_t frame_width = g_framebuffer.width;
+        const uint32_t frame_height = g_framebuffer.height;
+        for (size_t region_index = 0U; region_index < count; ++region_index) {
+            const DamageRect& region = regions[region_index];
+            if (region.width <= 0 || region.height <= 0) continue;
+            int64_t left = region.x;
+            int64_t top = region.y;
+            int64_t right = static_cast<int64_t>(region.x) + region.width;
+            int64_t bottom = static_cast<int64_t>(region.y) + region.height;
+            if (left < 0) left = 0;
+            if (top < 0) top = 0;
+            if (right > frame_width) right = frame_width;
+            if (bottom > frame_height) bottom = frame_height;
+            if (left >= right || top >= bottom) continue;
 
-        uint32_t first_changed = 0U;
-        while (first_changed < frame_width &&
-               destination_row[first_changed] == source_row[first_changed]) {
-            ++first_changed;
+            const uint32_t x_begin = static_cast<uint32_t>(left);
+            const uint32_t x_end = static_cast<uint32_t>(right);
+            for (uint32_t y = static_cast<uint32_t>(top);
+                 y < static_cast<uint32_t>(bottom); ++y) {
+                auto* destination_row = reinterpret_cast<uint32_t*>(
+                    framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
+                const auto* source_row = g_backbuffer +
+                    static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+
+                uint32_t first_changed = x_begin;
+                while (first_changed < x_end &&
+                       destination_row[first_changed] == source_row[first_changed]) {
+                    ++first_changed;
+                }
+                if (first_changed == x_end) continue;
+
+                uint32_t last_changed = x_end;
+                while (last_changed > first_changed &&
+                       destination_row[last_changed - 1U] ==
+                           source_row[last_changed - 1U]) {
+                    --last_changed;
+                }
+                const size_t changed_pixels = static_cast<size_t>(
+                    last_changed - first_changed);
+                memcpy(
+                    destination_row + first_changed,
+                    source_row + first_changed,
+                    changed_pixels * sizeof(uint32_t));
+            }
         }
-        if (first_changed == frame_width) continue;
-
-        uint32_t last_changed = frame_width;
-        while (last_changed > first_changed &&
-               destination_row[last_changed - 1U] ==
-                   source_row[last_changed - 1U]) {
-            --last_changed;
-        }
-
-        const size_t changed_pixels = static_cast<size_t>(
-            last_changed - first_changed);
-        memcpy(
-            destination_row + first_changed,
-            source_row + first_changed,
-            changed_pixels * sizeof(uint32_t));
     }
+
     g_frame_active = false;
     reset_clip();
     reset_text_scale_limit();
+}
+
+void end_frame() {
+    if (!g_available || !g_frame_active) return;
+    const DamageRect full = {
+        0, 0,
+        static_cast<int32_t>(g_framebuffer.width),
+        static_cast<int32_t>(g_framebuffer.height),
+    };
+    end_frame_regions(&full, 1U);
 }
 
 bool frame_active() { return g_frame_active; }
