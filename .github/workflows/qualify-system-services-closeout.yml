@@ -109,13 +109,26 @@ jobs:
         run: |
           echo '[closeout] address mapping for RIP 0x00000000000A3C01'
           addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01 || true
-          nm -n -C build/kernel.elf | awk '
-            BEGIN { target=strtonum("0xA3C01"); previous="" }
-            /^[0-9a-fA-F]+ [tT] / {
-              address=strtonum("0x" $1)
-              if (address <= target) previous=$0
-              else { print "previous:", previous; print "next:", $0; exit }
-            }'
+          nm -n -C build/kernel.elf > build/kernel.nm
+          python3 - <<'PY'
+          target = 0xA3C01
+          previous = None
+          with open('build/kernel.nm', encoding='utf-8', errors='replace') as handle:
+              for raw in handle:
+                  fields = raw.strip().split(maxsplit=2)
+                  if len(fields) < 3 or fields[1] not in ('t', 'T'):
+                      continue
+                  try:
+                      address = int(fields[0], 16)
+                  except ValueError:
+                      continue
+                  if address <= target:
+                      previous = raw.rstrip()
+                      continue
+                  print('previous:', previous or '<none>')
+                  print('next:', raw.rstrip())
+                  break
+          PY
           grep -i -B3 -A3 '00000000000a3c' build/kernel.map || true
 
       - name: Require combined 3.4 Ring-3 service contract
