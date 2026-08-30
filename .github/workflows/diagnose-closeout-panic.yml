@@ -22,6 +22,13 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            mtools dosfstools gdisk xorriso
+
       - name: Build exact release kernel
         run: |
           chmod +x scripts/*.sh
@@ -30,8 +37,14 @@ jobs:
 
       - name: Resolve RIP 0xA3C01
         run: |
-          echo '=== ADDR2LINE ==='
-          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01
+          echo '=== ELF HEADER ==='
+          readelf -h build/kernel.elf
+          echo '=== PROGRAM HEADERS ==='
+          readelf -lW build/kernel.elf
+          echo '=== SECTIONS ==='
+          readelf -SW build/kernel.elf
+          echo '=== ADDR2LINE (RAW RUNTIME RIP; NOT AUTHORITATIVE FOR PIE) ==='
+          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01 || true
           echo '=== NEAREST SYMBOLS ==='
           nm -n -C build/kernel.elf > build/kernel.nm
           python3 - <<'PY'
@@ -60,8 +73,8 @@ jobs:
           print('after:')
           print('\n'.join(after))
           PY
-          echo '=== DISASSEMBLY WINDOW ==='
+          echo '=== RAW DISASSEMBLY WINDOW (RUNTIME RIP; PIE NORMALIZATION REQUIRED) ==='
           objdump -d -C \
             --start-address=0xA3BC0 \
             --stop-address=0xA3C50 \
-            build/kernel.elf
+            build/kernel.elf || true
