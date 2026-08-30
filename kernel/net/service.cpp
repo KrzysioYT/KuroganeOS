@@ -438,6 +438,45 @@ Status socket_take_udp(UdpDatagram* datagram) {
     return net::take_udp_datagram(&g_stack, datagram);
 }
 
+Status socket_tcp_begin_connect(
+    tcp_client::Client* client,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t initial_sequence) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::begin_connect(
+        client, &g_stack, destination, source_port, destination_port, initial_sequence);
+}
+
+Status socket_tcp_progress(tcp_client::Client* client) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::progress(client);
+}
+
+Status socket_tcp_try_send(
+    tcp_client::Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::try_send(client, data, length, out_sent);
+}
+
+Status socket_tcp_try_receive(
+    tcp_client::Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::try_receive(client, output, output_capacity, out_length);
+}
+
+Status socket_tcp_begin_close(tcp_client::Client* client) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::begin_close(client);
+}
+
 Status ping_loopback(uint16_t sequence, PingReply* reply) {
     if (!g_ready) return Status::NotInitialized;
     Status status = send_ping(

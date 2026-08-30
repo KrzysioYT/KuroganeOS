@@ -20,15 +20,23 @@ struct Slot {
     size_t rx_head;
     size_t rx_tail;
     size_t rx_count;
+    size_t tcp_session;
     bool active;
     bool bound;
     bool connected;
 };
 
+struct TcpSession {
+    tcp_client::Client client;
+    bool active;
+};
+
 Backend g_backend{};
 Slot g_slots[MAX_SOCKETS]{};
+TcpSession g_tcp_sessions[MAX_TCP_SESSIONS]{};
 bool g_initialized = false;
 uint16_t g_next_ephemeral = EPHEMERAL_PORT_FIRST;
+uint32_t g_next_tcp_sequence = UINT32_C(0x4b550001);
 
 bool address_equal(const IPv4Address& left, const IPv4Address& right) {
     for (size_t index = 0U; index < IPV4_ADDRESS_LENGTH; ++index) {
@@ -84,10 +92,20 @@ Slot* resolve(ProcessId owner, Handle handle, Status* failure) {
     return &slot;
 }
 
+void release_tcp_session(Slot& slot) {
+    if (slot.tcp_session >= MAX_TCP_SESSIONS) return;
+    TcpSession& session = g_tcp_sessions[slot.tcp_session];
+    tcp_client::initialize(&session.client);
+    session = {};
+    slot.tcp_session = MAX_TCP_SESSIONS;
+}
+
 void clear_slot(Slot& slot) {
+    release_tcp_session(slot);
     const uint32_t generation = slot.generation;
     slot = {};
     slot.generation = generation;
+    slot.tcp_session = MAX_TCP_SESSIONS;
 }
 
 bool endpoints_overlap(const Endpoint& left, const Endpoint& right) {
@@ -96,15 +114,22 @@ bool endpoints_overlap(const Endpoint& left, const Endpoint& right) {
         address_equal(left.address, right.address);
 }
 
-bool endpoint_in_use(const Endpoint& endpoint, const Slot* ignored = nullptr) {
+bool endpoint_in_use(
+    const Endpoint& endpoint,
+    Protocol protocol,
+    const Slot* ignored = nullptr) {
     for (const Slot& slot : g_slots) {
-        if (!slot.active || !slot.bound || &slot == ignored) continue;
+        if (!slot.active || !slot.bound || &slot == ignored ||
+            slot.protocol != protocol) {
+            continue;
+        }
         if (endpoints_overlap(slot.local, endpoint)) return true;
     }
     return false;
 }
 
 uint16_t allocate_ephemeral_port(const Slot* ignored) {
+    if (ignored == nullptr) return 0U;
     constexpr uint32_t range = UINT32_C(65536) - EPHEMERAL_PORT_FIRST;
     for (uint32_t attempt = 0U; attempt < range; ++attempt) {
         const uint16_t candidate = g_next_ephemeral;
@@ -113,9 +138,30 @@ uint16_t allocate_ephemeral_port(const Slot* ignored) {
             g_next_ephemeral = EPHEMERAL_PORT_FIRST;
         }
         Endpoint endpoint{{{0U, 0U, 0U, 0U}}, candidate};
-        if (!endpoint_in_use(endpoint, ignored)) return candidate;
+        if (!endpoint_in_use(endpoint, ignored->protocol, ignored)) return candidate;
     }
     return 0U;
+}
+
+uint32_t next_tcp_initial_sequence() {
+    const uint32_t result = g_next_tcp_sequence;
+    g_next_tcp_sequence += UINT32_C(0x00010001);
+    if (g_next_tcp_sequence == 0U) g_next_tcp_sequence = UINT32_C(0x4b550001);
+    return result;
+}
+
+TcpSession* reserve_tcp_session(size_t* out_index) {
+    if (out_index != nullptr) *out_index = MAX_TCP_SESSIONS;
+    for (size_t index = 0U; index < MAX_TCP_SESSIONS; ++index) {
+        TcpSession& session = g_tcp_sessions[index];
+        if (session.active) continue;
+        session = {};
+        session.active = true;
+        tcp_client::initialize(&session.client);
+        if (out_index != nullptr) *out_index = index;
+        return &session;
+    }
+    return nullptr;
 }
 
 Status transport_status(net::Status status) {
@@ -218,12 +264,19 @@ Status send_loopback(const Slot& sender, const uint8_t* payload, size_t size) {
 Status initialize(const Backend& backend) {
     if (g_initialized) return Status::AlreadyInitialized;
     if (backend.send_udp == nullptr || backend.poll == nullptr ||
-        backend.take_udp == nullptr) {
+        backend.take_udp == nullptr || backend.tcp_begin_connect == nullptr ||
+        backend.tcp_progress == nullptr || backend.tcp_try_send == nullptr ||
+        backend.tcp_try_receive == nullptr || backend.tcp_begin_close == nullptr) {
         return Status::InvalidArgument;
     }
-    for (Slot& slot : g_slots) slot = {};
+    for (Slot& slot : g_slots) {
+        slot = {};
+        slot.tcp_session = MAX_TCP_SESSIONS;
+    }
+    for (TcpSession& session : g_tcp_sessions) session = {};
     g_backend = backend;
     g_next_ephemeral = EPHEMERAL_PORT_FIRST;
+    g_next_tcp_sequence = UINT32_C(0x4b550001);
     g_initialized = true;
     return Status::Ok;
 }
@@ -238,9 +291,9 @@ Status create(
     if (output != nullptr) *output = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (owner == 0U || output == nullptr) return Status::InvalidArgument;
-    if (type != Type::Datagram || protocol != Protocol::Udp) {
-        return Status::NotSupported;
-    }
+    const bool udp = type == Type::Datagram && protocol == Protocol::Udp;
+    const bool tcp = type == Type::Stream && protocol == Protocol::Tcp;
+    if (!udp && !tcp) return Status::NotSupported;
     for (size_t index = 0U; index < MAX_SOCKETS; ++index) {
         Slot& slot = g_slots[index];
         if (slot.active) continue;
@@ -252,6 +305,7 @@ Status create(
         slot.owner = owner;
         slot.type = type;
         slot.protocol = protocol;
+        slot.tcp_session = MAX_TCP_SESSIONS;
         slot.active = true;
         *output = encode_handle(index, generation);
         return Status::Ok;
@@ -265,7 +319,7 @@ Status bind(ProcessId owner, Handle handle, const Endpoint& endpoint) {
     Status failure = Status::Ok;
     Slot* slot = resolve(owner, handle, &failure);
     if (slot == nullptr) return failure;
-    if (endpoint_in_use(endpoint, slot)) return Status::AddressInUse;
+    if (endpoint_in_use(endpoint, slot->protocol, slot)) return Status::AddressInUse;
     slot->local = endpoint;
     slot->bound = true;
     return Status::Ok;
@@ -285,34 +339,106 @@ Status connect(ProcessId owner, Handle handle, const Endpoint& endpoint) {
         slot->local = {{{0U, 0U, 0U, 0U}}, port};
         slot->bound = true;
     }
+
+    if (slot->protocol == Protocol::Udp && slot->type == Type::Datagram) {
+        slot->remote = endpoint;
+        slot->connected = true;
+        return Status::Ok;
+    }
+    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream) {
+        return Status::NotSupported;
+    }
+
+    if (slot->tcp_session < MAX_TCP_SESSIONS) {
+        if (!address_equal(slot->remote.address, endpoint.address) ||
+            slot->remote.port != endpoint.port) {
+            return Status::InvalidArgument;
+        }
+        TcpSession& session = g_tcp_sessions[slot->tcp_session];
+        const net::Status progress_status =
+            g_backend.tcp_progress(g_backend.context, &session.client);
+        slot->connected = session.client.connected;
+        if (slot->connected) return Status::Ok;
+        return transport_status(progress_status);
+    }
+
+    size_t session_index = MAX_TCP_SESSIONS;
+    TcpSession* session = reserve_tcp_session(&session_index);
+    if (session == nullptr) return Status::CapacityReached;
+    slot->tcp_session = session_index;
     slot->remote = endpoint;
-    slot->connected = true;
-    return Status::Ok;
+    const net::Status begin_status = g_backend.tcp_begin_connect(
+        g_backend.context,
+        &session->client,
+        endpoint.address,
+        slot->local.port,
+        endpoint.port,
+        next_tcp_initial_sequence());
+    slot->connected = session->client.connected;
+    const Status mapped = transport_status(begin_status);
+    if (mapped != Status::Ok && mapped != Status::WouldBlock) {
+        release_tcp_session(*slot);
+        return mapped;
+    }
+    return slot->connected ? Status::Ok : Status::WouldBlock;
 }
 
 Status send(
     ProcessId owner,
     Handle handle,
     const void* data,
-    size_t size) {
+    size_t size,
+    size_t* out_sent) {
+    if (out_sent != nullptr) *out_sent = 0U;
     if (!g_initialized) return Status::NotInitialized;
     if (data == nullptr || size == 0U) return Status::InvalidArgument;
-    if (size > UDP_MAX_PAYLOAD) return Status::PayloadTooLarge;
     Status failure = Status::Ok;
     Slot* slot = resolve(owner, handle, &failure);
     if (slot == nullptr) return failure;
     if (!slot->bound) return Status::NotBound;
-    if (!slot->connected) return Status::NotConnected;
-    if (address_loopback(slot->remote.address)) {
-        return send_loopback(*slot, static_cast<const uint8_t*>(data), size);
+
+    if (slot->protocol == Protocol::Udp && slot->type == Type::Datagram) {
+        if (size > UDP_MAX_PAYLOAD) return Status::PayloadTooLarge;
+        if (!slot->connected) return Status::NotConnected;
+        Status status = Status::Ok;
+        if (address_loopback(slot->remote.address)) {
+            status = send_loopback(*slot, static_cast<const uint8_t*>(data), size);
+        } else {
+            status = transport_status(g_backend.send_udp(
+                g_backend.context,
+                slot->remote.address,
+                slot->local.port,
+                slot->remote.port,
+                static_cast<const uint8_t*>(data),
+                size));
+        }
+        if (status == Status::Ok && out_sent != nullptr) *out_sent = size;
+        return status;
     }
-    return transport_status(g_backend.send_udp(
+
+    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream ||
+        slot->tcp_session >= MAX_TCP_SESSIONS) {
+        return Status::NotConnected;
+    }
+    TcpSession& session = g_tcp_sessions[slot->tcp_session];
+    if (!slot->connected) {
+        const net::Status progress_status =
+            g_backend.tcp_progress(g_backend.context, &session.client);
+        slot->connected = session.client.connected;
+        if (!slot->connected) {
+            const Status mapped = transport_status(progress_status);
+            return mapped == Status::Ok ? Status::WouldBlock : mapped;
+        }
+    }
+    size_t sent = 0U;
+    const Status status = transport_status(g_backend.tcp_try_send(
         g_backend.context,
-        slot->remote.address,
-        slot->local.port,
-        slot->remote.port,
+        &session.client,
         static_cast<const uint8_t*>(data),
-        size));
+        size,
+        &sent));
+    if (status == Status::Ok && out_sent != nullptr) *out_sent = sent;
+    return status;
 }
 
 Status pump(size_t budget, size_t* out_routed) {
@@ -374,6 +500,37 @@ Status receive(
     Slot* slot = resolve(owner, handle, &failure);
     if (slot == nullptr) return failure;
     if (!slot->bound) return Status::NotBound;
+
+    if (slot->protocol == Protocol::Tcp && slot->type == Type::Stream) {
+        if (slot->tcp_session >= MAX_TCP_SESSIONS) return Status::NotConnected;
+        TcpSession& session = g_tcp_sessions[slot->tcp_session];
+        if (session.client.state == tcp_client::State::Closed) {
+            if (out_source != nullptr) *out_source = slot->remote;
+            return Status::Ok;
+        }
+        if (!slot->connected) {
+            const net::Status progress_status =
+                g_backend.tcp_progress(g_backend.context, &session.client);
+            slot->connected = session.client.connected;
+            if (!slot->connected) {
+                const Status mapped = transport_status(progress_status);
+                return mapped == Status::Ok ? Status::WouldBlock : mapped;
+            }
+        }
+        const Status status = transport_status(g_backend.tcp_try_receive(
+            g_backend.context,
+            &session.client,
+            static_cast<uint8_t*>(output),
+            capacity,
+            out_size));
+        slot->connected = session.client.connected;
+        if (out_source != nullptr) *out_source = slot->remote;
+        return status;
+    }
+
+    if (slot->protocol != Protocol::Udp || slot->type != Type::Datagram) {
+        return Status::NotSupported;
+    }
     if (slot->rx_count == 0U) {
         const Status pump_status = pump(8U, nullptr);
         if (pump_status != Status::Ok && pump_status != Status::WouldBlock) {
@@ -400,6 +557,30 @@ Status close(ProcessId owner, Handle handle) {
     Status failure = Status::Ok;
     Slot* slot = resolve(owner, handle, &failure);
     if (slot == nullptr) return failure;
+    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream ||
+        slot->tcp_session >= MAX_TCP_SESSIONS) {
+        clear_slot(*slot);
+        return Status::Ok;
+    }
+
+    TcpSession& session = g_tcp_sessions[slot->tcp_session];
+    if (session.client.state == tcp_client::State::Closed) {
+        clear_slot(*slot);
+        return Status::Ok;
+    }
+    const Status begin_status = transport_status(
+        g_backend.tcp_begin_close(g_backend.context, &session.client));
+    if (begin_status != Status::Ok && begin_status != Status::WouldBlock) {
+        return begin_status;
+    }
+    if (session.client.state != tcp_client::State::Closed) {
+        const Status progress_status = transport_status(
+            g_backend.tcp_progress(g_backend.context, &session.client));
+        if (progress_status != Status::Ok && progress_status != Status::WouldBlock) {
+            return progress_status;
+        }
+    }
+    if (session.client.state != tcp_client::State::Closed) return Status::WouldBlock;
     clear_slot(*slot);
     return Status::Ok;
 }

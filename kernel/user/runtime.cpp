@@ -157,6 +157,46 @@ net::Status socket_backend_take_udp(void*, net::UdpDatagram* datagram) {
     return net::service::socket_take_udp(datagram);
 }
 
+net::Status socket_backend_tcp_begin_connect(
+    void*,
+    net::tcp_client::Client* client,
+    const net::IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t initial_sequence) {
+    return net::service::socket_tcp_begin_connect(
+        client, destination, source_port, destination_port, initial_sequence);
+}
+
+net::Status socket_backend_tcp_progress(void*, net::tcp_client::Client* client) {
+    return net::service::socket_tcp_progress(client);
+}
+
+net::Status socket_backend_tcp_try_send(
+    void*,
+    net::tcp_client::Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent) {
+    return net::service::socket_tcp_try_send(client, data, length, out_sent);
+}
+
+net::Status socket_backend_tcp_try_receive(
+    void*,
+    net::tcp_client::Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length) {
+    return net::service::socket_tcp_try_receive(
+        client, output, output_capacity, out_length);
+}
+
+net::Status socket_backend_tcp_begin_close(
+    void*,
+    net::tcp_client::Client* client) {
+    return net::service::socket_tcp_begin_close(client);
+}
+
 bool copy_user_ipc_name(
     Context& context,
     uint64_t address,
@@ -443,13 +483,16 @@ void extended_syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+            size_t sent = 0U;
             const net::socket::Status status = net::socket::send(
                 context->pid,
                 static_cast<net::socket::Handle>(frame.rdi),
                 reinterpret_cast<const void*>(static_cast<uintptr_t>(frame.rsi)),
-                static_cast<size_t>(frame.rdx));
+                static_cast<size_t>(frame.rdx),
+                &sent);
             frame.rax = status == net::socket::Status::Ok
-                ? frame.rdx : static_cast<uint64_t>(socket_status(status));
+                ? static_cast<uint64_t>(sent)
+                : static_cast<uint64_t>(socket_status(status));
             return;
         }
         case KU_SYS_SOCKET_RECEIVE: {
@@ -844,6 +887,11 @@ Status initialize() {
         socket_backend_send_udp,
         socket_backend_poll,
         socket_backend_take_udp,
+        socket_backend_tcp_begin_connect,
+        socket_backend_tcp_progress,
+        socket_backend_tcp_try_send,
+        socket_backend_tcp_try_receive,
+        socket_backend_tcp_begin_close,
     };
     const net::socket::Status socket_initialize_status =
         net::socket::initialize(socket_backend);

@@ -2,6 +2,7 @@
 
 #include "network.hpp"
 #include "protocols.hpp"
+#include "tcp_client.hpp"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,6 +15,7 @@ using Handle = uint64_t;
 constexpr Handle INVALID_HANDLE = 0U;
 constexpr size_t MAX_SOCKETS = 32U;
 constexpr size_t MAX_RX_DATAGRAMS = 4U;
+constexpr size_t MAX_TCP_SESSIONS = 4U;
 constexpr uint16_t EPHEMERAL_PORT_FIRST = UINT16_C(49152);
 
 enum class Type : uint8_t {
@@ -60,6 +62,27 @@ struct Backend {
         size_t payload_length);
     net::Status (*poll)(void* context, size_t budget, size_t* processed);
     net::Status (*take_udp)(void* context, UdpDatagram* datagram);
+    net::Status (*tcp_begin_connect)(
+        void* context,
+        tcp_client::Client* client,
+        const IPv4Address& destination,
+        uint16_t source_port,
+        uint16_t destination_port,
+        uint32_t initial_sequence);
+    net::Status (*tcp_progress)(void* context, tcp_client::Client* client);
+    net::Status (*tcp_try_send)(
+        void* context,
+        tcp_client::Client* client,
+        const uint8_t* data,
+        size_t length,
+        size_t* out_sent);
+    net::Status (*tcp_try_receive)(
+        void* context,
+        tcp_client::Client* client,
+        uint8_t* output,
+        size_t output_capacity,
+        size_t* out_length);
+    net::Status (*tcp_begin_close)(void* context, tcp_client::Client* client);
 };
 
 Status initialize(const Backend& backend);
@@ -75,7 +98,8 @@ Status send(
     ProcessId owner,
     Handle handle,
     const void* data,
-    size_t size);
+    size_t size,
+    size_t* out_sent = nullptr);
 Status receive(
     ProcessId owner,
     Handle handle,

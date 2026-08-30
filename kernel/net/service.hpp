@@ -1,6 +1,7 @@
 #pragma once
 
 #include "network.hpp"
+#include "tcp_client.hpp"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -17,6 +18,24 @@ Status socket_send_udp(
     const uint8_t* payload,
     size_t payload_length);
 Status socket_take_udp(UdpDatagram* datagram);
+Status socket_tcp_begin_connect(
+    tcp_client::Client* client,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t initial_sequence);
+Status socket_tcp_progress(tcp_client::Client* client);
+Status socket_tcp_try_send(
+    tcp_client::Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent);
+Status socket_tcp_try_receive(
+    tcp_client::Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length);
+Status socket_tcp_begin_close(tcp_client::Client* client);
 Status ping_loopback(uint16_t sequence, PingReply* reply = nullptr);
 Status ping_gateway(uint16_t sequence, PingReply* reply = nullptr);
 Status ping_address(

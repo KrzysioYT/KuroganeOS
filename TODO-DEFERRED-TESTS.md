@@ -8,7 +8,7 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Ring-3 public UDP ABI roundtrip through syscalls 57..62.
 - Ring-3 socket cleanup after process exit and immediate port rebind.
 - TCP nonblocking progression regressions: begin_connect retry/backpressure, SYN/SYN-ACK progression, bounded try_send window accounting, ACK progression, try_receive, FIN completion, RST/error paths.
-- Process-owned TCP socket pool regressions once the generic socket integration lands.
+- Process-owned TCP socket pool regressions: session exhaustion, PID ownership, protocol-specific bind collisions, async connect retries, partial send accounting, receive EOF, graceful close retry, process-exit cleanup, stale handles.
 - DNS/network-event/TLS userspace integration regressions once those slices land.
 
 ## Existing deferred qualification
