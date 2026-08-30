@@ -41,6 +41,24 @@ jobs:
           PY
           python3 -m py_compile .github/scripts/apply-audiod.py
           python3 .github/scripts/apply-audiod.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          spawn_broken = 'u_puts("init: cannot spawn /system/audiod\n");'
+          supervise_broken = 'u_puts("init: audio service supervision failed\n");'
+          if text.count(spawn_broken) != 1:
+              raise SystemExit('audiod spawn diagnostic normalization mismatch')
+          if text.count(supervise_broken) != 2:
+              raise SystemExit('audiod supervision diagnostic normalization mismatch')
+          text = text.replace(
+              spawn_broken,
+              'u_puts("init: cannot spawn /system/audiod\\n");')
+          text = text.replace(
+              supervise_broken,
+              'u_puts("init: audio service supervision failed\\n");')
+          path.write_text(text)
+          PY
 
       - name: Compile release kernel userspace SDK and boot chain
         run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
