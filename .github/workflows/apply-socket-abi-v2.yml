@@ -1,0 +1,114 @@
+name: Apply 3.5 Socket ABI v2
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/apply-socket-abi-v2.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Reuse guarded socket ABI patch with C++ safe request init
+        shell: python
+        run: |
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/apply-socket-abi.yml').read_text()
+          marker = (
+              '      - name: Apply socket ABI wiring\n'
+              '        shell: python\n'
+              '        run: |\n'
+          )
+          start = workflow.find(marker)
+          if start < 0:
+              raise SystemExit('original socket ABI patch step not found')
+          start += len(marker)
+          lines = workflow[start:].splitlines(True)
+          body = []
+          for line in lines:
+              if line.startswith('      - name:'):
+                  break
+              if line.strip() and not line.startswith('          '):
+                  raise SystemExit(f'unexpected patch indentation: {line!r}')
+              body.append(line[10:] if line.startswith('          ') else line)
+          source = ''.join(body)
+          old = r'    ku_socket_receive_request request = {0};\n'
+          new = (
+              r'    ku_socket_receive_request request;\n'
+              r'    request.bytes_received = 0U;\n'
+              r'    request.source.address[0] = 0U;\n'
+              r'    request.source.address[1] = 0U;\n'
+              r'    request.source.address[2] = 0U;\n'
+              r'    request.source.address[3] = 0U;\n'
+              r'    request.source.port = 0U;\n'
+              r'    request.source.reserved = 0U;\n'
+          )
+          if source.count(old) != 1:
+              raise SystemExit(f'socket receive initializer count={source.count(old)}')
+          source = source.replace(old, new, 1)
+          exec(compile(source, '<apply-socket-abi>', 'exec'), {'__name__': '__main__'})
+
+      - name: Validate host regressions and release kernel
+        run: |
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Qualify Ring-3 UDP roundtrip and process-exit cleanup before commit
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('userspace/system/init/main.c')
+          text = p.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          addition = anchor + (
+              '    int32_t socket_exit = -1;\n'
+              '    const ku_result_t socket_first = u_spawn("/system/sockprb");\n'
+              '    if (socket_first <= 0 || u_wait((uint64_t)socket_first, &socket_exit) != KU_STATUS_OK || socket_exit != 0) ku_exit(50);\n'
+              '    (void)u_puts("[TEST] socket_udp_roundtrip: PASS\\n");\n'
+              '    socket_exit = -1;\n'
+              '    const ku_result_t socket_second = u_spawn("/system/sockprb");\n'
+              '    if (socket_second <= 0 || u_wait((uint64_t)socket_second, &socket_exit) != KU_STATUS_OK || socket_exit != 0) ku_exit(51);\n'
+              '    (void)u_puts("[TEST] socket_exit_cleanup: PASS\\n");\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'init anchor count={text.count(anchor)}')
+          p.write_text(text.replace(anchor, addition, 1))
+
+      - name: Build release media for Ring-3 qualification
+        run: bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Run Ring-3 UDP socket qualification
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] socket_udp_roundtrip: PASS' \
+            --require-marker '[TEST] socket_exit_cleanup: PASS' \
+            --timeout 90
+
+      - name: Commit qualified public UDP socket ABI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout -- userspace/system/init/main.c
+          rm -f .github/workflows/apply-socket-abi-v2.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'net(abi): expose process-owned UDP sockets to Ring-3'
+          git push origin HEAD:gpt/road-to-15-consolidation
+          gh workflow run qualify-socket-abi.yml --ref gpt/road-to-15-consolidation
