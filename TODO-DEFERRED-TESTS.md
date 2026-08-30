@@ -19,7 +19,10 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 ## 3.6 Flux Stabilization
 - Damage-region regressions: bounded region capacity/fallback-to-full, clipping/overflow edges, overlap merge, per-window UI_PRESENT invalidation, minimized-window silence, full redraw on geometry/z-order changes, partial GOP span presentation and cursor interaction.
 
-## 4.0 KuroFS deferred tests
+## 4.0 Pre-Steel / Device Model 2.0
+- Device Model 2.0 regressions: generation-safe handle stale rejection, slot reuse, active/high-water accounting, hot-remove policy, parent unlinking, child/claimed removal rejection, capability derivation, resource query bounds, lifecycle generation on state/claim/release.
+
+## Filesystem foundation
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 
 ## Existing deferred qualification
