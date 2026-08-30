@@ -106,6 +106,8 @@ applications=(
     "sessiond|userspace/system/sessiond/main.c|system/sessiond|c"
     "sessionprobe|userspace/system/session-probe/main.c|system/sesprobe|c"
     "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"
+    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"
+    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"

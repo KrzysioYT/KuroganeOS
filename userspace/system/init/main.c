@@ -6,6 +6,7 @@
 #define NOTIFICATION_SERVICE_PATH "/system/notifd"
 #define ACCOUNT_SERVICE_PATH "/system/accountd"
 #define SESSION_SERVICE_PATH "/system/sessiond"
+#define CLIPBOARD_SERVICE_PATH "/system/clipd"
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
@@ -53,6 +54,11 @@ static uint64_t spawn_account_service(void) {
 
 static uint64_t spawn_session_service(void) {
     const ku_result_t result = u_spawn(SESSION_SERVICE_PATH);
+    return result > 0 ? (uint64_t)result : 0U;
+}
+
+static uint64_t spawn_clipboard_service(void) {
+    const ku_result_t result = u_spawn(CLIPBOARD_SERVICE_PATH);
     return result > 0 ? (uint64_t)result : 0U;
 }
 
@@ -105,6 +111,14 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(20);
     }
     (void)u_puts("[TEST] session_service_spawn: PASS\n");
+
+    const uint64_t clipboard_service_pid = spawn_clipboard_service();
+    if (clipboard_service_pid == 0U) {
+        (void)u_puts("init: cannot spawn /system/clipd\n");
+        (void)u_puts("[TEST] clipboard_service_spawn: FAIL\n");
+        ku_exit(27);
+    }
+    (void)u_puts("[TEST] clipboard_service_spawn: PASS\n");
     uint64_t session_pid = spawn_session_gate();
     if (session_pid == 0U) run_console_fallback();
 
@@ -157,6 +171,14 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(24);
     }
     (void)u_puts("[TEST] session_service_liveness: PASS\n");
+
+    service_status = 0;
+    const ku_status_t clipboard_early = ku_wait(clipboard_service_pid, &service_status);
+    if (clipboard_early != KU_STATUS_WOULD_BLOCK) {
+        (void)u_puts("[TEST] clipboard_service_liveness: FAIL\n");
+        ku_exit(29);
+    }
+    (void)u_puts("[TEST] clipboard_service_liveness: PASS\n");
 
     (void)u_puts("[TEST] desktop_userspace_apps: PASS\n");
     (void)u_puts("[TEST] userspace_desktop_session: PASS\n");
@@ -222,6 +244,18 @@ __attribute__((noreturn)) void _start(void) {
         if (session_service_wait != KU_STATUS_WOULD_BLOCK) {
             (void)u_puts("init: session service supervision failed\n");
             ku_exit(26);
+        }
+
+        service_status = 0;
+        const ku_status_t clipboard_wait = ku_wait(clipboard_service_pid, &service_status);
+        if (clipboard_wait == KU_STATUS_OK || clipboard_wait == KU_STATUS_NOT_FOUND) {
+            (void)u_puts("init: clipboard service terminated\n");
+            (void)u_puts("[TEST] clipboard_service_liveness: FAIL\n");
+            ku_exit(30);
+        }
+        if (clipboard_wait != KU_STATUS_WOULD_BLOCK) {
+            (void)u_puts("init: clipboard service supervision failed\n");
+            ku_exit(31);
         }
 
         status = 0;
