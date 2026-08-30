@@ -27,6 +27,7 @@
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
+#include "../net/socket.hpp"
 #include "../task/process.hpp"
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
@@ -115,6 +116,47 @@ ku_status_t event_status(ipc::event::Status status) {
     return KU_STATUS_IO_ERROR;
 }
 
+ku_status_t socket_status(net::socket::Status status) {
+    using SocketStatus = net::socket::Status;
+    switch (status) {
+        case SocketStatus::Ok:
+        case SocketStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case SocketStatus::InvalidArgument:
+        case SocketStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
+        case SocketStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
+        case SocketStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
+        case SocketStatus::AddressInUse: return KU_STATUS_ALREADY_EXISTS;
+        case SocketStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
+        case SocketStatus::BufferTooSmall:
+        case SocketStatus::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case SocketStatus::NotInitialized:
+        case SocketStatus::NotBound:
+        case SocketStatus::NotConnected: return KU_STATUS_BAD_STATE;
+        case SocketStatus::TransportError: return KU_STATUS_IO_ERROR;
+    }
+    return KU_STATUS_IO_ERROR;
+}
+
+net::Status socket_backend_send_udp(
+    void*,
+    const net::IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length) {
+    return net::service::socket_send_udp(
+        destination, source_port, destination_port, payload, payload_length);
+}
+
+net::Status socket_backend_poll(void*, size_t budget, size_t* processed) {
+    return net::service::poll(budget, processed);
+}
+
+net::Status socket_backend_take_udp(void*, net::UdpDatagram* datagram) {
+    return net::service::socket_take_udp(datagram);
+}
+
 bool copy_user_ipc_name(
     Context& context,
     uint64_t address,
@@ -139,7 +181,8 @@ bool extended_syscall_number(uint64_t number) {
     return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
         number == KU_SYS_IPC_QUERY ||
         (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
-        (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
+        (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE) ||
+        (number >= KU_SYS_SOCKET_CREATE && number <= KU_SYS_SOCKET_CLOSE);
 }
 
 Context* registered_context_for_current_thread() {
@@ -326,6 +369,7 @@ void extended_syscall_handler(
         ipc::release_process(context->pid);
         ipc::shared_memory::release_process(context->pid);
         ipc::event::release_process(context->pid);
+        net::socket::release_process(context->pid);
         restore_interrupts(interrupt_flags);
         syscall_handler(frame);
         return;
@@ -337,6 +381,127 @@ void extended_syscall_handler(
     }
 
     switch (frame.rax) {
+        case KU_SYS_SOCKET_CREATE: {
+            if (frame.rdx != KU_SOCKET_FLAG_NONE) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            net::socket::Type type;
+            if (frame.rdi == KU_SOCKET_DATAGRAM) {
+                type = net::socket::Type::Datagram;
+            } else if (frame.rdi == KU_SOCKET_STREAM) {
+                type = net::socket::Type::Stream;
+            } else {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            net::socket::Protocol protocol;
+            if (frame.rsi == KU_SOCKET_PROTOCOL_UDP) {
+                protocol = net::socket::Protocol::Udp;
+            } else if (frame.rsi == KU_SOCKET_PROTOCOL_TCP) {
+                protocol = net::socket::Protocol::Tcp;
+            } else {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            net::socket::Handle handle = net::socket::INVALID_HANDLE;
+            const net::socket::Status status = net::socket::create(
+                context->pid, type, protocol, &handle);
+            frame.rax = status == net::socket::Status::Ok
+                ? handle : static_cast<uint64_t>(socket_status(status));
+            return;
+        }
+        case KU_SYS_SOCKET_BIND:
+        case KU_SYS_SOCKET_CONNECT: {
+            if (frame.rdx != sizeof(ku_ipv4_endpoint) ||
+                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ipv4_endpoint))) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const auto* endpoint = reinterpret_cast<const ku_ipv4_endpoint*>(
+                static_cast<uintptr_t>(frame.rsi));
+            if (endpoint->reserved != 0U || endpoint->port == 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            net::socket::Endpoint target{};
+            for (size_t index = 0U; index < 4U; ++index) {
+                target.address.bytes[index] = endpoint->address[index];
+            }
+            target.port = endpoint->port;
+            const net::socket::Status status = frame.rax == KU_SYS_SOCKET_BIND
+                ? net::socket::bind(
+                    context->pid, static_cast<net::socket::Handle>(frame.rdi), target)
+                : net::socket::connect(
+                    context->pid, static_cast<net::socket::Handle>(frame.rdi), target);
+            frame.rax = static_cast<uint64_t>(socket_status(status));
+            return;
+        }
+        case KU_SYS_SOCKET_SEND: {
+            if (frame.rdx == 0U || frame.rdx > SIZE_MAX ||
+                !validate_user_buffer(*context, frame.rsi, static_cast<size_t>(frame.rdx))) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            const net::socket::Status status = net::socket::send(
+                context->pid,
+                static_cast<net::socket::Handle>(frame.rdi),
+                reinterpret_cast<const void*>(static_cast<uintptr_t>(frame.rsi)),
+                static_cast<size_t>(frame.rdx));
+            frame.rax = status == net::socket::Status::Ok
+                ? frame.rdx : static_cast<uint64_t>(socket_status(status));
+            return;
+        }
+        case KU_SYS_SOCKET_RECEIVE: {
+            if (frame.rsi != sizeof(ku_socket_receive_request) || frame.rdx != 0U ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_socket_receive_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_socket_receive_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->flags != KU_SOCKET_FLAG_NONE ||
+                request->buffer == nullptr || request->buffer_capacity == 0U ||
+                request->buffer_capacity > SIZE_MAX ||
+                !validate_user_buffer(
+                    *context,
+                    static_cast<uint64_t>(reinterpret_cast<uintptr_t>(request->buffer)),
+                    static_cast<size_t>(request->buffer_capacity),
+                    true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            size_t received = 0U;
+            net::socket::Endpoint source{};
+            const net::socket::Status status = net::socket::receive(
+                context->pid,
+                static_cast<net::socket::Handle>(request->socket),
+                request->buffer,
+                static_cast<size_t>(request->buffer_capacity),
+                &received,
+                &source);
+            request->bytes_received = received;
+            request->source = {};
+            if (status == net::socket::Status::Ok) {
+                for (size_t index = 0U; index < 4U; ++index) {
+                    request->source.address[index] = source.address.bytes[index];
+                }
+                request->source.port = source.port;
+            }
+            frame.rax = static_cast<uint64_t>(socket_status(status));
+            return;
+        }
+        case KU_SYS_SOCKET_CLOSE: {
+            if (frame.rsi != 0U || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            frame.rax = static_cast<uint64_t>(socket_status(net::socket::close(
+                context->pid, static_cast<net::socket::Handle>(frame.rdi))));
+            return;
+        }
         case KU_SYS_IPC_QUERY: {
             char name[ipc::MAX_SERVICE_NAME + 1U]{};
             if (!copy_user_ipc_name(*context, frame.rdi, frame.rsi, name) ||
@@ -672,6 +837,18 @@ Status initialize() {
     const ipc::event::Status event_initialize_status = ipc::event::initialize();
     if (event_initialize_status != ipc::event::Status::Ok &&
         event_initialize_status != ipc::event::Status::AlreadyInitialized) {
+        return Status::InterruptRegistrationFailed;
+    }
+    const net::socket::Backend socket_backend{
+        nullptr,
+        socket_backend_send_udp,
+        socket_backend_poll,
+        socket_backend_take_udp,
+    };
+    const net::socket::Status socket_initialize_status =
+        net::socket::initialize(socket_backend);
+    if (socket_initialize_status != net::socket::Status::Ok &&
+        socket_initialize_status != net::socket::Status::AlreadyInitialized) {
         return Status::InterruptRegistrationFailed;
     }
     for (RuntimeSharedMapping& mapping : g_shared_mappings) mapping = {};

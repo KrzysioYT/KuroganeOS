@@ -422,6 +422,22 @@ Status poll(size_t budget, size_t* processed) {
     return net::poll(&g_stack, budget, processed);
 }
 
+Status socket_send_udp(
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length) {
+    if (!g_ready) return Status::NotInitialized;
+    return net::send_udp(
+        &g_stack, destination, source_port, destination_port, payload, payload_length);
+}
+
+Status socket_take_udp(UdpDatagram* datagram) {
+    if (!g_ready) return Status::NotInitialized;
+    return net::take_udp_datagram(&g_stack, datagram);
+}
+
 Status ping_loopback(uint16_t sequence, PingReply* reply) {
     if (!g_ready) return Status::NotInitialized;
     Status status = send_ping(

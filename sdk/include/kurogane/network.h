@@ -17,6 +17,37 @@ extern "C" {
 #define KU_DNS_NAME_CAPACITY KU_NET_HOST_CAPACITY
 #define KU_DNS_FLAG_NONE UINT32_C(0)
 
+#define KU_SOCKET_FLAG_NONE UINT32_C(0)
+#define KU_SOCKET_INVALID UINT64_C(0)
+
+typedef uint64_t ku_socket_t;
+
+enum ku_socket_type {
+    KU_SOCKET_DATAGRAM = 1,
+    KU_SOCKET_STREAM = 2
+};
+
+enum ku_socket_protocol {
+    KU_SOCKET_PROTOCOL_TCP = 6,
+    KU_SOCKET_PROTOCOL_UDP = 17
+};
+
+typedef struct ku_ipv4_endpoint {
+    uint8_t address[4];
+    uint16_t port;
+    uint16_t reserved;
+} ku_ipv4_endpoint;
+
+typedef struct ku_socket_receive_request {
+    uint32_t structure_size;
+    uint32_t flags;
+    ku_socket_t socket;
+    void* buffer;
+    uint64_t buffer_capacity;
+    uint64_t bytes_received;
+    ku_ipv4_endpoint source;
+} ku_socket_receive_request;
+
 /* Internal transport tag used only across the current 3.3.3 syscall boundary. */
 #define KU_HTTPS_TRANSPORT_TAG "~tls~"
 #define KU_HTTPS_TRANSPORT_TAG_SIZE 5U
@@ -71,6 +102,68 @@ static inline ku_status_t ku_dns_resolve_a(ku_dns_a_request* request) {
         (uint64_t)(uintptr_t)request,
         (uint64_t)sizeof(ku_dns_a_request),
         0U);
+}
+
+static inline ku_result_t ku_socket_create(
+    uint32_t type,
+    uint32_t protocol) {
+    return ku_syscall3(KU_SYS_SOCKET_CREATE, type, protocol, KU_SOCKET_FLAG_NONE);
+}
+
+static inline ku_status_t ku_socket_bind(
+    ku_socket_t socket,
+    const ku_ipv4_endpoint* endpoint) {
+    if (endpoint == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_BIND, socket, (uint64_t)(uintptr_t)endpoint, sizeof(*endpoint));
+}
+
+static inline ku_status_t ku_socket_connect(
+    ku_socket_t socket,
+    const ku_ipv4_endpoint* endpoint) {
+    if (endpoint == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_CONNECT, socket, (uint64_t)(uintptr_t)endpoint, sizeof(*endpoint));
+}
+
+static inline ku_result_t ku_socket_send(
+    ku_socket_t socket,
+    const void* buffer,
+    size_t size) {
+    return ku_syscall3(
+        KU_SYS_SOCKET_SEND, socket, (uint64_t)(uintptr_t)buffer, (uint64_t)size);
+}
+
+static inline ku_result_t ku_socket_receive(
+    ku_socket_t socket,
+    void* buffer,
+    size_t capacity,
+    ku_ipv4_endpoint* source) {
+    ku_socket_receive_request request;
+    request.bytes_received = 0U;
+    request.source.address[0] = 0U;
+    request.source.address[1] = 0U;
+    request.source.address[2] = 0U;
+    request.source.address[3] = 0U;
+    request.source.port = 0U;
+    request.source.reserved = 0U;
+    request.structure_size = sizeof(request);
+    request.flags = KU_SOCKET_FLAG_NONE;
+    request.socket = socket;
+    request.buffer = buffer;
+    request.buffer_capacity = capacity;
+    const ku_status_t status = (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_RECEIVE,
+        (uint64_t)(uintptr_t)&request,
+        sizeof(request),
+        0U);
+    if (status != KU_STATUS_OK) return status;
+    if (source != NULL) *source = request.source;
+    return (ku_result_t)request.bytes_received;
+}
+
+static inline ku_status_t ku_socket_close(ku_socket_t socket) {
+    return (ku_status_t)ku_syscall3(KU_SYS_SOCKET_CLOSE, socket, 0U, 0U);
 }
 
 static inline ku_status_t ku_http_get(ku_http_request* request) {

@@ -44,6 +44,10 @@ bool address_zero(const IPv4Address& address) {
     return true;
 }
 
+bool address_loopback(const IPv4Address& address) {
+    return address.bytes[0] == 127U;
+}
+
 Handle encode_handle(size_t index, uint32_t generation) {
     return (static_cast<uint64_t>(generation) << 32U) |
         static_cast<uint64_t>(index + 1U);
@@ -139,35 +143,74 @@ Status transport_status(net::Status status) {
     }
 }
 
-bool datagram_matches(const Slot& slot, const UdpDatagram& datagram) {
+bool slot_accepts_datagram(
+    const Slot& slot,
+    const Endpoint& source,
+    const Endpoint& destination) {
     if (!slot.active || !slot.bound || slot.protocol != Protocol::Udp ||
-        slot.local.port != datagram.destination_port) {
+        slot.local.port != destination.port) {
         return false;
     }
     if (!address_zero(slot.local.address) &&
-        !address_equal(slot.local.address, datagram.destination)) {
+        !address_equal(slot.local.address, destination.address)) {
         return false;
     }
     return !slot.connected ||
-        (slot.remote.port == datagram.source_port &&
-         address_equal(slot.remote.address, datagram.source));
+        (slot.remote.port == source.port &&
+         address_equal(slot.remote.address, source.address));
 }
 
-bool enqueue(Slot& slot, const UdpDatagram& datagram) {
-    if (slot.rx_count >= MAX_RX_DATAGRAMS ||
-        datagram.payload_length > UDP_MAX_PAYLOAD) {
+bool datagram_matches(const Slot& slot, const UdpDatagram& datagram) {
+    const Endpoint source{datagram.source, datagram.source_port};
+    const Endpoint destination{datagram.destination, datagram.destination_port};
+    return slot_accepts_datagram(slot, source, destination);
+}
+
+bool enqueue_payload(
+    Slot& slot,
+    const Endpoint& source,
+    const uint8_t* payload,
+    size_t payload_length) {
+    if (slot.rx_count >= MAX_RX_DATAGRAMS || payload == nullptr ||
+        payload_length == 0U || payload_length > UDP_MAX_PAYLOAD) {
         return false;
     }
     QueuedDatagram& queued = slot.rx[slot.rx_head];
     queued = {};
-    queued.source = {datagram.source, datagram.source_port};
-    queued.size = datagram.payload_length;
+    queued.source = source;
+    queued.size = payload_length;
     for (size_t index = 0U; index < queued.size; ++index) {
-        queued.payload[index] = datagram.payload[index];
+        queued.payload[index] = payload[index];
     }
     slot.rx_head = (slot.rx_head + 1U) % MAX_RX_DATAGRAMS;
     ++slot.rx_count;
     return true;
+}
+
+bool enqueue(Slot& slot, const UdpDatagram& datagram) {
+    return enqueue_payload(
+        slot,
+        {datagram.source, datagram.source_port},
+        datagram.payload,
+        datagram.payload_length);
+}
+
+Status send_loopback(const Slot& sender, const uint8_t* payload, size_t size) {
+    static constexpr IPv4Address canonical_loopback{{127U, 0U, 0U, 1U}};
+    const Endpoint source{
+        address_zero(sender.local.address) ? canonical_loopback : sender.local.address,
+        sender.local.port};
+    const Endpoint destination{sender.remote.address, sender.remote.port};
+
+    for (Slot& candidate : g_slots) {
+        if (!slot_accepts_datagram(candidate, source, destination)) continue;
+        return enqueue_payload(candidate, source, payload, size)
+            ? Status::Ok : Status::WouldBlock;
+    }
+
+    // UDP send to a local but currently unbound port succeeds synchronously;
+    // the datagram is simply not queued to any socket. Never leak 127/8 to NIC.
+    return Status::Ok;
 }
 
 } // namespace
@@ -260,6 +303,9 @@ Status send(
     if (slot == nullptr) return failure;
     if (!slot->bound) return Status::NotBound;
     if (!slot->connected) return Status::NotConnected;
+    if (address_loopback(slot->remote.address)) {
+        return send_loopback(*slot, static_cast<const uint8_t*>(data), size);
+    }
     return transport_status(g_backend.send_udp(
         g_backend.context,
         slot->remote.address,

@@ -10,6 +10,13 @@ namespace net::service {
 Status initialize();
 bool ready();
 Status poll(size_t budget = 8, size_t* processed = nullptr);
+Status socket_send_udp(
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length);
+Status socket_take_udp(UdpDatagram* datagram);
 Status ping_loopback(uint16_t sequence, PingReply* reply = nullptr);
 Status ping_gateway(uint16_t sequence, PingReply* reply = nullptr);
 Status ping_address(
