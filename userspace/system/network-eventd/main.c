@@ -143,7 +143,7 @@ __attribute__((noreturn)) void _start(void) {
     clear_status(&previous);
     for (;;) {
         ku_network_status current;
-        const ku_status_t status;
+        ku_status_t status;
 
         if (broker == 0U) broker = connect_broker();
         clear_status(&current);
