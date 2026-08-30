@@ -807,8 +807,25 @@ Status bind_address_space(
     memory::kernel_virtual_memory::OwnedAddressSpace* address_space,
     uintptr_t user_stack) {
     if (!g_initialized) return Status::NotInitialized;
-    if (g_current == kInvalidSlot) return Status::NotRunning;
+    const uint64_t flags = save_and_disable_interrupts();
+    if (g_current == kInvalidSlot) {
+        restore_interrupts(flags);
+        return Status::NotRunning;
+    }
     Slot& slot = g_slots[g_current];
+    const bool detaching_process =
+        address_space == nullptr && slot.process_id != 0U;
+    const bool invalid_detach_state =
+        detaching_process && slot.state != State::Running;
+    if (detaching_process) {
+        // A resumable Ring-3 frame is owned by the process address
+        // space. Revoke it before runtime unregisters/destroys that
+        // address space so a later scheduler batch cannot IRET into
+        // memory whose Context/CR3 ownership has already ended.
+        slot.interrupt_frame = nullptr;
+        slot.wake_tick = 0U;
+        slot.yield_requested = false;
+    }
 #if defined(KUROGANE_HOST_TEST)
     static_cast<void>(address_space);
     slot.address_space_root = 0U;
@@ -819,6 +836,14 @@ Status bind_address_space(
         : address_space->address_space.root_table_physical;
 #endif
     slot.user_stack = user_stack;
+    restore_interrupts(flags);
+    if (invalid_detach_state) {
+        log::write(
+            log::Level::Error,
+            "THREAD",
+            "process address-space detached outside Running state");
+        return Status::CorruptContext;
+    }
     return Status::Ok;
 }
 
