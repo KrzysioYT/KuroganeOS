@@ -24,6 +24,8 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 
 - Ring-3 Device API regressions: active-index enumeration, stale generation handle query, ABI version/size validation, parent handle, capability/state/lifecycle snapshots, resource bounds, no writable MMIO/PIO/DMA mapping side effects.
 
+- Driver Manager 2.0 regressions: probe/attach failure accounting, lifecycle generation, detach on unbind, claim release, attached-count accounting, rebind after failure, runtime failure isolation, invalid/corrupt binding rejection, failure-stage diagnostics.
+
 ## Filesystem foundation
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 
