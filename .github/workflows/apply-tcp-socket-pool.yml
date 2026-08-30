@@ -1,0 +1,157 @@
+name: Apply 3.5 TCP socket pool
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/apply-tcp-socket-pool.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3
+
+      - name: Wire process-owned TCP sessions into public sockets
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: anchor count={count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'kernel/net/socket.hpp',
+              '#include "protocols.hpp"\n',
+              '#include "protocols.hpp"\n#include "tcp_client.hpp"\n')
+          replace_once(
+              'kernel/net/socket.hpp',
+              'constexpr size_t MAX_RX_DATAGRAMS = 4U;\n',
+              'constexpr size_t MAX_RX_DATAGRAMS = 4U;\nconstexpr size_t MAX_TCP_SESSIONS = 4U;\n')
+
+          old_backend = '''struct Backend {\n    void* context;\n    net::Status (*send_udp)(\n        void* context,\n        const IPv4Address& destination,\n        uint16_t source_port,\n        uint16_t destination_port,\n        const uint8_t* payload,\n        size_t payload_length);\n    net::Status (*poll)(void* context, size_t budget, size_t* processed);\n    net::Status (*take_udp)(void* context, UdpDatagram* datagram);\n};\n'''
+          new_backend = '''struct Backend {\n    void* context;\n    net::Status (*send_udp)(\n        void* context,\n        const IPv4Address& destination,\n        uint16_t source_port,\n        uint16_t destination_port,\n        const uint8_t* payload,\n        size_t payload_length);\n    net::Status (*poll)(void* context, size_t budget, size_t* processed);\n    net::Status (*take_udp)(void* context, UdpDatagram* datagram);\n    net::Status (*tcp_begin_connect)(\n        void* context,\n        tcp_client::Client* client,\n        const IPv4Address& destination,\n        uint16_t source_port,\n        uint16_t destination_port,\n        uint32_t initial_sequence);\n    net::Status (*tcp_progress)(void* context, tcp_client::Client* client);\n    net::Status (*tcp_try_send)(\n        void* context,\n        tcp_client::Client* client,\n        const uint8_t* data,\n        size_t length,\n        size_t* out_sent);\n    net::Status (*tcp_try_receive)(\n        void* context,\n        tcp_client::Client* client,\n        uint8_t* output,\n        size_t output_capacity,\n        size_t* out_length);\n    net::Status (*tcp_begin_close)(void* context, tcp_client::Client* client);\n};\n'''
+          replace_once('kernel/net/socket.hpp', old_backend, new_backend)
+          replace_once(
+              'kernel/net/socket.hpp',
+              '''Status send(\n    ProcessId owner,\n    Handle handle,\n    const void* data,\n    size_t size);\n''',
+              '''Status send(\n    ProcessId owner,\n    Handle handle,\n    const void* data,\n    size_t size,\n    size_t* out_sent = nullptr);\n''')
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''struct Slot {\n    ProcessId owner;\n    uint32_t generation;\n    Type type;\n    Protocol protocol;\n    Endpoint local;\n    Endpoint remote;\n    QueuedDatagram rx[MAX_RX_DATAGRAMS];\n    size_t rx_head;\n    size_t rx_tail;\n    size_t rx_count;\n    bool active;\n    bool bound;\n    bool connected;\n};\n\nBackend g_backend{};\nSlot g_slots[MAX_SOCKETS]{};\nbool g_initialized = false;\nuint16_t g_next_ephemeral = EPHEMERAL_PORT_FIRST;\n''',
+              '''struct Slot {\n    ProcessId owner;\n    uint32_t generation;\n    Type type;\n    Protocol protocol;\n    Endpoint local;\n    Endpoint remote;\n    QueuedDatagram rx[MAX_RX_DATAGRAMS];\n    size_t rx_head;\n    size_t rx_tail;\n    size_t rx_count;\n    size_t tcp_session;\n    bool active;\n    bool bound;\n    bool connected;\n};\n\nstruct TcpSession {\n    tcp_client::Client client;\n    bool active;\n};\n\nBackend g_backend{};\nSlot g_slots[MAX_SOCKETS]{};\nTcpSession g_tcp_sessions[MAX_TCP_SESSIONS]{};\nbool g_initialized = false;\nuint16_t g_next_ephemeral = EPHEMERAL_PORT_FIRST;\nuint32_t g_next_tcp_sequence = UINT32_C(0x4b550001);\n''')
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''void clear_slot(Slot& slot) {\n    const uint32_t generation = slot.generation;\n    slot = {};\n    slot.generation = generation;\n}\n\nbool endpoints_overlap''',
+              '''void release_tcp_session(Slot& slot) {\n    if (slot.tcp_session >= MAX_TCP_SESSIONS) return;\n    TcpSession& session = g_tcp_sessions[slot.tcp_session];\n    tcp_client::initialize(&session.client);\n    session = {};\n    slot.tcp_session = MAX_TCP_SESSIONS;\n}\n\nvoid clear_slot(Slot& slot) {\n    release_tcp_session(slot);\n    const uint32_t generation = slot.generation;\n    slot = {};\n    slot.generation = generation;\n    slot.tcp_session = MAX_TCP_SESSIONS;\n}\n\nbool endpoints_overlap''')
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''bool endpoint_in_use(const Endpoint& endpoint, const Slot* ignored = nullptr) {\n    for (const Slot& slot : g_slots) {\n        if (!slot.active || !slot.bound || &slot == ignored) continue;\n        if (endpoints_overlap(slot.local, endpoint)) return true;\n    }\n    return false;\n}\n\nuint16_t allocate_ephemeral_port(const Slot* ignored) {\n    constexpr uint32_t range = UINT32_C(65536) - EPHEMERAL_PORT_FIRST;\n    for (uint32_t attempt = 0U; attempt < range; ++attempt) {\n        const uint16_t candidate = g_next_ephemeral;\n        ++g_next_ephemeral;\n        if (g_next_ephemeral < EPHEMERAL_PORT_FIRST) {\n            g_next_ephemeral = EPHEMERAL_PORT_FIRST;\n        }\n        Endpoint endpoint{{{0U, 0U, 0U, 0U}}, candidate};\n        if (!endpoint_in_use(endpoint, ignored)) return candidate;\n    }\n    return 0U;\n}\n''',
+              '''bool endpoint_in_use(\n    const Endpoint& endpoint,\n    Protocol protocol,\n    const Slot* ignored = nullptr) {\n    for (const Slot& slot : g_slots) {\n        if (!slot.active || !slot.bound || &slot == ignored ||\n            slot.protocol != protocol) {\n            continue;\n        }\n        if (endpoints_overlap(slot.local, endpoint)) return true;\n    }\n    return false;\n}\n\nuint16_t allocate_ephemeral_port(const Slot* ignored) {\n    if (ignored == nullptr) return 0U;\n    constexpr uint32_t range = UINT32_C(65536) - EPHEMERAL_PORT_FIRST;\n    for (uint32_t attempt = 0U; attempt < range; ++attempt) {\n        const uint16_t candidate = g_next_ephemeral;\n        ++g_next_ephemeral;\n        if (g_next_ephemeral < EPHEMERAL_PORT_FIRST) {\n            g_next_ephemeral = EPHEMERAL_PORT_FIRST;\n        }\n        Endpoint endpoint{{{0U, 0U, 0U, 0U}}, candidate};\n        if (!endpoint_in_use(endpoint, ignored->protocol, ignored)) return candidate;\n    }\n    return 0U;\n}\n\nuint32_t next_tcp_initial_sequence() {\n    const uint32_t result = g_next_tcp_sequence;\n    g_next_tcp_sequence += UINT32_C(0x00010001);\n    if (g_next_tcp_sequence == 0U) g_next_tcp_sequence = UINT32_C(0x4b550001);\n    return result;\n}\n\nTcpSession* reserve_tcp_session(size_t* out_index) {\n    if (out_index != nullptr) *out_index = MAX_TCP_SESSIONS;\n    for (size_t index = 0U; index < MAX_TCP_SESSIONS; ++index) {\n        TcpSession& session = g_tcp_sessions[index];\n        if (session.active) continue;\n        session = {};\n        session.active = true;\n        tcp_client::initialize(&session.client);\n        if (out_index != nullptr) *out_index = index;\n        return &session;\n    }\n    return nullptr;\n}\n''')
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''Status initialize(const Backend& backend) {\n    if (g_initialized) return Status::AlreadyInitialized;\n    if (backend.send_udp == nullptr || backend.poll == nullptr ||\n        backend.take_udp == nullptr) {\n        return Status::InvalidArgument;\n    }\n    for (Slot& slot : g_slots) slot = {};\n    g_backend = backend;\n    g_next_ephemeral = EPHEMERAL_PORT_FIRST;\n    g_initialized = true;\n    return Status::Ok;\n}\n''',
+              '''Status initialize(const Backend& backend) {\n    if (g_initialized) return Status::AlreadyInitialized;\n    if (backend.send_udp == nullptr || backend.poll == nullptr ||\n        backend.take_udp == nullptr || backend.tcp_begin_connect == nullptr ||\n        backend.tcp_progress == nullptr || backend.tcp_try_send == nullptr ||\n        backend.tcp_try_receive == nullptr || backend.tcp_begin_close == nullptr) {\n        return Status::InvalidArgument;\n    }\n    for (Slot& slot : g_slots) {\n        slot = {};\n        slot.tcp_session = MAX_TCP_SESSIONS;\n    }\n    for (TcpSession& session : g_tcp_sessions) session = {};\n    g_backend = backend;\n    g_next_ephemeral = EPHEMERAL_PORT_FIRST;\n    g_next_tcp_sequence = UINT32_C(0x4b550001);\n    g_initialized = true;\n    return Status::Ok;\n}\n''')
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''    if (type != Type::Datagram || protocol != Protocol::Udp) {\n        return Status::NotSupported;\n    }\n''',
+              '''    const bool udp = type == Type::Datagram && protocol == Protocol::Udp;\n    const bool tcp = type == Type::Stream && protocol == Protocol::Tcp;\n    if (!udp && !tcp) return Status::NotSupported;\n''')
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''        slot.protocol = protocol;\n        slot.active = true;\n''',
+              '''        slot.protocol = protocol;\n        slot.tcp_session = MAX_TCP_SESSIONS;\n        slot.active = true;\n''')
+          replace_once(
+              'kernel/net/socket.cpp',
+              '    if (endpoint_in_use(endpoint, slot)) return Status::AddressInUse;\n',
+              '    if (endpoint_in_use(endpoint, slot->protocol, slot)) return Status::AddressInUse;\n')
+
+          old_connect = '''Status connect(ProcessId owner, Handle handle, const Endpoint& endpoint) {\n    if (!g_initialized) return Status::NotInitialized;\n    if (endpoint.port == 0U || address_zero(endpoint.address)) {\n        return Status::InvalidArgument;\n    }\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) {\n        const uint16_t port = allocate_ephemeral_port(slot);\n        if (port == 0U) return Status::CapacityReached;\n        slot->local = {{{0U, 0U, 0U, 0U}}, port};\n        slot->bound = true;\n    }\n    slot->remote = endpoint;\n    slot->connected = true;\n    return Status::Ok;\n}\n'''
+          new_connect = '''Status connect(ProcessId owner, Handle handle, const Endpoint& endpoint) {\n    if (!g_initialized) return Status::NotInitialized;\n    if (endpoint.port == 0U || address_zero(endpoint.address)) {\n        return Status::InvalidArgument;\n    }\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) {\n        const uint16_t port = allocate_ephemeral_port(slot);\n        if (port == 0U) return Status::CapacityReached;\n        slot->local = {{{0U, 0U, 0U, 0U}}, port};\n        slot->bound = true;\n    }\n\n    if (slot->protocol == Protocol::Udp && slot->type == Type::Datagram) {\n        slot->remote = endpoint;\n        slot->connected = true;\n        return Status::Ok;\n    }\n    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream) {\n        return Status::NotSupported;\n    }\n\n    if (slot->tcp_session < MAX_TCP_SESSIONS) {\n        if (!address_equal(slot->remote.address, endpoint.address) ||\n            slot->remote.port != endpoint.port) {\n            return Status::InvalidArgument;\n        }\n        TcpSession& session = g_tcp_sessions[slot->tcp_session];\n        const net::Status progress_status =\n            g_backend.tcp_progress(g_backend.context, &session.client);\n        slot->connected = session.client.connected;\n        if (slot->connected) return Status::Ok;\n        return transport_status(progress_status);\n    }\n\n    size_t session_index = MAX_TCP_SESSIONS;\n    TcpSession* session = reserve_tcp_session(&session_index);\n    if (session == nullptr) return Status::CapacityReached;\n    slot->tcp_session = session_index;\n    slot->remote = endpoint;\n    const net::Status begin_status = g_backend.tcp_begin_connect(\n        g_backend.context,\n        &session->client,\n        endpoint.address,\n        slot->local.port,\n        endpoint.port,\n        next_tcp_initial_sequence());\n    slot->connected = session->client.connected;\n    const Status mapped = transport_status(begin_status);\n    if (mapped != Status::Ok && mapped != Status::WouldBlock) {\n        release_tcp_session(*slot);\n        return mapped;\n    }\n    return slot->connected ? Status::Ok : Status::WouldBlock;\n}\n'''
+          replace_once('kernel/net/socket.cpp', old_connect, new_connect)
+
+          old_send = '''Status send(\n    ProcessId owner,\n    Handle handle,\n    const void* data,\n    size_t size) {\n    if (!g_initialized) return Status::NotInitialized;\n    if (data == nullptr || size == 0U) return Status::InvalidArgument;\n    if (size > UDP_MAX_PAYLOAD) return Status::PayloadTooLarge;\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) return Status::NotBound;\n    if (!slot->connected) return Status::NotConnected;\n    if (address_loopback(slot->remote.address)) {\n        return send_loopback(*slot, static_cast<const uint8_t*>(data), size);\n    }\n    return transport_status(g_backend.send_udp(\n        g_backend.context,\n        slot->remote.address,\n        slot->local.port,\n        slot->remote.port,\n        static_cast<const uint8_t*>(data),\n        size));\n}\n'''
+          new_send = '''Status send(\n    ProcessId owner,\n    Handle handle,\n    const void* data,\n    size_t size,\n    size_t* out_sent) {\n    if (out_sent != nullptr) *out_sent = 0U;\n    if (!g_initialized) return Status::NotInitialized;\n    if (data == nullptr || size == 0U) return Status::InvalidArgument;\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) return Status::NotBound;\n\n    if (slot->protocol == Protocol::Udp && slot->type == Type::Datagram) {\n        if (size > UDP_MAX_PAYLOAD) return Status::PayloadTooLarge;\n        if (!slot->connected) return Status::NotConnected;\n        Status status = Status::Ok;\n        if (address_loopback(slot->remote.address)) {\n            status = send_loopback(*slot, static_cast<const uint8_t*>(data), size);\n        } else {\n            status = transport_status(g_backend.send_udp(\n                g_backend.context,\n                slot->remote.address,\n                slot->local.port,\n                slot->remote.port,\n                static_cast<const uint8_t*>(data),\n                size));\n        }\n        if (status == Status::Ok && out_sent != nullptr) *out_sent = size;\n        return status;\n    }\n\n    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream ||\n        slot->tcp_session >= MAX_TCP_SESSIONS) {\n        return Status::NotConnected;\n    }\n    TcpSession& session = g_tcp_sessions[slot->tcp_session];\n    if (!slot->connected) {\n        const net::Status progress_status =\n            g_backend.tcp_progress(g_backend.context, &session.client);\n        slot->connected = session.client.connected;\n        if (!slot->connected) {\n            const Status mapped = transport_status(progress_status);\n            return mapped == Status::Ok ? Status::WouldBlock : mapped;\n        }\n    }\n    size_t sent = 0U;\n    const Status status = transport_status(g_backend.tcp_try_send(\n        g_backend.context,\n        &session.client,\n        static_cast<const uint8_t*>(data),\n        size,\n        &sent));\n    if (status == Status::Ok && out_sent != nullptr) *out_sent = sent;\n    return status;\n}\n'''
+          replace_once('kernel/net/socket.cpp', old_send, new_send)
+
+          old_receive = '''Status receive(\n    ProcessId owner,\n    Handle handle,\n    void* output,\n    size_t capacity,\n    size_t* out_size,\n    Endpoint* out_source) {\n    if (out_size != nullptr) *out_size = 0U;\n    if (!g_initialized) return Status::NotInitialized;\n    if (output == nullptr || capacity == 0U || out_size == nullptr) {\n        return Status::InvalidArgument;\n    }\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) return Status::NotBound;\n    if (slot->rx_count == 0U) {\n        const Status pump_status = pump(8U, nullptr);\n        if (pump_status != Status::Ok && pump_status != Status::WouldBlock) {\n            return pump_status;\n        }\n    }\n    if (slot->rx_count == 0U) return Status::WouldBlock;\n    QueuedDatagram& queued = slot->rx[slot->rx_tail];\n    *out_size = queued.size;\n    if (capacity < queued.size) return Status::BufferTooSmall;\n    auto* bytes = static_cast<uint8_t*>(output);\n    for (size_t index = 0U; index < queued.size; ++index) {\n        bytes[index] = queued.payload[index];\n    }\n    if (out_source != nullptr) *out_source = queued.source;\n    queued = {};\n    slot->rx_tail = (slot->rx_tail + 1U) % MAX_RX_DATAGRAMS;\n    --slot->rx_count;\n    return Status::Ok;\n}\n'''
+          new_receive = '''Status receive(\n    ProcessId owner,\n    Handle handle,\n    void* output,\n    size_t capacity,\n    size_t* out_size,\n    Endpoint* out_source) {\n    if (out_size != nullptr) *out_size = 0U;\n    if (!g_initialized) return Status::NotInitialized;\n    if (output == nullptr || capacity == 0U || out_size == nullptr) {\n        return Status::InvalidArgument;\n    }\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (!slot->bound) return Status::NotBound;\n\n    if (slot->protocol == Protocol::Tcp && slot->type == Type::Stream) {\n        if (slot->tcp_session >= MAX_TCP_SESSIONS) return Status::NotConnected;\n        TcpSession& session = g_tcp_sessions[slot->tcp_session];\n        if (session.client.state == tcp_client::State::Closed) {\n            if (out_source != nullptr) *out_source = slot->remote;\n            return Status::Ok;\n        }\n        if (!slot->connected) {\n            const net::Status progress_status =\n                g_backend.tcp_progress(g_backend.context, &session.client);\n            slot->connected = session.client.connected;\n            if (!slot->connected) {\n                const Status mapped = transport_status(progress_status);\n                return mapped == Status::Ok ? Status::WouldBlock : mapped;\n            }\n        }\n        const Status status = transport_status(g_backend.tcp_try_receive(\n            g_backend.context,\n            &session.client,\n            static_cast<uint8_t*>(output),\n            capacity,\n            out_size));\n        slot->connected = session.client.connected;\n        if (out_source != nullptr) *out_source = slot->remote;\n        return status;\n    }\n\n    if (slot->protocol != Protocol::Udp || slot->type != Type::Datagram) {\n        return Status::NotSupported;\n    }\n    if (slot->rx_count == 0U) {\n        const Status pump_status = pump(8U, nullptr);\n        if (pump_status != Status::Ok && pump_status != Status::WouldBlock) {\n            return pump_status;\n        }\n    }\n    if (slot->rx_count == 0U) return Status::WouldBlock;\n    QueuedDatagram& queued = slot->rx[slot->rx_tail];\n    *out_size = queued.size;\n    if (capacity < queued.size) return Status::BufferTooSmall;\n    auto* bytes = static_cast<uint8_t*>(output);\n    for (size_t index = 0U; index < queued.size; ++index) {\n        bytes[index] = queued.payload[index];\n    }\n    if (out_source != nullptr) *out_source = queued.source;\n    queued = {};\n    slot->rx_tail = (slot->rx_tail + 1U) % MAX_RX_DATAGRAMS;\n    --slot->rx_count;\n    return Status::Ok;\n}\n'''
+          replace_once('kernel/net/socket.cpp', old_receive, new_receive)
+
+          replace_once(
+              'kernel/net/socket.cpp',
+              '''Status close(ProcessId owner, Handle handle) {\n    if (!g_initialized) return Status::NotInitialized;\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    clear_slot(*slot);\n    return Status::Ok;\n}\n''',
+              '''Status close(ProcessId owner, Handle handle) {\n    if (!g_initialized) return Status::NotInitialized;\n    Status failure = Status::Ok;\n    Slot* slot = resolve(owner, handle, &failure);\n    if (slot == nullptr) return failure;\n    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream ||\n        slot->tcp_session >= MAX_TCP_SESSIONS) {\n        clear_slot(*slot);\n        return Status::Ok;\n    }\n\n    TcpSession& session = g_tcp_sessions[slot->tcp_session];\n    if (session.client.state == tcp_client::State::Closed) {\n        clear_slot(*slot);\n        return Status::Ok;\n    }\n    const Status begin_status = transport_status(\n        g_backend.tcp_begin_close(g_backend.context, &session.client));\n    if (begin_status != Status::Ok && begin_status != Status::WouldBlock) {\n        return begin_status;\n    }\n    if (session.client.state != tcp_client::State::Closed) {\n        const Status progress_status = transport_status(\n            g_backend.tcp_progress(g_backend.context, &session.client));\n        if (progress_status != Status::Ok && progress_status != Status::WouldBlock) {\n            return progress_status;\n        }\n    }\n    if (session.client.state != tcp_client::State::Closed) return Status::WouldBlock;\n    clear_slot(*slot);\n    return Status::Ok;\n}\n''')
+
+          replace_once(
+              'kernel/net/service.hpp',
+              '#include "network.hpp"\n',
+              '#include "network.hpp"\n#include "tcp_client.hpp"\n')
+          replace_once(
+              'kernel/net/service.hpp',
+              'Status socket_take_udp(UdpDatagram* datagram);\n',
+              '''Status socket_take_udp(UdpDatagram* datagram);\nStatus socket_tcp_begin_connect(\n    tcp_client::Client* client,\n    const IPv4Address& destination,\n    uint16_t source_port,\n    uint16_t destination_port,\n    uint32_t initial_sequence);\nStatus socket_tcp_progress(tcp_client::Client* client);\nStatus socket_tcp_try_send(\n    tcp_client::Client* client,\n    const uint8_t* data,\n    size_t length,\n    size_t* out_sent);\nStatus socket_tcp_try_receive(\n    tcp_client::Client* client,\n    uint8_t* output,\n    size_t output_capacity,\n    size_t* out_length);\nStatus socket_tcp_begin_close(tcp_client::Client* client);\n''')
+
+          replace_once(
+              'kernel/net/service.cpp',
+              '''Status socket_take_udp(UdpDatagram* datagram) {\n    if (!g_ready) return Status::NotInitialized;\n    return net::take_udp_datagram(&g_stack, datagram);\n}\n''',
+              '''Status socket_take_udp(UdpDatagram* datagram) {\n    if (!g_ready) return Status::NotInitialized;\n    return net::take_udp_datagram(&g_stack, datagram);\n}\n\nStatus socket_tcp_begin_connect(\n    tcp_client::Client* client,\n    const IPv4Address& destination,\n    uint16_t source_port,\n    uint16_t destination_port,\n    uint32_t initial_sequence) {\n    if (!g_ready) return Status::NotInitialized;\n    return tcp_client::begin_connect(\n        client, &g_stack, destination, source_port, destination_port, initial_sequence);\n}\n\nStatus socket_tcp_progress(tcp_client::Client* client) {\n    if (!g_ready) return Status::NotInitialized;\n    return tcp_client::progress(client);\n}\n\nStatus socket_tcp_try_send(\n    tcp_client::Client* client,\n    const uint8_t* data,\n    size_t length,\n    size_t* out_sent) {\n    if (!g_ready) return Status::NotInitialized;\n    return tcp_client::try_send(client, data, length, out_sent);\n}\n\nStatus socket_tcp_try_receive(\n    tcp_client::Client* client,\n    uint8_t* output,\n    size_t output_capacity,\n    size_t* out_length) {\n    if (!g_ready) return Status::NotInitialized;\n    return tcp_client::try_receive(client, output, output_capacity, out_length);\n}\n\nStatus socket_tcp_begin_close(tcp_client::Client* client) {\n    if (!g_ready) return Status::NotInitialized;\n    return tcp_client::begin_close(client);\n}\n''')
+
+          replace_once(
+              'kernel/user/runtime.cpp',
+              '''net::Status socket_backend_take_udp(void*, net::UdpDatagram* datagram) {\n    return net::service::socket_take_udp(datagram);\n}\n''',
+              '''net::Status socket_backend_take_udp(void*, net::UdpDatagram* datagram) {\n    return net::service::socket_take_udp(datagram);\n}\n\nnet::Status socket_backend_tcp_begin_connect(\n    void*,\n    net::tcp_client::Client* client,\n    const net::IPv4Address& destination,\n    uint16_t source_port,\n    uint16_t destination_port,\n    uint32_t initial_sequence) {\n    return net::service::socket_tcp_begin_connect(\n        client, destination, source_port, destination_port, initial_sequence);\n}\n\nnet::Status socket_backend_tcp_progress(void*, net::tcp_client::Client* client) {\n    return net::service::socket_tcp_progress(client);\n}\n\nnet::Status socket_backend_tcp_try_send(\n    void*,\n    net::tcp_client::Client* client,\n    const uint8_t* data,\n    size_t length,\n    size_t* out_sent) {\n    return net::service::socket_tcp_try_send(client, data, length, out_sent);\n}\n\nnet::Status socket_backend_tcp_try_receive(\n    void*,\n    net::tcp_client::Client* client,\n    uint8_t* output,\n    size_t output_capacity,\n    size_t* out_length) {\n    return net::service::socket_tcp_try_receive(\n        client, output, output_capacity, out_length);\n}\n\nnet::Status socket_backend_tcp_begin_close(\n    void*,\n    net::tcp_client::Client* client) {\n    return net::service::socket_tcp_begin_close(client);\n}\n''')
+
+          replace_once(
+              'kernel/user/runtime.cpp',
+              '''            const net::socket::Status status = net::socket::send(\n                context->pid,\n                static_cast<net::socket::Handle>(frame.rdi),\n                reinterpret_cast<const void*>(static_cast<uintptr_t>(frame.rsi)),\n                static_cast<size_t>(frame.rdx));\n            frame.rax = status == net::socket::Status::Ok\n                ? frame.rdx : static_cast<uint64_t>(socket_status(status));\n''',
+              '''            size_t sent = 0U;\n            const net::socket::Status status = net::socket::send(\n                context->pid,\n                static_cast<net::socket::Handle>(frame.rdi),\n                reinterpret_cast<const void*>(static_cast<uintptr_t>(frame.rsi)),\n                static_cast<size_t>(frame.rdx),\n                &sent);\n            frame.rax = status == net::socket::Status::Ok\n                ? static_cast<uint64_t>(sent)\n                : static_cast<uint64_t>(socket_status(status));\n''')
+
+          replace_once(
+              'kernel/user/runtime.cpp',
+              '''        socket_backend_send_udp,\n        socket_backend_poll,\n        socket_backend_take_udp,\n    };\n''',
+              '''        socket_backend_send_udp,\n        socket_backend_poll,\n        socket_backend_take_udp,\n        socket_backend_tcp_begin_connect,\n        socket_backend_tcp_progress,\n        socket_backend_tcp_try_send,\n        socket_backend_tcp_try_receive,\n        socket_backend_tcp_begin_close,\n    };\n''')
+
+          todo = Path('TODO-DEFERRED-TESTS.md')
+          text = todo.read_text()
+          old = '- Process-owned TCP socket pool regressions once the generic socket integration lands.\n'
+          new = ('- Process-owned TCP socket pool regressions: session exhaustion, PID ownership, protocol-specific bind collisions, async connect retries, partial send accounting, receive EOF, graceful close retry, process-exit cleanup, stale handles.\n')
+          if text.count(old) != 1:
+              raise SystemExit('TODO TCP pool anchor mismatch')
+          todo.write_text(text.replace(old, new, 1))
+
+      - name: Compile release kernel userspace SDK and boot chain
+        run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
+
+      - name: Commit compiled TCP socket pool
+        run: |
+          rm -f .github/workflows/apply-tcp-socket-pool.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'net(socket): add process-owned TCP client sessions'
+          git push origin HEAD:gpt/road-to-15-consolidation
