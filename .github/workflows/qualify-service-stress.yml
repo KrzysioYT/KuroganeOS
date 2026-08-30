@@ -36,7 +36,7 @@ jobs:
           anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
           addition = (
               '    "svcmeta|userspace/system/service-meta-server/main.c|system/svcmeta|c"\n'
-              '    "svcstress|userspace/system/service-stress-probe/main.c|system/svcstress|c"\n'
+              '    "svcstress|userspace/system/service-stress-probe/main.c|system/svchurn|c"\n'
           )
           if text.count(anchor) != 1:
               raise SystemExit(f'stress build anchor count={text.count(anchor)}')
@@ -51,7 +51,7 @@ jobs:
               '        (void)u_puts("[TEST] service_channel_churn: FAIL\\n");\n'
               '        ku_exit(33);\n'
               '    }\n'
-              '    const ku_result_t stress_probe_pid = u_spawn("/system/svcstress");\n'
+              '    const ku_result_t stress_probe_pid = u_spawn("/system/svchurn");\n'
               '    if (stress_probe_pid <= 0) {\n'
               '        (void)u_puts("[TEST] service_channel_churn: FAIL\\n");\n'
               '        ku_exit(34);\n'
@@ -66,7 +66,7 @@ jobs:
           git diff --check
           grep -F 'STRESS_ITERATIONS 256U' userspace/system/service-stress-probe/main.c
           grep -F 'system/svcmeta' scripts/build-linux.sh
-          grep -F 'system/svcstress' scripts/build-linux.sh
+          grep -F 'system/svchurn' scripts/build-linux.sh
           grep -F 'service_channel_churn: FAIL' userspace/system/init/main.c
 
       - name: Install build and QEMU dependencies
