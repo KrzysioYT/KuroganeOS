@@ -144,6 +144,60 @@ int main() {
     CHECK(ipc::close(deferred_client_pid, deferred_client) == Status::Ok);
     CHECK(ipc::close(deferred_server_pid, deferred_endpoint) == Status::Ok);
 
+    // Named services add metadata to the existing endpoint registry and
+    // negotiate the highest mutually compatible version before allocating a
+    // channel. Raw IPC endpoints intentionally remain usable without it.
+    constexpr char versioned_service[] = "versioned.v3";
+    constexpr ipc::ProcessId versioned_server_pid = 500U;
+    constexpr ipc::ProcessId versioned_client_pid = 600U;
+    const ipc::ServiceMetadata service_metadata{3U, 1U, UINT64_C(0xA5)};
+    Handle versioned_endpoint = ipc::INVALID_HANDLE;
+    CHECK(ipc::bind(
+        versioned_server_pid, versioned_service, sizeof(versioned_service) - 1U,
+        &versioned_endpoint, &service_metadata) == Status::Ok);
+
+    ipc::ServiceNegotiation compatible{};
+    compatible.minimum_version = 1U;
+    compatible.maximum_version = 2U;
+    Handle versioned_client = ipc::INVALID_HANDLE;
+    CHECK(ipc::connect(
+        versioned_client_pid, versioned_service, sizeof(versioned_service) - 1U,
+        &versioned_client, &compatible) == Status::Ok);
+    CHECK(compatible.selected_version == 2U);
+    CHECK(compatible.service_version == 3U);
+    CHECK(compatible.minimum_client_version == 1U);
+    CHECK(compatible.capabilities == UINT64_C(0xA5));
+    CHECK(compatible.owner_pid == versioned_server_pid);
+
+    Handle versioned_server = ipc::INVALID_HANDLE;
+    CHECK(ipc::accept(
+        versioned_server_pid, versioned_endpoint, &versioned_server) == Status::Ok);
+    CHECK(ipc::close(versioned_server_pid, versioned_server) == Status::Ok);
+    CHECK(ipc::close(versioned_client_pid, versioned_client) == Status::Ok);
+
+    ipc::ServiceNegotiation incompatible{};
+    incompatible.minimum_version = 4U;
+    incompatible.maximum_version = 5U;
+    Handle rejected_client = ipc::INVALID_HANDLE;
+    CHECK(ipc::connect(
+        versioned_client_pid, versioned_service, sizeof(versioned_service) - 1U,
+        &rejected_client, &incompatible) == Status::VersionMismatch);
+    CHECK(rejected_client == ipc::INVALID_HANDLE);
+    CHECK(ipc::close(versioned_server_pid, versioned_endpoint) == Status::Ok);
+
+    constexpr char legacy_service[] = "legacy.raw";
+    Handle legacy_endpoint = ipc::INVALID_HANDLE;
+    CHECK(ipc::bind(
+        versioned_server_pid, legacy_service, sizeof(legacy_service) - 1U,
+        &legacy_endpoint) == Status::Ok);
+    compatible = {};
+    compatible.minimum_version = 1U;
+    compatible.maximum_version = 1U;
+    CHECK(ipc::connect(
+        versioned_client_pid, legacy_service, sizeof(legacy_service) - 1U,
+        &rejected_client, &compatible) == Status::VersionMismatch);
+    CHECK(ipc::close(versioned_server_pid, legacy_endpoint) == Status::Ok);
+
     Handle invalid = ipc::INVALID_HANDLE;
     constexpr char bad_name[] = "bad/name";
     CHECK(ipc::bind(

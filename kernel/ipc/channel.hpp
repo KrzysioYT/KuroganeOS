@@ -30,6 +30,7 @@ enum class Status : uint8_t {
     AccessDenied,
     CapacityReached,
     WouldBlock,
+    VersionMismatch,
     PeerClosed,
 };
 
@@ -39,17 +40,35 @@ struct Message {
     uint8_t bytes[MAX_MESSAGE_SIZE];
 };
 
+struct ServiceMetadata {
+    uint32_t service_version;
+    uint32_t minimum_client_version;
+    uint64_t capabilities;
+};
+
+struct ServiceNegotiation {
+    uint32_t minimum_version;
+    uint32_t maximum_version;
+    uint32_t selected_version;
+    uint32_t service_version;
+    uint32_t minimum_client_version;
+    uint64_t capabilities;
+    ProcessId owner_pid;
+};
+
 Status initialize();
 Status bind(
     ProcessId owner_pid,
     const char* name,
     size_t name_length,
-    Handle* endpoint);
+    Handle* endpoint,
+    const ServiceMetadata* metadata = nullptr);
 Status connect(
     ProcessId client_pid,
     const char* name,
     size_t name_length,
-    Handle* channel);
+    Handle* channel,
+    ServiceNegotiation* negotiation = nullptr);
 Status accept(
     ProcessId server_pid,
     Handle endpoint,

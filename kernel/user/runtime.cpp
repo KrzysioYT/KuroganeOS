@@ -7,6 +7,7 @@
 #include <kurogane/ipc.h>
 #include <kurogane/network.h>
 #include <kurogane/shared_memory.h>
+#include <kurogane/service.h>
 #include <kurogane/status.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
@@ -72,6 +73,7 @@ ku_status_t ipc_status(ipc::Status status) {
         case ipc::Status::AccessDenied: return KU_STATUS_ACCESS_DENIED;
         case ipc::Status::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
         case ipc::Status::WouldBlock: return KU_STATUS_WOULD_BLOCK;
+        case ipc::Status::VersionMismatch: return KU_STATUS_VERSION_MISMATCH;
         case ipc::Status::NotInitialized:
         case ipc::Status::PeerClosed: return KU_STATUS_BAD_STATE;
     }
@@ -336,23 +338,83 @@ void extended_syscall_handler(
     switch (frame.rax) {
         case KU_SYS_IPC_BIND:
         case KU_SYS_IPC_CONNECT: {
-            if (frame.rdx != 0U) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
-                return;
-            }
             char name[ipc::MAX_SERVICE_NAME + 1U]{};
             if (!copy_user_ipc_name(*context, frame.rdi, frame.rsi, name)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+
+            ipc::ServiceMetadata metadata{};
+            const ipc::ServiceMetadata* metadata_ptr = nullptr;
+            ipc::ServiceNegotiation negotiation{};
+            ipc::ServiceNegotiation* negotiation_ptr = nullptr;
+            ku_service_negotiation* user_negotiation = nullptr;
+
+            if (frame.rdx != 0U && frame.rax == KU_SYS_IPC_BIND) {
+                if (!validate_user_buffer(
+                        *context, frame.rdx, sizeof(ku_service_descriptor))) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                const auto* descriptor = reinterpret_cast<const ku_service_descriptor*>(
+                    static_cast<uintptr_t>(frame.rdx));
+                if (descriptor->structure_size != sizeof(*descriptor) ||
+                    descriptor->abi_version != KU_SERVICE_DESCRIPTOR_ABI_VERSION) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                    return;
+                }
+                if (descriptor->reserved != 0U || descriptor->service_version == 0U ||
+                    descriptor->minimum_client_version == 0U ||
+                    descriptor->minimum_client_version > descriptor->service_version) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                metadata.service_version = descriptor->service_version;
+                metadata.minimum_client_version = descriptor->minimum_client_version;
+                metadata.capabilities = descriptor->capabilities;
+                metadata_ptr = &metadata;
+            } else if (frame.rdx != 0U && frame.rax == KU_SYS_IPC_CONNECT) {
+                if (!validate_user_buffer(
+                        *context, frame.rdx, sizeof(ku_service_negotiation), true)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                user_negotiation = reinterpret_cast<ku_service_negotiation*>(
+                    static_cast<uintptr_t>(frame.rdx));
+                if (user_negotiation->structure_size != sizeof(*user_negotiation) ||
+                    user_negotiation->abi_version != KU_SERVICE_NEGOTIATION_ABI_VERSION) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                    return;
+                }
+                if (user_negotiation->reserved != 0U ||
+                    user_negotiation->minimum_version == 0U ||
+                    user_negotiation->maximum_version < user_negotiation->minimum_version) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                negotiation.minimum_version = user_negotiation->minimum_version;
+                negotiation.maximum_version = user_negotiation->maximum_version;
+                negotiation_ptr = &negotiation;
+            }
+
             ipc::Handle handle = ipc::INVALID_HANDLE;
             const uint64_t interrupt_flags = save_and_disable_interrupts();
             const ipc::Status status = frame.rax == KU_SYS_IPC_BIND
                 ? ipc::bind(
-                    context->pid, name, static_cast<size_t>(frame.rsi), &handle)
+                    context->pid, name, static_cast<size_t>(frame.rsi), &handle,
+                    metadata_ptr)
                 : ipc::connect(
-                    context->pid, name, static_cast<size_t>(frame.rsi), &handle);
+                    context->pid, name, static_cast<size_t>(frame.rsi), &handle,
+                    negotiation_ptr);
             restore_interrupts(interrupt_flags);
+            if (status == ipc::Status::Ok && user_negotiation != nullptr) {
+                user_negotiation->selected_version = negotiation.selected_version;
+                user_negotiation->service_version = negotiation.service_version;
+                user_negotiation->minimum_client_version =
+                    negotiation.minimum_client_version;
+                user_negotiation->capabilities = negotiation.capabilities;
+                user_negotiation->owner_pid = negotiation.owner_pid;
+            }
             frame.rax = status == ipc::Status::Ok
                 ? handle : static_cast<uint64_t>(ipc_status(status));
             return;
