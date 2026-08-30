@@ -8,6 +8,9 @@
 #define SESSION_SERVICE_PATH "/system/sessiond"
 #define CLIPBOARD_SERVICE_PATH "/system/clipd"
 
+#define SERVICE_RESTART_LIMIT 3U
+#define SERVICE_RESTART_BASE_DELAY UINT64_C(4)
+
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
     (void)u_puts("[TEST] desktop_session_fallback: PASS\n");
@@ -62,6 +65,45 @@ static uint64_t spawn_clipboard_service(void) {
     return result > 0 ? (uint64_t)result : 0U;
 }
 
+typedef uint64_t (*service_spawn_fn)(void);
+
+typedef struct service_watch {
+    service_spawn_fn spawn;
+    uint64_t pid;
+    uint32_t restarts;
+    const char* restart_marker;
+} service_watch;
+
+static int supervise_service(service_watch* watch) {
+    int32_t exit_code = 0;
+    ku_status_t status;
+    uint64_t replacement;
+    uint64_t delay;
+
+    if (watch == (service_watch*)0 || watch->pid == 0U ||
+        watch->spawn == (service_spawn_fn)0) {
+        return 0;
+    }
+
+    status = ku_wait(watch->pid, &exit_code);
+    if (status == KU_STATUS_WOULD_BLOCK) return 1;
+    if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
+    if (watch->restarts >= SERVICE_RESTART_LIMIT) return 0;
+
+    delay = SERVICE_RESTART_BASE_DELAY * (uint64_t)(watch->restarts + 1U);
+    (void)u_puts("init: supervised service terminated; restarting\n");
+    (void)ku_sleep(delay);
+    replacement = watch->spawn();
+    if (replacement == 0U) return 0;
+
+    watch->pid = replacement;
+    ++watch->restarts;
+    if (watch->restart_marker != (const char*)0) {
+        (void)u_puts(watch->restart_marker);
+    }
+    return 1;
+}
+
 __attribute__((noreturn)) void _start(void) {
     if (ku_getpid() != UINT64_C(1)) {
         (void)u_puts("[TEST] userspace_init_pid1: FAIL\n");
@@ -86,7 +128,6 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(5);
     }
     (void)u_puts("[TEST] settings_service_spawn: PASS\n");
-
 
     const uint64_t notification_service_pid = spawn_notification_service();
     if (notification_service_pid == 0U) {
@@ -119,6 +160,32 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(27);
     }
     (void)u_puts("[TEST] clipboard_service_spawn: PASS\n");
+
+    service_watch event_watch = {
+        spawn_event_broker, event_broker_pid, 0U,
+        "[TEST] event_broker_restart: PASS\n"
+    };
+    service_watch settings_watch = {
+        spawn_settings_service, settings_service_pid, 0U,
+        "[TEST] settings_service_restart: PASS\n"
+    };
+    service_watch notification_watch = {
+        spawn_notification_service, notification_service_pid, 0U,
+        "[TEST] notification_service_restart: PASS\n"
+    };
+    service_watch account_watch = {
+        spawn_account_service, account_service_pid, 0U,
+        "[TEST] account_service_restart: PASS\n"
+    };
+    service_watch session_service_watch = {
+        spawn_session_service, session_service_pid, 0U,
+        "[TEST] session_service_restart: PASS\n"
+    };
+    service_watch clipboard_watch = {
+        spawn_clipboard_service, clipboard_service_pid, 0U,
+        "[TEST] clipboard_service_restart: PASS\n"
+    };
+
     uint64_t session_pid = spawn_session_gate();
     if (session_pid == 0U) run_console_fallback();
 
@@ -132,49 +199,37 @@ __attribute__((noreturn)) void _start(void) {
         run_console_fallback();
     }
 
-    int32_t service_status = 0;
-    const ku_status_t event_early = ku_wait(event_broker_pid, &service_status);
-    if (event_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&event_watch)) {
         (void)u_puts("[TEST] event_broker_liveness: FAIL\n");
         ku_exit(7);
     }
     (void)u_puts("[TEST] event_broker_liveness: PASS\n");
 
-    service_status = 0;
-    const ku_status_t settings_early = ku_wait(settings_service_pid, &service_status);
-    if (settings_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&settings_watch)) {
         (void)u_puts("[TEST] settings_service_liveness: FAIL\n");
         ku_exit(8);
     }
     (void)u_puts("[TEST] settings_service_liveness: PASS\n");
 
-    service_status = 0;
-    const ku_status_t notification_early = ku_wait(notification_service_pid, &service_status);
-    if (notification_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&notification_watch)) {
         (void)u_puts("[TEST] notification_service_liveness: FAIL\n");
         ku_exit(9);
     }
     (void)u_puts("[TEST] notification_service_liveness: PASS\n");
 
-    service_status = 0;
-    const ku_status_t account_early = ku_wait(account_service_pid, &service_status);
-    if (account_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&account_watch)) {
         (void)u_puts("[TEST] account_service_liveness: FAIL\n");
         ku_exit(17);
     }
     (void)u_puts("[TEST] account_service_liveness: PASS\n");
 
-    service_status = 0;
-    const ku_status_t session_service_early = ku_wait(session_service_pid, &service_status);
-    if (session_service_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&session_service_watch)) {
         (void)u_puts("[TEST] session_service_liveness: FAIL\n");
         ku_exit(24);
     }
     (void)u_puts("[TEST] session_service_liveness: PASS\n");
 
-    service_status = 0;
-    const ku_status_t clipboard_early = ku_wait(clipboard_service_pid, &service_status);
-    if (clipboard_early != KU_STATUS_WOULD_BLOCK) {
+    if (!supervise_service(&clipboard_watch)) {
         (void)u_puts("[TEST] clipboard_service_liveness: FAIL\n");
         ku_exit(29);
     }
@@ -186,76 +241,29 @@ __attribute__((noreturn)) void _start(void) {
     (void)u_puts("init: Red Flux session gate supervision online\n");
 
     for (;;) {
-        service_status = 0;
-        const ku_status_t event_wait = ku_wait(event_broker_pid, &service_status);
-        if (event_wait == KU_STATUS_OK || event_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: event broker terminated\n");
+        if (!supervise_service(&event_watch)) {
             (void)u_puts("[TEST] event_broker_liveness: FAIL\n");
             ku_exit(10);
         }
-        if (event_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: event broker supervision failed\n");
-            ku_exit(11);
-        }
-
-        service_status = 0;
-        const ku_status_t settings_wait = ku_wait(settings_service_pid, &service_status);
-        if (settings_wait == KU_STATUS_OK || settings_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: settings service terminated\n");
+        if (!supervise_service(&settings_watch)) {
             (void)u_puts("[TEST] settings_service_liveness: FAIL\n");
             ku_exit(12);
         }
-        if (settings_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: settings service supervision failed\n");
-            ku_exit(13);
-        }
-
-        service_status = 0;
-        const ku_status_t notification_wait = ku_wait(notification_service_pid, &service_status);
-        if (notification_wait == KU_STATUS_OK || notification_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: notification service terminated\n");
+        if (!supervise_service(&notification_watch)) {
             (void)u_puts("[TEST] notification_service_liveness: FAIL\n");
             ku_exit(14);
         }
-        if (notification_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: notification service supervision failed\n");
-            ku_exit(15);
-        }
-
-        service_status = 0;
-        const ku_status_t account_wait = ku_wait(account_service_pid, &service_status);
-        if (account_wait == KU_STATUS_OK || account_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: account service terminated\n");
+        if (!supervise_service(&account_watch)) {
             (void)u_puts("[TEST] account_service_liveness: FAIL\n");
             ku_exit(18);
         }
-        if (account_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: account service supervision failed\n");
-            ku_exit(19);
-        }
-
-        service_status = 0;
-        const ku_status_t session_service_wait = ku_wait(session_service_pid, &service_status);
-        if (session_service_wait == KU_STATUS_OK || session_service_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: session service terminated\n");
+        if (!supervise_service(&session_service_watch)) {
             (void)u_puts("[TEST] session_service_liveness: FAIL\n");
             ku_exit(25);
         }
-        if (session_service_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: session service supervision failed\n");
-            ku_exit(26);
-        }
-
-        service_status = 0;
-        const ku_status_t clipboard_wait = ku_wait(clipboard_service_pid, &service_status);
-        if (clipboard_wait == KU_STATUS_OK || clipboard_wait == KU_STATUS_NOT_FOUND) {
-            (void)u_puts("init: clipboard service terminated\n");
+        if (!supervise_service(&clipboard_watch)) {
             (void)u_puts("[TEST] clipboard_service_liveness: FAIL\n");
             ku_exit(30);
-        }
-        if (clipboard_wait != KU_STATUS_WOULD_BLOCK) {
-            (void)u_puts("init: clipboard service supervision failed\n");
-            ku_exit(31);
         }
 
         status = 0;
