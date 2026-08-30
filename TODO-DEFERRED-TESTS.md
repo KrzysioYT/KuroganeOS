@@ -26,6 +26,9 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 
 - Driver Manager 2.0 regressions: probe/attach failure accounting, lifecycle generation, detach on unbind, claim release, attached-count accounting, rebind after failure, runtime failure isolation, invalid/corrupt binding rejection, failure-stage diagnostics.
 
+## 5.0 Steel / Hardware
+- PCI capability regressions: status-bit gating, type-0/type-1 headers, bounded linked-list traversal, invalid offset/alignment, cycle detection, PM/MSI/MSI-X/PCIe lookup, MSI control decode, MSI-X table/PBA BIR+offset decode, absent capability behavior.
+
 ## Filesystem foundation
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 

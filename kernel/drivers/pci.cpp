@@ -21,6 +21,21 @@ bool function_exists(Address address) {
     return read16(address, 0x00) != 0xFFFFu;
 }
 
+
+bool capability_header_supported(const Device& device) {
+    const uint8_t type = static_cast<uint8_t>(device.header_type & 0x7FU);
+    return type == 0x00U || type == 0x01U;
+}
+
+bool capability_list_present(const Device& device) {
+    constexpr uint16_t kStatusCapabilitiesList = UINT16_C(1) << 4U;
+    return (read16(device.address, 0x06U) & kStatusCapabilitiesList) != 0U;
+}
+
+bool valid_capability_offset(uint8_t offset) {
+    return offset >= 0x40U && offset <= 0xFCU && (offset & 0x03U) == 0U;
+}
+
 void record_function(Address address) {
     if (g_device_count >= kMaximumDevices || !function_exists(address)) {
         return;
@@ -133,6 +148,125 @@ void visit(VisitCallback callback, void* context) {
             return;
         }
     }
+}
+
+CapabilityWalkStatus visit_capabilities(
+    const Device& device,
+    CapabilityCallback callback,
+    void* context) {
+    if (callback == nullptr) return CapabilityWalkStatus::InvalidArgument;
+    if (!capability_header_supported(device)) {
+        return CapabilityWalkStatus::UnsupportedHeader;
+    }
+    if (!capability_list_present(device)) {
+        return CapabilityWalkStatus::NotPresent;
+    }
+
+    bool visited[64]{};
+    uint8_t offset = static_cast<uint8_t>(read8(device.address, 0x34U) & 0xFCU);
+    if (offset == 0U) return CapabilityWalkStatus::NotPresent;
+    for (size_t count = 0U; count < MAX_CAPABILITIES_PER_DEVICE; ++count) {
+        if (!valid_capability_offset(offset)) {
+            return CapabilityWalkStatus::MalformedList;
+        }
+        const size_t visited_index = static_cast<size_t>(offset >> 2U);
+        if (visited[visited_index]) return CapabilityWalkStatus::MalformedList;
+        visited[visited_index] = true;
+
+        Capability capability{};
+        capability.id = read8(device.address, offset);
+        capability.offset = offset;
+        capability.next = static_cast<uint8_t>(
+            read8(device.address, static_cast<uint8_t>(offset + 1U)) & 0xFCU);
+        if (!callback(device, capability, context)) {
+            return CapabilityWalkStatus::IterationStopped;
+        }
+        if (capability.next == 0U) return CapabilityWalkStatus::Ok;
+        offset = capability.next;
+    }
+    return CapabilityWalkStatus::MalformedList;
+}
+
+bool find_capability(
+    const Device& device,
+    CapabilityId id,
+    Capability* output) {
+    if (output == nullptr || !capability_header_supported(device) ||
+        !capability_list_present(device)) {
+        return false;
+    }
+    *output = {};
+    bool visited[64]{};
+    uint8_t offset = static_cast<uint8_t>(read8(device.address, 0x34U) & 0xFCU);
+    for (size_t count = 0U;
+         count < MAX_CAPABILITIES_PER_DEVICE && offset != 0U;
+         ++count) {
+        if (!valid_capability_offset(offset)) return false;
+        const size_t visited_index = static_cast<size_t>(offset >> 2U);
+        if (visited[visited_index]) return false;
+        visited[visited_index] = true;
+        Capability capability{};
+        capability.id = read8(device.address, offset);
+        capability.offset = offset;
+        capability.next = static_cast<uint8_t>(
+            read8(device.address, static_cast<uint8_t>(offset + 1U)) & 0xFCU);
+        if (capability.id == static_cast<uint8_t>(id)) {
+            *output = capability;
+            return true;
+        }
+        offset = capability.next;
+    }
+    return false;
+}
+
+bool read_msi_info(const Device& device, MsiInfo* output) {
+    if (output == nullptr) return false;
+    *output = {};
+    Capability capability{};
+    if (!find_capability(device, CapabilityId::Msi, &capability)) return false;
+    const uint16_t control = read16(
+        device.address, static_cast<uint8_t>(capability.offset + 2U));
+    output->offset = capability.offset;
+    output->enabled = (control & UINT16_C(1)) != 0U;
+    output->multiple_message_capable = static_cast<uint8_t>((control >> 1U) & 0x07U);
+    output->multiple_message_enabled = static_cast<uint8_t>((control >> 4U) & 0x07U);
+    output->address_64_bit = (control & (UINT16_C(1) << 7U)) != 0U;
+    output->per_vector_masking = (control & (UINT16_C(1) << 8U)) != 0U;
+    return true;
+}
+
+bool read_msix_info(const Device& device, MsiXInfo* output) {
+    if (output == nullptr) return false;
+    *output = {};
+    Capability capability{};
+    if (!find_capability(device, CapabilityId::MsiX, &capability)) return false;
+    const uint16_t control = read16(
+        device.address, static_cast<uint8_t>(capability.offset + 2U));
+    const uint32_t table = read32(
+        device.address, static_cast<uint8_t>(capability.offset + 4U));
+    const uint32_t pba = read32(
+        device.address, static_cast<uint8_t>(capability.offset + 8U));
+    output->offset = capability.offset;
+    output->table_size = static_cast<uint16_t>((control & UINT16_C(0x07ff)) + 1U);
+    output->function_mask = (control & (UINT16_C(1) << 14U)) != 0U;
+    output->enabled = (control & (UINT16_C(1) << 15U)) != 0U;
+    output->table_bar = static_cast<uint8_t>(table & 0x07U);
+    output->table_offset = table & ~UINT32_C(0x07);
+    output->pending_bit_array_bar = static_cast<uint8_t>(pba & 0x07U);
+    output->pending_bit_array_offset = pba & ~UINT32_C(0x07);
+    return true;
+}
+
+const char* capability_walk_status_name(CapabilityWalkStatus status) {
+    switch (status) {
+        case CapabilityWalkStatus::Ok: return "OK";
+        case CapabilityWalkStatus::NotPresent: return "NOT_PRESENT";
+        case CapabilityWalkStatus::UnsupportedHeader: return "UNSUPPORTED_HEADER";
+        case CapabilityWalkStatus::InvalidArgument: return "INVALID_ARGUMENT";
+        case CapabilityWalkStatus::MalformedList: return "MALFORMED_LIST";
+        case CapabilityWalkStatus::IterationStopped: return "ITERATION_STOPPED";
+    }
+    return "UNKNOWN";
 }
 
 uint64_t bar_address(const Device& device, uint8_t bar_index, bool* is_io) {
