@@ -93,11 +93,12 @@ jobs:
               size_t name_size,
               ku_service_info* info) {
               if (info == NULL) return KU_STATUS_INVALID_ARGUMENT;
-              *info = (ku_service_info){
-                  sizeof(ku_service_info),
-                  KU_SERVICE_INFO_ABI_VERSION,
-                  0U, 0U, UINT64_C(0), UINT64_C(0)
-              };
+              info->structure_size = sizeof(*info);
+              info->abi_version = KU_SERVICE_INFO_ABI_VERSION;
+              info->service_version = 0U;
+              info->minimum_client_version = 0U;
+              info->capabilities = UINT64_C(0);
+              info->owner_pid = UINT64_C(0);
               return (ku_status_t)ku_syscall3(
                   KU_SYS_IPC_QUERY,
                   (uint64_t)(uintptr_t)name,
@@ -187,13 +188,15 @@ jobs:
           text = runtime.read_text()
           predicate = '''    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
               (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
+              (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
           '''
           predicate_new = '''    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
               number == KU_SYS_IPC_QUERY ||
               (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
+              (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
           '''
           if text.count(predicate) != 1:
-              raise SystemExit('runtime syscall predicate anchor changed')
+              raise SystemExit(f'runtime syscall predicate anchor count={text.count(predicate)}')
           text = text.replace(predicate, predicate_new, 1)
           switch_anchor = '''    switch (frame.rax) {
               case KU_SYS_IPC_BIND:
@@ -231,7 +234,7 @@ jobs:
               case KU_SYS_IPC_BIND:
           '''
           if text.count(switch_anchor) != 1:
-              raise SystemExit('runtime query case anchor changed')
+              raise SystemExit(f'runtime query case anchor count={text.count(switch_anchor)}')
           runtime.write_text(text.replace(switch_anchor, query_case, 1))
 
           build = Path('scripts/build-linux.sh')
