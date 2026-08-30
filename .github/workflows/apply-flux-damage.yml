@@ -1,0 +1,46 @@
+name: Apply 3.6 Flux damage regions
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/apply-flux-damage.yml'
+      - '.github/scripts/apply-flux-damage.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3
+
+      - name: Apply bounded damage-region compositor slice
+        run: |
+          python3 -m py_compile .github/scripts/apply-flux-damage.py
+          python3 .github/scripts/apply-flux-damage.py
+
+      - name: Compile release kernel userspace SDK and boot chain
+        run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
+
+      - name: Commit compiled Flux damage regions
+        run: |
+          rm -f .github/workflows/apply-flux-damage.yml .github/scripts/apply-flux-damage.py
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'ui(flux): add bounded per-window damage regions'
+          git push origin HEAD:gpt/road-to-15-consolidation
