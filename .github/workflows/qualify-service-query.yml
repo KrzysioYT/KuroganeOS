@@ -186,21 +186,12 @@ jobs:
 
           runtime = Path('kernel/user/runtime.cpp')
           text = runtime.read_text()
-          predicate = '''    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
-              (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
-              (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
-          '''
-          predicate_new = '''    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
-              number == KU_SYS_IPC_QUERY ||
-              (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
-              (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
-          '''
+          predicate = '    return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||\n'
+          predicate_new = predicate + '        number == KU_SYS_IPC_QUERY ||\n'
           if text.count(predicate) != 1:
               raise SystemExit(f'runtime syscall predicate anchor count={text.count(predicate)}')
           text = text.replace(predicate, predicate_new, 1)
-          switch_anchor = '''    switch (frame.rax) {
-              case KU_SYS_IPC_BIND:
-          '''
+          switch_anchor = '    switch (frame.rax) {\n        case KU_SYS_IPC_BIND:\n'
           query_case = '''    switch (frame.rax) {
               case KU_SYS_IPC_QUERY: {
                   char name[ipc::MAX_SERVICE_NAME + 1U]{};
@@ -233,6 +224,9 @@ jobs:
               }
               case KU_SYS_IPC_BIND:
           '''
+          query_lines = query_case.splitlines(True)
+          query_case = query_lines[0] + ''.join(
+              ('    ' + line) if line.strip() else line for line in query_lines[1:])
           if text.count(switch_anchor) != 1:
               raise SystemExit(f'runtime query case anchor count={text.count(switch_anchor)}')
           runtime.write_text(text.replace(switch_anchor, query_case, 1))
