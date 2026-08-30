@@ -1,0 +1,201 @@
+name: Qualify durable settings change notifications
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/settings-change-breakthrough.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate durable settings change publication
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('userspace/system/settingsd/main.c')
+          text = path.read_text()
+          include_anchor = '#include <kurogane/filesystem.h>\n#include <kurogane/settings.h>\n'
+          include_new = '#include <kurogane/event_broker.h>\n' + include_anchor
+          if text.count(include_anchor) != 1:
+              raise SystemExit('settings include anchor changed')
+          text = text.replace(include_anchor, include_new, 1)
+
+          helper_anchor = '''static ku_status_t send_response(
+              ku_service_connection_t connection,
+              ku_status_t status,
+              const settingsd_record* record) {'''
+          helpers = r'''static ku_service_connection_t change_broker_connection;
+
+          static void copy_topic(char* destination, const char* source) {
+              size_t index = 0U;
+              while (index + 1U < KU_EVENT_BROKER_TOPIC_CAPACITY && source[index] != '\0') {
+                  destination[index] = source[index];
+                  ++index;
+              }
+              destination[index++] = '\0';
+              while (index < KU_EVENT_BROKER_TOPIC_CAPACITY) destination[index++] = '\0';
+          }
+
+          static ku_status_t connect_change_broker(void) {
+              uint32_t attempt;
+              ku_result_t connected;
+              if (change_broker_connection != 0U) return KU_STATUS_OK;
+              for (attempt = 0U; attempt < 200U; ++attempt) {
+                  connected = ku_event_broker_connect();
+                  if (connected > 0) {
+                      change_broker_connection = (ku_service_connection_t)connected;
+                      return KU_STATUS_OK;
+                  }
+                  if (connected != KU_STATUS_NOT_FOUND && connected != KU_STATUS_WOULD_BLOCK)
+                      return (ku_status_t)connected;
+                  (void)ku_sleep(1U);
+              }
+              return KU_STATUS_TIMED_OUT;
+          }
+
+          static ku_status_t wait_change_publish_response(void) {
+              uint32_t attempt;
+              for (attempt = 0U; attempt < 200U; ++attempt) {
+                  ku_service_message message;
+                  ku_event_broker_response response;
+                  ku_status_t status = ku_service_receive(change_broker_connection, &message);
+                  if (status == KU_STATUS_WOULD_BLOCK) {
+                      (void)ku_sleep(1U);
+                      continue;
+                  }
+                  if (status != KU_STATUS_OK) return status;
+                  if (message.data_size != sizeof(response)) return KU_STATUS_CORRUPT_DATA;
+                  response = *(const ku_event_broker_response*)(const void*)message.data;
+                  if (response.structure_size != sizeof(response)) return KU_STATUS_CORRUPT_DATA;
+                  return (ku_status_t)response.status;
+              }
+              return KU_STATUS_TIMED_OUT;
+          }
+
+          static ku_status_t publish_change_event(void) {
+              ku_event_broker_request request;
+              ku_status_t status = connect_change_broker();
+              if (status != KU_STATUS_OK) return status;
+              clear_bytes(&request, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_EVENT_BROKER_PUBLISH;
+              copy_topic(request.topic, KU_SETTINGS_CHANGED_TOPIC);
+              status = ku_service_send(change_broker_connection, &request, sizeof(request));
+              if (status == KU_STATUS_OK) status = wait_change_publish_response();
+              if (status != KU_STATUS_OK) {
+                  (void)ku_service_close(change_broker_connection);
+                  change_broker_connection = 0U;
+              }
+              return status;
+          }
+
+          '''
+          if text.count(helper_anchor) != 1:
+              raise SystemExit('settings response helper anchor changed')
+          text = text.replace(helper_anchor, helpers + helper_anchor, 1)
+
+          response_anchor = '    (void)send_response(client->connection, status, record);\n'
+          response_new = (
+              '    if (status == KU_STATUS_OK &&\n'
+              '        (request->operation == KU_SETTINGS_SET || request->operation == KU_SETTINGS_DELETE)) {\n'
+              '        const ku_status_t change_status = publish_change_event();\n'
+              '        (void)u_puts(change_status == KU_STATUS_OK\n'
+              '            ? "[TEST] settings_change_publish: PASS\\n"\n'
+              '            : "[TEST] settings_change_publish: FAIL\\n");\n'
+              '    }\n'
+              + response_anchor
+          )
+          if text.count(response_anchor) != 1:
+              raise SystemExit('settings response anchor changed')
+          path.write_text(text.replace(response_anchor, response_new, 1))
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          build_anchor = '    "sessionprobe|userspace/system/session-probe/main.c|system/sesprobe|c"\n'
+          build_add = '    "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"\n'
+          if text.count(build_anchor) != 1:
+              raise SystemExit('settings change build anchor changed')
+          build.write_text(text.replace(build_anchor, build_anchor + build_add, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          spawn_anchor = '    (void)u_puts("[TEST] settings_service_spawn: PASS\\n");\n\n'
+          spawn_new = spawn_anchor + (
+              '    const ku_result_t settings_change_probe_pid = u_spawn("/system/setchprb");\n'
+              '    if (settings_change_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] settings_change_notification: FAIL\\n");\n'
+              '        ku_exit(27);\n'
+              '    }\n\n'
+          )
+          if text.count(spawn_anchor) != 1:
+              raise SystemExit('settings change init anchor changed')
+          init.write_text(text.replace(spawn_anchor, spawn_new, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'KU_SETTINGS_CHANGED_TOPIC' userspace/system/settingsd/main.c
+          grep -F 'settings_change_publish: PASS' userspace/system/settingsd/main.c
+          grep -F 'system/setchprb' scripts/build-linux.sh
+          [[ ${#setchprb} -le 8 ]]
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require durable SET and DELETE change events
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] settings_change_notification: PASS' \
+            --timeout 180
+
+      - name: Remove qualification-only launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          probe = (
+              '    const ku_result_t settings_change_probe_pid = u_spawn("/system/setchprb");\n'
+              '    if (settings_change_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] settings_change_notification: FAIL\\n");\n'
+              '        ku_exit(27);\n'
+              '    }\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('settings change qualification stanza changed')
+          path.write_text(text.replace(probe, '', 1))
+
+      - name: Land qualified settings change notifications
+        run: |
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/settings-change-breakthrough.yml
+          git add userspace/system/settingsd/main.c scripts/build-linux.sh userspace/system/init/main.c
+          git commit -m 'service(settings): publish durable change events'
+          git push origin HEAD:gpt/road-to-15-consolidation
