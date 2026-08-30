@@ -1,5 +1,6 @@
 #include "../../runtime/user.h"
 
+#include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/settings.h>
 
@@ -331,6 +332,71 @@ static ku_status_t delete_record(const char* key) {
     return status;
 }
 
+static ku_service_connection_t change_broker_connection;
+
+static void copy_topic(char* destination, const char* source) {
+    size_t index = 0U;
+    while (index + 1U < KU_EVENT_BROKER_TOPIC_CAPACITY && source[index] != '\0') {
+        destination[index] = source[index];
+        ++index;
+    }
+    destination[index++] = '\0';
+    while (index < KU_EVENT_BROKER_TOPIC_CAPACITY) destination[index++] = '\0';
+}
+
+static ku_status_t connect_change_broker(void) {
+    uint32_t attempt;
+    ku_result_t connected;
+    if (change_broker_connection != 0U) return KU_STATUS_OK;
+    for (attempt = 0U; attempt < 200U; ++attempt) {
+        connected = ku_event_broker_connect();
+        if (connected > 0) {
+            change_broker_connection = (ku_service_connection_t)connected;
+            return KU_STATUS_OK;
+        }
+        if (connected != KU_STATUS_NOT_FOUND && connected != KU_STATUS_WOULD_BLOCK)
+            return (ku_status_t)connected;
+        (void)ku_sleep(1U);
+    }
+    return KU_STATUS_TIMED_OUT;
+}
+
+static ku_status_t wait_change_publish_response(void) {
+    uint32_t attempt;
+    for (attempt = 0U; attempt < 200U; ++attempt) {
+        ku_service_message message;
+        ku_event_broker_response response;
+        ku_status_t status = ku_service_receive(change_broker_connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)ku_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(response)) return KU_STATUS_CORRUPT_DATA;
+        response = *(const ku_event_broker_response*)(const void*)message.data;
+        if (response.structure_size != sizeof(response)) return KU_STATUS_CORRUPT_DATA;
+        return (ku_status_t)response.status;
+    }
+    return KU_STATUS_TIMED_OUT;
+}
+
+static ku_status_t publish_change_event(void) {
+    ku_event_broker_request request;
+    ku_status_t status = connect_change_broker();
+    if (status != KU_STATUS_OK) return status;
+    clear_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_EVENT_BROKER_PUBLISH;
+    copy_topic(request.topic, KU_SETTINGS_CHANGED_TOPIC);
+    status = ku_service_send(change_broker_connection, &request, sizeof(request));
+    if (status == KU_STATUS_OK) status = wait_change_publish_response();
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(change_broker_connection);
+        change_broker_connection = 0U;
+    }
+    return status;
+}
+
 static ku_status_t send_response(
     ku_service_connection_t connection,
     ku_status_t status,
@@ -393,6 +459,13 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
         default:
             status = KU_STATUS_NOT_SUPPORTED;
             break;
+    }
+    if (status == KU_STATUS_OK &&
+        (request->operation == KU_SETTINGS_SET || request->operation == KU_SETTINGS_DELETE)) {
+        const ku_status_t change_status = publish_change_event();
+        (void)u_puts(change_status == KU_STATUS_OK
+            ? "[TEST] settings_change_publish: PASS\n"
+            : "[TEST] settings_change_publish: FAIL\n");
     }
     (void)send_response(client->connection, status, record);
 }

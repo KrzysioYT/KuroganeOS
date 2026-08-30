@@ -81,6 +81,7 @@ __attribute__((noreturn)) void _start(void) {
     }
     (void)u_puts("[TEST] settings_service_spawn: PASS\n");
 
+
     const uint64_t notification_service_pid = spawn_notification_service();
     if (notification_service_pid == 0U) {
         (void)u_puts("init: cannot spawn /system/notifd\n");
