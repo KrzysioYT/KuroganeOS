@@ -19,11 +19,22 @@ using Entry = void (*)(void* argument);
 constexpr ThreadId INVALID_THREAD_ID = 0U;
 constexpr size_t MAX_THREADS = 16U;
 constexpr size_t MAX_THREAD_NAME = 31U;
-constexpr size_t KERNEL_STACK_SIZE = 64U * 1024U;
-// Ring-3 syscall/IRQ entry begins at the physical top of each thread stack.
-// Keep it disjoint from the kernel execution half so deep VFS/AHCI calls and
-// nested timer frames cannot overwrite the suspended runtime::Context.
-constexpr size_t KERNEL_ENTRY_RESERVE = 32U * 1024U;
+
+// Process threads suspend their ordinary kernel call chain in the lower part
+// of this stack while Ring-3 executes.  An interrupt/syscall then enters from
+// the physical top through the TSS RSP0 and may run deep filesystem/storage
+// code before returning to the suspended runtime::run() frame.  FAT32 path
+// mutation legitimately needs more than 32 KiB at that boundary, so keep a
+// dedicated 64 KiB entry region while preserving the original 32 KiB kernel
+// execution region below it.  The split is bounded and explicit: overflowing
+// either half remains a bug, but normal VFS/AHCI syscall depth must never
+// overwrite the suspended Ring-3 launch return chain.
+constexpr size_t KERNEL_EXECUTION_RESERVE = 32U * 1024U;
+constexpr size_t KERNEL_ENTRY_RESERVE = 64U * 1024U;
+constexpr size_t KERNEL_STACK_SIZE =
+    KERNEL_EXECUTION_RESERVE + KERNEL_ENTRY_RESERVE;
+static_assert(KERNEL_STACK_SIZE == 96U * 1024U);
+static_assert(KERNEL_ENTRY_RESERVE < KERNEL_STACK_SIZE);
 
 enum class Status : uint8_t {
     Ok = 0,
