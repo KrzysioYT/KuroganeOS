@@ -7,7 +7,8 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - UDP loopback regressions: self-loopback, cross-process loopback, queue saturation, unused loopback destination, no 127/8 physical-NIC leakage.
 - Ring-3 public UDP ABI roundtrip through syscalls 57..62.
 - Ring-3 socket cleanup after process exit and immediate port rebind.
-- TCP client socket state-machine regressions once the process-owned TCP slice lands.
+- TCP nonblocking progression regressions: begin_connect retry/backpressure, SYN/SYN-ACK progression, bounded try_send window accounting, ACK progression, try_receive, FIN completion, RST/error paths.
+- Process-owned TCP socket pool regressions once the generic socket integration lands.
 - DNS/network-event/TLS userspace integration regressions once those slices land.
 
 ## Existing deferred qualification

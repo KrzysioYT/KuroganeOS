@@ -299,7 +299,9 @@ Status ingest_contiguous(
         if (fin_sequence == client->receive_next) {
             ++client->receive_next;
             client->peer_closed = true;
-            client->state = State::CloseWait;
+            if (client->state != State::FinWait1) {
+                client->state = State::CloseWait;
+            }
         }
     }
     return Status::Ok;
@@ -521,6 +523,213 @@ void initialize(Client* client) {
     if (client == nullptr) return;
     *client = {};
     client->state = State::Closed;
+}
+
+Status begin_connect(
+    Client* client,
+    NetworkStack* stack,
+    const IPv4Address& peer,
+    uint16_t local_port,
+    uint16_t remote_port,
+    uint32_t initial_sequence) {
+    if (client == nullptr || stack == nullptr || !stack->initialized ||
+        !stack->ipv4_configured || ipv4_is_zero(peer) || local_port == 0U ||
+        remote_port == 0U) {
+        return Status::InvalidArgument;
+    }
+
+    initialize(client);
+    client->stack = stack;
+    client->peer = peer;
+    client->local_port = local_port;
+    client->remote_port = remote_port;
+    client->send_unacknowledged = initial_sequence;
+    client->send_next = initial_sequence;
+    client->state = State::SynSent;
+
+    TcpSegment stale{};
+    while (take_tcp_segment(stack, &stale) == Status::Ok) {}
+
+    const Status status = send_tcp(
+        stack, peer, local_port, remote_port, initial_sequence, 0U, TcpSyn,
+        advertised_window(*client), nullptr, 0U);
+    if (status == Status::Ok) {
+        client->send_next = initial_sequence + 1U;
+        return Status::WouldBlock;
+    }
+    if (retryable_transmit_status(status)) return Status::WouldBlock;
+    client->state = State::Error;
+    return status;
+}
+
+Status progress(Client* client) {
+    if (client == nullptr || client->stack == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (client->state == State::Closed) return Status::Ok;
+    if (client->state == State::Reset || client->state == State::Error) {
+        return Status::InterfaceError;
+    }
+
+    if (client->state == State::SynSent &&
+        client->send_next == client->send_unacknowledged) {
+        const Status send_status = send_tcp(
+            client->stack, client->peer, client->local_port, client->remote_port,
+            client->send_unacknowledged, 0U, TcpSyn, advertised_window(*client),
+            nullptr, 0U);
+        if (retryable_transmit_status(send_status)) return Status::WouldBlock;
+        if (send_status != Status::Ok) {
+            client->state = State::Error;
+            return send_status;
+        }
+        client->send_next = client->send_unacknowledged + 1U;
+    }
+
+    TcpSegment segment{};
+    const Status poll_status = take_or_poll_one(client, &segment);
+    if (poll_status == Status::WouldBlock || poll_status == Status::NotForUs) {
+        return Status::WouldBlock;
+    }
+    if (poll_status != Status::Ok) {
+        client->state = State::Error;
+        return poll_status;
+    }
+
+    if (client->state == State::SynSent) {
+        if ((segment.flags & TcpRst) != 0U) {
+            client->state = State::Reset;
+            return Status::InterfaceError;
+        }
+        if ((segment.flags & (TcpSyn | TcpAck)) != (TcpSyn | TcpAck) ||
+            segment.acknowledgement != client->send_next) {
+            return Status::WouldBlock;
+        }
+        client->receive_next = segment.sequence + 1U;
+        client->send_unacknowledged = segment.acknowledgement;
+        client->peer_window = segment.window;
+        client->connected = true;
+        client->state = State::Established;
+        const Status ack_status = acknowledge_or_defer(client);
+        if (ack_status != Status::Ok) {
+            client->connected = false;
+            client->state = State::Error;
+            return ack_status;
+        }
+        return Status::Ok;
+    }
+
+    const State before = client->state;
+    const Status status = process_incoming(client, segment);
+    if (status != Status::Ok && status != Status::NotForUs) return status;
+    if (before == State::FinWait1) {
+        client->state = State::FinWait1;
+        if (client->peer_closed &&
+            !sequence_before(client->send_unacknowledged, client->send_next)) {
+            initialize(client);
+        }
+    }
+    return Status::Ok;
+}
+
+Status try_send(
+    Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent) {
+    if (out_sent != nullptr) *out_sent = 0U;
+    if (client == nullptr || out_sent == nullptr || client->stack == nullptr ||
+        (length != 0U && data == nullptr)) {
+        return Status::InvalidArgument;
+    }
+    if (!client->connected || client->state != State::Established ||
+        client->peer_closed) {
+        return Status::InterfaceError;
+    }
+    if (length == 0U) return Status::Ok;
+
+    const uint32_t in_flight = client->send_next - client->send_unacknowledged;
+    if (in_flight >= client->peer_window) return Status::WouldBlock;
+    size_t available = static_cast<size_t>(client->peer_window - in_flight);
+    size_t chunk = length < MAX_SEGMENT_PAYLOAD ? length : MAX_SEGMENT_PAYLOAD;
+    if (chunk > available) chunk = available;
+    if (chunk == 0U) return Status::WouldBlock;
+
+    const Status status = send_tcp(
+        client->stack, client->peer, client->local_port, client->remote_port,
+        client->send_next, client->receive_next, TcpPsh | TcpAck,
+        advertised_window(*client), data, chunk);
+    if (retryable_transmit_status(status)) return Status::WouldBlock;
+    if (status != Status::Ok) {
+        client->connected = false;
+        client->state = State::Error;
+        return status;
+    }
+    client->send_next += static_cast<uint32_t>(chunk);
+    *out_sent = chunk;
+    return Status::Ok;
+}
+
+Status try_receive(
+    Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length) {
+    if (out_length != nullptr) *out_length = 0U;
+    if (client == nullptr || client->stack == nullptr || output == nullptr ||
+        output_capacity == 0U || out_length == nullptr) {
+        return Status::InvalidArgument;
+    }
+
+    Status status = drain_pending(client, output, output_capacity, out_length);
+    if (status == Status::Ok) {
+        static_cast<void>(acknowledge_or_defer(client));
+        return Status::Ok;
+    }
+    if (client->peer_closed) return Status::Ok;
+    if (!client->connected) return Status::InterfaceError;
+
+    status = progress(client);
+    if (status != Status::Ok && status != Status::WouldBlock) return status;
+    status = drain_pending(client, output, output_capacity, out_length);
+    if (status == Status::Ok) {
+        static_cast<void>(acknowledge_or_defer(client));
+        return Status::Ok;
+    }
+    return client->peer_closed ? Status::Ok : Status::WouldBlock;
+}
+
+Status begin_close(Client* client) {
+    if (client == nullptr) return Status::InvalidArgument;
+    if (!client->connected || client->stack == nullptr) {
+        initialize(client);
+        return Status::Ok;
+    }
+    if (client->state == State::Reset) {
+        initialize(client);
+        return Status::Ok;
+    }
+    if (client->state == State::Error) return Status::InterfaceError;
+    if (client->state == State::FinWait1) return Status::WouldBlock;
+    if (client->state != State::Established &&
+        client->state != State::CloseWait) {
+        return Status::InterfaceError;
+    }
+    if (client->send_unacknowledged != client->send_next) {
+        return Status::WouldBlock;
+    }
+
+    const Status status = send_tcp(
+        client->stack, client->peer, client->local_port, client->remote_port,
+        client->send_next, client->receive_next, TcpFin | TcpAck,
+        advertised_window(*client), nullptr, 0U);
+    if (retryable_transmit_status(status)) return Status::WouldBlock;
+    if (status != Status::Ok) {
+        client->state = State::Error;
+        return status;
+    }
+    ++client->send_next;
+    client->state = State::FinWait1;
+    return Status::WouldBlock;
 }
 
 Status connect(
