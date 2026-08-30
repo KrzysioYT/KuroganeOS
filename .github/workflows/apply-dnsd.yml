@@ -34,7 +34,7 @@ jobs:
           p = Path('.github/scripts/apply-dnsd.py')
           text = p.read_text()
           helper_anchor = "\n\nheader = r'''#ifndef KUROGANE_SDK_DNS_SERVICE_H"
-          helper = '''\n\ndef replace_optional(path: str, old: str, new: str) -> None:\n    p = Path(path)\n    text = p.read_text()\n    count = text.count(old)\n    if count > 1:\n        raise SystemExit(f"{path}: optional anchor count={count}: {old[:120]!r}")\n    if count == 1:\n        p.write_text(text.replace(old, new, 1))\n'''
+          helper = '''\n\ndef replace_optional(path: str, old: str, new: str) -> None:\n    p = Path(path)\n    text = p.read_text()\n    count = text.count(old)\n    if count > 1:\n        raise SystemExit(f"{path}: optional anchor count={count}: {old[:120]!r}")\n'''
           if helper_anchor not in text:
               raise SystemExit('DNS helper insertion anchor missing')
           text = text.replace(helper_anchor, helper + helper_anchor, 1)
@@ -44,6 +44,11 @@ jobs:
               if old not in text:
                   raise SystemExit(f'DNS optional conversion missing for indent={len(indent)}')
               text = text.replace(old, new, 1)
+          spawn_old = '(void)u_puts("init: cannot spawn /system/dnsd\\n");'
+          spawn_new = '(void)u_puts("init: cannot spawn /system/dnsd\\\\n");'
+          if text.count(spawn_old) != 1:
+              raise SystemExit(f'DNS spawn string anchor count={text.count(spawn_old)}')
+          text = text.replace(spawn_old, spawn_new, 1)
           p.write_text(text)
           PY
           python3 -m py_compile .github/scripts/apply-dnsd.py
