@@ -6,6 +6,7 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/diagnose-closeout-panic.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,59 +23,156 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Install build dependencies
+      - name: Install build and QEMU dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             build-essential binutils python3 \
+            qemu-system-x86 ovmf \
             mtools dosfstools gdisk xorriso
 
-      - name: Build exact release kernel
+      - name: Inject exact combined closeout probes and bounded PIE diagnostics
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "filesystemprobe|userspace/system/filesystem-probe/main.c|system/fsprobe|c"\n'
+              '    "svcmeta|userspace/system/service-meta-server/main.c|system/svcmeta|c"\n'
+              '    "svcneg|userspace/system/service-meta-probe/main.c|system/svcneg|c"\n'
+              '    "svclook|userspace/system/service-query-probe/main.c|system/svclook|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'closeout build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          probes = anchor + (
+              '    const ku_result_t closeout_svcmeta_pid = u_spawn("/system/svcmeta");\n'
+              '    if (closeout_svcmeta_pid <= 0) ku_exit(40);\n'
+              '    const ku_result_t closeout_event_pid = u_spawn("/system/evprobe");\n'
+              '    if (closeout_event_pid <= 0) ku_exit(41);\n'
+              '    const ku_result_t closeout_notification_pid = u_spawn("/system/ntfprobe");\n'
+              '    if (closeout_notification_pid <= 0) ku_exit(42);\n'
+              '    const ku_result_t closeout_account_pid = u_spawn("/system/acctprb");\n'
+              '    if (closeout_account_pid <= 0) ku_exit(43);\n'
+              '    const ku_result_t closeout_session_pid = u_spawn("/system/sesprobe");\n'
+              '    if (closeout_session_pid <= 0) ku_exit(44);\n'
+              '    const ku_result_t closeout_settings_change_pid = u_spawn("/system/setchprb");\n'
+              '    if (closeout_settings_change_pid <= 0) ku_exit(45);\n'
+              '    const ku_result_t closeout_clipboard_pid = u_spawn("/system/clipprb");\n'
+              '    if (closeout_clipboard_pid <= 0) ku_exit(46);\n'
+              '    const ku_result_t closeout_filesystem_pid = u_spawn("/system/fsprobe");\n'
+              '    if (closeout_filesystem_pid <= 0) ku_exit(47);\n'
+              '    const ku_result_t closeout_negotiation_pid = u_spawn("/system/svcneg");\n'
+              '    if (closeout_negotiation_pid <= 0) ku_exit(48);\n'
+              '    const ku_result_t closeout_lookup_pid = u_spawn("/system/svclook");\n'
+              '    if (closeout_lookup_pid <= 0) ku_exit(49);\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'closeout init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, probes, 1))
+
+          panic = Path('kernel/diagnostics/panic.cpp')
+          text = panic.read_text()
+          decl = 'extern "C" unsigned char kernel_stack_top[];\n'
+          if text.count(decl) != 1:
+              raise SystemExit(f'panic declaration anchor count={text.count(decl)}')
+          text = text.replace(
+              decl,
+              decl + 'extern "C" unsigned char __kernel_start[];\n',
+              1)
+          rip = '    serial_key_hex("RIP", snapshot.registers.rip);\n'
+          pie = (
+              '    const uint64_t kernel_link_base = 0U;\n'
+              '    const uint64_t kernel_text_link = UINT64_C(0x1000);\n'
+              '    const uint64_t kernel_text_runtime =\n'
+              '        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(__kernel_start));\n'
+              '    const uint64_t kernel_load_base =\n'
+              '        kernel_text_runtime >= kernel_text_link\n'
+              '            ? kernel_text_runtime - kernel_text_link\n'
+              '            : 0U;\n'
+              '    serial_key_hex("KERNEL_LOAD_BASE", kernel_load_base);\n'
+              '    serial_key_hex("KERNEL_LINK_BASE", kernel_link_base);\n'
+              '    serial_key_hex("KERNEL_SLIDE", kernel_load_base - kernel_link_base);\n'
+              '    if (snapshot.registers.rip >= kernel_load_base) {\n'
+              '        serial_key_hex("RIP_NORMALIZED",\n'
+              '            snapshot.registers.rip - kernel_load_base + kernel_link_base);\n'
+              '    } else {\n'
+              '        serial_key("RIP_NORMALIZED", "N/A");\n'
+              '    }\n'
+          )
+          if text.count(rip) != 1:
+              raise SystemExit(f'panic RIP anchor count={text.count(rip)}')
+          panic.write_text(text.replace(rip, rip + pie, 1))
+
+      - name: Build exact failing release media
         run: |
           chmod +x scripts/*.sh
-          bash ./scripts/build-linux.sh --configuration release --rebuild
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/kernel.elf
+          test -s build/images/KuroganeOS-linux.img
 
-      - name: Resolve RIP 0xA3C01
+      - name: Reproduce closeout panic and capture serial tail
         run: |
-          echo '=== ELF HEADER ==='
-          readelf -h build/kernel.elf
-          echo '=== PROGRAM HEADERS ==='
-          readelf -lW build/kernel.elf
-          echo '=== SECTIONS ==='
-          readelf -SW build/kernel.elf
-          echo '=== ADDR2LINE (RAW RUNTIME RIP; NOT AUTHORITATIVE FOR PIE) ==='
-          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01 || true
-          echo '=== NEAREST SYMBOLS ==='
-          nm -n -C build/kernel.elf > build/kernel.nm
-          python3 - <<'PY'
-          target = 0xA3C01
-          before = []
-          after = []
-          with open('build/kernel.nm', encoding='utf-8', errors='replace') as handle:
-              rows = []
-              for raw in handle:
-                  fields = raw.strip().split(maxsplit=2)
-                  if len(fields) < 3:
-                      continue
-                  try:
-                      address = int(fields[0], 16)
-                  except ValueError:
-                      continue
-                  rows.append((address, raw.rstrip()))
-          for address, raw in rows:
-              if address <= target:
-                  before.append(raw)
-                  before = before[-5:]
-              elif len(after) < 5:
-                  after.append(raw)
-          print('before:')
-          print('\n'.join(before))
-          print('after:')
-          print('\n'.join(after))
-          PY
-          echo '=== RAW DISASSEMBLY WINDOW (RUNTIME RIP; PIE NORMALIZATION REQUIRED) ==='
-          objdump -d -C \
-            --start-address=0xA3BC0 \
-            --stop-address=0xA3C50 \
-            build/kernel.elf || true
+          set +e
+          set -o pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] service_version_negotiation: PASS' \
+            --timeout 30 \
+            2>&1 | tee build/closeout-panic.log
+          smoke_status=${PIPESTATUS[0]}
+          set -e
+          echo "SMOKE_STATUS=$smoke_status" >> build/closeout-panic.log
+          grep -F '=== KUROGANE_FATAL_BEGIN ===' build/closeout-panic.log
+          grep -F 'KERNEL_LOAD_BASE=' build/closeout-panic.log
+          grep -F 'RIP_NORMALIZED=' build/closeout-panic.log
+
+      - name: Normalize and symbolize exact runtime RIP
+        run: |
+          runtime_rip="$(grep -m1 '^RIP=' build/closeout-panic.log | cut -d= -f2)"
+          load_base="$(grep -m1 '^KERNEL_LOAD_BASE=' build/closeout-panic.log | cut -d= -f2)"
+          link_base="$(grep -m1 '^KERNEL_LINK_BASE=' build/closeout-panic.log | cut -d= -f2)"
+          normalized="$(grep -m1 '^RIP_NORMALIZED=' build/closeout-panic.log | cut -d= -f2)"
+          {
+            echo "RUNTIME_RIP=$runtime_rip"
+            echo "KERNEL_LOAD_BASE=$load_base"
+            echo "KERNEL_LINK_BASE=$link_base"
+            echo "RIP_NORMALIZED=$normalized"
+            echo '=== ELF HEADER ==='
+            readelf -hW build/kernel.elf
+            echo '=== PROGRAM HEADERS ==='
+            readelf -lW build/kernel.elf
+            echo '=== SYMBOL ==='
+            addr2line -e build/kernel.elf -f -C -i "$normalized"
+            echo '=== NEAREST SYMBOLS ==='
+            nm -n -C build/kernel.elf
+            echo '=== DISASSEMBLY +/- 64 ==='
+            start=$(( normalized - 64 ))
+            stop=$(( normalized + 65 ))
+            objdump -dC -S \
+              --start-address="$start" \
+              --stop-address="$stop" \
+              build/kernel.elf
+          } > build/rip-report.txt
+          cat build/rip-report.txt
+
+      - name: Upload panic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closeout-panic-rip-evidence
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            build/closeout-panic.log
+            build/rip-report.txt
+            build/kernel.map
+            build/kernel.elf
