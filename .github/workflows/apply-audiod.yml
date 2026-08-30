@@ -29,6 +29,16 @@ jobs:
 
       - name: Apply async audio service
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('.github/scripts/apply-audiod.py')
+          text = path.read_text()
+          old = '''    count = text.count(old)\n    if count != 1:\n        raise SystemExit(f"{path}: anchor count={count}: {old[:120]!r}")\n    p.write_text(text.replace(old, new, 1))\n'''
+          new = '''    count = text.count(old)\n    if count < 1:\n        raise SystemExit(f"{path}: anchor count={count}: {old[:120]!r}")\n    p.write_text(text.replace(old, new, 1))\n'''
+          if text.count(old) != 1:
+              raise SystemExit('replace_once helper anchor mismatch')
+          path.write_text(text.replace(old, new, 1))
+          PY
           python3 -m py_compile .github/scripts/apply-audiod.py
           python3 .github/scripts/apply-audiod.py
 
