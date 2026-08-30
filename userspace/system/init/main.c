@@ -5,6 +5,7 @@
 #define SETTINGS_SERVICE_PATH "/system/setd"
 #define NOTIFICATION_SERVICE_PATH "/system/notifd"
 #define ACCOUNT_SERVICE_PATH "/system/accountd"
+#define SESSION_SERVICE_PATH "/system/sessiond"
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
@@ -50,6 +51,11 @@ static uint64_t spawn_account_service(void) {
     return result > 0 ? (uint64_t)result : 0U;
 }
 
+static uint64_t spawn_session_service(void) {
+    const ku_result_t result = u_spawn(SESSION_SERVICE_PATH);
+    return result > 0 ? (uint64_t)result : 0U;
+}
+
 __attribute__((noreturn)) void _start(void) {
     if (ku_getpid() != UINT64_C(1)) {
         (void)u_puts("[TEST] userspace_init_pid1: FAIL\n");
@@ -91,6 +97,13 @@ __attribute__((noreturn)) void _start(void) {
     }
     (void)u_puts("[TEST] account_service_spawn: PASS\n");
 
+    const uint64_t session_service_pid = spawn_session_service();
+    if (session_service_pid == 0U) {
+        (void)u_puts("init: cannot spawn /system/sessiond\n");
+        (void)u_puts("[TEST] session_service_spawn: FAIL\n");
+        ku_exit(20);
+    }
+    (void)u_puts("[TEST] session_service_spawn: PASS\n");
     uint64_t session_pid = spawn_session_gate();
     if (session_pid == 0U) run_console_fallback();
 
@@ -135,6 +148,14 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(17);
     }
     (void)u_puts("[TEST] account_service_liveness: PASS\n");
+
+    service_status = 0;
+    const ku_status_t session_service_early = ku_wait(session_service_pid, &service_status);
+    if (session_service_early != KU_STATUS_WOULD_BLOCK) {
+        (void)u_puts("[TEST] session_service_liveness: FAIL\n");
+        ku_exit(24);
+    }
+    (void)u_puts("[TEST] session_service_liveness: PASS\n");
 
     (void)u_puts("[TEST] desktop_userspace_apps: PASS\n");
     (void)u_puts("[TEST] userspace_desktop_session: PASS\n");
@@ -188,6 +209,18 @@ __attribute__((noreturn)) void _start(void) {
         if (account_wait != KU_STATUS_WOULD_BLOCK) {
             (void)u_puts("init: account service supervision failed\n");
             ku_exit(19);
+        }
+
+        service_status = 0;
+        const ku_status_t session_service_wait = ku_wait(session_service_pid, &service_status);
+        if (session_service_wait == KU_STATUS_OK || session_service_wait == KU_STATUS_NOT_FOUND) {
+            (void)u_puts("init: session service terminated\n");
+            (void)u_puts("[TEST] session_service_liveness: FAIL\n");
+            ku_exit(25);
+        }
+        if (session_service_wait != KU_STATUS_WOULD_BLOCK) {
+            (void)u_puts("init: session service supervision failed\n");
+            ku_exit(26);
         }
 
         status = 0;
