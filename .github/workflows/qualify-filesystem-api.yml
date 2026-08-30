@@ -1,3 +1,4 @@
+# Requalification after correcting the probe to use the actual persistent FAT root.
 name: Qualify 3.4 filesystem public API
 
 on:
@@ -55,6 +56,7 @@ jobs:
           git diff --check
           grep -F 'system/fsprobe' scripts/build-linux.sh
           grep -F 'filesystem_service_api: FAIL' userspace/system/init/main.c
+          grep -F '#define TEST_DIR "/fstest"' userspace/system/filesystem-probe/main.c
           [[ ${#fsprobe} -le 8 ]]
 
       - name: Install build and QEMU dependencies
