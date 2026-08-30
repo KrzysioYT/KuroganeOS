@@ -164,6 +164,8 @@ void input_user_window(
 
 bool g_initialized = false;
 Context* g_contexts[kMaximumContexts]{};
+Context g_context_storage[kMaximumContexts]{};
+bool g_context_storage_used[kMaximumContexts]{};
 uint64_t g_process_identity = 0U;
 uint64_t g_audio_owner_pid = 0U;
 
@@ -179,6 +181,31 @@ void restore_interrupts(uint64_t flags) {
         :
         : "r"(flags)
         : "memory", "cc");
+}
+
+Context* acquire_context_storage() {
+    const uint64_t flags = save_and_disable_interrupts();
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        if (g_context_storage_used[index]) continue;
+        g_context_storage_used[index] = true;
+        g_context_storage[index] = {};
+        restore_interrupts(flags);
+        return &g_context_storage[index];
+    }
+    restore_interrupts(flags);
+    return nullptr;
+}
+
+void release_context_storage(Context* context) {
+    if (context == nullptr) return;
+    const uint64_t flags = save_and_disable_interrupts();
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        if (&g_context_storage[index] != context) continue;
+        g_context_storage[index] = {};
+        g_context_storage_used[index] = false;
+        break;
+    }
+    restore_interrupts(flags);
 }
 
 Context* current_context() {
@@ -1510,6 +1537,10 @@ Status initialize() {
     if (g_initialized) return Status::AlreadyInitialized;
     if (!enable_memory_protection()) return Status::CpuUnsupported;
     for (Context*& context : g_contexts) context = nullptr;
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        g_context_storage[index] = {};
+        g_context_storage_used[index] = false;
+    }
     if (!arch::x86_64::interrupts::register_handler(kSyscallVector, syscall_handler) ||
         !arch::x86_64::interrupts::set_gate_privilege(
             kSyscallVector, arch::x86_64::interrupts::GatePrivilege::User) ||
@@ -1567,7 +1598,12 @@ Status run(const char* path, uint64_t pid, Result* result) {
         return Status::FileReadFailed;
     }
 
-    Context context{};
+    Context* context_storage = acquire_context_storage();
+    if (context_storage == nullptr) {
+        memory::kfree(file_bytes);
+        return Status::Busy;
+    }
+    Context& context = *context_storage;
     context.pid = pid;
     context.tid = threading::current();
     context.next_heap = kHeapBase;
@@ -1575,6 +1611,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
     if (memory::kernel_virtual_memory::create_address_space(
             &context.address_space) != memory::kernel_virtual_memory::Status::Ok) {
         memory::kfree(file_bytes);
+        release_context_storage(context_storage);
         return Status::AddressSpaceFailed;
     }
     const elf::Status load_status = elf::load(
@@ -1583,6 +1620,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
     if (load_status != elf::Status::Ok) {
         static_cast<void>(cleanup(context));
         log::write(log::Level::Error, "ELF", elf::status_message(load_status));
+        release_context_storage(context_storage);
         return Status::ElfLoadFailed;
     }
 
@@ -1595,6 +1633,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
                 memory::virtual_memory::MapFlags::Writable |
                     memory::virtual_memory::MapFlags::NoExecute) != elf::Status::Ok) {
             static_cast<void>(cleanup(context));
+            release_context_storage(context_storage);
             return Status::StackMappingFailed;
         }
     }
@@ -1611,6 +1650,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
             fault_exit_code,
             sizeof(fault_exit_code)) != elf::Status::Ok) {
         static_cast<void>(cleanup(context));
+        release_context_storage(context_storage);
         return Status::TrampolineMappingFailed;
     }
 
@@ -1621,6 +1661,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::Busy;
     }
     const threading::Status bind_status = threading::bind_address_space(
@@ -1632,6 +1673,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::AddressSpaceActivationFailed;
     }
     if (memory::kernel_virtual_memory::activate(&context.address_space) !=
@@ -1640,12 +1682,14 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::AddressSpaceActivationFailed;
     }
     x86_64_enter_user(context.image.entry, kStackTop - 16U, &context.return_state);
 
     const Status cleanup_status = cleanup(context);
     *result = context.result;
+    release_context_storage(context_storage);
     return cleanup_status;
 }
 
