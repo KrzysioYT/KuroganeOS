@@ -1,3 +1,4 @@
+# Requalify after fixing runtime self-PID validation in clipboard probe.
 name: Qualify Clipboard Service lifecycle
 
 on:
