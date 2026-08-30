@@ -1,3 +1,4 @@
+# Requalification after fixing clipboard probe self-PID lookup.
 name: Qualify clipboard service lifecycle
 
 on:
