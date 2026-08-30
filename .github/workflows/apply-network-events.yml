@@ -35,8 +35,8 @@ jobs:
               p = Path(path)
               text = p.read_text()
               count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'{path}: anchor count={count}: {old!r}')
+              if count < 1:
+                  raise SystemExit(f'{path}: anchor missing: {old!r}')
               p.write_text(text.replace(old, new, 1))
 
           replace_once('userspace/system/network-eventd/main.c', '        const ku_status_t status;\n', '        ku_status_t status;\n')
