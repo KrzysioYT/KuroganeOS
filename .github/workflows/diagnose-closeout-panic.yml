@@ -1,0 +1,67 @@
+name: Diagnose 3.4 Closeout Panic RIP
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/diagnose-closeout-panic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  map-rip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact failing-layout source
+        uses: actions/checkout@v4
+        with:
+          ref: 2aa1cc04b407efad351ef619d7d0559dad57f599
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build exact release kernel
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-linux.sh --configuration release --rebuild
+          test -s build/kernel.elf
+
+      - name: Resolve RIP 0xA3C01
+        run: |
+          echo '=== ADDR2LINE ==='
+          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01
+          echo '=== NEAREST SYMBOLS ==='
+          nm -n -C build/kernel.elf > build/kernel.nm
+          python3 - <<'PY'
+          target = 0xA3C01
+          before = []
+          after = []
+          with open('build/kernel.nm', encoding='utf-8', errors='replace') as handle:
+              rows = []
+              for raw in handle:
+                  fields = raw.strip().split(maxsplit=2)
+                  if len(fields) < 3:
+                      continue
+                  try:
+                      address = int(fields[0], 16)
+                  except ValueError:
+                      continue
+                  rows.append((address, raw.rstrip()))
+          for address, raw in rows:
+              if address <= target:
+                  before.append(raw)
+                  before = before[-5:]
+              elif len(after) < 5:
+                  after.append(raw)
+          print('before:')
+          print('\n'.join(before))
+          print('after:')
+          print('\n'.join(after))
+          PY
+          echo '=== DISASSEMBLY WINDOW ==='
+          objdump -d -C \
+            --start-address=0xA3BC0 \
+            --stop-address=0xA3C50 \
+            build/kernel.elf
