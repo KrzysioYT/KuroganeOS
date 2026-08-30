@@ -1,0 +1,610 @@
+name: Qualify 3.4 account service
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/account-service-breakthrough.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Implement Account Service
+        shell: python
+        run: |
+          from pathlib import Path
+
+          account_h = r'''#ifndef KUROGANE_SDK_ACCOUNT_H
+          #define KUROGANE_SDK_ACCOUNT_H
+
+          #include <kurogane/service.h>
+
+          #define KU_ACCOUNT_SERVICE_NAME "account.v1"
+          #define KU_ACCOUNT_SERVICE_NAME_SIZE 10U
+          #define KU_ACCOUNT_USERNAME_CAPACITY 24U
+          #define KU_ACCOUNT_LOCALE_CAPACITY 16U
+          #define KU_ACCOUNT_ABI_VERSION UINT32_C(1)
+
+          enum ku_account_operation {
+              KU_ACCOUNT_GET_CURRENT = 1,
+              KU_ACCOUNT_LOOKUP = 2
+          };
+
+          enum ku_account_flags {
+              KU_ACCOUNT_FLAG_LIVE = UINT32_C(1) << 0,
+              KU_ACCOUNT_FLAG_INSTALLED = UINT32_C(1) << 1,
+              KU_ACCOUNT_FLAG_PASSWORD_REQUIRED = UINT32_C(1) << 2,
+              KU_ACCOUNT_FLAG_PROFILE_VALID = UINT32_C(1) << 3
+          };
+
+          typedef struct ku_account_request {
+              uint32_t structure_size;
+              uint32_t operation;
+              uint64_t reserved;
+              char username[KU_ACCOUNT_USERNAME_CAPACITY];
+          } ku_account_request;
+
+          typedef struct ku_account_response {
+              uint32_t structure_size;
+              int32_t status;
+              uint64_t account_id;
+              uint32_t flags;
+              uint32_t reserved;
+              char username[KU_ACCOUNT_USERNAME_CAPACITY];
+              char locale[KU_ACCOUNT_LOCALE_CAPACITY];
+          } ku_account_response;
+
+          #if defined(__cplusplus)
+          static_assert(sizeof(ku_account_request) == 40, "account request ABI mismatch");
+          static_assert(sizeof(ku_account_response) == 64, "account response ABI mismatch");
+          #else
+          _Static_assert(sizeof(ku_account_request) == 40, "account request ABI mismatch");
+          _Static_assert(sizeof(ku_account_response) == 64, "account response ABI mismatch");
+          #endif
+
+          #endif
+          '''
+          account_h = '\n'.join(line[10:] if line.startswith('          ') else line for line in account_h.splitlines()) + '\n'
+          Path('sdk/include/kurogane/account.h').write_text(account_h)
+
+          accountd = r'''#include "../../runtime/user.h"
+
+          #include <kurogane/account.h>
+          #include "dev_profile.h"
+
+          #define ACCOUNTD_MAX_CLIENTS 8U
+          #define ACCOUNT_CONFIG_CAPACITY 384U
+
+          typedef struct accountd_client {
+              ku_service_connection_t connection;
+              uint64_t pid;
+              int active;
+          } accountd_client;
+
+          typedef struct accountd_profile {
+              uint64_t account_id;
+              uint32_t flags;
+              char username[KU_ACCOUNT_USERNAME_CAPACITY];
+              char locale[KU_ACCOUNT_LOCALE_CAPACITY];
+              int available;
+          } accountd_profile;
+
+          static accountd_client clients[ACCOUNTD_MAX_CLIENTS];
+          static accountd_profile profile;
+
+          static void clear_bytes(void* destination, size_t size) {
+              uint8_t* bytes = (uint8_t*)destination;
+              size_t index;
+              for (index = 0U; index < size; ++index) bytes[index] = 0U;
+          }
+
+          static void copy_text(char* destination, size_t capacity, const char* source) {
+              size_t index = 0U;
+              if (destination == (char*)0 || capacity == 0U) return;
+              while (index + 1U < capacity && source[index] != '\0') {
+                  destination[index] = source[index];
+                  ++index;
+              }
+              destination[index++] = '\0';
+              while (index < capacity) destination[index++] = '\0';
+          }
+
+          static int text_equal(const char* left, const char* right) {
+              size_t index = 0U;
+              if (left == (const char*)0 || right == (const char*)0) return 0;
+              while (left[index] != '\0' && left[index] == right[index]) ++index;
+              return left[index] == right[index];
+          }
+
+          static int bounded_text_valid(const char* text, size_t capacity, int allow_empty) {
+              size_t index;
+              if (text == (const char*)0 || capacity == 0U) return 0;
+              if (!allow_empty && text[0] == '\0') return 0;
+              for (index = 0U; index < capacity; ++index) {
+                  const unsigned char value = (unsigned char)text[index];
+                  if (value == 0U) return 1;
+                  if (value < 0x20U || value > 0x7EU) return 0;
+              }
+              return 0;
+          }
+
+          static int read_small_file(const char* path, char* output, size_t capacity) {
+              const ku_result_t opened = ku_open(path, u_strlen(path), KU_OPEN_READ);
+              ku_result_t result;
+              ku_handle_t handle;
+              if (opened <= 0 || output == (char*)0 || capacity < 2U) return 0;
+              handle = (ku_handle_t)opened;
+              result = ku_read(handle, output, capacity - 1U);
+              (void)ku_close(handle);
+              if (result < 0) return 0;
+              output[(size_t)result] = '\0';
+              return 1;
+          }
+
+          static void load_profile(void) {
+              char user_config[ACCOUNT_CONFIG_CAPACITY];
+              char locale_config[64];
+              char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
+              struct ku_dev_profile_data parsed;
+              const int installed = read_small_file(
+                  "/etc/user.cfg", user_config, sizeof(user_config));
+              const int locale_read = read_small_file(
+                  "/etc/locale.cfg", locale_config, sizeof(locale_config));
+              int locale_valid = 0;
+
+              clear_bytes(&profile, sizeof(profile));
+              clear_bytes(&parsed, sizeof(parsed));
+              clear_bytes(locale, sizeof(locale));
+              profile.account_id = UINT64_C(1);
+
+              if (!installed) {
+                  profile.flags = KU_ACCOUNT_FLAG_LIVE | KU_ACCOUNT_FLAG_PROFILE_VALID;
+                  copy_text(profile.username, sizeof(profile.username), "developer");
+                  copy_text(profile.locale, sizeof(profile.locale), "en-US");
+                  profile.available = 1;
+                  return;
+              }
+
+              if (locale_read)
+                  locale_valid = ku_dev_profile_parse_locale(locale_config, locale);
+              if (!locale_valid ||
+                  !ku_dev_profile_parse_user_config(user_config, &parsed)) {
+                  profile.flags = KU_ACCOUNT_FLAG_INSTALLED;
+                  profile.available = 0;
+                  return;
+              }
+
+              profile.flags = KU_ACCOUNT_FLAG_INSTALLED | KU_ACCOUNT_FLAG_PROFILE_VALID;
+              if (parsed.password_required)
+                  profile.flags |= KU_ACCOUNT_FLAG_PASSWORD_REQUIRED;
+              copy_text(profile.username, sizeof(profile.username), parsed.username);
+              copy_text(profile.locale, sizeof(profile.locale), locale);
+              profile.available = 1;
+          }
+
+          static ku_status_t send_response(
+              ku_service_connection_t connection,
+              ku_status_t status,
+              const accountd_profile* source) {
+              ku_account_response response;
+              clear_bytes(&response, sizeof(response));
+              response.structure_size = sizeof(response);
+              response.status = status;
+              if (status == KU_STATUS_OK && source != (const accountd_profile*)0) {
+                  response.account_id = source->account_id;
+                  response.flags = source->flags;
+                  copy_text(response.username, sizeof(response.username), source->username);
+                  copy_text(response.locale, sizeof(response.locale), source->locale);
+              }
+              return ku_service_send(connection, &response, sizeof(response));
+          }
+
+          static void handle_request(
+              accountd_client* client,
+              const ku_service_message* message) {
+              const ku_account_request* request;
+              if (client == (accountd_client*)0 ||
+                  message == (const ku_service_message*)0) return;
+              if (message->data_size != sizeof(ku_account_request)) {
+                  (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, 0);
+                  return;
+              }
+              request = (const ku_account_request*)(const void*)message->data;
+              if (request->structure_size != sizeof(*request) || request->reserved != 0U) {
+                  (void)send_response(client->connection, KU_STATUS_INVALID_ARGUMENT, 0);
+                  return;
+              }
+              if (client->pid == 0U) client->pid = message->sender_pid;
+              else if (client->pid != message->sender_pid) {
+                  (void)send_response(client->connection, KU_STATUS_ACCESS_DENIED, 0);
+                  return;
+              }
+
+              if (!profile.available) {
+                  (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, 0);
+                  return;
+              }
+
+              if (request->operation == KU_ACCOUNT_GET_CURRENT) {
+                  if (request->username[0] != '\0') {
+                      (void)send_response(client->connection, KU_STATUS_INVALID_ARGUMENT, 0);
+                      return;
+                  }
+                  (void)send_response(client->connection, KU_STATUS_OK, &profile);
+                  return;
+              }
+              if (request->operation == KU_ACCOUNT_LOOKUP) {
+                  if (!bounded_text_valid(request->username, sizeof(request->username), 0)) {
+                      (void)send_response(client->connection, KU_STATUS_INVALID_ARGUMENT, 0);
+                      return;
+                  }
+                  (void)send_response(
+                      client->connection,
+                      text_equal(request->username, profile.username)
+                          ? KU_STATUS_OK : KU_STATUS_NOT_FOUND,
+                      text_equal(request->username, profile.username) ? &profile : 0);
+                  return;
+              }
+              (void)send_response(client->connection, KU_STATUS_NOT_SUPPORTED, 0);
+          }
+
+          static void accept_clients(ku_service_endpoint_t endpoint) {
+              for (;;) {
+                  const ku_result_t accepted = ku_service_accept(endpoint);
+                  size_t index;
+                  if (accepted == KU_STATUS_WOULD_BLOCK) return;
+                  if (accepted <= 0) return;
+                  for (index = 0U; index < ACCOUNTD_MAX_CLIENTS; ++index) {
+                      if (!clients[index].active) {
+                          clients[index].connection = (ku_service_connection_t)accepted;
+                          clients[index].pid = 0U;
+                          clients[index].active = 1;
+                          break;
+                      }
+                  }
+                  if (index == ACCOUNTD_MAX_CLIENTS) {
+                      (void)ku_service_close((ku_service_connection_t)accepted);
+                      return;
+                  }
+              }
+          }
+
+          static void service_clients(void) {
+              size_t index;
+              for (index = 0U; index < ACCOUNTD_MAX_CLIENTS; ++index) {
+                  accountd_client* client = &clients[index];
+                  ku_service_message message;
+                  ku_status_t status;
+                  if (!client->active) continue;
+                  status = ku_service_receive(client->connection, &message);
+                  if (status == KU_STATUS_WOULD_BLOCK) continue;
+                  if (status != KU_STATUS_OK) {
+                      (void)ku_service_close(client->connection);
+                      clear_bytes(client, sizeof(*client));
+                      continue;
+                  }
+                  handle_request(client, &message);
+              }
+          }
+
+          __attribute__((noreturn)) void _start(void) {
+              const ku_result_t endpoint = ku_service_register(
+                  KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
+              if (endpoint <= 0) {
+                  (void)u_puts("accountd: service registration failed\n");
+                  (void)u_puts("[TEST] account_service: FAIL\n");
+                  ku_exit(1);
+              }
+              load_profile();
+              (void)u_puts("accountd: account.v1 online\n");
+              (void)u_puts("[TEST] account_service: PASS\n");
+              for (;;) {
+                  accept_clients((ku_service_endpoint_t)endpoint);
+                  service_clients();
+                  (void)ku_sleep(1U);
+              }
+          }
+          '''
+          accountd = '\n'.join(line[10:] if line.startswith('          ') else line for line in accountd.splitlines()) + '\n'
+          Path('userspace/system/accountd').mkdir(parents=True, exist_ok=True)
+          Path('userspace/system/accountd/main.c').write_text(accountd)
+
+          probe = r'''#include "../../runtime/user.h"
+
+          #include <kurogane/account.h>
+
+          static void clear_bytes(void* destination, size_t size) {
+              uint8_t* bytes = (uint8_t*)destination;
+              size_t index;
+              for (index = 0U; index < size; ++index) bytes[index] = 0U;
+          }
+
+          static int copy_text(char* destination, size_t capacity, const char* source) {
+              size_t index = 0U;
+              if (destination == (char*)0 || source == (const char*)0 || capacity == 0U)
+                  return 0;
+              while (index + 1U < capacity && source[index] != '\0') {
+                  destination[index] = source[index];
+                  ++index;
+              }
+              if (source[index] != '\0') return 0;
+              destination[index] = '\0';
+              return 1;
+          }
+
+          static ku_status_t transact(
+              ku_service_connection_t connection,
+              const ku_account_request* request,
+              ku_account_response* response) {
+              uint32_t attempts;
+              ku_status_t status = ku_service_send(connection, request, sizeof(*request));
+              if (status != KU_STATUS_OK) return status;
+              for (attempts = 0U; attempts < 200U; ++attempts) {
+                  ku_service_message message;
+                  status = ku_service_receive(connection, &message);
+                  if (status == KU_STATUS_WOULD_BLOCK) {
+                      (void)ku_sleep(1U);
+                      continue;
+                  }
+                  if (status != KU_STATUS_OK) return status;
+                  if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+                  *response = *(const ku_account_response*)(const void*)message.data;
+                  if (response->structure_size != sizeof(*response))
+                      return KU_STATUS_CORRUPT_DATA;
+                  return (ku_status_t)response->status;
+              }
+              return KU_STATUS_WOULD_BLOCK;
+          }
+
+          __attribute__((noreturn)) void _start(void) {
+              ku_result_t connected;
+              ku_service_connection_t connection;
+              ku_account_request request;
+              ku_account_response current;
+              ku_account_response lookup;
+              uint32_t attempts;
+
+              connected = KU_STATUS_NOT_FOUND;
+              for (attempts = 0U; attempts < 200U; ++attempts) {
+                  connected = ku_service_connect(
+                      KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
+                  if (connected > 0) break;
+                  if (connected != KU_STATUS_NOT_FOUND && connected != KU_STATUS_WOULD_BLOCK)
+                      break;
+                  (void)ku_sleep(1U);
+              }
+              if (connected <= 0) {
+                  (void)u_puts("[TEST] account_service_roundtrip: FAIL\n");
+                  ku_exit(1);
+              }
+              connection = (ku_service_connection_t)connected;
+
+              clear_bytes(&request, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_ACCOUNT_GET_CURRENT;
+              clear_bytes(&current, sizeof(current));
+              if (transact(connection, &request, &current) != KU_STATUS_OK ||
+                  current.account_id == 0U || current.username[0] == '\0' ||
+                  current.locale[0] == '\0' ||
+                  (current.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
+                  ((current.flags & KU_ACCOUNT_FLAG_LIVE) == 0U &&
+                   (current.flags & KU_ACCOUNT_FLAG_INSTALLED) == 0U)) {
+                  (void)u_puts("[TEST] account_service_roundtrip: FAIL\n");
+                  ku_exit(2);
+              }
+
+              clear_bytes(&request, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_ACCOUNT_LOOKUP;
+              if (!copy_text(request.username, sizeof(request.username), current.username)) {
+                  (void)u_puts("[TEST] account_service_roundtrip: FAIL\n");
+                  ku_exit(3);
+              }
+              clear_bytes(&lookup, sizeof(lookup));
+              if (transact(connection, &request, &lookup) != KU_STATUS_OK ||
+                  lookup.account_id != current.account_id) {
+                  (void)u_puts("[TEST] account_service_roundtrip: FAIL\n");
+                  ku_exit(4);
+              }
+
+              clear_bytes(&request, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_ACCOUNT_LOOKUP;
+              (void)copy_text(request.username, sizeof(request.username), "no-such-user");
+              clear_bytes(&lookup, sizeof(lookup));
+              if (transact(connection, &request, &lookup) != KU_STATUS_NOT_FOUND) {
+                  (void)u_puts("[TEST] account_service_roundtrip: FAIL\n");
+                  ku_exit(5);
+              }
+
+              (void)ku_service_close(connection);
+              (void)u_puts("[TEST] account_service_roundtrip: PASS\n");
+              ku_exit(0);
+          }
+          '''
+          probe = '\n'.join(line[10:] if line.startswith('          ') else line for line in probe.splitlines()) + '\n'
+          Path('userspace/system/account-probe').mkdir(parents=True, exist_ok=True)
+          Path('userspace/system/account-probe/main.c').write_text(probe)
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "notifprobe|userspace/system/notification-probe/main.c|system/ntfprobe|c"\n'
+          addition = (
+              '    "accountd|userspace/system/accountd/main.c|system/accountd|c"\n'
+              '    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit('build userspace anchor changed')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          define_anchor = '#define NOTIFICATION_SERVICE_PATH "/system/notifd"\n'
+          if text.count(define_anchor) != 1:
+              raise SystemExit('init define anchor changed')
+          text = text.replace(
+              define_anchor,
+              define_anchor + '#define ACCOUNT_SERVICE_PATH "/system/accountd"\n', 1)
+          spawn_anchor = '''static uint64_t spawn_notification_service(void) {
+              const ku_result_t result = u_spawn(NOTIFICATION_SERVICE_PATH);
+              return result > 0 ? (uint64_t)result : 0U;
+          }
+          '''
+          spawn_add = spawn_anchor + '''
+          static uint64_t spawn_account_service(void) {
+              const ku_result_t result = u_spawn(ACCOUNT_SERVICE_PATH);
+              return result > 0 ? (uint64_t)result : 0U;
+          }
+          '''
+          if text.count(spawn_anchor) != 1:
+              raise SystemExit('init spawn function anchor changed')
+          text = text.replace(spawn_anchor, spawn_add, 1)
+          online_anchor = '    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n\n'
+          online_add = online_anchor + '''    const uint64_t account_service_pid = spawn_account_service();
+              if (account_service_pid == 0U) {
+                  (void)u_puts("init: cannot spawn /system/accountd\n");
+                  (void)u_puts("[TEST] account_service_spawn: FAIL\n");
+                  ku_exit(16);
+              }
+              (void)u_puts("[TEST] account_service_spawn: PASS\n");
+
+          '''
+          if text.count(online_anchor) != 1:
+              raise SystemExit('init service spawn anchor changed')
+          text = text.replace(online_anchor, online_add, 1)
+          early_anchor = '    (void)u_puts("[TEST] notification_service_liveness: PASS\\n");\n\n'
+          early_add = early_anchor + '''    service_status = 0;
+              const ku_status_t account_early = ku_wait(account_service_pid, &service_status);
+              if (account_early != KU_STATUS_WOULD_BLOCK) {
+                  (void)u_puts("[TEST] account_service_liveness: FAIL\n");
+                  ku_exit(17);
+              }
+              (void)u_puts("[TEST] account_service_liveness: PASS\n");
+
+          '''
+          if text.count(early_anchor) != 1:
+              raise SystemExit('init early liveness anchor changed')
+          text = text.replace(early_anchor, early_add, 1)
+          loop_anchor = '''        if (notification_wait != KU_STATUS_WOULD_BLOCK) {
+                      (void)u_puts("init: notification service supervision failed\n");
+                      ku_exit(15);
+                  }
+
+                  status = 0;
+          '''
+          loop_new = '''        if (notification_wait != KU_STATUS_WOULD_BLOCK) {
+                      (void)u_puts("init: notification service supervision failed\n");
+                      ku_exit(15);
+                  }
+
+                  service_status = 0;
+                  const ku_status_t account_wait = ku_wait(account_service_pid, &service_status);
+                  if (account_wait == KU_STATUS_OK || account_wait == KU_STATUS_NOT_FOUND) {
+                      (void)u_puts("init: account service terminated\n");
+                      (void)u_puts("[TEST] account_service_liveness: FAIL\n");
+                      ku_exit(18);
+                  }
+                  if (account_wait != KU_STATUS_WOULD_BLOCK) {
+                      (void)u_puts("init: account service supervision failed\n");
+                      ku_exit(19);
+                  }
+
+                  status = 0;
+          '''
+          if text.count(loop_anchor) != 1:
+              raise SystemExit('init supervision anchor changed')
+          init.write_text(text.replace(loop_anchor, loop_new, 1))
+
+      - name: Inject account qualification probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] account_service_spawn: PASS\\n");\n'
+          replacement = anchor + (
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit('account probe anchor changed')
+          path.write_text(text.replace(anchor, replacement, 1))
+
+      - name: Validate source and 8.3 paths
+        run: |
+          git diff --check
+          grep -F 'system/accountd' scripts/build-linux.sh
+          grep -F 'system/acctprb' scripts/build-linux.sh
+          grep -F 'KU_ACCOUNT_SERVICE_NAME "account.v1"' sdk/include/kurogane/account.h
+          test ${#ACCOUNTD_NAME:-8} -le 8
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real account lookup lifecycle
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] account_service_roundtrip: PASS' \
+            --timeout 180
+
+      - name: Land qualified Account Service
+        run: |
+          git checkout -- userspace/system/init/main.c
+          git rm .github/workflows/account-service-breakthrough.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add sdk/include/kurogane/account.h userspace/system/accountd userspace/system/account-probe scripts/build-linux.sh
+          git commit -m 'service(account): add account lookup protocol'
+          git push origin HEAD:gpt/road-to-15-consolidation
+
+      - name: Land init supervision separately
+        if: success()
+        run: |
+          git show ${{ github.sha }}:userspace/system/init/main.c > /tmp/init-base.c
+          python3 - <<'PY'
+          from pathlib import Path
+          current = Path('userspace/system/init/main.c').read_text()
+          # Re-apply only production account supervision from the already-tested
+          # candidate by removing the injected probe stanza.
+          probe = (
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+          )
+          if current.count(probe) != 1:
+              raise SystemExit('tested probe stanza not found')
+          Path('/tmp/init-production.c').write_text(current.replace(probe, '', 1))
+          PY
+          git pull --ff-only origin gpt/road-to-15-consolidation
+          cp /tmp/init-production.c userspace/system/init/main.c
+          git add userspace/system/init/main.c
+          git commit -m 'service(account): supervise account daemon from PID 1'
+          git push origin HEAD:gpt/road-to-15-consolidation
