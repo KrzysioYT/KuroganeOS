@@ -29,8 +29,53 @@ jobs:
 
       - name: Apply DNS service slice
         run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('.github/scripts/apply-dnsd.py')
+          text = p.read_text()
+          helper_anchor = "\n\nheader = r'''#ifndef KUROGANE_SDK_DNS_SERVICE_H"
+          helper = '''\n\ndef replace_optional(path: str, old: str, new: str) -> None:\n    p = Path(path)\n    text = p.read_text()\n    count = text.count(old)\n    if count > 1:\n        raise SystemExit(f"{path}: optional anchor count={count}: {old[:120]!r}")\n    if count == 1:\n        p.write_text(text.replace(old, new, 1))\n'''
+          if helper_anchor not in text:
+              raise SystemExit('DNS helper insertion anchor missing')
+          text = text.replace(helper_anchor, helper + helper_anchor, 1)
+          for indent in ('    ', '        '):
+              old = "replace_once(\n    'userspace/system/init/main.c',\n    '''" + indent + "if (!supervise_service(&application_registry_watch)) {"
+              new = "replace_optional(\n    'userspace/system/init/main.c',\n    '''" + indent + "if (!supervise_service(&application_registry_watch)) {"
+              if old not in text:
+                  raise SystemExit(f'DNS optional conversion missing for indent={len(indent)}')
+              text = text.replace(old, new, 1)
+          p.write_text(text)
+          PY
           python3 -m py_compile .github/scripts/apply-dnsd.py
           python3 .github/scripts/apply-dnsd.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('userspace/system/init/main.c')
+          lines = p.read_text().splitlines(keepends=True)
+          first = '    if (!supervise_service(&application_registry_watch)) {\n'
+          loop = '        if (!supervise_service(&application_registry_watch)) {\n'
+          if lines.count(first) != 1 or lines.count(loop) != 1:
+              raise SystemExit(f'DNS supervision line anchors first={lines.count(first)} loop={lines.count(loop)}')
+          out = []
+          for line in lines:
+              if line == first:
+                  out.extend([
+                      '    if (!supervise_service(&dns_service_watch)) {\n',
+                      '        (void)u_puts("init: DNS service supervision failed\\n");\n',
+                      '        ku_exit(41);\n',
+                      '    }\n',
+                      '\n',
+                  ])
+              elif line == loop:
+                  out.extend([
+                      '        if (!supervise_service(&dns_service_watch)) {\n',
+                      '            (void)u_puts("init: DNS service supervision failed\\n");\n',
+                      '            ku_exit(42);\n',
+                      '        }\n',
+                  ])
+              out.append(line)
+          p.write_text(''.join(out))
+          PY
 
       - name: Compile release kernel userspace SDK and boot chain
         run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
