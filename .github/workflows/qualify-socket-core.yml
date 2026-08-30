@@ -7,7 +7,14 @@ on:
     paths:
       - 'kernel/net/socket.cpp'
       - 'kernel/net/socket.hpp'
+      - 'kernel/user/runtime.cpp'
+      - 'sdk/include/kurogane/network.h'
+      - 'userspace/system/socket-probe/**'
+      - 'userspace/system/socket-exit-worker/**'
       - 'tests/test_socket.cpp'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
       - '.github/workflows/qualify-socket-core.yml'
   workflow_dispatch:
 
@@ -17,25 +24,101 @@ permissions:
 jobs:
   socket-core:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
-      - name: Checkout
+      - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           submodules: recursive
 
-      - name: Build socket ownership test
+      - name: Build socket ownership host regression
         run: |
           mkdir -p build/tests/host
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
             tests/test_socket.cpp kernel/net/socket.cpp \
             -o build/tests/host/test_socket
 
-      - name: Run socket ownership test
+      - name: Run socket ownership host regression
         run: build/tests/host/test_socket
 
-      - name: Build release kernel
+      - name: Inject Ring-3 socket qualification probes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"\n'
+              '    "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'socket build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          start_anchor = '__attribute__((noreturn)) void _start(void) {\n'
+          wait_helper = (
+              'static int socket_wait_probe(uint64_t pid) {\n'
+              '    uint32_t attempts;\n'
+              '    for (attempts = 0U; attempts < 2000U; ++attempts) {\n'
+              '        int32_t exit_code = 0;\n'
+              '        const ku_status_t status = ku_wait(pid, &exit_code);\n'
+              '        if (status == KU_STATUS_OK) return exit_code == 0;\n'
+              '        if (status != KU_STATUS_WOULD_BLOCK) return 0;\n'
+              '        (void)ku_sleep(1U);\n'
+              '    }\n'
+              '    return 0;\n'
+              '}\n\n'
+          )
+          if text.count(start_anchor) != 1:
+              raise SystemExit(f'socket init start anchor count={text.count(start_anchor)}')
+          text = text.replace(start_anchor, wait_helper + start_anchor, 1)
+
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          probe = anchor + (
+              '    const ku_result_t socket_probe_pid = u_spawn("/system/sockprb");\n'
+              '    if (socket_probe_pid <= 0 || !socket_wait_probe((uint64_t)socket_probe_pid)) {\n'
+              '        (void)u_puts("init: socket Ring-3 qualification failed\\n");\n'
+              '        ku_exit(50);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'socket init probe anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, probe, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/sockexit' scripts/build-linux.sh
+          grep -F 'system/sockprb' scripts/build-linux.sh
+          grep -F 'socket_wait_probe' userspace/system/init/main.c
+          grep -F 'u_spawn("/system/sockprb")' userspace/system/init/main.c
+
+      - name: Install build and QEMU dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential binutils python3
-          make CONFIG=release kernel
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real Ring-3 socket runtime markers
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] socket_udp_roundtrip: PASS' \
+            --require-marker '[TEST] socket_handle_generation: PASS' \
+            --require-marker '[TEST] socket_exit_cleanup: PASS' \
+            --timeout 240
