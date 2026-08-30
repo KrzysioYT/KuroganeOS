@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT ...]" >&2
     exit 2
 }
 
@@ -13,7 +13,7 @@ timeout_seconds=60
 nic_model="none"
 require_network=false
 require_tls=false
-require_marker=""
+require_markers=()
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
@@ -22,7 +22,7 @@ while (($#)); do
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
-        --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_marker="$2"; shift 2 ;;
+        --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
@@ -168,26 +168,40 @@ qemu-system-x86_64 \
     >"$qemu_log" 2>&1 &
 pid=$!
 
-failure_marker=""
-if [[ -n "$require_marker" && "$require_marker" == *": PASS" ]]; then
-    failure_marker="${require_marker%: PASS}: FAIL"
-fi
+failure_markers=()
+for require_marker in "${require_markers[@]}"; do
+    failure_marker=""
+    if [[ "$require_marker" == *": PASS" ]]; then
+        failure_marker="${require_marker%: PASS}: FAIL"
+    fi
+    failure_markers+=("$failure_marker")
+done
 
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
-        if [[ -n "$require_marker" ]]; then
-            if grep -Fq "$require_marker" "$serial"; then
-                echo "[uefi-qemu] required runtime marker: PASS"
-                echo "[uefi-qemu] marker: $require_marker"
+        if ((${#require_markers[@]} != 0)); then
+            all_markers_ready=true
+            for index in "${!require_markers[@]}"; do
+                require_marker="${require_markers[$index]}"
+                failure_marker="${failure_markers[$index]}"
+                if [[ -n "$failure_marker" ]] && grep -Fq "$failure_marker" "$serial"; then
+                    echo "KuroganeOS reported failure for required runtime marker: $require_marker" >&2
+                    tail -n 220 "$serial" >&2 || true
+                    exit 1
+                fi
+                if ! grep -Fq "$require_marker" "$serial"; then
+                    all_markers_ready=false
+                fi
+            done
+            if $all_markers_ready; then
+                echo "[uefi-qemu] required runtime markers: PASS"
+                for require_marker in "${require_markers[@]}"; do
+                    echo "[uefi-qemu] marker: $require_marker"
+                done
                 echo "[uefi-qemu] firmware CODE: $firmware_code"
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
-            fi
-            if [[ -n "$failure_marker" ]] && grep -Fq "$failure_marker" "$serial"; then
-                echo "KuroganeOS reported failure for required runtime marker" >&2
-                tail -n 220 "$serial" >&2 || true
-                exit 1
             fi
         elif $require_network; then
             if grep -Fq '[TEST] installer_package_preflight: PASS' "$serial"; then
@@ -249,8 +263,11 @@ while ((SECONDS < deadline)); do
     sleep 1
 done
 
-if [[ -n "$require_marker" ]]; then
-    echo "OVMF/QEMU did not observe required marker within $timeout_seconds seconds: $require_marker" >&2
+if ((${#require_markers[@]} != 0)); then
+    echo "OVMF/QEMU did not observe all required markers within $timeout_seconds seconds:" >&2
+    for require_marker in "${require_markers[@]}"; do
+        echo "  $require_marker" >&2
+    done
 elif $require_tls; then
     echo "OVMF/QEMU did not qualify $nic_model TLS/HTTPS within $timeout_seconds seconds" >&2
 elif $require_network; then
