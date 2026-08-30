@@ -1,0 +1,298 @@
+name: Apply 3.5 network events service
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/apply-network-events.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3
+
+      - name: Add network state event publisher
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: anchor count={count}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          Path('sdk/include/kurogane/network_events.h').write_text(r'''#ifndef KUROGANE_SDK_NETWORK_EVENTS_H
+#define KUROGANE_SDK_NETWORK_EVENTS_H
+
+#include <kurogane/event_broker.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+ * Event-broker topics emitted by /system/neteventd. Events are edge-triggered
+ * state-change notifications. Consumers should call ku_network_get_status()
+ * after receiving one instead of treating the signal as a state container.
+ */
+#define KU_NETWORK_EVENT_CHANGED "network.changed"
+#define KU_NETWORK_EVENT_CHANGED_SIZE 15U
+#define KU_NETWORK_EVENT_READY "network.ready"
+#define KU_NETWORK_EVENT_READY_SIZE 13U
+#define KU_NETWORK_EVENT_LINK "network.link"
+#define KU_NETWORK_EVENT_LINK_SIZE 12U
+#define KU_NETWORK_EVENT_ADDRESS "network.address"
+#define KU_NETWORK_EVENT_ADDRESS_SIZE 15U
+#define KU_NETWORK_EVENT_DNS "network.dns"
+#define KU_NETWORK_EVENT_DNS_SIZE 11U
+
+#ifdef __cplusplus
+}
+#endif
+#endif
+''')
+
+          Path('userspace/system/network-eventd').mkdir(parents=True, exist_ok=True)
+          Path('userspace/system/network-eventd/main.c').write_text(r'''#include "../../runtime/user.h"
+
+#include <kurogane/event_broker.h>
+#include <kurogane/network.h>
+#include <kurogane/network_events.h>
+
+#define BROKER_RETRY_LIMIT 256U
+#define BROKER_RESPONSE_LIMIT 128U
+#define NETWORK_POLL_INTERVAL UINT64_C(10)
+
+static void topic_copy(char* destination, const char* source) {
+    size_t index = 0U;
+    while (index < KU_EVENT_BROKER_TOPIC_CAPACITY) {
+        const char value = source[index];
+        destination[index] = value;
+        ++index;
+        if (value == '\0') break;
+    }
+    while (index < KU_EVENT_BROKER_TOPIC_CAPACITY) destination[index++] = '\0';
+}
+
+static int ipv4_equal(const uint8_t left[4], const uint8_t right[4]) {
+    size_t index = 0U;
+    for (; index < 4U; ++index) {
+        if (left[index] != right[index]) return 0;
+    }
+    return 1;
+}
+
+static ku_service_connection_t connect_broker(void) {
+    uint32_t attempt = 0U;
+    for (; attempt < BROKER_RETRY_LIMIT; ++attempt) {
+        const ku_result_t result = ku_event_broker_connect();
+        if (result > 0) return (ku_service_connection_t)result;
+        if (result != KU_STATUS_NOT_FOUND && result != KU_STATUS_WOULD_BLOCK) {
+            return 0U;
+        }
+        (void)ku_sleep(1U);
+    }
+    return 0U;
+}
+
+static ku_status_t wait_response(
+    ku_service_connection_t connection,
+    ku_event_broker_response* response) {
+    uint32_t attempt = 0U;
+    if (response == (ku_event_broker_response*)0) return KU_STATUS_INVALID_ARGUMENT;
+    for (; attempt < BROKER_RESPONSE_LIMIT; ++attempt) {
+        ku_service_message message;
+        const ku_status_t status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)ku_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        *response = *(const ku_event_broker_response*)(const void*)message.data;
+        if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        return KU_STATUS_OK;
+    }
+    return KU_STATUS_TIMED_OUT;
+}
+
+static ku_status_t publish_topic(
+    ku_service_connection_t connection,
+    const char* topic) {
+    ku_event_broker_request request;
+    ku_event_broker_response response;
+    ku_status_t status;
+    if (connection == 0U || topic == (const char*)0) return KU_STATUS_INVALID_ARGUMENT;
+    request.structure_size = sizeof(request);
+    request.operation = KU_EVENT_BROKER_PUBLISH;
+    topic_copy(request.topic, topic);
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) return status;
+    status = wait_response(connection, &response);
+    if (status != KU_STATUS_OK) return status;
+    return response.status;
+}
+
+static ku_status_t publish_changes(
+    ku_service_connection_t connection,
+    const ku_network_status* before,
+    const ku_network_status* after) {
+    ku_status_t first_error = KU_STATUS_OK;
+    ku_status_t status;
+    int changed = 0;
+    if (before == (const ku_network_status*)0 ||
+        after == (const ku_network_status*)0) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (before->ready != after->ready || before->dhcp != after->dhcp) {
+        status = publish_topic(connection, KU_NETWORK_EVENT_READY);
+        if (status != KU_STATUS_OK && first_error == KU_STATUS_OK) first_error = status;
+        changed = 1;
+    }
+    if (before->physical != after->physical) {
+        status = publish_topic(connection, KU_NETWORK_EVENT_LINK);
+        if (status != KU_STATUS_OK && first_error == KU_STATUS_OK) first_error = status;
+        changed = 1;
+    }
+    if (!ipv4_equal(before->address, after->address) ||
+        !ipv4_equal(before->gateway, after->gateway)) {
+        status = publish_topic(connection, KU_NETWORK_EVENT_ADDRESS);
+        if (status != KU_STATUS_OK && first_error == KU_STATUS_OK) first_error = status;
+        changed = 1;
+    }
+    if (!ipv4_equal(before->dns, after->dns)) {
+        status = publish_topic(connection, KU_NETWORK_EVENT_DNS);
+        if (status != KU_STATUS_OK && first_error == KU_STATUS_OK) first_error = status;
+        changed = 1;
+    }
+    if (changed) {
+        status = publish_topic(connection, KU_NETWORK_EVENT_CHANGED);
+        if (status != KU_STATUS_OK && first_error == KU_STATUS_OK) first_error = status;
+    }
+    return first_error;
+}
+
+__attribute__((noreturn)) void _start(void) {
+    ku_service_connection_t broker = 0U;
+    ku_network_status previous;
+    int have_previous = 0;
+
+    previous.structure_size = sizeof(previous);
+    previous.ready = 0U;
+    previous.physical = 0U;
+    previous.dhcp = 0U;
+    previous.address[0] = previous.address[1] = previous.address[2] = previous.address[3] = 0U;
+    previous.gateway[0] = previous.gateway[1] = previous.gateway[2] = previous.gateway[3] = 0U;
+    previous.dns[0] = previous.dns[1] = previous.dns[2] = previous.dns[3] = 0U;
+    previous.reserved0[0] = previous.reserved0[1] = previous.reserved0[2] = previous.reserved0[3] = 0U;
+    previous.bytes_received = 0U;
+    previous.bytes_transmitted = 0U;
+
+    for (;;) {
+        ku_network_status current;
+        ku_status_t status;
+
+        if (broker == 0U) broker = connect_broker();
+
+        current.structure_size = sizeof(current);
+        current.ready = 0U;
+        current.physical = 0U;
+        current.dhcp = 0U;
+        current.address[0] = current.address[1] = current.address[2] = current.address[3] = 0U;
+        current.gateway[0] = current.gateway[1] = current.gateway[2] = current.gateway[3] = 0U;
+        current.dns[0] = current.dns[1] = current.dns[2] = current.dns[3] = 0U;
+        current.reserved0[0] = current.reserved0[1] = current.reserved0[2] = current.reserved0[3] = 0U;
+        current.bytes_received = 0U;
+        current.bytes_transmitted = 0U;
+        status = ku_network_get_status(&current);
+        if (status == KU_STATUS_OK) {
+            if (have_previous && broker != 0U) {
+                const ku_status_t publish_status =
+                    publish_changes(broker, &previous, &current);
+                if (publish_status != KU_STATUS_OK) {
+                    (void)ku_service_close(broker);
+                    broker = 0U;
+                }
+            }
+            previous = current;
+            have_previous = 1;
+        }
+
+        (void)ku_sleep(NETWORK_POLL_INTERVAL);
+        (void)ku_yield();
+    }
+}
+''')
+
+          replace_once(
+              'scripts/build-linux.sh',
+              '    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"\n',
+              '    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"\n'
+              '    "networkeventd|userspace/system/network-eventd/main.c|system/neteventd|c"\n')
+
+          replace_once(
+              'userspace/system/init/main.c',
+              '#define CLIPBOARD_SERVICE_PATH "/system/clipd"\n',
+              '#define CLIPBOARD_SERVICE_PATH "/system/clipd"\n'
+              '#define NETWORK_EVENT_SERVICE_PATH "/system/neteventd"\n')
+          replace_once(
+              'userspace/system/init/main.c',
+              '''static uint64_t spawn_clipboard_service(void) {\n    const ku_result_t result = u_spawn(CLIPBOARD_SERVICE_PATH);\n    return result > 0 ? (uint64_t)result : 0U;\n}\n''',
+              '''static uint64_t spawn_clipboard_service(void) {\n    const ku_result_t result = u_spawn(CLIPBOARD_SERVICE_PATH);\n    return result > 0 ? (uint64_t)result : 0U;\n}\n\nstatic uint64_t spawn_network_event_service(void) {\n    const ku_result_t result = u_spawn(NETWORK_EVENT_SERVICE_PATH);\n    return result > 0 ? (uint64_t)result : 0U;\n}\n''')
+          replace_once(
+              'userspace/system/init/main.c',
+              '''    const uint64_t settings_service_pid = spawn_settings_service();\n''',
+              '''    const uint64_t network_event_service_pid = spawn_network_event_service();\n    if (network_event_service_pid == 0U) {\n        (void)u_puts("init: cannot spawn /system/neteventd\\n");\n        ku_exit(31);\n    }\n\n    const uint64_t settings_service_pid = spawn_settings_service();\n''')
+          replace_once(
+              'userspace/system/init/main.c',
+              '''    service_watch settings_watch = {\n''',
+              '''    service_watch network_event_watch = {\n        spawn_network_event_service, network_event_service_pid, 0U,\n        (const char*)0\n    };\n    service_watch settings_watch = {\n''')
+          replace_once(
+              'userspace/system/init/main.c',
+              '''    if (!supervise_service(&settings_watch)) {\n''',
+              '''    if (!supervise_service(&network_event_watch)) {\n        (void)u_puts("init: network event service supervision failed\\n");\n        ku_exit(32);\n    }\n\n    if (!supervise_service(&settings_watch)) {\n''')
+          replace_once(
+              'userspace/system/init/main.c',
+              '''        if (!supervise_service(&settings_watch)) {\n''',
+              '''        if (!supervise_service(&network_event_watch)) {\n            (void)u_puts("init: network event service supervision failed\\n");\n            ku_exit(33);\n        }\n        if (!supervise_service(&settings_watch)) {\n''')
+
+          todo = Path('TODO-DEFERRED-TESTS.md')
+          text = todo.read_text()
+          old = '- DNS/network-event/TLS userspace integration regressions once those slices land.\n'
+          new = ('- DNS/TLS userspace integration regressions.\n'
+                 '- Network event publisher regressions: broker reconnect, ready/link/address/DNS edge emission, unchanged-state silence, supervisor restart.\n')
+          if text.count(old) != 1:
+              raise SystemExit('network-event TODO anchor mismatch')
+          todo.write_text(text.replace(old, new, 1))
+
+      - name: Compile release kernel userspace SDK and boot chain
+        run: bash ./scripts/build-linux.sh --configuration release --rebuild --no-image
+
+      - name: Commit compiled network events slice
+        run: |
+          rm -f .github/workflows/apply-network-events.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'userspace(net): publish network state-change events'
+          git push origin HEAD:gpt/road-to-15-consolidation
