@@ -1,0 +1,59 @@
+name: Regress services after Account integration
+
+on:
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths: ['.github/workflows/qualify-services-post-account.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  service-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject Event and Notification probes
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          event_anchor = '    (void)u_puts("[TEST] event_broker_spawn: PASS\\n");\n'
+          event_probe = (
+              '    const ku_result_t event_probe_pid = u_spawn("/system/evprobe");\n'
+              '    if (event_probe_pid <= 0) ku_exit(21);\n'
+          )
+          notification_anchor = '    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n'
+          notification_probe = (
+              '    const ku_result_t notification_probe_pid = u_spawn("/system/ntfprobe");\n'
+              '    if (notification_probe_pid <= 0) ku_exit(22);\n'
+          )
+          if text.count(event_anchor) != 1 or text.count(notification_anchor) != 1:
+              raise SystemExit('service probe anchor changed')
+          text = text.replace(event_anchor, event_anchor + event_probe, 1)
+          text = text.replace(notification_anchor, notification_anchor + notification_probe, 1)
+          path.write_text(text)
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require Event Broker regression
+        run: bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img --disk --require-marker '[TEST] event_broker_roundtrip: PASS' --timeout 180
+
+      - name: Require Notification regression
+        run: bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img --disk --require-marker '[TEST] notification_service_roundtrip: PASS' --timeout 180
