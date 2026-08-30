@@ -1,4 +1,4 @@
-# Road-to-15 requalification after Ring-3 frame ownership hardening.
+# Road-to-15 persistence qualification after runtime Context ownership fix.
 name: Qualify 3.4.2 settings service persistence
 
 on:
@@ -60,43 +60,6 @@ jobs:
           )
           if text.count(anchor) != 1:
               raise SystemExit(f'expected one settings service spawn anchor, found {text.count(anchor)}')
-          path.write_text(text.replace(anchor, replacement, 1))
-
-      - name: Inject stale-frame ownership diagnostics
-        shell: python
-        run: |
-          from pathlib import Path
-
-          path = Path('kernel/user/runtime_base.inc')
-          text = path.read_text()
-          anchor = '        if ((frame.cs & 3U) == 3U) log_missing_context();\n'
-          replacement = (
-              '        if ((frame.cs & 3U) == 3U) {\n'
-              '            log_missing_context();\n'
-              '            log::write_u64(log::Level::Error, "SYSCALL", "missing context syscall=", frame.rax);\n'
-              '            log::write_hex(log::Level::Error, "SYSCALL", "missing context RIP=", frame.rip);\n'
-              '            log::write_hex(log::Level::Error, "SYSCALL", "missing context RSP=", frame.rsp);\n'
-              '            threading::Stat scheduler_stat{};\n'
-              '            if (threading::stat(threading::current(), &scheduler_stat) == threading::Status::Ok) {\n'
-              '                log::write_u64(log::Level::Error, "SYSCALL", "missing context state=", static_cast<uint64_t>(scheduler_stat.state));\n'
-              '                log::write_u64(log::Level::Error, "SYSCALL", "missing context PID=", scheduler_stat.process_id);\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context slot CR3=", scheduler_stat.address_space_root);\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context user stack=", scheduler_stat.user_stack);\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context stack bottom=", scheduler_stat.stack_bottom);\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context stack top=", scheduler_stat.stack_top);\n'
-              '            }\n'
-              '            for (Context* diagnostic_context : g_contexts) {\n'
-              '                if (diagnostic_context == nullptr) continue;\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "context pointer=", reinterpret_cast<uintptr_t>(diagnostic_context));\n'
-              '                log::write_u64(log::Level::Error, "SYSCALL", "context active=", diagnostic_context->active ? 1U : 0U);\n'
-              '                log::write_u64(log::Level::Error, "SYSCALL", "context TID=", diagnostic_context->tid);\n'
-              '                log::write_u64(log::Level::Error, "SYSCALL", "context PID=", diagnostic_context->pid);\n'
-              '                log::write_hex(log::Level::Error, "SYSCALL", "context CR3=", diagnostic_context->address_space.address_space.root_table_physical);\n'
-              '            }\n'
-              '        }\n'
-          )
-          if text.count(anchor) != 1:
-              raise SystemExit(f'expected one missing-context anchor, found {text.count(anchor)}')
           path.write_text(text.replace(anchor, replacement, 1))
 
       - name: Install build and QEMU dependencies
