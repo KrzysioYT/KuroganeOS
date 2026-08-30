@@ -55,16 +55,18 @@ __attribute__((noreturn)) void _start(void) {
     ku_clipboard_request request;
     ku_clipboard_response response;
     uint64_t generation;
+    const uint64_t self = ku_getpid();
     uint32_t attempt;
     const char text[] = PROBE_TEXT;
 
+    if (self == 0U) fail(1U);
     for (attempt = 0U; attempt < PROBE_ATTEMPTS; ++attempt) {
         connected = ku_clipboard_connect();
         if (connected > 0) break;
         if (connected != KU_STATUS_NOT_FOUND && connected != KU_STATUS_WOULD_BLOCK) break;
         (void)ku_sleep(1U);
     }
-    if (connected <= 0) fail(1U);
+    if (connected <= 0) fail(2U);
     connection = (ku_service_connection_t)connected;
 
     clear_bytes(&request, sizeof(request));
@@ -81,8 +83,8 @@ __attribute__((noreturn)) void _start(void) {
         response.format != KU_CLIPBOARD_FORMAT_UTF8 ||
         response.data_size != sizeof(text) ||
         response.generation == 0U ||
-        response.owner_pid != ku_process_id()) {
-        fail(2U);
+        response.owner_pid != self) {
+        fail(3U);
     }
     generation = response.generation;
 
@@ -94,9 +96,9 @@ __attribute__((noreturn)) void _start(void) {
         response.format != KU_CLIPBOARD_FORMAT_UTF8 ||
         response.data_size != sizeof(text) ||
         response.generation != generation ||
-        response.owner_pid != ku_process_id() ||
+        response.owner_pid != self ||
         !bytes_equal(response.data, text, sizeof(text))) {
-        fail(3U);
+        fail(4U);
     }
 
     clear_bytes(&request, sizeof(request));
@@ -108,7 +110,7 @@ __attribute__((noreturn)) void _start(void) {
         response.format != KU_CLIPBOARD_FORMAT_NONE ||
         response.data_size != 0U || response.owner_pid != 0U ||
         response.generation == generation) {
-        fail(4U);
+        fail(5U);
     }
     generation = response.generation;
 
@@ -118,7 +120,7 @@ __attribute__((noreturn)) void _start(void) {
     request.operation = KU_CLIPBOARD_GET;
     if (transact(connection, &request, &response) != KU_STATUS_NOT_FOUND ||
         response.generation != generation) {
-        fail(5U);
+        fail(6U);
     }
 
     (void)ku_service_close(connection);
