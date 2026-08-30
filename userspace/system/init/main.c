@@ -9,6 +9,7 @@
 #define CLIPBOARD_SERVICE_PATH "/system/clipd"
 #define NETWORK_EVENT_SERVICE_PATH "/system/neteventd"
 #define APPLICATION_REGISTRY_PATH "/system/appregd"
+#define AUDIO_SERVICE_PATH "/system/audiod"
 
 #define SERVICE_RESTART_LIMIT 3U
 #define SERVICE_RESTART_BASE_DELAY UINT64_C(4)
@@ -74,6 +75,11 @@ static uint64_t spawn_network_event_service(void) {
 
 static uint64_t spawn_application_registry(void) {
     const ku_result_t result = u_spawn(APPLICATION_REGISTRY_PATH);
+    return result > 0 ? (uint64_t)result : 0U;
+}
+
+static uint64_t spawn_audio_service(void) {
+    const ku_result_t result = u_spawn(AUDIO_SERVICE_PATH);
     return result > 0 ? (uint64_t)result : 0U;
 }
 
@@ -145,6 +151,12 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(34);
     }
 
+    const uint64_t audio_service_pid = spawn_audio_service();
+    if (audio_service_pid == 0U) {
+        (void)u_puts("init: cannot spawn /system/audiod\n");
+        ku_exit(37);
+    }
+
     const uint64_t settings_service_pid = spawn_settings_service();
     if (settings_service_pid == 0U) {
         (void)u_puts("init: cannot spawn /system/setd\n");
@@ -197,6 +209,10 @@ __attribute__((noreturn)) void _start(void) {
         spawn_application_registry, application_registry_pid, 0U,
         (const char*)0
     };
+    service_watch audio_service_watch = {
+        spawn_audio_service, audio_service_pid, 0U,
+        (const char*)0
+    };
     service_watch settings_watch = {
         spawn_settings_service, settings_service_pid, 0U,
         "[TEST] settings_service_restart: PASS\n"
@@ -247,6 +263,11 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(35);
     }
 
+    if (!supervise_service(&audio_service_watch)) {
+        (void)u_puts("init: audio service supervision failed\n");
+        ku_exit(38);
+    }
+
     if (!supervise_service(&settings_watch)) {
         (void)u_puts("[TEST] settings_service_liveness: FAIL\n");
         ku_exit(8);
@@ -294,6 +315,10 @@ __attribute__((noreturn)) void _start(void) {
         if (!supervise_service(&application_registry_watch)) {
             (void)u_puts("init: application registry supervision failed\n");
             ku_exit(36);
+        }
+        if (!supervise_service(&audio_service_watch)) {
+            (void)u_puts("init: audio service supervision failed\n");
+            ku_exit(39);
         }
         if (!supervise_service(&settings_watch)) {
             (void)u_puts("[TEST] settings_service_liveness: FAIL\n");

@@ -13,6 +13,7 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - DNS/TLS userspace integration regressions.
 - Network event publisher regressions: broker reconnect, ready/link/address/DNS edge emission, unchanged-state silence, supervisor restart.
 - Application registry regressions: manifest discovery, malformed manifest rejection, duplicate IDs, bounded capacity, lookup/index/count IPC, supervisor restart.
+- Async Audio Service regressions: multi-client open/submit/gain/close, bounded queue backpressure, PCM saturation mixing, disconnect cleanup, AC97 busy/error recovery, PID1 supervisor restart.
 
 ## 4.0 KuroFS deferred tests
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
