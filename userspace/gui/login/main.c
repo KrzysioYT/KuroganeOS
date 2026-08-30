@@ -2,9 +2,13 @@
 #include "../../../common/version.h"
 #include "../../../common/dev_profile.h"
 
+#include <kurogane/account.h>
+#include <kurogane/session.h>
+
 #define LOGIN_USERNAME_CAPACITY KU_DEV_PROFILE_USERNAME_CAPACITY
 #define LOGIN_PASSWORD_CAPACITY 48U
 #define LOGIN_CONFIG_CAPACITY 384U
+#define LOGIN_SERVICE_ATTEMPTS 200U
 
 typedef struct login_profile {
     char username[LOGIN_USERNAME_CAPACITY];
@@ -144,6 +148,123 @@ static void build_scene(
     (void)kui_scene_select(scene, 10U);
 }
 
+static ku_result_t connect_service(const char* name, size_t name_size) {
+    uint32_t attempt;
+    ku_result_t result = KU_STATUS_NOT_FOUND;
+    for (attempt = 0U; attempt < LOGIN_SERVICE_ATTEMPTS; ++attempt) {
+        result = ku_service_connect(name, name_size);
+        if (result > 0) return result;
+        if (result != KU_STATUS_NOT_FOUND && result != KU_STATUS_WOULD_BLOCK) {
+            return result;
+        }
+        (void)kuro_sleep(1U);
+    }
+    return result;
+}
+
+static ku_status_t account_transact(
+    ku_service_connection_t connection,
+    const ku_account_request* request,
+    ku_account_response* response) {
+    uint32_t attempt;
+    ku_status_t status = ku_service_send(connection, request, sizeof(*request));
+    if (status != KU_STATUS_OK) return status;
+    for (attempt = 0U; attempt < LOGIN_SERVICE_ATTEMPTS; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        *response = *(const ku_account_response*)(const void*)message.data;
+        if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        return (ku_status_t)response->status;
+    }
+    return KU_STATUS_WOULD_BLOCK;
+}
+
+static ku_status_t session_transact(
+    ku_service_connection_t connection,
+    const ku_session_request* request,
+    ku_session_response* response) {
+    uint32_t attempt;
+    ku_status_t status = ku_service_send(connection, request, sizeof(*request));
+    if (status != KU_STATUS_OK) return status;
+    for (attempt = 0U; attempt < LOGIN_SERVICE_ATTEMPTS; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        *response = *(const ku_session_response*)(const void*)message.data;
+        if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        return (ku_status_t)response->status;
+    }
+    return KU_STATUS_WOULD_BLOCK;
+}
+
+static int current_account(const login_profile* profile, uint64_t* account_id) {
+    ku_result_t connected;
+    ku_service_connection_t connection;
+    ku_account_request request;
+    ku_account_response response;
+    ku_status_t status;
+
+    if (profile == NULL || account_id == NULL) return 0;
+    *account_id = 0U;
+    connected = connect_service(KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    memset(&response, 0, sizeof(response));
+    request.structure_size = sizeof(request);
+    request.operation = KU_ACCOUNT_GET_CURRENT;
+    status = account_transact(connection, &request, &response);
+    (void)ku_service_close(connection);
+    if (status != KU_STATUS_OK || response.account_id == 0U ||
+        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
+        strcmp(response.username, profile->username) != 0) {
+        return 0;
+    }
+    *account_id = response.account_id;
+    return 1;
+}
+
+static int session_request(
+    ku_service_connection_t connection,
+    uint32_t operation,
+    uint64_t session_id,
+    uint64_t account_id,
+    uint64_t process_id,
+    ku_session_response* response) {
+    ku_session_request request;
+    memset(&request, 0, sizeof(request));
+    memset(response, 0, sizeof(*response));
+    request.structure_size = sizeof(request);
+    request.operation = operation;
+    request.session_id = session_id;
+    request.account_id = account_id;
+    request.process_id = process_id;
+    return session_transact(connection, &request, response) == KU_STATUS_OK;
+}
+
+static int response_has_application(
+    const ku_session_response* response,
+    uint64_t process_id) {
+    uint32_t index;
+    if (response == NULL) return 0;
+    for (index = 0U; index < response->application_count &&
+         index < KU_SESSION_MAX_APPLICATIONS; ++index) {
+        if (response->applications[index] == process_id) return 1;
+    }
+    return 0;
+}
+
 static int wait_for_desktop(uint64_t pid) {
     for (;;) {
         int32_t status = 0;
@@ -154,16 +275,66 @@ static int wait_for_desktop(uint64_t pid) {
     }
 }
 
-static int start_session(ku_window_t window) {
+static int start_session(ku_window_t window, const login_profile* profile) {
     const char launcher[] = "/gui/launcher";
+    ku_result_t connected;
+    ku_service_connection_t connection;
+    ku_session_response response;
+    uint64_t account_id = 0U;
+    uint64_t session_id = 0U;
+    uint64_t launcher_pid = 0U;
+    int desktop_status = 4;
+
+    if (!current_account(profile, &account_id)) return 5;
+    connected = connect_service(KU_SESSION_SERVICE_NAME, KU_SESSION_SERVICE_NAME_SIZE);
+    if (connected <= 0) return 6;
+    connection = (ku_service_connection_t)connected;
+
+    if (!session_request(connection, KU_SESSION_CREATE, 0U, account_id, 0U, &response) ||
+        response.session_id == 0U || response.account_id != account_id ||
+        response.owner_pid != ku_process_id() || response.state != KU_SESSION_STATE_ACTIVE) {
+        (void)ku_service_close(connection);
+        return 7;
+    }
+    session_id = response.session_id;
+
     (void)ku_ui_close(window);
     {
-        const ku_result_t pid = ku_process_spawn(
-            launcher, sizeof(launcher) - 1U);
-        if (pid <= 0) return 4;
-        puts("[TEST] red_flux_login_to_desktop: PASS");
-        return wait_for_desktop((uint64_t)pid);
+        const ku_result_t spawned = ku_process_spawn(launcher, sizeof(launcher) - 1U);
+        if (spawned <= 0) goto cleanup;
+        launcher_pid = (uint64_t)spawned;
     }
+
+    if (!session_request(
+            connection, KU_SESSION_SET_HOME, session_id, 0U, launcher_pid, &response)) {
+        goto cleanup;
+    }
+    if (!session_request(
+            connection, KU_SESSION_ATTACH_APPLICATION, session_id, 0U,
+            launcher_pid, &response)) {
+        goto cleanup;
+    }
+    if (!session_request(connection, KU_SESSION_QUERY, session_id, 0U, 0U, &response) ||
+        response.account_id != account_id || response.owner_pid != ku_process_id() ||
+        response.home_pid != launcher_pid || response.state != KU_SESSION_STATE_ACTIVE ||
+        !response_has_application(&response, launcher_pid)) {
+        goto cleanup;
+    }
+
+    puts("[TEST] red_flux_owned_session: PASS");
+    puts("[TEST] red_flux_login_to_desktop: PASS");
+    desktop_status = wait_for_desktop(launcher_pid);
+
+cleanup:
+    if (launcher_pid != 0U) {
+        (void)session_request(
+            connection, KU_SESSION_DETACH_APPLICATION, session_id, 0U,
+            launcher_pid, &response);
+    }
+    (void)session_request(
+        connection, KU_SESSION_TERMINATE, session_id, 0U, 0U, &response);
+    (void)ku_service_close(connection);
+    return desktop_status;
 }
 
 int main(void) {
@@ -209,12 +380,12 @@ int main(void) {
         if (!profile.password_required &&
             event.type == KU_UI_EVENT_POINTER &&
             (event.buttons & UINT32_C(1)) != 0U) {
-            return start_session(window);
+            return start_session(window, &profile);
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (!profile.password_required) {
-            if (gui_key_activate(&event)) return start_session(window);
+            if (gui_key_activate(&event)) return start_session(window, &profile);
             continue;
         }
 
@@ -229,7 +400,7 @@ int main(void) {
             if (ku_dev_credential_verify(
                     profile.username, password, profile.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
-                return start_session(window);
+                return start_session(window, &profile);
             }
             puts("[TEST] installed_login_bad_password_rejected: PASS");
             password_length = 0U;
