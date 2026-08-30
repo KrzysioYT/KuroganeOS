@@ -1,4 +1,4 @@
-# Road-to-15 persistence qualification after runtime Context ownership fix.
+# Road-to-15 persistence requalification after durable settings change events.
 name: Qualify 3.4.2 settings service persistence
 
 on:
