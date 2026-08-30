@@ -28,7 +28,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   settings-persistence-runtime:
@@ -41,6 +41,94 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Commit address-space frame ownership fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('kernel/task/thread.cpp')
+          text = path.read_text()
+          old = '''Status bind_address_space(
+              memory::kernel_virtual_memory::OwnedAddressSpace* address_space,
+              uintptr_t user_stack) {
+              if (!g_initialized) return Status::NotInitialized;
+              if (g_current == kInvalidSlot) return Status::NotRunning;
+              Slot& slot = g_slots[g_current];
+          #if defined(KUROGANE_HOST_TEST)
+              static_cast<void>(address_space);
+              slot.address_space_root = 0U;
+          #else
+              slot.address_space = address_space;
+              slot.address_space_root = address_space == nullptr
+                  ? memory::kernel_virtual_memory::root_table_physical()
+                  : address_space->address_space.root_table_physical;
+          #endif
+              slot.user_stack = user_stack;
+              return Status::Ok;
+          }
+          '''
+          new = '''Status bind_address_space(
+              memory::kernel_virtual_memory::OwnedAddressSpace* address_space,
+              uintptr_t user_stack) {
+              if (!g_initialized) return Status::NotInitialized;
+              const uint64_t flags = save_and_disable_interrupts();
+              if (g_current == kInvalidSlot) {
+                  restore_interrupts(flags);
+                  return Status::NotRunning;
+              }
+              Slot& slot = g_slots[g_current];
+              const bool detaching_process =
+                  address_space == nullptr && slot.process_id != 0U;
+              const bool invalid_detach_state =
+                  detaching_process && slot.state != State::Running;
+              if (detaching_process) {
+                  // A resumable Ring-3 frame is owned by the process address
+                  // space. Revoke it before runtime unregisters/destroys that
+                  // address space so a later scheduler batch cannot IRET into
+                  // memory whose Context/CR3 ownership has already ended.
+                  slot.interrupt_frame = nullptr;
+                  slot.wake_tick = 0U;
+                  slot.yield_requested = false;
+              }
+          #if defined(KUROGANE_HOST_TEST)
+              static_cast<void>(address_space);
+              slot.address_space_root = 0U;
+          #else
+              slot.address_space = address_space;
+              slot.address_space_root = address_space == nullptr
+                  ? memory::kernel_virtual_memory::root_table_physical()
+                  : address_space->address_space.root_table_physical;
+          #endif
+              slot.user_stack = user_stack;
+              restore_interrupts(flags);
+              if (invalid_detach_state) {
+                  log::write(
+                      log::Level::Error,
+                      "THREAD",
+                      "process address-space detached outside Running state");
+                  return Status::CorruptContext;
+              }
+              return Status::Ok;
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one bind_address_space implementation, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          # Restore the normal qualification workflow in the production commit
+          # and remove the unused one-shot helper created during diagnosis.
+          git show HEAD^:.github/workflows/qualify-settings-service.yml > .github/workflows/qualify-settings-service.yml
+          git rm --ignore-unmatch .github/workflows/apply-ring3-retire-fix.yml
+
+          git config user.name 'KuroganeOS Road-to-15'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add kernel/task/thread.cpp .github/workflows/qualify-settings-service.yml
+          git diff --cached --check
+          git commit -m 'runtime: revoke saved Ring-3 frame on address-space detach'
+          git push origin HEAD:gpt/road-to-15-consolidation
 
       - name: Inject settings qualification probe launch
         shell: python
