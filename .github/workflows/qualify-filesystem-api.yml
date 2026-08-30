@@ -1,0 +1,103 @@
+name: Qualify 3.4 filesystem public API
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-filesystem-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate filesystem qualification probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = '    "filesystemprobe|userspace/system/filesystem-probe/main.c|system/fsprobe|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'filesystem build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          addition = anchor + (
+              '    const ku_result_t filesystem_probe_pid = u_spawn("/system/fsprobe");\n'
+              '    if (filesystem_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] filesystem_service_api: FAIL code=100\\n");\n'
+              '        ku_exit(33);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'filesystem init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, addition, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'system/fsprobe' scripts/build-linux.sh
+          grep -F 'filesystem_service_api: FAIL' userspace/system/init/main.c
+          [[ ${#fsprobe} -le 8 ]]
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require full real filesystem ABI lifecycle
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] filesystem_service_api: PASS' \
+            --timeout 180
+
+      - name: Remove qualification-only launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          probe = (
+              '    const ku_result_t filesystem_probe_pid = u_spawn("/system/fsprobe");\n'
+              '    if (filesystem_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] filesystem_service_api: FAIL code=100\\n");\n'
+              '        ku_exit(33);\n'
+              '    }\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('filesystem qualification stanza changed')
+          path.write_text(text.replace(probe, '', 1))
+
+      - name: Land qualified filesystem probe installation
+        run: |
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/qualify-filesystem-api.yml
+          git add scripts/build-linux.sh userspace/system/init/main.c
+          git commit -m 'test(fs): install qualified public ABI probe'
+          git push origin HEAD:gpt/road-to-15-consolidation
