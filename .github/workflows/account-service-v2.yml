@@ -1,0 +1,141 @@
+name: Qualify 3.4 account service v2
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/account-service-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply corrected Account Service candidate
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source = Path('.github/workflows/account-service-breakthrough.yml').read_text()
+          step = source.index('      - name: Implement Account Service\n')
+          start = source.index('          from pathlib import Path\n', step)
+          end = source.index('\n      - name: Inject account qualification probe launch', start)
+          block = source[start:end]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in block.splitlines()
+          ) + '\n'
+
+          tail_start = script.index("loop_anchor = '''")
+          tail_marker = 'init.write_text(text.replace(loop_anchor, loop_new, 1))'
+          tail_end = script.index(tail_marker, tail_start) + len(tail_marker)
+          replacement = r'''loop_anchor = '''        status = 0;
+          const ku_status_t wait_status = ku_wait(session_pid, &status);'''
+          loop_new = '''        service_status = 0;
+          const ku_status_t account_wait = ku_wait(account_service_pid, &service_status);
+          if (account_wait == KU_STATUS_OK || account_wait == KU_STATUS_NOT_FOUND) {
+              (void)u_puts("init: account service terminated\n");
+              (void)u_puts("[TEST] account_service_liveness: FAIL\n");
+              ku_exit(18);
+          }
+          if (account_wait != KU_STATUS_WOULD_BLOCK) {
+              (void)u_puts("init: account service supervision failed\n");
+              ku_exit(19);
+          }
+
+          status = 0;
+          const ku_status_t wait_status = ku_wait(session_pid, &status);'''
+          if text.count(loop_anchor) != 1:
+              raise SystemExit('stable session wait anchor changed')
+          init.write_text(text.replace(loop_anchor, loop_new, 1))'''
+          replacement = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in replacement.splitlines()
+          )
+          script = script[:tail_start] + replacement + script[tail_end:]
+          exec(compile(script, 'account-candidate-transform.py', 'exec'), {'__name__': '__main__'})
+
+      - name: Inject account qualification probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] account_service_spawn: PASS\\n");\n'
+          probe = (
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit('account spawn marker changed')
+          path.write_text(text.replace(anchor, anchor + probe, 1))
+
+      - name: Validate source and 8.3 paths
+        run: |
+          git diff --check
+          grep -F 'system/accountd' scripts/build-linux.sh
+          grep -F 'system/acctprb' scripts/build-linux.sh
+          grep -F 'KU_ACCOUNT_SERVICE_NAME "account.v1"' sdk/include/kurogane/account.h
+          grep -F 'account_service_liveness: PASS' userspace/system/init/main.c
+          test "$(basename system/accountd | wc -c)" -le 9
+          test "$(basename system/acctprb | wc -c)" -le 9
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real account lookup lifecycle
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] account_service_roundtrip: PASS' \
+            --timeout 180
+
+      - name: Remove qualification-only probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          probe = (
+              '    const ku_result_t account_probe_pid = u_spawn("/system/acctprb");\n'
+              '    if (account_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] account_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('qualification probe stanza changed')
+          path.write_text(text.replace(probe, '', 1))
+
+      - name: Land qualified Account Service
+        run: |
+          git rm .github/workflows/account-service-breakthrough.yml
+          git rm .github/workflows/account-service-v2.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add sdk/include/kurogane/account.h userspace/system/accountd userspace/system/account-probe scripts/build-linux.sh userspace/system/init/main.c
+          git commit -m 'service(account): add account lookup and supervision'
+          git push origin HEAD:gpt/road-to-15-consolidation
