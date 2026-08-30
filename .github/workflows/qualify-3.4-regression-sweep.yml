@@ -1,0 +1,125 @@
+name: Qualify 3.4 System Services Regression Sweep
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-3.4-regression-sweep.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression-sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run host kernel VFS IPC TCP and SDK regressions
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/run-host-tests.sh
+
+      - name: Inject bounded runtime regression probes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "filesystemprobe|userspace/system/filesystem-probe/main.c|system/fsprobe|c"\n'
+              '    "svcmeta|userspace/system/service-meta-server/main.c|system/svcmeta|c"\n'
+              '    "svcstress|userspace/system/service-stress-probe/main.c|system/svchurn|c"\n'
+              '    "svcrecov|userspace/system/service-recovery-probe/main.c|system/svcrecov|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'regression build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          launch = anchor + (
+              '    const ku_result_t regression_meta_pid = u_spawn("/system/svcmeta");\n'
+              '    if (regression_meta_pid <= 0) ku_exit(40);\n'
+              '    const ku_result_t regression_stress_pid = u_spawn("/system/svchurn");\n'
+              '    if (regression_stress_pid <= 0) ku_exit(41);\n'
+              '    const ku_result_t regression_recovery_pid = u_spawn("/system/svcrecov");\n'
+              '    if (regression_recovery_pid <= 0) ku_exit(42);\n'
+              '    const ku_result_t regression_filesystem_pid = u_spawn("/system/fsprobe");\n'
+              '    if (regression_filesystem_pid <= 0) ku_exit(43);\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'regression init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, launch, 1))
+
+          daemon = Path('userspace/system/clipboardd/main.c')
+          text = daemon.read_text()
+          anchor = '    (void)send_response(client->connection, status);\n}\n'
+          crash = r'''    (void)send_response(client->connection, status);
+              if (status == KU_STATUS_OK && request->operation == KU_CLIPBOARD_SET &&
+                  request->format == KU_CLIPBOARD_FORMAT_UTF8 && request->data_size == 11U &&
+                  request->data[0] == 'C' && request->data[1] == 'R' && request->data[2] == 'A' &&
+                  request->data[3] == 'S' && request->data[4] == 'H' && request->data[5] == '_' &&
+                  request->data[6] == 'O' && request->data[7] == 'N' && request->data[8] == 'C' &&
+                  request->data[9] == 'E' && request->data[10] == 0U) {
+                  (void)u_puts("[TEST] clipboard_service_forced_crash: PASS\n");
+                  __asm__ volatile("ud2");
+              }
+          }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'clipboard crash anchor count={text.count(anchor)}')
+          daemon.write_text(text.replace(anchor, crash, 1))
+
+      - name: Validate regression patch
+        run: |
+          git diff --check
+          grep -F 'STRESS_ITERATIONS 256U' userspace/system/service-stress-probe/main.c
+          grep -F 'system/fsprobe' scripts/build-linux.sh
+          grep -F 'system/svchurn' scripts/build-linux.sh
+          grep -F 'system/svcrecov' scripts/build-linux.sh
+          grep -F '__asm__ volatile("ud2")' userspace/system/clipboardd/main.c
+          grep -F 'regression_recovery_pid' userspace/system/init/main.c
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/kernel.elf
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require lifecycle filesystem stress and recovery runtime proofs
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] process_spawn_wait: PASS' \
+            --require-marker '[TEST] kernel_preemption: PASS' \
+            --require-marker '[TEST] ring3_preemption: PASS' \
+            --require-marker '[TEST] user_multitasking: PASS' \
+            --require-marker '[TEST] syscall_process_abi: PASS' \
+            --require-marker '[TEST] filesystem_service_api: PASS' \
+            --require-marker '[TEST] service_channel_churn: PASS' \
+            --require-marker '[TEST] clipboard_service_forced_crash: PASS' \
+            --require-marker '[TEST] clipboard_service_restart: PASS' \
+            --require-marker '[TEST] service_restart_rebind: PASS' \
+            --require-marker '[TEST] clipboard_service_liveness: PASS' \
+            --timeout 240
