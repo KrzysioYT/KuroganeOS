@@ -1,0 +1,5 @@
+format=1
+id=org.kurogane.files
+name=Files
+exec=/apps/files
+flags=10

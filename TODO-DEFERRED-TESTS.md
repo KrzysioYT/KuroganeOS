@@ -11,6 +11,7 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Process-owned TCP socket pool regressions: session exhaustion, PID ownership, protocol-specific bind collisions, async connect retries, partial send accounting, receive EOF, graceful close retry, process-exit cleanup, stale handles.
 - DNS/TLS userspace integration regressions.
 - Network event publisher regressions: broker reconnect, ready/link/address/DNS edge emission, unchanged-state silence, supervisor restart.
+- Application registry regressions: manifest discovery, malformed manifest rejection, duplicate IDs, bounded capacity, lookup/index/count IPC, supervisor restart.
 
 ## Existing deferred qualification
 - Full host regression suite.

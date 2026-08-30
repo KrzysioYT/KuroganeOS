@@ -108,6 +108,7 @@ applications=(
     "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"
     "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"
     "networkeventd|userspace/system/network-eventd/main.c|system/neteventd|c"
+    "appregistryd|userspace/system/app-registryd/main.c|system/appregd|c"
     "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
 )
 for spec in "${applications[@]}"; do

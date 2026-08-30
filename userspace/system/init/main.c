@@ -8,6 +8,7 @@
 #define SESSION_SERVICE_PATH "/system/sessiond"
 #define CLIPBOARD_SERVICE_PATH "/system/clipd"
 #define NETWORK_EVENT_SERVICE_PATH "/system/neteventd"
+#define APPLICATION_REGISTRY_PATH "/system/appregd"
 
 #define SERVICE_RESTART_LIMIT 3U
 #define SERVICE_RESTART_BASE_DELAY UINT64_C(4)
@@ -68,6 +69,11 @@ static uint64_t spawn_clipboard_service(void) {
 
 static uint64_t spawn_network_event_service(void) {
     const ku_result_t result = u_spawn(NETWORK_EVENT_SERVICE_PATH);
+    return result > 0 ? (uint64_t)result : 0U;
+}
+
+static uint64_t spawn_application_registry(void) {
+    const ku_result_t result = u_spawn(APPLICATION_REGISTRY_PATH);
     return result > 0 ? (uint64_t)result : 0U;
 }
 
@@ -133,6 +139,12 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(31);
     }
 
+    const uint64_t application_registry_pid = spawn_application_registry();
+    if (application_registry_pid == 0U) {
+        (void)u_puts("init: cannot spawn /system/appregd\n");
+        ku_exit(34);
+    }
+
     const uint64_t settings_service_pid = spawn_settings_service();
     if (settings_service_pid == 0U) {
         (void)u_puts("init: cannot spawn /system/setd\n");
@@ -181,6 +193,10 @@ __attribute__((noreturn)) void _start(void) {
         spawn_network_event_service, network_event_service_pid, 0U,
         (const char*)0
     };
+    service_watch application_registry_watch = {
+        spawn_application_registry, application_registry_pid, 0U,
+        (const char*)0
+    };
     service_watch settings_watch = {
         spawn_settings_service, settings_service_pid, 0U,
         "[TEST] settings_service_restart: PASS\n"
@@ -226,6 +242,11 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(32);
     }
 
+    if (!supervise_service(&application_registry_watch)) {
+        (void)u_puts("init: application registry supervision failed\n");
+        ku_exit(35);
+    }
+
     if (!supervise_service(&settings_watch)) {
         (void)u_puts("[TEST] settings_service_liveness: FAIL\n");
         ku_exit(8);
@@ -269,6 +290,10 @@ __attribute__((noreturn)) void _start(void) {
         if (!supervise_service(&network_event_watch)) {
             (void)u_puts("init: network event service supervision failed\n");
             ku_exit(33);
+        }
+        if (!supervise_service(&application_registry_watch)) {
+            (void)u_puts("init: application registry supervision failed\n");
+            ku_exit(36);
         }
         if (!supervise_service(&settings_watch)) {
             (void)u_puts("[TEST] settings_service_liveness: FAIL\n");
