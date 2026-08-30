@@ -2,9 +2,9 @@
 
 #include <kurogane/filesystem.h>
 
-#define TEST_DIR "/var/system/fstest"
-#define TEST_FILE_A "/var/system/fstest/one.txt"
-#define TEST_FILE_B "/var/system/fstest/two.txt"
+#define TEST_DIR "/fstest"
+#define TEST_FILE_A "/fstest/one.txt"
+#define TEST_FILE_B "/fstest/two.txt"
 #define TEST_PAYLOAD "Kurogane filesystem ABI"
 
 static void fail(uint32_t code) {
