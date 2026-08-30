@@ -70,20 +70,21 @@ jobs:
           path = Path('kernel/user/runtime_base.inc')
           text = path.read_text()
           anchor = '        if ((frame.cs & 3U) == 3U) log_missing_context();\n'
-          replacement = '''        if ((frame.cs & 3U) == 3U) {
-            log_missing_context();
-            log::write_u64(log::Level::Error, "SYSCALL", "missing context syscall=", frame.rax);
-            log::write_hex(log::Level::Error, "SYSCALL", "missing context RIP=", frame.rip);
-            log::write_hex(log::Level::Error, "SYSCALL", "missing context RSP=", frame.rsp);
-            threading::Stat scheduler_stat{};
-            if (threading::stat(threading::current(), &scheduler_stat) == threading::Status::Ok) {
-                log::write_u64(log::Level::Error, "SYSCALL", "missing context state=", static_cast<uint64_t>(scheduler_stat.state));
-                log::write_u64(log::Level::Error, "SYSCALL", "missing context PID=", scheduler_stat.process_id);
-                log::write_hex(log::Level::Error, "SYSCALL", "missing context slot CR3=", scheduler_stat.address_space_root);
-                log::write_hex(log::Level::Error, "SYSCALL", "missing context user stack=", scheduler_stat.user_stack);
-            }
-        }
-'''
+          replacement = (
+              '        if ((frame.cs & 3U) == 3U) {\n'
+              '            log_missing_context();\n'
+              '            log::write_u64(log::Level::Error, "SYSCALL", "missing context syscall=", frame.rax);\n'
+              '            log::write_hex(log::Level::Error, "SYSCALL", "missing context RIP=", frame.rip);\n'
+              '            log::write_hex(log::Level::Error, "SYSCALL", "missing context RSP=", frame.rsp);\n'
+              '            threading::Stat scheduler_stat{};\n'
+              '            if (threading::stat(threading::current(), &scheduler_stat) == threading::Status::Ok) {\n'
+              '                log::write_u64(log::Level::Error, "SYSCALL", "missing context state=", static_cast<uint64_t>(scheduler_stat.state));\n'
+              '                log::write_u64(log::Level::Error, "SYSCALL", "missing context PID=", scheduler_stat.process_id);\n'
+              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context slot CR3=", scheduler_stat.address_space_root);\n'
+              '                log::write_hex(log::Level::Error, "SYSCALL", "missing context user stack=", scheduler_stat.user_stack);\n'
+              '            }\n'
+              '        }\n'
+          )
           if text.count(anchor) != 1:
               raise SystemExit(f'expected one missing-context anchor, found {text.count(anchor)}')
           path.write_text(text.replace(anchor, replacement, 1))
