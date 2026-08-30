@@ -1,0 +1,330 @@
+name: Qualify service crash recovery and endpoint rebind
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-service-recovery.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate bounded PID1 service supervision
+        shell: python
+        run: |
+          from pathlib import Path
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+
+          helper_anchor = '''static uint64_t spawn_clipboard_service(void) {
+              const ku_result_t result = u_spawn(CLIPBOARD_SERVICE_PATH);
+              return result > 0 ? (uint64_t)result : 0U;
+          }
+          '''
+          helper = helper_anchor + r'''
+          #define SERVICE_RESTART_LIMIT 3U
+          #define SERVICE_RESTART_BASE_DELAY UINT64_C(4)
+
+          typedef uint64_t (*service_spawn_fn)(void);
+
+          typedef struct service_watch {
+              service_spawn_fn spawn;
+              uint64_t pid;
+              uint32_t restarts;
+              const char* restart_marker;
+          } service_watch;
+
+          static int supervise_service(service_watch* watch) {
+              int32_t exit_code = 0;
+              ku_status_t status;
+              uint64_t replacement;
+              uint64_t delay;
+              if (watch == (service_watch*)0 || watch->pid == 0U || watch->spawn == (service_spawn_fn)0)
+                  return 0;
+              status = ku_wait(watch->pid, &exit_code);
+              if (status == KU_STATUS_WOULD_BLOCK) return 1;
+              if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
+              if (watch->restarts >= SERVICE_RESTART_LIMIT) return 0;
+
+              delay = SERVICE_RESTART_BASE_DELAY * (uint64_t)(watch->restarts + 1U);
+              (void)u_puts("init: supervised service terminated; restarting\n");
+              (void)ku_sleep(delay);
+              replacement = watch->spawn();
+              if (replacement == 0U) return 0;
+              watch->pid = replacement;
+              ++watch->restarts;
+              if (watch->restart_marker != (const char*)0)
+                  (void)u_puts(watch->restart_marker);
+              return 1;
+          }
+          '''
+          if text.count(helper_anchor) != 1:
+              raise SystemExit('service supervision helper anchor changed')
+          text = text.replace(helper_anchor, helper, 1)
+
+          watches_anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n    uint64_t session_pid = spawn_session_gate();\n'
+          watches = '''    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");
+
+              service_watch event_watch = {spawn_event_broker, event_broker_pid, 0U, "[TEST] event_broker_restart: PASS\\n"};
+              service_watch settings_watch = {spawn_settings_service, settings_service_pid, 0U, "[TEST] settings_service_restart: PASS\\n"};
+              service_watch notification_watch = {spawn_notification_service, notification_service_pid, 0U, "[TEST] notification_service_restart: PASS\\n"};
+              service_watch account_watch = {spawn_account_service, account_service_pid, 0U, "[TEST] account_service_restart: PASS\\n"};
+              service_watch session_service_watch = {spawn_session_service, session_service_pid, 0U, "[TEST] session_service_restart: PASS\\n"};
+              service_watch clipboard_watch = {spawn_clipboard_service, clipboard_service_pid, 0U, "[TEST] clipboard_service_restart: PASS\\n"};
+
+              const ku_result_t recovery_probe_pid = u_spawn("/system/svcrecov");
+              if (recovery_probe_pid <= 0) {
+                  (void)u_puts("[TEST] service_restart_rebind: FAIL\\n");
+                  ku_exit(33);
+              }
+
+              uint64_t session_pid = spawn_session_gate();
+          '''
+          if text.count(watches_anchor) != 1:
+              raise SystemExit('service watch initialization anchor changed')
+          text = text.replace(watches_anchor, watches, 1)
+
+          early_start = text.find('    int32_t service_status = 0;\n    const ku_status_t event_early')
+          early_end_marker = '    (void)u_puts("[TEST] clipboard_service_liveness: PASS\\n");\n\n'
+          early_end = text.find(early_end_marker, early_start)
+          if early_start < 0 or early_end < 0:
+              raise SystemExit('early service liveness block changed')
+          early_end += len(early_end_marker)
+          early = '''    if (!supervise_service(&event_watch)) { (void)u_puts("[TEST] event_broker_liveness: FAIL\\n"); ku_exit(7); }
+              (void)u_puts("[TEST] event_broker_liveness: PASS\\n");
+              if (!supervise_service(&settings_watch)) { (void)u_puts("[TEST] settings_service_liveness: FAIL\\n"); ku_exit(8); }
+              (void)u_puts("[TEST] settings_service_liveness: PASS\\n");
+              if (!supervise_service(&notification_watch)) { (void)u_puts("[TEST] notification_service_liveness: FAIL\\n"); ku_exit(9); }
+              (void)u_puts("[TEST] notification_service_liveness: PASS\\n");
+              if (!supervise_service(&account_watch)) { (void)u_puts("[TEST] account_service_liveness: FAIL\\n"); ku_exit(17); }
+              (void)u_puts("[TEST] account_service_liveness: PASS\\n");
+              if (!supervise_service(&session_service_watch)) { (void)u_puts("[TEST] session_service_liveness: FAIL\\n"); ku_exit(24); }
+              (void)u_puts("[TEST] session_service_liveness: PASS\\n");
+              if (!supervise_service(&clipboard_watch)) { (void)u_puts("[TEST] clipboard_service_liveness: FAIL\\n"); ku_exit(29); }
+              (void)u_puts("[TEST] clipboard_service_liveness: PASS\\n");
+
+          '''
+          text = text[:early_start] + early + text[early_end:]
+
+          loop_start = text.find('        service_status = 0;\n        const ku_status_t event_wait')
+          loop_end_marker = '        status = 0;\n        const ku_status_t wait_status = ku_wait(session_pid, &status);'
+          loop_end = text.find(loop_end_marker, loop_start)
+          if loop_start < 0 or loop_end < 0:
+              raise SystemExit('service supervision loop block changed')
+          loop = '''        if (!supervise_service(&event_watch)) { (void)u_puts("[TEST] event_broker_liveness: FAIL\\n"); ku_exit(10); }
+                  if (!supervise_service(&settings_watch)) { (void)u_puts("[TEST] settings_service_liveness: FAIL\\n"); ku_exit(12); }
+                  if (!supervise_service(&notification_watch)) { (void)u_puts("[TEST] notification_service_liveness: FAIL\\n"); ku_exit(14); }
+                  if (!supervise_service(&account_watch)) { (void)u_puts("[TEST] account_service_liveness: FAIL\\n"); ku_exit(18); }
+                  if (!supervise_service(&session_service_watch)) { (void)u_puts("[TEST] session_service_liveness: FAIL\\n"); ku_exit(25); }
+                  if (!supervise_service(&clipboard_watch)) { (void)u_puts("[TEST] clipboard_service_liveness: FAIL\\n"); ku_exit(30); }
+
+          '''
+          text = text[:loop_start] + loop + text[loop_end:]
+          init.write_text(text)
+
+      - name: Inject qualification crash and recovery client
+        shell: python
+        run: |
+          from pathlib import Path
+
+          daemon = Path('userspace/system/clipboardd/main.c')
+          text = daemon.read_text()
+          anchor = '    (void)send_response(client->connection, status);\n}\n'
+          crash = r'''    (void)send_response(client->connection, status);
+              if (status == KU_STATUS_OK && request->operation == KU_CLIPBOARD_SET &&
+                  request->format == KU_CLIPBOARD_FORMAT_UTF8 && request->data_size == 11U &&
+                  request->data[0] == 'C' && request->data[1] == 'R' && request->data[2] == 'A' &&
+                  request->data[3] == 'S' && request->data[4] == 'H' && request->data[5] == '_' &&
+                  request->data[6] == 'O' && request->data[7] == 'N' && request->data[8] == 'C' &&
+                  request->data[9] == 'E' && request->data[10] == 0U) {
+                  (void)u_puts("[TEST] clipboard_service_forced_crash: PASS\n");
+                  __asm__ volatile("ud2");
+              }
+          }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit('clipboard crash injection anchor changed')
+          daemon.write_text(text.replace(anchor, crash, 1))
+
+          probe = Path('userspace/system/service-recovery-probe')
+          probe.mkdir(parents=True, exist_ok=True)
+          probe.joinpath('main.c').write_text(r'''#include "../../runtime/user.h"
+
+#include <kurogane/clipboard.h>
+
+static void zero_bytes(void* destination, size_t size) {
+    uint8_t* bytes = (uint8_t*)destination;
+    size_t index;
+    for (index = 0U; index < size; ++index) bytes[index] = 0U;
+}
+
+static ku_result_t connect_retry(void) {
+    uint32_t attempt;
+    for (attempt = 0U; attempt < 240U; ++attempt) {
+        const ku_result_t result = ku_clipboard_connect();
+        if (result > 0) return result;
+        if (result != KU_STATUS_NOT_FOUND && result != KU_STATUS_WOULD_BLOCK) return result;
+        (void)ku_sleep(1U);
+    }
+    return KU_STATUS_NOT_FOUND;
+}
+
+static ku_status_t exchange(
+    ku_service_connection_t connection,
+    const ku_clipboard_request* request,
+    ku_clipboard_response* response) {
+    uint32_t attempt;
+    ku_status_t status = ku_service_send(connection, request, sizeof(*request));
+    if (status != KU_STATUS_OK) return status;
+    for (attempt = 0U; attempt < 160U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) { (void)ku_sleep(1U); continue; }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        {
+            size_t i;
+            const uint8_t* source = message.data;
+            uint8_t* destination = (uint8_t*)response;
+            for (i = 0U; i < sizeof(*response); ++i) destination[i] = source[i];
+        }
+        return (ku_status_t)response->status;
+    }
+    return KU_STATUS_WOULD_BLOCK;
+}
+
+__attribute__((noreturn)) void _start(void) {
+    static const uint8_t trigger[11] = {'C','R','A','S','H','_','O','N','C','E',0};
+    static const uint8_t recovered[10] = {'R','e','c','o','v','e','r','e','d',0};
+    ku_clipboard_request request;
+    ku_clipboard_response response;
+    ku_result_t connected = connect_retry();
+    ku_service_connection_t connection;
+    size_t i;
+
+    if (connected <= 0) ku_exit(1);
+    connection = (ku_service_connection_t)connected;
+    zero_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_CLIPBOARD_SET;
+    request.format = KU_CLIPBOARD_FORMAT_UTF8;
+    request.data_size = sizeof(trigger);
+    for (i = 0U; i < sizeof(trigger); ++i) request.data[i] = trigger[i];
+    if (exchange(connection, &request, &response) != KU_STATUS_OK) ku_exit(2);
+    (void)ku_service_close(connection);
+
+    (void)ku_sleep(UINT64_C(40));
+    connected = connect_retry();
+    if (connected <= 0) ku_exit(3);
+    connection = (ku_service_connection_t)connected;
+
+    zero_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_CLIPBOARD_SET;
+    request.format = KU_CLIPBOARD_FORMAT_UTF8;
+    request.data_size = sizeof(recovered);
+    for (i = 0U; i < sizeof(recovered); ++i) request.data[i] = recovered[i];
+    if (exchange(connection, &request, &response) != KU_STATUS_OK) ku_exit(4);
+
+    zero_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_CLIPBOARD_GET;
+    if (exchange(connection, &request, &response) != KU_STATUS_OK ||
+        response.format != KU_CLIPBOARD_FORMAT_UTF8 ||
+        response.data_size != sizeof(recovered)) ku_exit(5);
+    for (i = 0U; i < sizeof(recovered); ++i)
+        if (response.data[i] != recovered[i]) ku_exit(6);
+
+    (void)ku_service_close(connection);
+    (void)u_puts("[TEST] service_restart_rebind: PASS\n");
+    ku_exit(0);
+}
+''')
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = '    "svcrecov|userspace/system/service-recovery-probe/main.c|system/svcrecov|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('recovery probe build anchor changed')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'SERVICE_RESTART_LIMIT 3U' userspace/system/init/main.c
+          grep -F '[TEST] clipboard_service_restart: PASS' userspace/system/init/main.c
+          grep -F '__asm__ volatile("ud2")' userspace/system/clipboardd/main.c
+          grep -F 'system/svcrecov' scripts/build-linux.sh
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require crash detection restart stale cleanup and rebind
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --require-marker '[TEST] clipboard_service_forced_crash: PASS' \
+            --require-marker '[TEST] clipboard_service_restart: PASS' \
+            --require-marker '[TEST] service_restart_rebind: PASS' \
+            --timeout 180
+
+      - name: Remove qualification-only recovery hooks
+        shell: python
+        run: |
+          from pathlib import Path
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          probe = (
+              '    const ku_result_t recovery_probe_pid = u_spawn("/system/svcrecov");\n'
+              '    if (recovery_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] service_restart_rebind: FAIL\\n");\n'
+              '        ku_exit(33);\n'
+              '    }\n\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('recovery probe init stanza changed')
+          init.write_text(text.replace(probe, '', 1))
+          # The crash hook and recovery probe are qualification-only.
+          Path('userspace/system/clipboardd/main.c').write_text(
+              __import__('subprocess').check_output(
+                  ['git', 'show', f'{__import__("os").environ["GITHUB_SHA"]}:userspace/system/clipboardd/main.c'],
+                  text=True))
+          build = Path('scripts/build-linux.sh')
+          original = __import__('subprocess').check_output(
+              ['git', 'show', f'{__import__("os").environ["GITHUB_SHA"]}:scripts/build-linux.sh'],
+              text=True)
+          build.write_text(original)
+          import shutil
+          shutil.rmtree('userspace/system/service-recovery-probe')
+
+      - name: Land qualified bounded service recovery
+        run: |
+          git rm .github/workflows/qualify-service-recovery.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add userspace/system/init/main.c
+          git commit -m 'service(init): restart crashed system services with bounded backoff'
+          git push origin HEAD:gpt/road-to-15-consolidation
