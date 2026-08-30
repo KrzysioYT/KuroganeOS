@@ -64,6 +64,14 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_socket.cpp \
+  kernel/net/socket.cpp \
+  -o "$OUT_DIR/test_socket"
+
+"$OUT_DIR/test_socket"
+
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -DKUROGANE_HOST_TEST \
   tests/test_diagnostic_event_ring.cpp \
   kernel/diagnostics/event_ring.cpp \
