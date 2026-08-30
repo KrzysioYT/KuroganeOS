@@ -101,6 +101,8 @@ applications=(
     "setprobe|userspace/system/settings-probe/main.c|system/setprobe|c"
     "notificationd|userspace/system/notificationd/main.c|system/notifd|c"
     "notifprobe|userspace/system/notification-probe/main.c|system/ntfprobe|c"
+    "accountd|userspace/system/accountd/main.c|system/accountd|c"
+    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"
