@@ -105,6 +105,19 @@ jobs:
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
 
+      - name: Map previous teardown panic address
+        run: |
+          echo '[closeout] address mapping for RIP 0x00000000000A3C01'
+          addr2line -e build/kernel.elf -f -C -i 0x00000000000A3C01 || true
+          nm -n -C build/kernel.elf | awk '
+            BEGIN { target=strtonum("0xA3C01"); previous="" }
+            /^[0-9a-fA-F]+ [tT] / {
+              address=strtonum("0x" $1)
+              if (address <= target) previous=$0
+              else { print "previous:", previous; print "next:", $0; exit }
+            }'
+          grep -i -B3 -A3 '00000000000a3c' build/kernel.map || true
+
       - name: Require combined 3.4 Ring-3 service contract
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
