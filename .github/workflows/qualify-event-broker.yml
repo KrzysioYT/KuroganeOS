@@ -1,3 +1,4 @@
+# Regression gate after moving long-lived Ring-3 Contexts off thread stacks.
 name: Qualify 3.4.1 event broker roundtrip
 
 on:
