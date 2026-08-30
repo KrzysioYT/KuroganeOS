@@ -32,6 +32,17 @@ enum ku_socket_protocol {
     KU_SOCKET_PROTOCOL_UDP = 17
 };
 
+enum ku_socket_ready_flags {
+    KU_SOCKET_READY_NONE = 0,
+    KU_SOCKET_READY_READ = UINT32_C(1) << 0,
+    KU_SOCKET_READY_WRITE = UINT32_C(1) << 1,
+    KU_SOCKET_READY_CONNECTED = UINT32_C(1) << 2,
+    KU_SOCKET_READY_HANGUP = UINT32_C(1) << 3,
+    KU_SOCKET_READY_ERROR = UINT32_C(1) << 4
+};
+
+#define KU_SOCKET_READY_ALL (     KU_SOCKET_READY_READ | KU_SOCKET_READY_WRITE |     KU_SOCKET_READY_CONNECTED | KU_SOCKET_READY_HANGUP | KU_SOCKET_READY_ERROR)
+
 typedef struct ku_ipv4_endpoint {
     uint8_t address[4];
     uint16_t port;
@@ -164,6 +175,46 @@ static inline ku_result_t ku_socket_receive(
 
 static inline ku_status_t ku_socket_close(ku_socket_t socket) {
     return (ku_status_t)ku_syscall3(KU_SYS_SOCKET_CLOSE, socket, 0U, 0U);
+}
+
+static inline ku_status_t ku_socket_poll(
+    ku_socket_t socket,
+    uint32_t requested,
+    uint32_t* ready) {
+    if (socket == KU_SOCKET_INVALID || ready == NULL || requested == 0U ||
+        (requested & ~KU_SOCKET_READY_ALL) != 0U) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    *ready = KU_SOCKET_READY_NONE;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_POLL,
+        socket,
+        requested,
+        (uint64_t)(uintptr_t)ready);
+}
+
+/*
+ * Scheduler-friendly readiness wait. Socket operations remain non-blocking;
+ * callers that want to wait sleep between readiness probes instead of spinning.
+ * timeout_ticks == 0 performs a single probe. UINT64_MAX waits indefinitely.
+ */
+static inline ku_status_t ku_socket_wait(
+    ku_socket_t socket,
+    uint32_t requested,
+    uint64_t timeout_ticks,
+    uint32_t* ready) {
+    uint64_t elapsed = 0U;
+    for (;;) {
+        ku_status_t status = ku_socket_poll(socket, requested, ready);
+        if (status != KU_STATUS_OK) return status;
+        if ((*ready & requested) != 0U) return KU_STATUS_OK;
+        if (timeout_ticks == 0U || elapsed >= timeout_ticks) {
+            return KU_STATUS_TIMED_OUT;
+        }
+        status = ku_sleep(1U);
+        if (status != KU_STATUS_OK) return status;
+        if (elapsed != UINT64_MAX) ++elapsed;
+    }
 }
 
 static inline ku_status_t ku_http_get(ku_http_request* request) {

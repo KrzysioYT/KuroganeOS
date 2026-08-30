@@ -222,7 +222,7 @@ bool extended_syscall_number(uint64_t number) {
         number == KU_SYS_IPC_QUERY ||
         (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
         (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE) ||
-        (number >= KU_SYS_SOCKET_CREATE && number <= KU_SYS_SOCKET_CLOSE);
+        (number >= KU_SYS_SOCKET_CREATE && number <= KU_SYS_SOCKET_POLL);
 }
 
 Context* registered_context_for_current_thread() {
@@ -543,6 +543,24 @@ void extended_syscall_handler(
             }
             frame.rax = static_cast<uint64_t>(socket_status(net::socket::close(
                 context->pid, static_cast<net::socket::Handle>(frame.rdi))));
+            return;
+        }
+        case KU_SYS_SOCKET_POLL: {
+            if (frame.rsi == 0U ||
+                (frame.rsi & ~static_cast<uint64_t>(KU_SOCKET_READY_ALL)) != 0U ||
+                !validate_user_buffer(*context, frame.rdx, sizeof(uint32_t), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* ready = reinterpret_cast<uint32_t*>(static_cast<uintptr_t>(frame.rdx));
+            uint32_t ready_value = 0U;
+            const net::socket::Status status = net::socket::readiness(
+                context->pid,
+                static_cast<net::socket::Handle>(frame.rdi),
+                static_cast<uint32_t>(frame.rsi),
+                &ready_value);
+            if (status == net::socket::Status::Ok) *ready = ready_value;
+            frame.rax = static_cast<uint64_t>(socket_status(status));
             return;
         }
         case KU_SYS_IPC_QUERY: {

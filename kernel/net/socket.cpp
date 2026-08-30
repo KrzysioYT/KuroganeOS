@@ -585,6 +585,76 @@ Status close(ProcessId owner, Handle handle) {
     return Status::Ok;
 }
 
+
+Status readiness(
+    ProcessId owner,
+    Handle handle,
+    uint32_t requested,
+    uint32_t* out_ready) {
+    if (out_ready != nullptr) *out_ready = ReadyNone;
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_ready == nullptr || requested == 0U ||
+        (requested & ~static_cast<uint32_t>(ReadyAll)) != 0U) {
+        return Status::InvalidArgument;
+    }
+    Status failure = Status::Ok;
+    Slot* slot = resolve(owner, handle, &failure);
+    if (slot == nullptr) return failure;
+
+    uint32_t ready = ReadyNone;
+    if (slot->protocol == Protocol::Udp && slot->type == Type::Datagram) {
+        if ((requested & ReadyRead) != 0U && slot->rx_count == 0U) {
+            const Status pump_status = pump(8U, nullptr);
+            if (pump_status != Status::Ok && pump_status != Status::WouldBlock) {
+                return pump_status;
+            }
+        }
+        if (slot->rx_count != 0U) ready |= ReadyRead;
+        if (slot->bound && slot->connected) {
+            ready |= ReadyWrite;
+            ready |= ReadyConnected;
+        }
+        *out_ready = ready & requested;
+        return Status::Ok;
+    }
+
+    if (slot->protocol != Protocol::Tcp || slot->type != Type::Stream) {
+        return Status::NotSupported;
+    }
+    if (slot->tcp_session >= MAX_TCP_SESSIONS) {
+        *out_ready = ReadyNone;
+        return Status::Ok;
+    }
+
+    TcpSession& session = g_tcp_sessions[slot->tcp_session];
+    const net::Status progress_status =
+        g_backend.tcp_progress(g_backend.context, &session.client);
+    slot->connected = session.client.connected;
+    if (slot->connected) {
+        ready |= ReadyConnected;
+        if (session.client.state == tcp_client::State::Established) ready |= ReadyWrite;
+    }
+    if (session.client.pending_length != 0U || session.client.peer_closed) {
+        ready |= ReadyRead;
+    }
+    if (session.client.peer_closed ||
+        session.client.state == tcp_client::State::CloseWait ||
+        session.client.state == tcp_client::State::Closed) {
+        ready |= ReadyHangup;
+    }
+    if (session.client.state == tcp_client::State::Reset ||
+        session.client.state == tcp_client::State::Error) {
+        ready |= ReadyError;
+    }
+    const Status progress = transport_status(progress_status);
+    if (progress != Status::Ok && progress != Status::WouldBlock &&
+        (ready & ReadyError) == 0U) {
+        return progress;
+    }
+    *out_ready = ready & requested;
+    return Status::Ok;
+}
+
 void release_process(ProcessId owner) {
     if (!g_initialized || owner == 0U) return;
     for (Slot& slot : g_slots) {

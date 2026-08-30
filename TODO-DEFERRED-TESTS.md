@@ -9,6 +9,7 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Ring-3 socket cleanup after process exit and immediate port rebind.
 - TCP nonblocking progression regressions: begin_connect retry/backpressure, SYN/SYN-ACK progression, bounded try_send window accounting, ACK progression, try_receive, FIN completion, RST/error paths.
 - Process-owned TCP socket pool regressions: session exhaustion, PID ownership, protocol-specific bind collisions, async connect retries, partial send accounting, receive EOF, graceful close retry, process-exit cleanup, stale handles.
+- Socket readiness regressions: UDP queue/read/write/connect flags, TCP connect/read/write/hangup/error transitions, stale/PID ownership, timeout sleeping behavior; replace tick-probe wait with direct scheduler object wake when waitable-I/O plumbing is available.
 - DNS/TLS userspace integration regressions.
 - Network event publisher regressions: broker reconnect, ready/link/address/DNS edge emission, unchanged-state silence, supervisor restart.
 - Application registry regressions: manifest discovery, malformed manifest rejection, duplicate IDs, bounded capacity, lookup/index/count IPC, supervisor restart.

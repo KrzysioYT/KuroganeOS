@@ -28,6 +28,16 @@ enum class Protocol : uint8_t {
     Tcp = 6U,
 };
 
+enum ReadyFlags : uint32_t {
+    ReadyNone = 0U,
+    ReadyRead = UINT32_C(1) << 0,
+    ReadyWrite = UINT32_C(1) << 1,
+    ReadyConnected = UINT32_C(1) << 2,
+    ReadyHangup = UINT32_C(1) << 3,
+    ReadyError = UINT32_C(1) << 4,
+    ReadyAll = ReadyRead | ReadyWrite | ReadyConnected | ReadyHangup | ReadyError,
+};
+
 enum class Status : uint8_t {
     Ok = 0,
     AlreadyInitialized,
@@ -108,6 +118,11 @@ Status receive(
     size_t* out_size,
     Endpoint* out_source = nullptr);
 Status close(ProcessId owner, Handle handle);
+Status readiness(
+    ProcessId owner,
+    Handle handle,
+    uint32_t requested,
+    uint32_t* out_ready);
 void release_process(ProcessId owner);
 Status pump(size_t budget, size_t* out_routed = nullptr);
 size_t active_count(ProcessId owner = 0U);
