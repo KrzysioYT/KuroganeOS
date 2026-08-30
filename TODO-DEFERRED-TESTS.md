@@ -13,6 +13,9 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Network event publisher regressions: broker reconnect, ready/link/address/DNS edge emission, unchanged-state silence, supervisor restart.
 - Application registry regressions: manifest discovery, malformed manifest rejection, duplicate IDs, bounded capacity, lookup/index/count IPC, supervisor restart.
 
+## 4.0 KuroFS deferred tests
+- KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
+
 ## Existing deferred qualification
 - Full host regression suite.
 - QEMU/OVMF runtime smoke and integration qualification.
