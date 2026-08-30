@@ -6,6 +6,7 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/apply-socket-abi-v2.yml'
+      - '.github/scripts/apply-socket-loopback.py'
 
 permissions:
   contents: write
@@ -34,6 +35,7 @@ jobs:
         run: |
           python3 -m py_compile .github/scripts/apply-socket-loopback.py
           python3 .github/scripts/apply-socket-loopback.py
+          python3 -c 'from pathlib import Path; p=Path("tests/test_socket.cpp"); s=p.read_text(); old="\"kurogane-loopback\""; assert s.count(old) == 1; p.write_text(s.replace(old, "\"loopback\"", 1))'
 
       - name: Reuse guarded socket ABI patch with C++ safe request init
         shell: python
