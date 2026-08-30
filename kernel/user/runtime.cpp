@@ -137,6 +137,7 @@ bool copy_user_ipc_name(
 
 bool extended_syscall_number(uint64_t number) {
     return (number >= KU_SYS_IPC_BIND && number <= KU_SYS_IPC_CLOSE) ||
+        number == KU_SYS_IPC_QUERY ||
         (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
         (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE);
 }
@@ -336,6 +337,35 @@ void extended_syscall_handler(
     }
 
     switch (frame.rax) {
+        case KU_SYS_IPC_QUERY: {
+            char name[ipc::MAX_SERVICE_NAME + 1U]{};
+            if (!copy_user_ipc_name(*context, frame.rdi, frame.rsi, name) ||
+                frame.rdx == 0U ||
+                !validate_user_buffer(*context, frame.rdx, sizeof(ku_service_info), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* user_info = reinterpret_cast<ku_service_info*>(
+                static_cast<uintptr_t>(frame.rdx));
+            if (user_info->structure_size != sizeof(*user_info) ||
+                user_info->abi_version != KU_SERVICE_INFO_ABI_VERSION) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            ipc::ServiceInfo info{};
+            const uint64_t interrupt_flags = save_and_disable_interrupts();
+            const ipc::Status status = ipc::query(
+                name, static_cast<size_t>(frame.rsi), &info);
+            restore_interrupts(interrupt_flags);
+            if (status == ipc::Status::Ok) {
+                user_info->service_version = info.service_version;
+                user_info->minimum_client_version = info.minimum_client_version;
+                user_info->capabilities = info.capabilities;
+                user_info->owner_pid = info.owner_pid;
+            }
+            frame.rax = static_cast<uint64_t>(ipc_status(status));
+            return;
+        }
         case KU_SYS_IPC_BIND:
         case KU_SYS_IPC_CONNECT: {
             char name[ipc::MAX_SERVICE_NAME + 1U]{};

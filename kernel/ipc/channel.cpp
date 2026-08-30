@@ -280,6 +280,27 @@ Status bind(
     return Status::CapacityReached;
 }
 
+Status query(
+    const char* name,
+    size_t name_length,
+    ServiceInfo* info) {
+    if (info != nullptr) *info = {};
+    if (!g_initialized) return Status::NotInitialized;
+    if (info == nullptr) return Status::InvalidArgument;
+    const Status name_status = validate_name(name, name_length);
+    if (name_status != Status::Ok) return name_status;
+    for (const EndpointSlot& slot : g_endpoints) {
+        if (!slot.active || !name_equal(slot, name, name_length)) continue;
+        if (!slot.versioned) return Status::VersionMismatch;
+        info->service_version = slot.metadata.service_version;
+        info->minimum_client_version = slot.metadata.minimum_client_version;
+        info->capabilities = slot.metadata.capabilities;
+        info->owner_pid = slot.owner_pid;
+        return Status::Ok;
+    }
+    return Status::NotFound;
+}
+
 Status connect(
     ProcessId client_pid,
     const char* name,

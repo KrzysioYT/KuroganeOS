@@ -56,6 +56,13 @@ struct ServiceNegotiation {
     ProcessId owner_pid;
 };
 
+struct ServiceInfo {
+    uint32_t service_version;
+    uint32_t minimum_client_version;
+    uint64_t capabilities;
+    ProcessId owner_pid;
+};
+
 Status initialize();
 Status bind(
     ProcessId owner_pid,
@@ -63,6 +70,10 @@ Status bind(
     size_t name_length,
     Handle* endpoint,
     const ServiceMetadata* metadata = nullptr);
+Status query(
+    const char* name,
+    size_t name_length,
+    ServiceInfo* info);
 Status connect(
     ProcessId client_pid,
     const char* name,

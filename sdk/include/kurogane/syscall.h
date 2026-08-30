@@ -64,7 +64,8 @@ enum ku_syscall_number {
     KU_SYS_EVENT_SIGNAL = 51,
     KU_SYS_EVENT_RESET = 52,
     KU_SYS_EVENT_POLL = 53,
-    KU_SYS_EVENT_CLOSE = 54
+    KU_SYS_EVENT_CLOSE = 54,
+    KU_SYS_IPC_QUERY = 55
 };
 
 enum ku_open_flags {
