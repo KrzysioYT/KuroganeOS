@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/device.h>
 #include <kurogane/event.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
@@ -19,6 +20,7 @@
 #include "../core/log.hpp"
 #include "../core/system_metrics.hpp"
 #include "../drivers/audio/ac97.hpp"
+#include "../drivers/core/device_manager.hpp"
 #include "../fs/root_volume.hpp"
 #include "../ipc/channel.hpp"
 #include "../ipc/event.hpp"
@@ -222,7 +224,8 @@ bool extended_syscall_number(uint64_t number) {
         number == KU_SYS_IPC_QUERY ||
         (number >= KU_SYS_SHM_CREATE && number <= KU_SYS_SHM_CLOSE) ||
         (number >= KU_SYS_EVENT_CREATE && number <= KU_SYS_EVENT_CLOSE) ||
-        (number >= KU_SYS_SOCKET_CREATE && number <= KU_SYS_SOCKET_POLL);
+        (number >= KU_SYS_SOCKET_CREATE && number <= KU_SYS_SOCKET_POLL) ||
+        (number >= KU_SYS_DEVICE_ENUMERATE && number <= KU_SYS_DEVICE_RESOURCE);
 }
 
 Context* registered_context_for_current_thread() {
@@ -421,6 +424,125 @@ void extended_syscall_handler(
     }
 
     switch (frame.rax) {
+        case KU_SYS_DEVICE_ENUMERATE: {
+            if (frame.rdx != 0U || frame.rdi > SIZE_MAX ||
+                !validate_user_buffer(*context, frame.rsi, sizeof(ku_device_handle_t), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_device_handle_t*>(
+                static_cast<uintptr_t>(frame.rsi));
+            *output = KU_DEVICE_INVALID_HANDLE;
+            const size_t requested = static_cast<size_t>(frame.rdi);
+            size_t active_index = 0U;
+            for (drivers::device::DeviceId id = 0U;
+                 id < drivers::device::count(); ++id) {
+                const drivers::device::Device* device = drivers::device::get(id);
+                if (device == nullptr) continue;
+                if (active_index == requested) {
+                    *output = drivers::device::handle_for(id);
+                    frame.rax = *output != KU_DEVICE_INVALID_HANDLE
+                        ? static_cast<uint64_t>(KU_STATUS_OK)
+                        : static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                    return;
+                }
+                ++active_index;
+            }
+            frame.rax = static_cast<uint64_t>(KU_STATUS_END_OF_STREAM);
+            return;
+        }
+        case KU_SYS_DEVICE_QUERY: {
+            if (frame.rdi == KU_DEVICE_INVALID_HANDLE ||
+                frame.rdx != sizeof(ku_device_info) ||
+                !validate_user_buffer(*context, frame.rsi, sizeof(ku_device_info), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_device_info*>(
+                static_cast<uintptr_t>(frame.rsi));
+            if (output->structure_size != sizeof(*output) ||
+                output->version != KU_DEVICE_INFO_VERSION) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            const auto handle = static_cast<drivers::device::DeviceHandle>(frame.rdi);
+            const drivers::device::Device* device = drivers::device::resolve(handle);
+            if (device == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            ku_device_info result{};
+            result.structure_size = sizeof(result);
+            result.version = KU_DEVICE_INFO_VERSION;
+            result.handle = handle;
+            result.parent = device->parent == drivers::device::INVALID_DEVICE_ID
+                ? KU_DEVICE_INVALID_HANDLE
+                : drivers::device::handle_for(device->parent);
+            result.capabilities = device->capabilities;
+            result.lifecycle_generation = device->lifecycle_generation;
+            result.type = static_cast<uint32_t>(device->type);
+            result.bus = static_cast<uint32_t>(device->bus);
+            result.state = static_cast<uint32_t>(device->status);
+            result.resource_count = static_cast<uint32_t>(device->resource_count);
+            result.child_count = static_cast<uint32_t>(device->child_count);
+            result.vendor_id = device->vendor_id;
+            result.device_id = device->device_id;
+            result.class_code = device->class_code;
+            result.subclass = device->subclass;
+            result.programming_interface = device->programming_interface;
+            result.pci_segment = device->bus_address.segment;
+            result.pci_bus = device->bus_address.bus;
+            result.pci_slot = device->bus_address.slot;
+            result.pci_function = device->bus_address.function;
+            for (size_t index = 0U; index < KU_DEVICE_NAME_CAPACITY; ++index) {
+                result.name[index] = device->name[index];
+                if (device->name[index] == '\0') break;
+            }
+            for (size_t index = 0U; index < KU_DEVICE_DRIVER_NAME_CAPACITY; ++index) {
+                result.driver[index] = device->driver_name[index];
+                if (device->driver_name[index] == '\0') break;
+            }
+            *output = result;
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
+            return;
+        }
+        case KU_SYS_DEVICE_RESOURCE: {
+            if (frame.rdi == KU_DEVICE_INVALID_HANDLE || frame.rsi > SIZE_MAX ||
+                !validate_user_buffer(
+                    *context, frame.rdx, sizeof(ku_device_resource), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* output = reinterpret_cast<ku_device_resource*>(
+                static_cast<uintptr_t>(frame.rdx));
+            if (output->structure_size != sizeof(*output) || output->reserved != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            drivers::device::Resource resource{};
+            const KStatus status = drivers::device::get_resource(
+                static_cast<drivers::device::DeviceHandle>(frame.rdi),
+                static_cast<size_t>(frame.rsi),
+                &resource);
+            if (status == KStatus::NotFound) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            if (status == KStatus::OutOfRange) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
+                return;
+            }
+            if (status != KStatus::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            output->type = static_cast<uint32_t>(resource.type);
+            output->start = resource.start;
+            output->length = resource.length;
+            output->flags = resource.flags;
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
+            return;
+        }
         case KU_SYS_SOCKET_CREATE: {
             if (frame.rdx != KU_SOCKET_FLAG_NONE) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);

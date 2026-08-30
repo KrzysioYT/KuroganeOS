@@ -73,7 +73,10 @@ enum ku_syscall_number {
     KU_SYS_SOCKET_SEND = 60,
     KU_SYS_SOCKET_RECEIVE = 61,
     KU_SYS_SOCKET_CLOSE = 62,
-    KU_SYS_SOCKET_POLL = 63
+    KU_SYS_SOCKET_POLL = 63,
+    KU_SYS_DEVICE_ENUMERATE = 64,
+    KU_SYS_DEVICE_QUERY = 65,
+    KU_SYS_DEVICE_RESOURCE = 66
 };
 
 enum ku_open_flags {
