@@ -108,6 +108,7 @@ applications=(
     "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"
     "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"
     "networkeventd|userspace/system/network-eventd/main.c|system/neteventd|c"
+    "dnsd|userspace/system/dnsd/main.c|system/dnsd|c"
     "appregistryd|userspace/system/app-registryd/main.c|system/appregd|c"
     "audiod|userspace/system/audiod/main.c|system/audiod|c"
     "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
