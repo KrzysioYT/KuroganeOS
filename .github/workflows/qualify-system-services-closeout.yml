@@ -1,3 +1,4 @@
+# Requalified after the FAT32 short-name case fix; keep this gate tied to production code.
 name: Qualify 3.4 System Services Closeout
 
 on:
