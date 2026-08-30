@@ -1,0 +1,175 @@
+name: Qualify 3.4 session service lifecycle
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-session-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  session-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate session daemon and qualification probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"\n'
+          addition = (
+              '    "sessiond|userspace/system/sessiond/main.c|system/sessiond|c"\n'
+              '    "sessionprobe|userspace/system/session-probe/main.c|system/sesprobe|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          define_anchor = '#define ACCOUNT_SERVICE_PATH "/system/accountd"\n'
+          if text.count(define_anchor) != 1:
+              raise SystemExit('session path anchor changed')
+          text = text.replace(
+              define_anchor,
+              define_anchor + '#define SESSION_SERVICE_PATH "/system/sessiond"\n', 1)
+
+          spawn_anchor = (
+              'static uint64_t spawn_account_service(void) {\n'
+              '    const ku_result_t result = u_spawn(ACCOUNT_SERVICE_PATH);\n'
+              '    return result > 0 ? (uint64_t)result : 0U;\n'
+              '}\n'
+          )
+          spawn_addition = spawn_anchor + (
+              '\nstatic uint64_t spawn_session_service(void) {\n'
+              '    const ku_result_t result = u_spawn(SESSION_SERVICE_PATH);\n'
+              '    return result > 0 ? (uint64_t)result : 0U;\n'
+              '}\n'
+          )
+          if text.count(spawn_anchor) != 1:
+              raise SystemExit('session spawn function anchor changed')
+          text = text.replace(spawn_anchor, spawn_addition, 1)
+
+          start_anchor = '    (void)u_puts("[TEST] account_service_spawn: PASS\\n");\n\n'
+          start_addition = start_anchor + (
+              '    const uint64_t session_service_pid = spawn_session_service();\n'
+              '    if (session_service_pid == 0U) {\n'
+              '        (void)u_puts("init: cannot spawn /system/sessiond\\n");\n'
+              '        (void)u_puts("[TEST] session_service_spawn: FAIL\\n");\n'
+              '        ku_exit(20);\n'
+              '    }\n'
+              '    (void)u_puts("[TEST] session_service_spawn: PASS\\n");\n'
+              '    const ku_result_t session_probe_pid = u_spawn("/system/sesprobe");\n'
+              '    if (session_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] session_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(21);\n'
+              '    }\n\n'
+          )
+          if text.count(start_anchor) != 1:
+              raise SystemExit('session startup anchor changed')
+          text = text.replace(start_anchor, start_addition, 1)
+
+          live_anchor = '    (void)u_puts("[TEST] account_service_liveness: PASS\\n");\n\n'
+          live_addition = live_anchor + (
+              '    service_status = 0;\n'
+              '    const ku_status_t session_service_early = ku_wait(session_service_pid, &service_status);\n'
+              '    if (session_service_early != KU_STATUS_WOULD_BLOCK) {\n'
+              '        (void)u_puts("[TEST] session_service_liveness: FAIL\\n");\n'
+              '        ku_exit(22);\n'
+              '    }\n'
+              '    (void)u_puts("[TEST] session_service_liveness: PASS\\n");\n\n'
+          )
+          if text.count(live_anchor) != 1:
+              raise SystemExit('session liveness anchor changed')
+          text = text.replace(live_anchor, live_addition, 1)
+
+          loop_anchor = (
+              '        status = 0;\n'
+              '        const ku_status_t wait_status = ku_wait(session_pid, &status);'
+          )
+          loop_addition = (
+              '        service_status = 0;\n'
+              '        const ku_status_t session_service_wait = ku_wait(session_service_pid, &service_status);\n'
+              '        if (session_service_wait == KU_STATUS_OK || session_service_wait == KU_STATUS_NOT_FOUND) {\n'
+              '            (void)u_puts("init: session service terminated\\n");\n'
+              '            (void)u_puts("[TEST] session_service_liveness: FAIL\\n");\n'
+              '            ku_exit(23);\n'
+              '        }\n'
+              '        if (session_service_wait != KU_STATUS_WOULD_BLOCK) {\n'
+              '            (void)u_puts("init: session service supervision failed\\n");\n'
+              '            ku_exit(24);\n'
+              '        }\n\n'
+              + loop_anchor
+          )
+          if text.count(loop_anchor) != 1:
+              raise SystemExit(f'session loop anchor count={text.count(loop_anchor)}')
+          init.write_text(text.replace(loop_anchor, loop_addition, 1))
+
+      - name: Validate candidate
+        run: |
+          git diff --check
+          grep -F 'system/sessiond' scripts/build-linux.sh
+          grep -F 'system/sesprobe' scripts/build-linux.sh
+          grep -F '[TEST] session_service_spawn: PASS' userspace/system/init/main.c
+          grep -F '[TEST] session_service_liveness: PASS' userspace/system/init/main.c
+          [[ ${#sessiond} -le 8 ]]
+          [[ ${#sesprobe} -le 8 ]]
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real owned session lifecycle
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] session_service_roundtrip: PASS' \
+            --timeout 180
+
+      - name: Remove qualification-only probe launch
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          probe = (
+              '    const ku_result_t session_probe_pid = u_spawn("/system/sesprobe");\n'
+              '    if (session_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] session_service_roundtrip: FAIL\\n");\n'
+              '        ku_exit(21);\n'
+              '    }\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('session qualification probe stanza changed')
+          path.write_text(text.replace(probe, '', 1))
+
+      - name: Land qualified session integration
+        run: |
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add scripts/build-linux.sh userspace/system/init/main.c
+          git rm .github/workflows/qualify-session-service.yml
+          git commit -m 'service(session): integrate daemon lifecycle'
+          git push origin HEAD:gpt/road-to-15-consolidation
