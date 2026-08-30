@@ -14,6 +14,8 @@ extern "C" {
 #define KU_NET_PATH_CAPACITY 160U
 #define KU_HTTP_RESPONSE_CAPACITY_LIMIT 4096U
 #define KU_HTTP_FLAG_NONE UINT32_C(0)
+#define KU_DNS_NAME_CAPACITY KU_NET_HOST_CAPACITY
+#define KU_DNS_FLAG_NONE UINT32_C(0)
 
 /* Internal transport tag used only across the current 3.3.3 syscall boundary. */
 #define KU_HTTPS_TRANSPORT_TAG "~tls~"
@@ -32,6 +34,14 @@ typedef struct ku_network_status {
     uint64_t bytes_transmitted;
 } ku_network_status;
 
+typedef struct ku_dns_a_request {
+    uint32_t structure_size;
+    uint32_t flags;
+    char host[KU_DNS_NAME_CAPACITY];
+    uint8_t address[4];
+    uint32_t reserved;
+} ku_dns_a_request;
+
 typedef struct ku_http_request {
     uint32_t structure_size;
     uint32_t flags;
@@ -49,6 +59,17 @@ static inline ku_status_t ku_network_get_status(ku_network_status* output) {
         KU_SYS_NET_STATUS,
         (uint64_t)(uintptr_t)output,
         (uint64_t)sizeof(ku_network_status),
+        0U);
+}
+
+static inline ku_status_t ku_dns_resolve_a(ku_dns_a_request* request) {
+    if (request == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    request->flags = KU_DNS_FLAG_NONE;
+    request->reserved = 0U;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_DNS_RESOLVE_A,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(ku_dns_a_request),
         0U);
 }
 

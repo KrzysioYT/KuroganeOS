@@ -1309,6 +1309,34 @@ void syscall_handler(
             frame.rax = static_cast<uint64_t>(network_status(status));
             return;
         }
+        case KU_SYS_DNS_RESOLVE_A: {
+    if (frame.rsi != sizeof(ku_dns_a_request) || frame.rdx != 0U ||
+        !validate_user_buffer(
+            *context, frame.rdi, sizeof(ku_dns_a_request), true)) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+        return;
+    }
+    auto* request = reinterpret_cast<ku_dns_a_request*>(
+        static_cast<uintptr_t>(frame.rdi));
+    if (request->structure_size != sizeof(*request)) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+        return;
+    }
+    if (request->flags != KU_DNS_FLAG_NONE || request->reserved != 0U ||
+        !fixed_string_terminated(request->host, sizeof(request->host))) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+        return;
+    }
+    net::IPv4Address address{};
+    const net::Status status = net::service::resolve_a(request->host, &address);
+    if (status == net::Status::Ok) {
+        for (size_t index = 0U; index < 4U; ++index) {
+            request->address[index] = address.bytes[index];
+        }
+    }
+    frame.rax = static_cast<uint64_t>(network_status(status));
+    return;
+}
         case KU_SYS_AUDIO_STATUS: {
             if (frame.rsi != sizeof(ku_audio_state) ||
                 !validate_user_buffer(
