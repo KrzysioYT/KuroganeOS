@@ -6,6 +6,19 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/qualify-3.4-regression-sweep.yml'
+      - '.github/workflows/qualify-system-services-closeout.yml'
+      - '.github/workflows/qualify-socket-core.yml'
+      - 'scripts/build-install-package.py'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'sdk/include/kurogane/**'
+      - 'userspace/system/**'
+      - 'kernel/ipc/**'
+      - 'kernel/task/**'
+      - 'kernel/user/**'
+      - 'kernel/fs/**'
+      - 'kernel/net/**'
   workflow_dispatch:
 
 permissions:
