@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Host regression for installer-side application manifest path mapping."""
+"""Host regressions for installer-side production path contracts."""
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
 import pathlib
+import re
 
 
 def load_builder(root: pathlib.Path):
@@ -18,6 +19,24 @@ def load_builder(root: pathlib.Path):
     return module
 
 
+def production_userspace_outputs(root: pathlib.Path) -> list[str]:
+    build = (root / "scripts" / "build-linux.sh").read_text(encoding="utf-8")
+    start = build.find("applications=(")
+    if start < 0:
+        raise AssertionError("build-linux.sh has no applications table")
+    end = build.find("\n)\n", start)
+    if end < 0:
+        raise AssertionError("build-linux.sh applications table is unterminated")
+    table = build[start:end]
+    outputs: list[str] = []
+    pattern = re.compile(r'^\s*"[^|]+\|[^|]+\|([^|]+)\|(?:asm|c)"\s*$', re.MULTILINE)
+    for match in pattern.finditer(table):
+        outputs.append(match.group(1))
+    if not outputs:
+        raise AssertionError("build-linux.sh applications table yielded no outputs")
+    return outputs
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
@@ -25,6 +44,18 @@ def main() -> int:
 
     root = pathlib.Path(args.root).resolve()
     builder = load_builder(root)
+
+    outputs = production_userspace_outputs(root)
+    seen_outputs: set[str] = set()
+    for output in outputs:
+        checked = builder.checked_path("/" + output)
+        if checked != "/" + output:
+            raise AssertionError(f"userspace output changed during validation: {output}")
+        folded = checked.upper()
+        if folded in seen_outputs:
+            raise AssertionError(f"duplicate userspace output path: {output}")
+        seen_outputs.add(folded)
+
     manifest_root = root / "rootfs" / "apps" / "appman"
     if not manifest_root.is_dir():
         raise AssertionError(f"missing application manifest directory: {manifest_root}")
@@ -57,7 +88,10 @@ def main() -> int:
     if builder.installer_relative_path(ordinary) != ordinary:
         raise AssertionError("non-manifest package path was unexpectedly remapped")
 
-    print(f"installer manifest FAT 8.3 mapping passed ({len(manifests)} manifests)")
+    print(
+        "installer FAT 8.3 production paths passed "
+        f"({len(outputs)} userspace outputs, {len(manifests)} manifests)"
+    )
     return 0
 
 
