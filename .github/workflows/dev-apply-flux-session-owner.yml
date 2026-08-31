@@ -6,6 +6,7 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - 'scripts/dev-apply-flux-session-owner.py'
+      - '.github/workflows/dev-apply-flux-session-owner.yml'
   workflow_dispatch:
 
 permissions:
