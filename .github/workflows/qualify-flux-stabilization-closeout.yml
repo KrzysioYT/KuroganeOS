@@ -1,0 +1,153 @@
+name: Qualify 3.6 Flux Stabilization Closeout
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-flux-stabilization-closeout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  host-release:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact 3.6 closeout SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify KVM qualification host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run complete host regression suite
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release kernel SDK IMG and ISO
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/kernel.elf
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+          test -s dist/KuroganeOS-3.3.3-dev-linux-qemu.img
+          test -s dist/KuroganeOS-3.3.3-dev-x86_64.iso
+          test -s dist/SHA256SUMS.txt
+
+      - name: Require clean production OVMF boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] flux_session_owner: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
+            --timeout 240
+
+  same-sha-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Dispatch and require same-SHA 3.6 and regression gates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          ref="${GITHUB_REF_NAME}"
+          sha="${GITHUB_SHA}"
+          api="https://api.github.com/repos/${repo}"
+          started_epoch="$(date -u +%s)"
+          workflows=(
+            qualify-flux-runtime.yml
+            qualify-flux-session-recovery.yml
+            qualify-3.4-regression-sweep.yml
+            qualify-connected-userspace-closeout.yml
+          )
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
+          payload="$(jq -cn --arg ref "$ref" '{ref:$ref}')"
+
+          for workflow in "${workflows[@]}"; do
+            response="$(mktemp)"
+            code="$(curl -sS -o "$response" -w '%{http_code}' -X POST "${auth[@]}" \
+              "$api/actions/workflows/$workflow/dispatches" -d "$payload")"
+            if [[ "$code" != 204 ]]; then
+              echo "[3.6-closeout] dispatch failed workflow=$workflow http=$code" >&2
+              cat "$response" >&2 || true
+              rm -f "$response"
+              exit 1
+            fi
+            rm -f "$response"
+            echo "[3.6-closeout] dispatched $workflow for ref=$ref sha=$sha"
+          done
+
+          evidence="$(mktemp)"
+          trap 'rm -f "$evidence"' EXIT
+          for workflow in "${workflows[@]}"; do
+            run_id=""
+            status=""
+            conclusion=""
+            for _ in $(seq 1 720); do
+              runs="$(curl -fsS "${auth[@]}" "$api/actions/workflows/$workflow/runs?event=workflow_dispatch&per_page=30")"
+              row="$(jq -r --arg sha "$sha" --argjson started "$started_epoch" '
+                [.workflow_runs[]
+                  | select(.head_sha == $sha)
+                  | select((.created_at | fromdateiso8601) >= $started)]
+                | sort_by(.created_at)
+                | last
+                | if . == null then "" else [.id,.status,(.conclusion // "")] | @tsv end
+              ' <<<"$runs")"
+              if [[ -z "$row" ]]; then
+                sleep 5
+                continue
+              fi
+              IFS=$'\t' read -r run_id status conclusion <<<"$row"
+              if [[ "$status" == completed ]]; then break; fi
+              sleep 5
+            done
+
+            if [[ -z "$run_id" || "$status" != completed ]]; then
+              echo "[3.6-closeout] timeout waiting for $workflow on $sha" >&2
+              exit 1
+            fi
+            echo "$workflow $run_id $conclusion" | tee -a "$evidence"
+            if [[ "$conclusion" != success ]]; then
+              echo "[3.6-closeout] gate failed: $workflow run=$run_id conclusion=$conclusion" >&2
+              exit 1
+            fi
+          done
+
+          echo '### KuroganeOS 3.6 Flux Stabilization same-SHA evidence' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo "- SHA: $sha" >> "$GITHUB_STEP_SUMMARY"
+          while read -r workflow run_id conclusion; do
+            echo "- $workflow — run $run_id — $conclusion" >> "$GITHUB_STEP_SUMMARY"
+          done < "$evidence"
+          echo '[3.6-closeout] all same-SHA gates passed'
+
+  closeout:
+    needs: [host-release, same-sha-gates]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record qualified Flux Stabilization evidence
+        run: |
+          echo 'KuroganeOS 3.6 Flux Stabilization closeout: PASS'
+          echo "Qualified SHA: ${GITHUB_SHA}"
