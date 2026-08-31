@@ -17,6 +17,9 @@ constexpr size_t MAX_SOCKETS = 32U;
 constexpr size_t MAX_RX_DATAGRAMS = 4U;
 constexpr size_t MAX_TCP_SESSIONS = 4U;
 constexpr uint16_t EPHEMERAL_PORT_FIRST = UINT16_C(49152);
+constexpr uint64_t TCP_CONNECT_TIMEOUT_MS = UINT64_C(7000);
+constexpr uint64_t TCP_SYN_RETRY_MS = UINT64_C(1750);
+constexpr uint8_t TCP_CONNECT_TRANSMISSION_LIMIT = 4U;
 
 enum class Type : uint8_t {
     Datagram = 1U,
@@ -53,6 +56,9 @@ enum class Status : uint8_t {
     WouldBlock,
     BufferTooSmall,
     PayloadTooLarge,
+    ConnectionRefused,
+    ConnectionReset,
+    TimedOut,
     TransportError,
 };
 
@@ -72,6 +78,7 @@ struct Backend {
         size_t payload_length);
     net::Status (*poll)(void* context, size_t budget, size_t* processed);
     net::Status (*take_udp)(void* context, UdpDatagram* datagram);
+    uint64_t (*monotonic_ms)(void* context);
     net::Status (*tcp_begin_connect)(
         void* context,
         tcp_client::Client* client,

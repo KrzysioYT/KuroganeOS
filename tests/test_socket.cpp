@@ -22,8 +22,11 @@ struct FakeTransport {
     uint16_t sent_destination_port = 0U;
     uint8_t sent_payload[net::UDP_MAX_PAYLOAD]{};
     size_t sent_size = 0U;
+    uint64_t now_ms = 1U;
+    size_t tcp_begin_count = 0U;
     bool tcp_establish = false;
     bool tcp_peer_close = false;
+    bool tcp_reset = false;
     bool tcp_error = false;
 };
 
@@ -69,6 +72,11 @@ net::Status fake_take_udp(void* opaque, net::UdpDatagram* datagram) {
     return net::Status::Ok;
 }
 
+uint64_t fake_monotonic_ms(void* opaque) {
+    auto* transport = static_cast<FakeTransport*>(opaque);
+    return transport != nullptr ? transport->now_ms : 0U;
+}
+
 net::Status fake_tcp_begin_connect(
     void* opaque,
     net::tcp_client::Client* client,
@@ -81,6 +89,7 @@ net::Status fake_tcp_begin_connect(
         destination_port == 0U || initial_sequence == 0U) {
         return net::Status::InvalidArgument;
     }
+    ++transport->tcp_begin_count;
     client->peer = destination;
     client->local_port = source_port;
     client->remote_port = destination_port;
@@ -92,6 +101,11 @@ net::Status fake_tcp_begin_connect(
 net::Status fake_tcp_progress(void* opaque, net::tcp_client::Client* client) {
     auto* transport = static_cast<FakeTransport*>(opaque);
     if (transport == nullptr || client == nullptr) return net::Status::InvalidArgument;
+    if (transport->tcp_reset) {
+        client->state = net::tcp_client::State::Reset;
+        client->connected = false;
+        return net::Status::InterfaceError;
+    }
     if (transport->tcp_error) {
         client->state = net::tcp_client::State::Error;
         client->connected = false;
@@ -189,6 +203,7 @@ int main() {
         fake_send_udp,
         fake_poll,
         fake_take_udp,
+        fake_monotonic_ms,
         fake_tcp_begin_connect,
         fake_tcp_progress,
         fake_tcp_try_send,
@@ -277,12 +292,44 @@ int main() {
     CHECK(readiness(owner, tcp, ReadyRead | ReadyHangup, &tcp_ready) == Status::Ok);
     CHECK((tcp_ready & (ReadyRead | ReadyHangup)) == (ReadyRead | ReadyHangup));
     transport.tcp_peer_close = false;
-    transport.tcp_error = true;
-    CHECK(readiness(owner, tcp, ReadyError, &tcp_ready) == Status::Ok);
-    CHECK((tcp_ready & ReadyError) != 0U);
-    transport.tcp_error = false;
+    CHECK(close(owner, tcp) == Status::Ok);
+    transport.tcp_establish = false;
 
-    CHECK(active_count(owner) == 3U);
+    Handle refused = INVALID_HANDLE;
+    CHECK(create(owner, Type::Stream, Protocol::Tcp, &refused) == Status::Ok);
+    CHECK(connect(owner, refused, remote) == Status::WouldBlock);
+    transport.tcp_reset = true;
+    CHECK(connect(owner, refused, remote) == Status::ConnectionRefused);
+    CHECK(readiness(owner, refused, ReadyError, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & ReadyError) != 0U);
+    transport.tcp_reset = false;
+    CHECK(close(owner, refused) == Status::Ok);
+
+    Handle timed_out = INVALID_HANDLE;
+    CHECK(create(owner, Type::Stream, Protocol::Tcp, &timed_out) == Status::Ok);
+    const size_t begins_before_timeout = transport.tcp_begin_count;
+    CHECK(connect(owner, timed_out, remote) == Status::WouldBlock);
+    transport.now_ms += TCP_SYN_RETRY_MS;
+    CHECK(connect(owner, timed_out, remote) == Status::WouldBlock);
+    CHECK(transport.tcp_begin_count > begins_before_timeout + 1U);
+    transport.now_ms += TCP_CONNECT_TIMEOUT_MS;
+    CHECK(connect(owner, timed_out, remote) == Status::TimedOut);
+    CHECK(close(owner, timed_out) == Status::Ok);
+
+    Handle reset = INVALID_HANDLE;
+    CHECK(create(owner, Type::Stream, Protocol::Tcp, &reset) == Status::Ok);
+    CHECK(connect(owner, reset, remote) == Status::WouldBlock);
+    transport.tcp_establish = true;
+    CHECK(connect(owner, reset, remote) == Status::Ok);
+    transport.tcp_establish = false;
+    transport.tcp_reset = true;
+    CHECK(readiness(owner, reset, ReadyError, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & ReadyError) != 0U);
+    CHECK(send(owner, reset, request, sizeof(request) - 1U) == Status::ConnectionReset);
+    transport.tcp_reset = false;
+    CHECK(close(owner, reset) == Status::Ok);
+
+    CHECK(active_count(owner) == 2U);
     release_process(owner);
     CHECK(active_count(owner) == 0U);
     CHECK(send(owner, replacement, request, sizeof(request) - 1U) == Status::StaleHandle);

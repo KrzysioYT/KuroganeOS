@@ -100,6 +100,8 @@ int main() {
     static_assert(KU_OPEN_APPEND == (UINT64_C(1) << 2));
     static_assert(KU_OPEN_DIRECTORY == (UINT64_C(1) << 3));
     static_assert(KU_STATUS_END_OF_STREAM == -15);
+    static_assert(KU_STATUS_CONNECTION_REFUSED == -16);
+    static_assert(KU_STATUS_CONNECTION_RESET == -17);
 
     static_assert(KU_FILE_SEEK_BEGIN == 0);
     static_assert(KU_FILE_SEEK_CURRENT == 1);

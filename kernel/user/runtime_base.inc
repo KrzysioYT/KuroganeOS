@@ -196,6 +196,9 @@ ku_status_t socket_wait_status(net::socket::Status status) {
         case SocketStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
         case SocketStatus::BufferTooSmall:
         case SocketStatus::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case SocketStatus::ConnectionRefused: return KU_STATUS_CONNECTION_REFUSED;
+        case SocketStatus::ConnectionReset: return KU_STATUS_CONNECTION_RESET;
+        case SocketStatus::TimedOut: return KU_STATUS_TIMED_OUT;
         case SocketStatus::NotInitialized:
         case SocketStatus::NotBound:
         case SocketStatus::NotConnected: return KU_STATUS_BAD_STATE;

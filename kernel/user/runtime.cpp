@@ -21,6 +21,7 @@
 #include "../core/system_metrics.hpp"
 #include "../drivers/audio/ac97.hpp"
 #include "../drivers/core/device_manager.hpp"
+#include "../drivers/pit.hpp"
 #include "../fs/root_volume.hpp"
 #include "../ipc/channel.hpp"
 #include "../ipc/event.hpp"
@@ -132,6 +133,9 @@ ku_status_t socket_status(net::socket::Status status) {
         case SocketStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
         case SocketStatus::BufferTooSmall:
         case SocketStatus::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case SocketStatus::ConnectionRefused: return KU_STATUS_CONNECTION_REFUSED;
+        case SocketStatus::ConnectionReset: return KU_STATUS_CONNECTION_RESET;
+        case SocketStatus::TimedOut: return KU_STATUS_TIMED_OUT;
         case SocketStatus::NotInitialized:
         case SocketStatus::NotBound:
         case SocketStatus::NotConnected: return KU_STATUS_BAD_STATE;
@@ -157,6 +161,18 @@ net::Status socket_backend_poll(void*, size_t budget, size_t* processed) {
 
 net::Status socket_backend_take_udp(void*, net::UdpDatagram* datagram) {
     return net::service::socket_take_udp(datagram);
+}
+
+uint64_t socket_backend_monotonic_ms(void*) {
+    if (!drivers::pit::initialized()) return 0U;
+    const uint64_t frequency = drivers::pit::frequency_hz();
+    if (frequency == 0U) return 0U;
+    const uint64_t ticks = drivers::pit::ticks();
+    const uint64_t seconds = ticks / frequency;
+    const uint64_t remainder = ticks % frequency;
+    if (seconds > UINT64_MAX / UINT64_C(1000)) return UINT64_MAX;
+    return seconds * UINT64_C(1000) +
+        (remainder * UINT64_C(1000)) / frequency;
 }
 
 net::Status socket_backend_tcp_begin_connect(
@@ -1027,6 +1043,7 @@ Status initialize() {
         socket_backend_send_udp,
         socket_backend_poll,
         socket_backend_take_udp,
+        socket_backend_monotonic_ms,
         socket_backend_tcp_begin_connect,
         socket_backend_tcp_progress,
         socket_backend_tcp_try_send,

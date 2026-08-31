@@ -28,6 +28,12 @@ struct Slot {
 
 struct TcpSession {
     tcp_client::Client client;
+    uint32_t initial_sequence;
+    uint64_t connect_started_ms;
+    uint64_t connect_last_transmit_ms;
+    Status terminal_status;
+    uint8_t connect_transmissions;
+    bool was_connected;
     bool active;
 };
 
@@ -164,6 +170,12 @@ TcpSession* reserve_tcp_session(size_t* out_index) {
     return nullptr;
 }
 
+uint64_t monotonic_ms() {
+    return g_backend.monotonic_ms != nullptr
+        ? g_backend.monotonic_ms(g_backend.context)
+        : 0U;
+}
+
 Status transport_status(net::Status status) {
     switch (status) {
         case net::Status::Ok:
@@ -187,6 +199,62 @@ Status transport_status(net::Status status) {
         default:
             return Status::TransportError;
     }
+}
+
+Status tcp_progress_status(TcpSession& session, net::Status status) {
+    if (session.terminal_status != Status::Ok) return session.terminal_status;
+    if (session.client.state == tcp_client::State::Reset) {
+        session.terminal_status = session.was_connected
+            ? Status::ConnectionReset
+            : Status::ConnectionRefused;
+        return session.terminal_status;
+    }
+    if (session.client.state == tcp_client::State::Error &&
+        status != net::Status::WouldBlock) {
+        session.terminal_status = Status::TransportError;
+        return session.terminal_status;
+    }
+    return transport_status(status);
+}
+
+Status progress_tcp_connection(Slot& slot, TcpSession& session) {
+    if (session.terminal_status != Status::Ok) return session.terminal_status;
+    const net::Status backend_status =
+        g_backend.tcp_progress(g_backend.context, &session.client);
+    slot.connected = session.client.connected;
+    if (slot.connected) session.was_connected = true;
+    Status mapped = tcp_progress_status(session, backend_status);
+    if (mapped != Status::Ok && mapped != Status::WouldBlock) return mapped;
+    if (slot.connected) return Status::Ok;
+    if (session.client.state != tcp_client::State::SynSent) {
+        return mapped == Status::Ok ? Status::WouldBlock : mapped;
+    }
+
+    const uint64_t now = monotonic_ms();
+    if (now - session.connect_started_ms >= TCP_CONNECT_TIMEOUT_MS) {
+        session.client.connected = false;
+        session.client.state = tcp_client::State::Error;
+        session.terminal_status = Status::TimedOut;
+        return session.terminal_status;
+    }
+    if (session.connect_transmissions < TCP_CONNECT_TRANSMISSION_LIMIT &&
+        now - session.connect_last_transmit_ms >= TCP_SYN_RETRY_MS) {
+        const net::Status retry_status = g_backend.tcp_begin_connect(
+            g_backend.context,
+            &session.client,
+            slot.remote.address,
+            slot.local.port,
+            slot.remote.port,
+            session.initial_sequence);
+        ++session.connect_transmissions;
+        session.connect_last_transmit_ms = now;
+        slot.connected = session.client.connected;
+        if (slot.connected) session.was_connected = true;
+        mapped = tcp_progress_status(session, retry_status);
+        if (mapped != Status::Ok && mapped != Status::WouldBlock) return mapped;
+        if (slot.connected) return Status::Ok;
+    }
+    return Status::WouldBlock;
 }
 
 bool slot_accepts_datagram(
@@ -264,7 +332,8 @@ Status send_loopback(const Slot& sender, const uint8_t* payload, size_t size) {
 Status initialize(const Backend& backend) {
     if (g_initialized) return Status::AlreadyInitialized;
     if (backend.send_udp == nullptr || backend.poll == nullptr ||
-        backend.take_udp == nullptr || backend.tcp_begin_connect == nullptr ||
+        backend.take_udp == nullptr || backend.monotonic_ms == nullptr ||
+        backend.tcp_begin_connect == nullptr ||
         backend.tcp_progress == nullptr || backend.tcp_try_send == nullptr ||
         backend.tcp_try_receive == nullptr || backend.tcp_begin_close == nullptr) {
         return Status::InvalidArgument;
@@ -355,11 +424,7 @@ Status connect(ProcessId owner, Handle handle, const Endpoint& endpoint) {
             return Status::InvalidArgument;
         }
         TcpSession& session = g_tcp_sessions[slot->tcp_session];
-        const net::Status progress_status =
-            g_backend.tcp_progress(g_backend.context, &session.client);
-        slot->connected = session.client.connected;
-        if (slot->connected) return Status::Ok;
-        return transport_status(progress_status);
+        return progress_tcp_connection(*slot, session);
     }
 
     size_t session_index = MAX_TCP_SESSIONS;
@@ -367,15 +432,22 @@ Status connect(ProcessId owner, Handle handle, const Endpoint& endpoint) {
     if (session == nullptr) return Status::CapacityReached;
     slot->tcp_session = session_index;
     slot->remote = endpoint;
+    session->initial_sequence = next_tcp_initial_sequence();
+    session->connect_started_ms = monotonic_ms();
+    session->connect_last_transmit_ms = session->connect_started_ms;
+    session->connect_transmissions = 1U;
+    session->terminal_status = Status::Ok;
+    session->was_connected = false;
     const net::Status begin_status = g_backend.tcp_begin_connect(
         g_backend.context,
         &session->client,
         endpoint.address,
         slot->local.port,
         endpoint.port,
-        next_tcp_initial_sequence());
+        session->initial_sequence);
     slot->connected = session->client.connected;
-    const Status mapped = transport_status(begin_status);
+    if (slot->connected) session->was_connected = true;
+    const Status mapped = tcp_progress_status(*session, begin_status);
     if (mapped != Status::Ok && mapped != Status::WouldBlock) {
         release_tcp_session(*slot);
         return mapped;
@@ -422,16 +494,11 @@ Status send(
     }
     TcpSession& session = g_tcp_sessions[slot->tcp_session];
     if (!slot->connected) {
-        const net::Status progress_status =
-            g_backend.tcp_progress(g_backend.context, &session.client);
-        slot->connected = session.client.connected;
-        if (!slot->connected) {
-            const Status mapped = transport_status(progress_status);
-            return mapped == Status::Ok ? Status::WouldBlock : mapped;
-        }
+        const Status progress_status = progress_tcp_connection(*slot, session);
+        if (progress_status != Status::Ok) return progress_status;
     }
     size_t sent = 0U;
-    const Status status = transport_status(g_backend.tcp_try_send(
+    const Status status = tcp_progress_status(session, g_backend.tcp_try_send(
         g_backend.context,
         &session.client,
         static_cast<const uint8_t*>(data),
@@ -509,15 +576,10 @@ Status receive(
             return Status::Ok;
         }
         if (!slot->connected) {
-            const net::Status progress_status =
-                g_backend.tcp_progress(g_backend.context, &session.client);
-            slot->connected = session.client.connected;
-            if (!slot->connected) {
-                const Status mapped = transport_status(progress_status);
-                return mapped == Status::Ok ? Status::WouldBlock : mapped;
-            }
+            const Status progress_status = progress_tcp_connection(*slot, session);
+            if (progress_status != Status::Ok) return progress_status;
         }
-        const Status status = transport_status(g_backend.tcp_try_receive(
+        const Status status = tcp_progress_status(session, g_backend.tcp_try_receive(
             g_backend.context,
             &session.client,
             static_cast<uint8_t*>(output),
@@ -564,18 +626,22 @@ Status close(ProcessId owner, Handle handle) {
     }
 
     TcpSession& session = g_tcp_sessions[slot->tcp_session];
+    if (session.terminal_status != Status::Ok) {
+        clear_slot(*slot);
+        return Status::Ok;
+    }
     if (session.client.state == tcp_client::State::Closed) {
         clear_slot(*slot);
         return Status::Ok;
     }
-    const Status begin_status = transport_status(
-        g_backend.tcp_begin_close(g_backend.context, &session.client));
+    const Status begin_status = tcp_progress_status(
+        session, g_backend.tcp_begin_close(g_backend.context, &session.client));
     if (begin_status != Status::Ok && begin_status != Status::WouldBlock) {
         return begin_status;
     }
     if (session.client.state != tcp_client::State::Closed) {
-        const Status progress_status = transport_status(
-            g_backend.tcp_progress(g_backend.context, &session.client));
+        const Status progress_status = tcp_progress_status(
+            session, g_backend.tcp_progress(g_backend.context, &session.client));
         if (progress_status != Status::Ok && progress_status != Status::WouldBlock) {
             return progress_status;
         }
@@ -627,9 +693,7 @@ Status readiness(
     }
 
     TcpSession& session = g_tcp_sessions[slot->tcp_session];
-    const net::Status progress_status =
-        g_backend.tcp_progress(g_backend.context, &session.client);
-    slot->connected = session.client.connected;
+    const Status progress = progress_tcp_connection(*slot, session);
     if (slot->connected) {
         ready |= ReadyConnected;
         if (session.client.state == tcp_client::State::Established) ready |= ReadyWrite;
@@ -646,7 +710,6 @@ Status readiness(
         session.client.state == tcp_client::State::Error) {
         ready |= ReadyError;
     }
-    const Status progress = transport_status(progress_status);
     if (progress != Status::Ok && progress != Status::WouldBlock &&
         (ready & ReadyError) == 0U) {
         return progress;
@@ -687,6 +750,9 @@ const char* status_message(Status status) {
         case Status::WouldBlock: return "socket operation would block";
         case Status::BufferTooSmall: return "socket receive buffer too small";
         case Status::PayloadTooLarge: return "socket payload too large";
+        case Status::ConnectionRefused: return "TCP connection refused";
+        case Status::ConnectionReset: return "TCP connection reset";
+        case Status::TimedOut: return "TCP operation timed out";
         case Status::TransportError: return "network transport error";
     }
     return "unknown socket status";
