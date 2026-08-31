@@ -27,8 +27,8 @@ permissions:
 
 jobs:
   audio-service:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 25
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
@@ -36,6 +36,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify Kurogane build host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
 
       - name: Inject Ring-3 audio qualification probes
         shell: python
@@ -81,14 +91,6 @@ jobs:
           grep -F '[TEST] audio_exit_client_armed: PASS' userspace/system/audio-exit-client/main.c
           grep -F '[TEST] audio_owner_exit_armed: PASS' userspace/system/audio-owner-exit/main.c
 
-      - name: Install build and QEMU dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential binutils python3 \
-            qemu-system-x86 ovmf \
-            mtools dosfstools gdisk xorriso
-
       - name: Run full host regression suite
         run: bash ./scripts/run-host-tests.sh
 
@@ -124,10 +126,10 @@ jobs:
           cp "$vars_template" "$vars"
 
           set +e
-          timeout --signal=TERM --kill-after=5s 180s \
+          timeout --signal=TERM --kill-after=5s 120s \
             qemu-system-x86_64 \
-              -machine q35,accel=tcg \
-              -cpu max \
+              -machine q35,accel=kvm \
+              -cpu host \
               -m 1024 \
               -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
               -drive if=pflash,format=raw,unit=1,file="$vars" \
