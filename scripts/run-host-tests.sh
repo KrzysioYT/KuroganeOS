@@ -64,8 +64,11 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -DKUROGANE_HOST_TEST -ffunction-sections -fdata-sections \
   tests/test_socket.cpp \
   kernel/net/socket.cpp \
+  kernel/net/tcp_client.cpp \
+  -Wl,--gc-sections \
   -o "$OUT_DIR/test_socket"
 
 "$OUT_DIR/test_socket"
@@ -90,6 +93,10 @@ echo "[host-tests] python:   $HOST_PYTHON"
   -o "$OUT_DIR/test_tcp_client"
 
 "$OUT_DIR/test_tcp_client"
+
+# Verify that every application manifest has a deterministic, unique physical
+# installer path that satisfies the kernel installer's FAT 8.3 contract.
+"$HOST_PYTHON" tests/test_install_package_paths.py --root "$ROOT_DIR"
 
 # Keep the pinned TLS client source set freestanding and host-libc independent.
 # This is compile-only by design; runtime HTTPS qualification happens after the
