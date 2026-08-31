@@ -45,7 +45,7 @@ jobs:
           qemu-system-x86_64 --version | head -n 1
 
       - name: Inject registry qualification fixtures and probe
-        shell: python
+        shell: python3 {0}
         run: |
           from pathlib import Path
 
@@ -109,7 +109,7 @@ jobs:
           test -s build/install.pkg
 
       - name: Verify FAT 8.3 manifest transport contract
-        shell: python
+        shell: python3 {0}
         run: |
           import re
           import struct
