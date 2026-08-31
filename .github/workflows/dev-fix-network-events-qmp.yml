@@ -1,0 +1,46 @@
+name: Fix Network Events QMP resolver
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/dev-fix-network-events-qmp.yml'
+      - 'scripts/dev-fix-network-events-qmp.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact staging commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Patch deterministic QMP target resolver
+        run: |
+          python3 scripts/dev-fix-network-events-qmp.py
+          git diff --check
+          grep -F "for candidate in ('kurogane_nic', 'e1000.0', 'kurogane_net')" .github/workflows/qualify-network-events.yml
+          grep -F "wait_marker('[TEST] network_events_armed: PASS', 180.0)" .github/workflows/qualify-network-events.yml
+
+      - name: Exclude one-shot staging machinery
+        run: |
+          git checkout "$GITHUB_SHA" -- \
+            scripts/dev-fix-network-events-qmp.py \
+            .github/workflows/dev-fix-network-events-qmp.yml
+          git diff --check
+
+      - name: Commit qualification harness fix
+        run: |
+          git config user.name 'KuroganeOS GPT Developer'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/qualify-network-events.yml
+          git diff --cached --quiet && { echo 'no QMP harness change'; exit 1; }
+          git commit -m 'test(3.5): resolve Network Events QMP link target'
+          git push origin HEAD:gpt/road-to-15-consolidation
