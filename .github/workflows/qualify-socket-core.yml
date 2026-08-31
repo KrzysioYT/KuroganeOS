@@ -5,6 +5,9 @@ on:
     branches:
       - gpt/road-to-15-consolidation
     paths:
+      - '.github/workflows/qualify-socket-core.yml'
+      - '.github/workflows/qualify-system-services-closeout.yml'
+      - '.github/workflows/qualify-3.4-regression-sweep.yml'
       - 'kernel/net/socket.cpp'
       - 'kernel/net/socket.hpp'
       - 'kernel/net/tcp_client.cpp'
@@ -14,10 +17,10 @@ on:
       - 'userspace/system/socket-probe/**'
       - 'userspace/system/socket-exit-worker/**'
       - 'tests/test_socket.cpp'
+      - 'scripts/build-install-package.py'
       - 'scripts/build-linux.sh'
       - 'scripts/build-media-linux.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
-      - '.github/workflows/qualify-socket-core.yml'
   workflow_dispatch:
 
 permissions:
