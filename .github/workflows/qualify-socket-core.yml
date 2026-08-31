@@ -18,11 +18,13 @@ on:
       - 'kernel/user/runtime.hpp'
       - 'kernel/user/runtime_base.inc'
       - 'sdk/include/kurogane/network.h'
+      - 'sdk/include/kurogane/status.h'
       - 'sdk/include/kurogane/syscall.h'
       - 'userspace/system/init/main.c'
       - 'userspace/system/socket-probe/**'
       - 'userspace/system/socket-exit-worker/**'
       - 'userspace/system/socket-wake-worker/**'
+      - 'userspace/system/tcp-exit-worker/**'
       - 'userspace/system/app-registryd/**'
       - 'rootfs/apps/appman/**'
       - 'tests/test_socket.cpp'
@@ -73,6 +75,7 @@ jobs:
           addition = (
               '    "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"\n'
               '    "socketwake|userspace/system/socket-wake-worker/main.c|system/sockwake|c"\n'
+              '    "tcpexit|userspace/system/tcp-exit-worker/main.c|system/tcpexit|c"\n'
               '    "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"\n'
           )
           if text.count(anchor) != 1:
@@ -85,7 +88,7 @@ jobs:
           wait_helper = (
               'static int socket_wait_probe(uint64_t pid) {\n'
               '    uint32_t attempts;\n'
-              '    for (attempts = 0U; attempts < 2000U; ++attempts) {\n'
+              '    for (attempts = 0U; attempts < 4000U; ++attempts) {\n'
               '        int32_t exit_code = 0;\n'
               '        const ku_status_t status = ku_wait(pid, &exit_code);\n'
               '        if (status == KU_STATUS_OK) return exit_code == 0;\n'
@@ -116,6 +119,7 @@ jobs:
           git diff --check
           grep -F 'system/sockexit' scripts/build-linux.sh
           grep -F 'system/sockwake' scripts/build-linux.sh
+          grep -F 'system/tcpexit' scripts/build-linux.sh
           grep -F 'system/sockprb' scripts/build-linux.sh
           grep -F 'socket_wait_probe' userspace/system/init/main.c
           grep -F 'u_spawn("/system/sockprb")' userspace/system/init/main.c
@@ -124,7 +128,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential binutils python3 \
+            build-essential binutils python3 iptables \
             qemu-system-x86 ovmf \
             mtools dosfstools gdisk xorriso
 
@@ -134,13 +138,89 @@ jobs:
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
 
-      - name: Require real Ring-3 socket runtime markers
+      - name: Require real Ring-3 socket and TCP runtime markers
         run: |
+          mkdir -p build/tests/runtime
+          python3 -u - <<'PY' >build/tests/runtime/tcp-host-server.log 2>&1 &
+          import socket
+          import struct
+          import threading
+          import time
+
+          PING = b'KURO-TCP-PING'
+          PONG = b'KURO-TCP-PONG'
+
+          def normal_connection(connection):
+              connection.settimeout(12.0)
+              try:
+                  payload = connection.recv(64)
+                  if payload == PING:
+                      connection.sendall(PONG)
+                      time.sleep(0.10)
+                      connection.shutdown(socket.SHUT_WR)
+              except OSError:
+                  pass
+              finally:
+                  connection.close()
+
+          def reset_connection(connection):
+              time.sleep(0.75)
+              try:
+                  connection.setsockopt(
+                      socket.SOL_SOCKET,
+                      socket.SO_LINGER,
+                      struct.pack('ii', 1, 0))
+              finally:
+                  connection.close()
+
+          def local_close_connection(connection):
+              connection.settimeout(15.0)
+              try:
+                  while connection.recv(128):
+                      pass
+              except OSError:
+                  pass
+              finally:
+                  connection.close()
+
+          def listen(port, handler):
+              server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+              server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+              server.bind(('0.0.0.0', port))
+              server.listen(32)
+              while True:
+                  connection, _ = server.accept()
+                  threading.Thread(
+                      target=handler, args=(connection,), daemon=True).start()
+
+          threading.Thread(
+              target=listen, args=(18080, normal_connection), daemon=True).start()
+          threading.Thread(
+              target=listen, args=(18083, reset_connection), daemon=True).start()
+          threading.Thread(
+              target=listen, args=(18084, local_close_connection), daemon=True).start()
+          threading.Event().wait()
+          PY
+          server_pid=$!
+
+          sudo iptables -I OUTPUT 1 -p tcp --dport 18082 -j DROP
+          cleanup() {
+            sudo iptables -D OUTPUT -p tcp --dport 18082 -j DROP >/dev/null 2>&1 || true
+            kill "$server_pid" >/dev/null 2>&1 || true
+            wait "$server_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          sleep 1
+
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img \
             --disk \
+            --nic e1000 \
+            --require-network \
             --require-marker '[TEST] socket_udp_roundtrip: PASS' \
             --require-marker '[TEST] socket_readiness: PASS' \
             --require-marker '[TEST] socket_handle_generation: PASS' \
             --require-marker '[TEST] socket_exit_cleanup: PASS' \
+            --require-marker '[TEST] tcp_progression: PASS' \
+            --require-marker '[TEST] tcp_cleanup: PASS' \
             --timeout 240
