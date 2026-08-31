@@ -7,7 +7,7 @@
 #define ACCOUNT_SERVICE_PATH "/system/accountd"
 #define SESSION_SERVICE_PATH "/system/sessiond"
 #define CLIPBOARD_SERVICE_PATH "/system/clipd"
-#define NETWORK_EVENT_SERVICE_PATH "/system/neteventd"
+#define NETWORK_EVENT_SERVICE_PATH "/system/netevtd"
 #define DNS_SERVICE_PATH "/system/dnsd"
 #define APPLICATION_REGISTRY_PATH "/system/appregd"
 #define AUDIO_SERVICE_PATH "/system/audiod"
@@ -147,7 +147,7 @@ __attribute__((noreturn)) void _start(void) {
 
     const uint64_t network_event_service_pid = spawn_network_event_service();
     if (network_event_service_pid == 0U) {
-        (void)u_puts("init: cannot spawn /system/neteventd\n");
+        (void)u_puts("init: cannot spawn /system/netevtd\n");
         ku_exit(31);
     }
 
