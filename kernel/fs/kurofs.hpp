@@ -25,6 +25,7 @@ enum class Status : uint8_t {
     CorruptSuperblock,
     InvalidGeometry,
     InvalidRootInode,
+    NoSpace,
     BlockDeviceError,
 };
 
@@ -78,6 +79,20 @@ Status mount(FileSystem* output, const storage::block::Device* device);
 bool is_mounted(const FileSystem* filesystem);
 Status get_geometry(const FileSystem* filesystem, Geometry* output);
 Status read_inode(FileSystem* filesystem, uint64_t inode_id, Inode* output);
+
+// Reserve one persistent contiguous data extent. Metadata blocks are never
+// considered candidates. Successful bitmap publication is flushed before
+// returning; an I/O failure may conservatively leak reserved blocks but can
+// never hand the same block to two successful callers.
+Status allocate_blocks(
+    FileSystem* filesystem, uint64_t block_count, uint64_t* out_first_block);
+
+// Allocate and persist an empty non-root inode. This intentionally does not
+// attach data blocks yet: later file creation can reserve+flush its extent
+// first and publish the inode only after data ownership is durable.
+Status allocate_inode(
+    FileSystem* filesystem, InodeType type, uint64_t* out_inode_id);
+
 const char* status_message(Status status);
 
 } // namespace fs::kurofs

@@ -46,6 +46,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_vfs_process_paths"
 
+# Exercise KuroFS v1 metadata persistence through the production block-device ABI.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_allocator.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_allocator"
+
+"$OUT_DIR/test_kurofs_allocator"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_ipc.cpp \

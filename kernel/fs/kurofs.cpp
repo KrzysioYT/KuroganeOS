@@ -328,6 +328,93 @@ Status read_superblock_copy(
     return decode_superblock(sector, device, output);
 }
 
+bool all_zero(const uint8_t* bytes, size_t size) {
+    if (bytes == nullptr) return false;
+    for (size_t index = 0U; index < size; ++index) {
+        if (bytes[index] != 0U) return false;
+    }
+    return true;
+}
+
+Status find_free_extent(
+    FileSystem* filesystem, uint64_t block_count, uint64_t* out_start) {
+    uint8_t bitmap[kSectorSize]{};
+    uint64_t loaded_bitmap = UINT64_MAX;
+    uint64_t run_start = 0U;
+    uint64_t run_length = 0U;
+    for (uint64_t block = filesystem->geometry.data_start;
+         block < filesystem->geometry.total_blocks; ++block) {
+        const uint64_t bitmap_index = block / kBitsPerBitmapBlock;
+        if (bitmap_index >= filesystem->geometry.allocation_bitmap_blocks) {
+            return Status::InvalidGeometry;
+        }
+        if (bitmap_index != loaded_bitmap) {
+            const Status status = read_one(
+                filesystem->device,
+                filesystem->geometry.allocation_bitmap_start + bitmap_index,
+                bitmap);
+            if (status != Status::Ok) return status;
+            loaded_bitmap = bitmap_index;
+        }
+        const uint64_t bit = block % kBitsPerBitmapBlock;
+        const size_t byte_index = static_cast<size_t>(bit / 8U);
+        const uint8_t mask = static_cast<uint8_t>(
+            UINT8_C(1) << static_cast<uint8_t>(bit % 8U));
+        if ((bitmap[byte_index] & mask) == 0U) {
+            if (run_length == 0U) run_start = block;
+            ++run_length;
+            if (run_length == block_count) {
+                *out_start = run_start;
+                return Status::Ok;
+            }
+        } else {
+            run_length = 0U;
+        }
+    }
+    return Status::NoSpace;
+}
+
+Status publish_extent_allocation(
+    FileSystem* filesystem, uint64_t first_block, uint64_t block_count) {
+    uint64_t end_block = 0U;
+    if (!add_u64(first_block, block_count, &end_block) ||
+        first_block < filesystem->geometry.data_start ||
+        end_block > filesystem->geometry.total_blocks) {
+        return Status::InvalidGeometry;
+    }
+    uint64_t current = first_block;
+    while (current < end_block) {
+        const uint64_t bitmap_index = current / kBitsPerBitmapBlock;
+        if (bitmap_index >= filesystem->geometry.allocation_bitmap_blocks) {
+            return Status::InvalidGeometry;
+        }
+        uint8_t bitmap[kSectorSize]{};
+        const uint64_t bitmap_block =
+            filesystem->geometry.allocation_bitmap_start + bitmap_index;
+        Status status = read_one(filesystem->device, bitmap_block, bitmap);
+        if (status != Status::Ok) return status;
+        const uint64_t represented_end =
+            (bitmap_index + 1U) * kBitsPerBitmapBlock;
+        const uint64_t segment_end =
+            end_block < represented_end ? end_block : represented_end;
+        for (uint64_t block = current; block < segment_end; ++block) {
+            const uint64_t bit = block % kBitsPerBitmapBlock;
+            const size_t byte_index = static_cast<size_t>(bit / 8U);
+            const uint8_t mask = static_cast<uint8_t>(
+                UINT8_C(1) << static_cast<uint8_t>(bit % 8U));
+            // Re-check before publication. KuroFS currently serializes
+            // metadata callers; this additionally refuses inconsistent
+            // on-disk state rather than silently double-allocating.
+            if ((bitmap[byte_index] & mask) != 0U) return Status::NoSpace;
+            bitmap[byte_index] = static_cast<uint8_t>(bitmap[byte_index] | mask);
+        }
+        status = write_one(filesystem->device, bitmap_block, bitmap);
+        if (status != Status::Ok) return status;
+        current = segment_end;
+    }
+    return block_status(storage::block::flush(filesystem->device));
+}
+
 } // namespace
 
 Status format(const storage::block::Device* device, uint32_t inode_count) {
@@ -439,6 +526,68 @@ Status read_inode(FileSystem* filesystem, uint64_t inode_id, Inode* output) {
     return decode_inode(sector + offset_in_block, inode_id, output);
 }
 
+Status allocate_blocks(
+    FileSystem* filesystem, uint64_t block_count, uint64_t* out_first_block) {
+    if (filesystem == nullptr || out_first_block == nullptr || block_count == 0U) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    const uint64_t available = filesystem->geometry.total_blocks -
+        filesystem->geometry.data_start;
+    if (block_count > available) return Status::NoSpace;
+
+    uint64_t first = 0U;
+    Status status = find_free_extent(filesystem, block_count, &first);
+    if (status != Status::Ok) return status;
+    status = publish_extent_allocation(filesystem, first, block_count);
+    if (status != Status::Ok) return status;
+    *out_first_block = first;
+    return Status::Ok;
+}
+
+Status allocate_inode(
+    FileSystem* filesystem, InodeType type, uint64_t* out_inode_id) {
+    if (filesystem == nullptr || out_inode_id == nullptr ||
+        (type != InodeType::Regular && type != InodeType::Directory)) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    for (uint64_t relative_block = 0U;
+         relative_block < filesystem->geometry.inode_table_blocks;
+         ++relative_block) {
+        uint8_t sector[kSectorSize]{};
+        const uint64_t table_block =
+            filesystem->geometry.inode_table_start + relative_block;
+        Status status = read_one(filesystem->device, table_block, sector);
+        if (status != Status::Ok) return status;
+        for (size_t offset = 0U; offset + INODE_SIZE <= kSectorSize;
+             offset += INODE_SIZE) {
+            const uint64_t inode_id =
+                (relative_block * kSectorSize + offset) / INODE_SIZE + 1U;
+            if (inode_id == ROOT_INODE) continue;
+            if (inode_id > filesystem->geometry.inode_count) return Status::NoSpace;
+            if (!all_zero(sector + offset, INODE_SIZE)) continue;
+            Inode inode{};
+            inode.id = inode_id;
+            inode.type = type;
+            inode.flags = 0U;
+            inode.size = 0U;
+            inode.extent_start = 0U;
+            inode.extent_blocks = 0U;
+            inode.link_count = 1U;
+            inode.generation = 1U;
+            encode_inode(inode, sector + offset);
+            status = write_one(filesystem->device, table_block, sector);
+            if (status != Status::Ok) return status;
+            status = block_status(storage::block::flush(filesystem->device));
+            if (status != Status::Ok) return status;
+            *out_inode_id = inode_id;
+            return Status::Ok;
+        }
+    }
+    return Status::NoSpace;
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
@@ -451,6 +600,7 @@ const char* status_message(Status status) {
         case Status::CorruptSuperblock: return "corrupt superblock";
         case Status::InvalidGeometry: return "invalid filesystem geometry";
         case Status::InvalidRootInode: return "invalid root inode";
+        case Status::NoSpace: return "no free KuroFS space";
         case Status::BlockDeviceError: return "block device error";
     }
     return "unknown KuroFS status";
