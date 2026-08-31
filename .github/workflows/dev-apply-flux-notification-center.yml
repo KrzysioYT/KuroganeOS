@@ -1,0 +1,95 @@
+name: Dev Apply Flux Notification Center
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-flux-notification-center.yml
+      - scripts/dev-apply-flux-notification-center.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded Notification Center migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-flux-notification-center.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove public Notification Center on KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] flux_home_system_pulse: PASS' 574 455 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] flux_home_system_pulse: PASS' \
+            --require-marker '[TEST] flux_home_public_notification: PASS' \
+            --require-marker '[TEST] flux_notification_center_connected: PASS' \
+            --require-marker '[TEST] flux_notification_center_notice_card: PASS' \
+            --require-marker '[TEST] flux_notification_center_public_record: PASS'
+
+      - name: Commit and publish Notification Center
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            sdk/include/kurogane/notification.h \
+            sdk/include/kurogane/ui.h \
+            sdk/include/kurogane/libui.h \
+            sdk/src/libui.c \
+            kernel/user/runtime_base.inc \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            userspace/system/notificationd/main.c \
+            userspace/system/notification-probe/main.c \
+            userspace/gui/launcher/main.c \
+            userspace/gui/notifications/main.c \
+            scripts/build-sdk.sh \
+            scripts/build-sdk.ps1 \
+            tests/test_sdk_abi.cpp \
+            tests/test_libui_pointer.c \
+            tests/test_mouse_first_apps.py \
+            docs/DEVELOPERS/API_REFERENCE.md
+          git diff --cached --quiet && { echo "guard produced no Notification Center production changes"; exit 1; }
+          git commit -m "feat(gui): add secure Flux Notification Center"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
