@@ -12,14 +12,22 @@ on:
       - 'kernel/net/socket.hpp'
       - 'kernel/net/tcp_client.cpp'
       - 'kernel/net/tcp_client.hpp'
+      - 'kernel/task/thread.cpp'
+      - 'kernel/task/thread.hpp'
       - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime.hpp'
+      - 'kernel/user/runtime_base.inc'
       - 'sdk/include/kurogane/network.h'
+      - 'sdk/include/kurogane/syscall.h'
       - 'userspace/system/init/main.c'
       - 'userspace/system/socket-probe/**'
       - 'userspace/system/socket-exit-worker/**'
+      - 'userspace/system/socket-wake-worker/**'
       - 'userspace/system/app-registryd/**'
       - 'rootfs/apps/appman/**'
       - 'tests/test_socket.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_sdk_abi.cpp'
       - 'tests/test_install_package_paths.py'
       - 'scripts/build-install-package.py'
       - 'scripts/build-linux.sh'
@@ -64,6 +72,7 @@ jobs:
           anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
           addition = (
               '    "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"\n'
+              '    "socketwake|userspace/system/socket-wake-worker/main.c|system/sockwake|c"\n'
               '    "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"\n'
           )
           if text.count(anchor) != 1:
@@ -106,6 +115,7 @@ jobs:
         run: |
           git diff --check
           grep -F 'system/sockexit' scripts/build-linux.sh
+          grep -F 'system/sockwake' scripts/build-linux.sh
           grep -F 'system/sockprb' scripts/build-linux.sh
           grep -F 'socket_wait_probe' userspace/system/init/main.c
           grep -F 'u_spawn("/system/sockprb")' userspace/system/init/main.c
@@ -130,6 +140,7 @@ jobs:
             build/images/KuroganeOS-linux.img \
             --disk \
             --require-marker '[TEST] socket_udp_roundtrip: PASS' \
+            --require-marker '[TEST] socket_readiness: PASS' \
             --require-marker '[TEST] socket_handle_generation: PASS' \
             --require-marker '[TEST] socket_exit_cleanup: PASS' \
             --timeout 240
