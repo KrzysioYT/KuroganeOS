@@ -1247,6 +1247,19 @@ void invalidate_region(const ui::Rect& region) {
     add_damage_region(region);
 }
 
+Status damage_snapshot(DamageSnapshot* out_snapshot) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_snapshot == nullptr) return Status::InvalidArgument;
+    *out_snapshot = {};
+    out_snapshot->full = g_dirty == DirtyMode::Full;
+    if (g_dirty != DirtyMode::Regions) return Status::Ok;
+    out_snapshot->count = g_damage_count;
+    for (size_t index = 0U; index < g_damage_count; ++index) {
+        out_snapshot->regions[index] = g_damage_regions[index];
+    }
+    return Status::Ok;
+}
+
 bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
 #ifndef KUROGANE_HOST_TEST

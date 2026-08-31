@@ -154,5 +154,52 @@ int main() {
         read_surface(replacement, &retained) != Status::InvalidState ||
         read_surface(stale_surface, &retained) != Status::NotFound) return 28;
     if (close(replacement) != Status::Ok) return 29;
+
+    // Damage inspection reads the production Window Core state; it does
+    // not duplicate clipping/merge logic in the test.
+    if (!render_if_needed()) return 30;
+    DamageSnapshot damage{};
+    if (damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 0U) {
+        return 31;
+    }
+
+    WindowId damage_window = INVALID_WINDOW;
+    if (create_window("Damage", 14U, {80, 90, 300, 220},
+                      draw, receive, nullptr, &damage_window) != Status::Ok ||
+        !render_if_needed()) return 32;
+    uint8_t damage_payload[16]{};
+    if (present_surface(damage_window, 4U, 4U, 4U,
+                        damage_payload, sizeof(damage_payload)) != Status::Ok ||
+        damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1U ||
+        damage.regions[0].x != 80 || damage.regions[0].y != 90 ||
+        damage.regions[0].width != 300 || damage.regions[0].height != 220) return 33;
+
+    if (!render_if_needed()) return 34;
+    invalidate_region({10, 10, 20, 20});
+    invalidate_region({30, 10, 10, 20});
+    if (damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1U ||
+        damage.regions[0].x != 10 || damage.regions[0].y != 10 ||
+        damage.regions[0].width != 30 || damage.regions[0].height != 20) return 35;
+
+    if (!render_if_needed()) return 36;
+    invalidate_region({-5, -7, 12, 11});
+    invalidate_region({200, 200, 0, 10});
+    invalidate_region({200, 200, -4, 10});
+    if (damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1U ||
+        damage.regions[0].x != 0 || damage.regions[0].y != 0 ||
+        damage.regions[0].width != 7 || damage.regions[0].height != 4) return 37;
+
+    if (!render_if_needed()) return 38;
+    for (size_t index = 0U; index <= MAX_DAMAGE_REGIONS; ++index) {
+        invalidate_region({10 + static_cast<int32_t>(index * 4U), 300, 1, 1});
+    }
+    if (damage_snapshot(&damage) != Status::Ok || !damage.full || damage.count != 0U) {
+        return 39;
+    }
+
+    if (!render_if_needed()) return 40;
+    if (focus(second) != Status::Ok || damage_snapshot(&damage) != Status::Ok ||
+        !damage.full || damage.count != 0U) return 41;
+    if (close(damage_window) != Status::Ok) return 42;
     return 0;
 }

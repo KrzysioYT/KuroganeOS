@@ -53,6 +53,12 @@ struct SurfaceView {
     size_t size;
 };
 
+struct DamageSnapshot {
+    bool full;
+    size_t count;
+    ui::Rect regions[MAX_DAMAGE_REGIONS];
+};
+
 struct WorkspaceGeometry {
     ui::Rect work_area;
     ui::Rect signal_spine;
@@ -112,6 +118,7 @@ Status desktop_pin(
 void invalidate();
 void invalidate_window(WindowId id);
 void invalidate_region(const ui::Rect& region);
+Status damage_snapshot(DamageSnapshot* out_snapshot);
 Status present_surface(
     WindowId id,
     size_t width,
