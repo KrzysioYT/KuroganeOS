@@ -1,0 +1,127 @@
+name: Diagnose q35 KVM Driver Binding
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/diagnose-kvm-driver-bind.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  driver-bind-trace:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify host
+        run: |
+          set -euo pipefail
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+
+      - name: Inject driver bind trace
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/drivers/core/driver_manager.cpp')
+          text = path.read_text()
+          include = '#include "driver_manager.hpp"\n'
+          if text.count(include) != 1:
+              raise SystemExit('driver manager include anchor mismatch')
+          text = text.replace(include, include + '#include "core/log.hpp"\n', 1)
+
+          probe = '        KStatus status = driver.probe(*target, driver.timeout_ticks, driver.context);\n'
+          probe_trace = (
+              '        log::write_u64(log::Level::Info, "DRIVER-BIND", "probe device=", id);\n'
+              '        log::write_u64(log::Level::Info, "DRIVER-BIND", "probe driver=", driver.id);\n'
+              '        log::write(log::Level::Info, "DRIVER-BIND", driver.name);\n'
+              + probe
+              + '        log::write_u64(log::Level::Info, "DRIVER-BIND", "probe status=", static_cast<uint64_t>(status));\n'
+          )
+          if text.count(probe) != 1:
+              raise SystemExit('probe anchor mismatch')
+          text = text.replace(probe, probe_trace, 1)
+
+          attach = '        status = driver.attach(*target, driver.timeout_ticks, driver.context);\n'
+          attach_trace = (
+              '        log::write_u64(log::Level::Info, "DRIVER-BIND", "attach device=", id);\n'
+              '        log::write_u64(log::Level::Info, "DRIVER-BIND", "attach driver=", driver.id);\n'
+              '        log::write(log::Level::Info, "DRIVER-BIND", driver.name);\n'
+              + attach
+              + '        log::write_u64(log::Level::Info, "DRIVER-BIND", "attach status=", static_cast<uint64_t>(status));\n'
+          )
+          if text.count(attach) != 1:
+              raise SystemExit('attach anchor mismatch')
+          path.write_text(text.replace(attach, attach_trace, 1))
+
+      - name: Validate diagnostic patch
+        run: |
+          git diff --check
+          grep -F 'DRIVER-BIND' kernel/drivers/core/driver_manager.cpp
+
+      - name: Build diagnostic release image
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Boot q35 KVM and capture binding trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          trap 'rm -rf -- "$tmp"' EXIT
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]]
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          cp "$vars_template" "$vars"
+
+          set +e
+          timeout --signal=TERM --kill-after=3s 30s \
+            qemu-system-x86_64 \
+              -machine q35,accel=kvm \
+              -cpu host \
+              -m 1024 \
+              -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+              -drive if=pflash,format=raw,unit=1,file="$vars" \
+              -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+              -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+              -netdev user,id=kurogane_net \
+              -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+              -serial "file:$serial" \
+              -display none \
+              -no-reboot \
+              -no-shutdown \
+              >"$qemu_log" 2>&1
+          rc=$?
+          set -e
+
+          cat "$qemu_log"
+          cat "$serial"
+          echo "[diagnose] qemu_status=$rc"
+          grep -F 'DRIVER-BIND' "$serial" || true
+          test -s "$serial"
