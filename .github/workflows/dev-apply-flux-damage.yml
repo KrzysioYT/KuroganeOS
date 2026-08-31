@@ -1,0 +1,53 @@
+name: Dev Apply 3.6 Flux Damage
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-flux-damage.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-flux-damage:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout patch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply deterministic production patch
+        run: python3 scripts/dev-apply-flux-damage.py
+
+      - name: Validate damage and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'DamageSnapshot' kernel/ui/window_manager.hpp
+          grep -F 'damage_snapshot(' kernel/ui/window_manager.cpp
+          grep -F 'damage_snapshot(' tests/test_window_manager.cpp
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Commit production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add \
+            kernel/ui/window_manager.hpp \
+            kernel/ui/window_manager.cpp \
+            tests/test_window_manager.cpp
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no source changes to commit' >&2; exit 1; }
+          git commit -m 'test(3.6): qualify bounded Flux damage regions'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
