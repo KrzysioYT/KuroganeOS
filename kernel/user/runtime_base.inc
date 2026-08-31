@@ -182,9 +182,18 @@ void split_native_tile_text(
 }
 
 void draw_native_frame(
+    windowing::WindowId window,
     const ku_ui_native_frame& frame,
     const ui::Rect& content,
     bool focused) {
+    windowing::InteractionSnapshot interaction{};
+    const bool pointer_owner =
+        windowing::interaction_snapshot(&interaction) == windowing::Status::Ok &&
+        interaction.hovered == window;
+    const int32_t pointer_x = input::pointer_x();
+    const int32_t pointer_y = input::pointer_y();
+    const bool primary_down =
+        (input::pointer_buttons() & drivers::mouse::Left) != 0U;
     const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
@@ -200,6 +209,14 @@ void draw_native_frame(
         const ui::Rect bounds = native_bounds(content, command);
         const bool selected = (command.flags & KU_UI_NATIVE_SELECTED) != 0U;
         const bool disabled = (command.flags & KU_UI_NATIVE_DISABLED) != 0U;
+        const bool interactive = !disabled &&
+            (command.type == KU_UI_NATIVE_BUTTON ||
+             command.type == KU_UI_NATIVE_INPUT ||
+             command.type == KU_UI_NATIVE_LIST_ITEM ||
+             command.type == KU_UI_NATIVE_TILE);
+        const bool hovered = pointer_owner && interactive &&
+            ui::contains(bounds, pointer_x, pointer_y);
+        const bool pressed = hovered && primary_down;
         switch (command.type) {
             case KU_UI_NATIVE_PANEL:
                 ui::panel(bounds, true);
@@ -212,13 +229,13 @@ void draw_native_frame(
                                     background, 1U, true);
                 break;
             case KU_UI_NATIVE_BUTTON:
-                ui::button(bounds, command.text, selected);
+                ui::button(bounds, command.text, selected, hovered, pressed);
                 break;
             case KU_UI_NATIVE_INPUT:
-                ui::input_field(bounds, command.text, selected);
+                ui::input_field(bounds, command.text, selected, hovered, pressed);
                 break;
             case KU_UI_NATIVE_LIST_ITEM:
-                ui::list_row(bounds, command.text, selected, disabled);
+                ui::list_row(bounds, command.text, selected, disabled, hovered, pressed);
                 break;
             case KU_UI_NATIVE_PROGRESS: {
                 graphics::draw_text(bounds.x, bounds.y, command.text,
@@ -241,7 +258,8 @@ void draw_native_frame(
                     static_cast<ui::AppIcon>(command.value),
                     selected,
                     (command.flags & KU_UI_NATIVE_PINNED) != 0U,
-                    (command.flags & KU_UI_NATIVE_RUNNING) != 0U);
+                    (command.flags & KU_UI_NATIVE_RUNNING) != 0U,
+                    hovered, pressed);
                 break;
             }
             default:
@@ -267,7 +285,7 @@ void draw_user_window(
             destination[index] = retained.data[index];
         }
         if (native_frame_valid(native)) {
-            draw_native_frame(native, content, focused);
+            draw_native_frame(context->ui.window, native, content, focused);
             return;
         }
     }

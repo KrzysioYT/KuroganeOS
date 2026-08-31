@@ -63,6 +63,7 @@ struct InteractionSnapshot {
     WindowId focused;
     WindowId dragged;
     WindowId resized;
+    WindowId hovered;
 };
 
 struct ResourceSnapshot {

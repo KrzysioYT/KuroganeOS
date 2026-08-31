@@ -540,14 +540,23 @@ void label(const Rect& bounds, const char* text,
                         kTheme.panel, scale, true);
 }
 
-void button(const Rect& bounds, const char* text, bool selected) {
-    const auto background = selected ? graphics::rgb(55, 20, 26) : kTheme.panel_alt;
-    const auto signal = selected ? kRedBright : kTheme.border;
+void button(
+    const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed) {
+    const auto background = pressed
+        ? graphics::rgb(66, 18, 28)
+        : (selected ? graphics::rgb(55, 20, 26)
+                    : (hovered ? graphics::rgb(34, 30, 35) : kTheme.panel_alt));
+    const auto signal = pressed ? kTheme.danger
+        : (selected ? kRedBright : (hovered ? kRedMuted : kTheme.border));
     graphics::fill_rect(bounds.x + 2, bounds.y + 2,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
     graphics::fill_rect(bounds.x + 3, bounds.y, bounds.width - 3, 1, signal);
+    if (pressed && bounds.width > 20) {
+        graphics::fill_rect(bounds.x + 8, bounds.y + bounds.height - 3,
+                            bounds.width - 16, 2, kRedBright);
+    }
 
     const char* rendered = text;
     if (text_equals(text, "[]")) rendered = "<>";
@@ -560,40 +569,49 @@ void button(const Rect& bounds, const char* text, bool selected) {
                         kTheme.text, background, 2U, true);
 }
 
-void input_field(const Rect& bounds, const char* text, bool focused) {
+void input_field(
+    const Rect& bounds, const char* text, bool focused, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const graphics::Color background = focused
-        ? graphics::rgb(24, 18, 22) : kTheme.panel_alt;
-    const graphics::Color border = focused ? kRedBright : kTheme.border;
+    const graphics::Color background = pressed
+        ? graphics::rgb(31, 16, 21)
+        : (focused ? graphics::rgb(24, 18, 22)
+                   : (hovered ? graphics::rgb(24, 24, 28) : kTheme.panel_alt));
+    const graphics::Color border = focused || pressed
+        ? kRedBright : (hovered ? kRedMuted : kTheme.border);
     graphics::fill_rect(bounds.x + 3, bounds.y + 3,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
     graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
-                        focused ? kRedBright : kRedDeep);
+                        focused || pressed ? kRedBright
+                                           : (hovered ? kRedMuted : kRedDeep));
     graphics::draw_text(bounds.x + 12, bounds.y + (bounds.height - 8) / 2,
                         text ? text : "", kTheme.text, background, 1U, true);
 }
 
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
-    bool selected, bool pinned, bool running) {
+    bool selected, bool pinned, bool running, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const graphics::Color background = selected
-        ? graphics::rgb(49, 20, 27)
-        : (running ? graphics::rgb(24, 22, 26) : kGraphite);
-    const graphics::Color border = selected
-        ? kRedBright : (running ? kSteel : kTheme.border);
+    const graphics::Color background = pressed
+        ? graphics::rgb(63, 17, 27)
+        : (selected ? graphics::rgb(49, 20, 27)
+                    : (hovered ? graphics::rgb(36, 27, 32)
+                               : (running ? graphics::rgb(24, 22, 26) : kGraphite)));
+    const graphics::Color border = pressed || selected
+        ? kRedBright : (hovered ? kRedMuted : (running ? kSteel : kTheme.border));
     graphics::fill_rect(bounds.x + 4, bounds.y + 5,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
     graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
-                        selected ? kRedBright : (running ? kRedMuted : kRedDeep));
-    if (selected) {
+                        pressed || selected ? kRedBright
+                                            : (hovered || running ? kRedMuted : kRedDeep));
+    if (selected || hovered) {
         graphics::fill_rect(bounds.x + 12, bounds.y, 48, 2, kRedBright);
     }
-    app_icon_glyph(bounds, icon, kTheme.text, selected ? kRedBright : kRedMuted);
+    app_icon_glyph(bounds, icon, kTheme.text,
+                   pressed || selected || hovered ? kRedBright : kRedMuted);
     graphics::draw_text(bounds.x + 50, bounds.y + 13,
                         title ? title : "APP", kTheme.text, background, 1U, true);
     graphics::draw_text(bounds.x + 50, bounds.y + 31,
@@ -604,25 +622,33 @@ void app_tile(
     }
     if (running) {
         graphics::fill_rect(bounds.x + 12, bounds.y + bounds.height - 7, 28, 2,
-                            selected ? kRedBright : kRedMuted);
+                            selected || hovered ? kRedBright : kRedMuted);
+    }
+    if (pressed && bounds.width > 28) {
+        graphics::fill_rect(bounds.x + 52, bounds.y + bounds.height - 5,
+                            bounds.width - 64, 2, kRedBright);
     }
 }
 
 void list_row(
-    const Rect& bounds, const char* text, bool selected, bool disabled) {
+    const Rect& bounds, const char* text, bool selected, bool disabled,
+    bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
-    const graphics::Color background = selected
-        ? graphics::rgb(43, 20, 25) : kGraphite;
-    const graphics::Color signal = selected
-        ? kRedBright : (disabled ? kInactiveSignal : kSteel);
+    const graphics::Color background = pressed
+        ? graphics::rgb(55, 18, 27)
+        : (selected ? graphics::rgb(43, 20, 25)
+                    : (hovered ? graphics::rgb(31, 29, 33) : kGraphite));
+    const graphics::Color signal = pressed || selected
+        ? kRedBright : (disabled ? kInactiveSignal : (hovered ? kRedMuted : kSteel));
     const graphics::Color foreground = disabled ? kTheme.text_muted : kTheme.text;
     graphics::fill_rect(bounds.x + 3, bounds.y + 3,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
-                        selected ? kRedMuted : kTheme.border);
+                        pressed || selected ? kRedMuted
+                                            : (hovered ? kSteel : kTheme.border));
     graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height, signal);
-    if (selected && bounds.width > 48) {
+    if ((selected || hovered) && bounds.width > 48) {
         graphics::fill_rect(bounds.x + 12, bounds.y, 34, 2, kRedBright);
     }
     graphics::draw_text(bounds.x + 14, bounds.y + (bounds.height - 8) / 2,

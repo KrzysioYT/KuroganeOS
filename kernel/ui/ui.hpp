@@ -72,14 +72,19 @@ void pulse_item(const Rect& bounds, const char* title, bool focused, bool minimi
 
 void label(const Rect& bounds, const char* text,
            graphics::Color color = 0, uint32_t scale = 1);
-void button(const Rect& bounds, const char* text, bool selected = false);
-void input_field(const Rect& bounds, const char* text, bool focused = false);
+void button(
+    const Rect& bounds, const char* text, bool selected = false,
+    bool hovered = false, bool pressed = false);
+void input_field(
+    const Rect& bounds, const char* text, bool focused = false,
+    bool hovered = false, bool pressed = false);
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
-    bool selected = false, bool pinned = false, bool running = false);
+    bool selected = false, bool pinned = false, bool running = false,
+    bool hovered = false, bool pressed = false);
 void list_row(
     const Rect& bounds, const char* text, bool selected = false,
-    bool disabled = false);
+    bool disabled = false, bool hovered = false, bool pressed = false);
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum);
 void separator(int32_t x, int32_t y, int32_t width);
 

@@ -93,6 +93,7 @@ int32_t g_screen_height = 0;
 WindowId g_focused = INVALID_WINDOW;
 WindowId g_dragged = INVALID_WINDOW;
 WindowId g_resized = INVALID_WINDOW;
+WindowId g_hovered = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
@@ -543,14 +544,38 @@ void purge_exposed_session() {
     g_focused = INVALID_WINDOW;
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
+    g_hovered = INVALID_WINDOW;
     update_z_order();
     mark_full_dirty();
 }
 #endif
 
+WindowId hit_test(int32_t x, int32_t y);
+
 void cancel_capture(WindowId id) {
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
     if (g_resized == id) g_resized = INVALID_WINDOW;
+}
+
+void clear_hover(WindowId id) {
+    if (g_hovered == id) g_hovered = INVALID_WINDOW;
+}
+
+void update_pointer_feedback(const input::Event& event) {
+    if (event.type != input::EventType::MouseMove &&
+        event.type != input::EventType::MouseButtonDown &&
+        event.type != input::EventType::MouseButtonUp) return;
+    const WindowId previous = g_hovered;
+    const WindowId next = hit_test(event.x, event.y);
+    if (previous != INVALID_WINDOW && previous != next) {
+        invalidate_window(previous);
+    }
+    if (next != INVALID_WINDOW) {
+        // Repaint even within one window: the pointer may have crossed
+        // native widget geometry while the owning window stayed the same.
+        invalidate_window(next);
+    }
+    g_hovered = next;
 }
 
 void choose_top_focus() {
@@ -843,6 +868,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_focused = INVALID_WINDOW;
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
+    g_hovered = INVALID_WINDOW;
 #ifndef KUROGANE_HOST_TEST
     g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
@@ -928,6 +954,7 @@ Status close(WindowId id) {
         g_order[index - 1U] = g_order[index];
     }
     --g_count;
+    clear_hover(id);
     release_slot(*slot);
     cancel_capture(id);
     choose_top_focus();
@@ -1029,6 +1056,11 @@ Status focus(WindowId id) {
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     if (position == g_count) return Status::NotFound;
+    // Clicking a widget in the already-focused topmost window does not change
+    // z-order or chrome. Keep this path idempotent so transient pressed/hover
+    // feedback can remain a bounded window-region repaint instead of forcing
+    // a full desktop composition.
+    if (g_focused == id && position + 1U == g_count) return Status::Ok;
     for (size_t index = position + 1U; index < g_count; ++index) {
         g_order[index - 1U] = g_order[index];
     }
@@ -1068,6 +1100,7 @@ Status minimize(WindowId id) {
         return Status::InvalidState;
     }
     cancel_capture(id);
+    clear_hover(id);
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
@@ -1271,6 +1304,8 @@ Status dispatch(const input::Event& event) {
         g_resized = INVALID_WINDOW;
     }
 
+    update_pointer_feedback(event);
+
 #ifndef KUROGANE_HOST_TEST
     if (event.type == input::EventType::MouseMove) move_cursor(event.x, event.y);
 #endif
@@ -1317,6 +1352,7 @@ Status interaction_snapshot(InteractionSnapshot* out_snapshot) {
     out_snapshot->focused = g_focused;
     out_snapshot->dragged = g_dragged;
     out_snapshot->resized = g_resized;
+    out_snapshot->hovered = g_hovered;
     return Status::Ok;
 }
 

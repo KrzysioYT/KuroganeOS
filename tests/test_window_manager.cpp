@@ -314,12 +314,11 @@ int main() {
     if (create_window("RED FLUX HOME", 17U, {100, 100, 360, 260},
                       draw, receive, nullptr, &home) != Status::Ok ||
         query(home, &info) != Status::Ok ||
-        info.state != WindowState::Minimized) return 57;
+        info.state != WindowState::Normal || focused_window() != home) return 57;
     uint8_t home_payload[16]{};
     home_payload[0] = UINT8_C(0x5a);
     if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=
-            Status::Ok ||
-        restore(home) != Status::Ok || query(home, &info) != Status::Ok ||
+            Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Normal) return 58;
     if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Minimized) return 59;
@@ -490,5 +489,55 @@ int main() {
         owner_after.windows != owner_baseline.windows ||
         owner_after.retained_surfaces != owner_baseline.retained_surfaces ||
         owner_after.retained_bytes != owner_baseline.retained_bytes) return 91;
+
+    // Native pointer feedback is owned by the topmost live WindowId. Pointer
+    // movement and button transitions invalidate only window regions so hover
+    // and pressed visuals never require a full compositor repaint.
+    WindowId hover_window = INVALID_WINDOW;
+    if (create_window("Hover", UINT64_C(5151), {140, 150, 300, 220},
+                      draw, receive, nullptr, &hover_window) != Status::Ok ||
+        !render_if_needed()) return 92;
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.x = 180;
+    event.y = 210;
+    if (dispatch(event) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.hovered != hover_window) return 93;
+    if (damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1U ||
+        damage.regions[0].x != 140 || damage.regions[0].y != 150 ||
+        damage.regions[0].width != 300 || damage.regions[0].height != 220) return 94;
+    if (!render_if_needed()) return 95;
+
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    if (dispatch(event) != Status::Ok || damage_snapshot(&damage) != Status::Ok ||
+        damage.full || damage.count != 1U) return 96;
+    if (!render_if_needed()) return 97;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || damage_snapshot(&damage) != Status::Ok ||
+        damage.full || damage.count != 1U) return 98;
+    if (!render_if_needed()) return 99;
+
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.x = 790;
+    event.y = 590;
+    if (dispatch(event) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.hovered != INVALID_WINDOW ||
+        damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1U) return 100;
+    if (!render_if_needed()) return 101;
+
+    event.x = 180;
+    event.y = 210;
+    if (dispatch(event) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.hovered != hover_window) return 102;
+    if (close(hover_window) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.hovered != INVALID_WINDOW) return 103;
     return 0;
 }
