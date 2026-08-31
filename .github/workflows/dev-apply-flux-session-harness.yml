@@ -1,0 +1,49 @@
+name: Dev Apply 3.6 Flux Session Harness
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-flux-session-harness.py'
+      - '.github/workflows/dev-apply-flux-session-harness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-session-harness:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout harness patch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply count-aware QEMU harness
+        run: python3 scripts/dev-apply-flux-session-harness.py
+
+      - name: Validate harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          grep -F -- '--send-key-after-marker-count' scripts/smoke-uefi-iso-qemu.sh
+          grep -F -- '--require-marker-count' scripts/smoke-uefi-iso-qemu.sh
+          grep -F 'marker_occurrences()' scripts/smoke-uefi-iso-qemu.sh
+
+      - name: Commit count-aware production harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add scripts/smoke-uefi-iso-qemu.sh
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no harness changes to commit' >&2; exit 1; }
+          git commit -m 'test(3.6): add repeated Flux session QEMU actions'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
