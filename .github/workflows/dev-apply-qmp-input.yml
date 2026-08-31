@@ -1,0 +1,49 @@
+name: Dev Apply 3.6 QMP Input
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-qmp-input.py'
+      - '.github/workflows/dev-apply-qmp-input.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-qmp-input:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout QMP patch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Apply acknowledged QMP input harness
+        run: python3 scripts/dev-apply-qmp-input.py
+
+      - name: Validate QMP harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          grep -F '"execute": "qmp_capabilities"' scripts/smoke-uefi-iso-qemu.sh
+          grep -F '"execute": "send-key"' scripts/smoke-uefi-iso-qemu.sh
+          grep -F -- '-qmp "unix:$qmp,server=on,wait=off"' scripts/smoke-uefi-iso-qemu.sh
+
+      - name: Commit QMP qualification harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add scripts/smoke-uefi-iso-qemu.sh
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no QMP harness changes to commit' >&2; exit 1; }
+          git commit -m 'test(3.6): require acknowledged QMP input injection'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
