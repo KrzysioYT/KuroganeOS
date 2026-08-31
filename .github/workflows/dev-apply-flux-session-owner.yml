@@ -25,7 +25,19 @@ jobs:
           submodules: recursive
 
       - name: Apply deterministic production patch
-        run: python3 scripts/dev-apply-flux-session-owner.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The patcher was validated together with the runtime-workflow edit in
+          # run 33423283603, but the self-hosted Actions token cannot push a
+          # workflow file. Recreate only that guarded baseline locally, apply the
+          # exact same patch, then restore the already-updated workflow from this
+          # source commit. The production diff remains identical to the validated
+          # source slice while workflow configuration is owned by GitHub directly.
+          git show cfd7ab76d6b87df103145bc21db60345d5287a4e:.github/workflows/qualify-flux-runtime.yml \
+            > .github/workflows/qualify-flux-runtime.yml
+          python3 scripts/dev-apply-flux-session-owner.py
+          git checkout "$GITHUB_SHA" -- .github/workflows/qualify-flux-runtime.yml
 
       - name: Validate ownership, host regressions and release kernel
         shell: bash
@@ -51,8 +63,7 @@ jobs:
             kernel/main.cpp \
             kernel/apps/desktop_session.cpp \
             kernel/user/console.cpp \
-            scripts/smoke-uefi-iso-qemu.sh \
-            .github/workflows/qualify-flux-runtime.yml
+            scripts/smoke-uefi-iso-qemu.sh
           git diff --cached --check
           git diff --cached --quiet && { echo 'no source changes to commit' >&2; exit 1; }
           git commit -m 'fix(3.6): unify Flux desktop session ownership'
