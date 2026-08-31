@@ -16,17 +16,14 @@ Status: **QUALIFIED scoped DEV milestone**.
 
 Initial baseline: `17bd55091c63544b9585840192f0eb288e9cffff`.
 
-The Red Flux milestone was subsequently completed through internal workstreams covering installer reliability, network stabilization, TLS/HTTPS, userspace I/O/resource ownership and regression closeout. Those changes remain logically part of 3.3.3-dev rather than creating additional formal 3.3.x releases.
+Red Flux was completed through internal installer, networking, TLS/HTTPS, userspace ownership, desktop/audio and regression workstreams. The reopened Kurogane Fatal Diagnostic release gate is also qualified. Oracle VirtualBox host execution remains optional external compatibility validation.
 
-Verified closeout evidence includes Actions runs:
+Representative closeout evidence:
 - `33220748290` — userspace ownership regression PASS;
 - `33220761526` — real guest TLS/HTTPS PASS;
 - `33220774861` — combined UEFI/media/network qualification PASS;
-- `33220980716` — expanded closeout including IPC channel/event/shared-memory PASS.
-
-Last closeout workstream commit recorded: `21ba9a619e6de2ed6bf1510a7676e32313b67138`.
-
-Oracle VirtualBox host execution is optional external compatibility validation and is not a formal-version blocker.
+- `33220980716` — expanded IPC closeout PASS;
+- `33315953767` — Fatal Diagnostic regression PASS after later runtime-stack hardening.
 
 ## Historical Red Flux workstream labels
 
@@ -40,21 +37,46 @@ These are not entries in the formal release sequence.
 
 ## 3.4.0-dev — System Services
 
-Status: **IN DEVELOPMENT**.
+Status: **QUALIFIED**.
 
-Qualified foundation:
-- named IPC registration/discovery;
-- PID ownership and process-exit cleanup;
-- generation-safe IPC/event/shared-memory handles;
-- public Service SDK;
-- Service Architecture qualification run `33221125505` PASS.
+Qualified scope includes named IPC, generation-safe service/event handles, explicit PID ownership and cleanup, public Service SDK/version negotiation, Event Broker, Settings, Notification, Account, Session and Clipboard services, public persistent filesystem access, restart/rebind recovery and bounded service-channel churn.
 
-Current internal workstream: Event Broker (`dev/3.4.1-event-broker`). A real `events.v1` Ring-3 endpoint, subscription table, event grants/signals and public protocol exist. Runtime roundtrip run `33221674569` currently FAILS, so Event Broker is not yet qualified.
+Authoritative evidence:
+- Event Broker `33315953868` — PASS;
+- Settings persistence `33315953774` — PASS;
+- Notification lifecycle `33315953760` — PASS;
+- combined System Services closeout `33317140601` — PASS;
+- full 3.4 regression sweep `33317520153` — PASS;
+- full 3.4 regression repeated on final 3.5 SHA: `33410600879` — PASS.
+
+## 3.5.0-dev — Connected Userspace
+
+Status: **QUALIFIED**.
+
+Final qualification source SHA: `7f715a9d654a76b300f1161ba86f4e97fee5e500`.
+
+Qualified scope includes process-owned public sockets and cleanup, UDP readiness, TCP lifecycle/error/timeout handling, DNS Service and restart/rebind, live Network Events, verified TLS/HTTPS, asynchronous Audio Service, Application Registry and cross-regression with System Services.
+
+Fresh same-SHA evidence:
+- Socket/TCP `33410591776` — PASS;
+- DNS Service `33410593584` — PASS;
+- Network Events `33410595658` — PASS;
+- Audio + Application Registry KVM `33410597347` — PASS;
+- TLS/HTTPS `33410598935` — PASS;
+- 3.4 regression sweep `33410600879` — PASS;
+- Connected Userspace closeout `33410583405` — PASS;
+- final self-hosted KVM job `99549667506` — PASS with clean media and uninjected production OVMF boot.
+
+Final runtime evidence included DHCP, gateway ICMP, global required tests, real Intel ICH AC'97 initialization and `[TEST] connected_userspace_closeout: PASS`.
+
+## 3.6.0-dev — Flux Stabilization
+
+Status: **ACTIVE**.
+
+Current work begins with bounded native per-window surfaces and damage regions while preserving the existing Red Flux Window Core and compatibility `KU_SYS_UI_PRESENT` path. Follow-up gates cover focus/input/drag/resize ownership, GUI crash isolation, Login → Home → Login recovery and long-runtime window/session churn.
 
 ## Future formal milestones
 
-- `3.5.0-dev` — Connected Userspace.
-- `3.6.0-dev` — Flux Stabilization.
 - `4.0.0-dev` — Pre-Steel.
 - `5.0.0-dev` — Steel / Hardware.
 - `6.0.0-dev` — Core Steel.
