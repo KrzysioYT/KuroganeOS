@@ -73,6 +73,17 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_directory"
 
+# Exercise KuroFS through the production VFS routing/open/read/readdir API.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_vfs.cpp \
+  kernel/fs/kurofs_vfs.cpp \
+  kernel/fs/kurofs.cpp \
+  kernel/fs/vfs.cpp \
+  -o "$OUT_DIR/test_kurofs_vfs"
+
+"$OUT_DIR/test_kurofs_vfs"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_ipc.cpp \

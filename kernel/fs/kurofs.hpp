@@ -114,8 +114,9 @@ Status allocate_inode(
     FileSystem* filesystem, InodeType type, uint64_t* out_inode_id);
 
 // Persist an update to an already allocated inode. The caller supplies the
-// generation it read; success increments that generation, making stale
-// snapshots fail deterministically. Any published extent must already be
+// incarnation generation and metadata revision it read; success preserves
+// generation and increments revision, making stale writes deterministic.
+// Any published extent must already be fully allocated in the bitmap.
 // fully allocated in the persistent bitmap.
 Status update_inode(FileSystem* filesystem, Inode* inode);
 
@@ -131,7 +132,7 @@ Status write_extent_data(
     size_t size);
 
 // Read at most the persisted inode size. EOF is reported as zero bytes. The
-// supplied inode snapshot must still match the on-disk generation.
+// supplied inode snapshot must still match on-disk generation and revision.
 Status read_inode_data(
     FileSystem* filesystem,
     const Inode* inode,
