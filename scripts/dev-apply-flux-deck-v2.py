@@ -23,8 +23,13 @@ text = read(path)
 text = replace_once(
     text,
     "    const bool home = is_home_surface(title);\n#ifndef KUROGANE_HOST_TEST\n    const bool login = text_equals(title, \"KUROGANE LOGIN\");\n",
-    "#ifndef KUROGANE_HOST_TEST\n    const bool home = is_home_surface(title);\n    const bool login = text_equals(title, \"KUROGANE LOGIN\");\n",
-    "host-only HOME variable guard")
+    "    const bool home = is_home_surface(title);\n"
+    "#ifdef KUROGANE_HOST_TEST\n"
+    "    static_cast<void>(home);\n"
+    "#endif\n"
+    "#ifndef KUROGANE_HOST_TEST\n"
+    "    const bool login = text_equals(title, \"KUROGANE LOGIN\");\n",
+    "warning-clean HOME identity")
 text = replace_once(
     text,
     "    slot.info.state = (owner_pid == 0U || home)\n        ? WindowState::Minimized : WindowState::Normal;\n",
