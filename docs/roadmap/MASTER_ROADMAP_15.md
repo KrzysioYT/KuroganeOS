@@ -19,8 +19,8 @@ The compiled runtime version may remain `3.3.3-dev` while later engineering mile
 |---|---|---|
 | `3.3.3-dev` | Red Flux | QUALIFIED |
 | `3.4.0-dev` | System Services | QUALIFIED |
-| `3.5.0-dev` | Connected Userspace | ACTIVE |
-| `3.6.0-dev` | Flux Stabilization | PENDING |
+| `3.5.0-dev` | Connected Userspace | QUALIFIED |
+| `3.6.0-dev` | Flux Stabilization | ACTIVE |
 | `4.0.0-dev` | Pre-Steel | PENDING |
 | `5.0.0-dev` | Steel / Hardware | PENDING |
 | `6.0.0-dev` | Core Steel | PENDING |
@@ -86,45 +86,52 @@ No known 3.4 blocker remains after the combined closeout and regression sweep.
 
 ## 3.5.0-dev — Connected Userspace
 
-Status: **ACTIVE**.
+Status: **QUALIFIED**.
 
-Preserve existing IPv4, DHCP, DNS, TCP, TLS/HTTPS, Ring-3 runtime, Event Broker and scheduler wait/wakeup foundations. The public DNS A-resolution ABI is already implemented and is the first Connected Userspace component; networking is not to be recreated from scratch.
+Completed scope:
+- bounded public process-owned socket table with generation-safe handles and explicit PID ownership;
+- deterministic socket/process-exit cleanup and stale-handle protection;
+- public `socket` / `close` / `bind` / `connect` / `send` / `recv` transport contracts;
+- real UDP roundtrip, bounded receive state and waitable readiness;
+- real TCP connect/progression/refused/reset/timeout/cleanup qualification;
+- DNS Service integration, NXDOMAIN/malformed handling and service restart/rebind;
+- live network status/events from E1000 carrier state through `netevtd` and Event Broker to Ring-3;
+- verified TLS/HTTPS runtime with CA validation, hostname validation, SNI and bounded responses;
+- asynchronous Audio Service with bounded queues, multi-client mixing, generation-safe streams and process-exit AC'97 ownership cleanup;
+- Application Registry with bounded catalog, manifests, executable validation and client cleanup;
+- same-SHA connected-userspace component regression plus clean production KVM closeout.
 
-### Work order
+### 3.5 authoritative evidence
 
-1. **Public process-owned socket ABI**
-   - bounded socket table;
-   - generation-safe socket handles;
-   - explicit PID ownership;
-   - typed socket type/protocol/status contracts;
-   - `socket()` and `close()`;
-   - deterministic `release_process(pid)` cleanup.
-2. **Endpoint and transport operations**
-   - `bind()`;
-   - `connect()`;
-   - `send()`;
-   - `recv()`;
-   - real passive TCP implementation before `listen()` / `accept()` can be claimed.
-3. **Asynchronous UDP**
-   - endpoint demultiplexing;
-   - bounded datagram receive queues;
-   - Event Broker / waitable readiness;
-   - no permanent busy-loop polling.
-4. **Asynchronous TCP**
-   - process-owned connection state;
-   - bounded send/receive state;
-   - wait/wakeup for connect/read/write/close transitions.
-5. DNS Service integration and network status/events.
-6. Userspace TLS ownership and userspace HTTPS API.
-7. Async Audio Service.
-8. App Registry and application manifests.
-9. Connected-userspace regression and failure/recovery qualification.
+All component gates below were re-run against exact source SHA `7f715a9d654a76b300f1161ba86f4e97fee5e500`:
+- Socket/TCP core: Actions run `33410591776` — PASS;
+- DNS Service: Actions run `33410593584` — PASS;
+- Network Events: Actions run `33410595658` — PASS;
+- Audio Service + App Registry KVM cross-qualification: Actions run `33410597347` — PASS;
+- verified TLS/HTTPS runtime: Actions run `33410598935` — PASS;
+- full 3.4 regression sweep on the 3.5 closeout SHA: Actions run `33410600879` — PASS.
 
-Every socket/process exit path must release sockets, pending receives/sends, subscriptions, buffers and associated handles. A stale handle may never accidentally identify a newly-created socket.
+Connected Userspace closeout: Actions run `33410583405` — **PASS**. Its final self-hosted KVM job `99549667506` performed the full host regression suite, a clean release IMG/ISO build and an uninjected production OVMF/q35/KVM boot with E1000 and Intel ICH AC'97. The runtime reached `[TEST] dhcp_lease: PASS`, `[TEST] network_gateway_icmp: PASS`, `[TEST] ALL_REQUIRED_TESTS_PASSED`, real AC'97 initialization and `[TEST] connected_userspace_closeout: PASS`.
+
+No known 3.5 blocker remains after the same-SHA component gates and clean KVM production closeout.
 
 ## 3.6.0-dev — Flux Stabilization
 
-Compositor cleanup, per-window surfaces, damage regions, input/focus, drag/resize, process/window ownership, app crash isolation, boot/login/session reliability and long-runtime qualification.
+Status: **ACTIVE**.
+
+Preserve the already-working Red Flux Window Core: generation-checked window IDs, focus/z-order, header drag, interactive resize, minimize/maximize/restore/close, Alt+Tab/Alt+F4, software pointer, session ownership and the existing full-frame software backbuffer.
+
+### Work order
+
+1. Native bounded per-window surfaces rather than relying only on full `KU_SYS_UI_PRESENT` frame transport.
+2. Damage-region tracking, clipping and partial composition with deterministic full-frame fallback.
+3. Harden focus/input routing, drag/resize state and window/process ownership across teardown.
+4. Prove app crash isolation: a crashed GUI owner must release its windows/surfaces without taking down the session.
+5. Harden Login → Home → Login supervision and session restart/recovery.
+6. Long-runtime desktop churn qualification covering repeated create/present/focus/resize/close/crash/relaunch cycles.
+7. Full host/SDK/media regressions plus real OVMF/KVM Flux Stabilization closeout.
+
+3.6 does not claim GPU acceleration; Forge Graphics remains a later formal milestone.
 
 ## 4.0.0-dev — Pre-Steel
 
