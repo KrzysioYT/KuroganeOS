@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply revision-aware KuroFS directory records with corrected NUL parsing."""
+"""Apply revision-aware KuroFS directory records with canonical NUL parsing."""
 
 from pathlib import Path
 import subprocess
@@ -22,9 +22,16 @@ cpp = ROOT / "kernel/fs/kurofs.cpp"
 text = cpp.read_text(encoding="utf-8")
 bad_nul = r"'\\0'"
 good_nul = r"'\0'"
-if text.count(bad_nul) != 2:
-    raise SystemExit(f"kurofs.cpp: expected two escaped-backslash NUL literals, found {text.count(bad_nul)}")
-cpp.write_text(text.replace(bad_nul, good_nul), encoding="utf-8")
+bad_count = text.count(bad_nul)
+good_count = text.count(good_nul)
+if bad_count == 2 and good_count == 0:
+    text = text.replace(bad_nul, good_nul)
+elif bad_count == 0 and good_count == 2:
+    pass
+else:
+    raise SystemExit(
+        f"kurofs.cpp: unexpected NUL literal shape: bad={bad_count} good={good_count}")
+cpp.write_text(text, encoding="utf-8")
 
 test = ROOT / "tests/test_kurofs_directory.cpp"
 test_text = test.read_text(encoding="utf-8")
