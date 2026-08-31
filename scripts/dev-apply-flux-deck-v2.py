@@ -22,6 +22,11 @@ path = "kernel/ui/window_manager.cpp"
 text = read(path)
 text = replace_once(
     text,
+    "    const bool home = is_home_surface(title);\n#ifndef KUROGANE_HOST_TEST\n    const bool login = text_equals(title, \"KUROGANE LOGIN\");\n",
+    "#ifndef KUROGANE_HOST_TEST\n    const bool home = is_home_surface(title);\n    const bool login = text_equals(title, \"KUROGANE LOGIN\");\n",
+    "host-only HOME variable guard")
+text = replace_once(
+    text,
     "    slot.info.state = (owner_pid == 0U || home)\n        ? WindowState::Minimized : WindowState::Normal;\n",
     "    slot.info.state = owner_pid == 0U\n        ? WindowState::Minimized : WindowState::Normal;\n",
     "HOME visible session entry")
