@@ -1,6 +1,6 @@
 #include "../../runtime/user.h"
 
-#define CHURN_ITERATIONS 20U
+#define CHURN_ITERATIONS 64U
 #define WORKER_PATH "/system/fluxwrk"
 #define CRASH_PATH "/system/fluxcrsh"
 

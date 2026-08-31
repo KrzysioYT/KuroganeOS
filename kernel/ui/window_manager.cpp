@@ -1291,6 +1291,20 @@ Status interaction_snapshot(InteractionSnapshot* out_snapshot) {
     return Status::Ok;
 }
 
+Status resource_snapshot(ResourceSnapshot* out_snapshot) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_snapshot == nullptr) return Status::InvalidArgument;
+    *out_snapshot = {};
+    for (const Slot& slot : g_slots) {
+        if (!slot.occupied) continue;
+        ++out_snapshot->windows;
+        if (!slot.surface.valid) continue;
+        ++out_snapshot->retained_surfaces;
+        out_snapshot->retained_bytes += slot.surface.size;
+    }
+    return Status::Ok;
+}
+
 bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
 #ifndef KUROGANE_HOST_TEST

@@ -65,6 +65,12 @@ struct InteractionSnapshot {
     WindowId resized;
 };
 
+struct ResourceSnapshot {
+    size_t windows;
+    size_t retained_surfaces;
+    size_t retained_bytes;
+};
+
 struct WorkspaceGeometry {
     ui::Rect work_area;
     ui::Rect signal_spine;
@@ -130,6 +136,7 @@ void invalidate_window(WindowId id);
 void invalidate_region(const ui::Rect& region);
 Status damage_snapshot(DamageSnapshot* out_snapshot);
 Status interaction_snapshot(InteractionSnapshot* out_snapshot);
+Status resource_snapshot(ResourceSnapshot* out_snapshot);
 Status present_surface(
     WindowId id,
     size_t width,
