@@ -1,0 +1,85 @@
+name: Dev Apply Flux Files Explorer
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-flux-files-explorer.yml
+      - scripts/dev-apply-flux-files-explorer.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded Flux Files Explorer migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-flux-files-explorer.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove real VFS directory grid on KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] flux_home_system_pulse: PASS' 574 303 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] flux_home_system_pulse: PASS' \
+            --require-marker '[TEST] desktop_files_real_vfs: PASS' \
+            --require-marker '[TEST] flux_files_readdir: PASS' \
+            --require-marker '[TEST] flux_files_directory_grid: PASS' \
+            --require-marker '[TEST] flux_files_breadcrumb: PASS'
+
+      - name: Commit and publish Flux Files Explorer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            sdk/include/kurogane/ui.h \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            kernel/user/runtime_base.inc \
+            userspace/gui/files/main.c \
+            tests/test_sdk_abi.cpp \
+            tests/test_mouse_first_apps.py
+          git diff --cached --quiet && { echo "guard produced no Files Explorer production changes"; exit 1; }
+          git commit -m "feat(gui): turn Files into a real VFS explorer"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
