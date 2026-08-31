@@ -1,0 +1,204 @@
+name: Qualify 3.5 Application Registry
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-app-registry.yml'
+      - 'userspace/system/app-registryd/**'
+      - 'userspace/system/app-registry-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'sdk/include/kurogane/application.h'
+      - 'sdk/include/kurogane/filesystem.h'
+      - 'kernel/fs/**'
+      - 'kernel/install/**'
+      - 'scripts/build-install-package.py'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'rootfs/apps/appman/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject registry qualification fixtures and probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          manifests = Path('rootfs/apps/appman')
+          manifests.mkdir(parents=True, exist_ok=True)
+          fixtures = {
+              'probe.mnf': 'format=1\nid=org.kurogane.probe\nname=Registry Probe\nexec=/apps/hello\nflags=4\n',
+              'dup1.mnf': 'format=1\nid=org.kurogane.dupe\nname=Duplicate A\nexec=/apps/hello\nflags=4\n',
+              'dup2.mnf': 'format=1\nid=org.kurogane.dupe\nname=Duplicate B\nexec=/apps/hello\nflags=4\n',
+              'bad.mnf': 'format=2\nid=org.kurogane.bad\nname=Malformed\nexec=/apps/hello\nflags=4\n',
+              'miss.mnf': 'format=1\nid=org.kurogane.missing\nname=Missing Executable\nexec=/apps/doesnotexist\nflags=4\n',
+              'long.mnf': 'format=1\nid=org.kurogane.toolong\nname=' + ('X' * 48) + '\nexec=/apps/hello\nflags=4\n',
+          }
+          for name, contents in fixtures.items():
+              (manifests / name).write_text(contents)
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = '    "appregistryprobe|userspace/system/app-registry-probe/main.c|system/apprgprb|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'app registry build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          spawn = anchor + (
+              '\n'
+              '    const ku_result_t app_registry_probe_pid = u_spawn("/system/apprgprb");\n'
+              '    if (app_registry_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] app_registry: FAIL code=90\\n");\n'
+              '        ku_exit(45);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'app registry init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, spawn, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/apprgprb' scripts/build-linux.sh
+          grep -F 'u_spawn("/system/apprgprb")' userspace/system/init/main.c
+          grep -F '[TEST] app_registry: PASS' userspace/system/app-registry-probe/main.c
+          test -f rootfs/apps/appman/probe.mnf
+          test -f rootfs/apps/appman/dup1.mnf
+          test -f rootfs/apps/appman/dup2.mnf
+          test -f rootfs/apps/appman/bad.mnf
+          test -f rootfs/apps/appman/miss.mnf
+          test -f rootfs/apps/appman/long.mnf
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Verify FAT 8.3 manifest transport contract
+        shell: python
+        run: |
+          import re
+          import struct
+          from pathlib import Path
+
+          package = Path('build/install.pkg').read_bytes()
+          fields = struct.unpack_from('<IIQIIQQIIQ', package, 8)
+          version, header_size, total_size, file_count, entry_size, entries_offset, data_offset, entries_crc, reserved0, reserved1 = fields
+          if version != 1 or header_size != 64 or entry_size != 160 or total_size != len(package):
+              raise SystemExit('installer package header contract mismatch')
+          source_count = sum(1 for item in Path('rootfs/apps/appman').iterdir() if item.is_file())
+          manifest_paths = []
+          for index in range(file_count):
+              offset = entries_offset + index * entry_size
+              path = package[offset:offset + 128].split(b'\0', 1)[0].decode('ascii')
+              if path.lower().startswith('/apps/appman/'):
+                  manifest_paths.append(path)
+          if len(manifest_paths) != source_count:
+              raise SystemExit(f'manifest transport count mismatch source={source_count} package={len(manifest_paths)}')
+          for path in manifest_paths:
+              basename = path.rsplit('/', 1)[-1]
+              if re.fullmatch(r'[A-Z2-7]{8}\.MNF', basename) is None:
+                  raise SystemExit(f'non-8.3 manifest transport path: {path}')
+          print(f'[app-registry] FAT 8.3 manifest transport: PASS ({len(manifest_paths)} manifests)')
+
+      - name: Require real Application Registry runtime through Ring-3
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu max \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          found=0
+          for _ in $(seq 1 900); do
+            if grep -Fq '[TEST] app_registry: FAIL' "$serial" 2>/dev/null; then break; fi
+            if grep -Fq '[TEST] app_registry: PASS' "$serial" 2>/dev/null; then found=1; break; fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then break; fi
+            sleep 0.2
+          done
+
+          kill "$pid" >/dev/null 2>&1 || true
+          wait "$pid" >/dev/null 2>&1 || true
+          pid=""
+          cat "$qemu_log"
+          tail -n 12000 "$serial"
+          if grep -F '[TEST] app_registry: FAIL' "$serial"; then
+            echo 'application registry qualification emitted a failure marker' >&2
+            exit 1
+          fi
+          [[ "$found" -eq 1 ]] || { echo 'application registry PASS marker not observed' >&2; exit 1; }
+          grep -F '[TEST] app_registry: PASS' "$serial"
+          echo '[app-registry] OVMF/QEMU Ring-3 qualification: PASS'
