@@ -1,0 +1,50 @@
+name: Dev Apply 3.6 Thread Churn Reap
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-thread-churn-reap.py'
+      - '.github/workflows/dev-apply-thread-churn-reap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-thread-churn-reap:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout thread churn patch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply active-run thread slot recycling
+        run: python3 scripts/dev-apply-thread-churn-reap.py
+
+      - name: Validate scheduler churn and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'recycle their scheduler slots here' kernel/task/thread.cpp
+          grep -F 'threading::MAX_THREADS * 4U' tests/test_thread.cpp
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Commit production scheduler fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add kernel/task/thread.cpp tests/test_thread.cpp
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no scheduler changes to commit' >&2; exit 1; }
+          git commit -m 'fix(3.6): recycle terminated threads during churn'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
