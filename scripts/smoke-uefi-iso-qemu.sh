@@ -92,6 +92,7 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-smoke.XXXXXX")"
 serial="$tmp/serial.log"
 qemu_log="$tmp/qemu.log"
 monitor="$tmp/qemu-monitor.sock"
+qmp="$tmp/qemu-qmp.sock"
 pid=""
 cleanup() {
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
@@ -111,25 +112,68 @@ marker_occurrences() {
 
 send_qemu_key() {
     local key="$1"
-    python3 - "$monitor" "$key" <<'PY'
+    python3 - "$qmp" "$key" <<'PY'
+import json
 import socket
 import sys
 import time
 
 path, key = sys.argv[1], sys.argv[2]
 last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
 for _ in range(40):
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
+        client.settimeout(2.0)
         client.connect(path)
-        client.sendall((f"sendkey {key}\n").encode("ascii"))
+        stream = client.makefile("rwb", buffering=0)
+        greeting_line = stream.readline()
+        if not greeting_line:
+            raise RuntimeError("QMP greeting missing")
+        greeting = json.loads(greeting_line.decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+
+        stream.write(json.dumps({"execute": "qmp_capabilities"}).encode("utf-8") + b"\r\n")
+        receive_object(stream, "qmp_capabilities")
+        stream.write(json.dumps({
+            "execute": "send-key",
+            "arguments": {
+                "keys": [{"type": "qcode", "data": key}],
+                "hold-time": 80,
+            },
+        }).encode("utf-8") + b"\r\n")
+        receive_object(stream, f"send-key {key}")
+        stream.close()
         client.close()
+        print(f"[qmp] acknowledged send-key {key}")
         raise SystemExit(0)
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         last_error = error
-        client.close()
+        try:
+            client.close()
+        except OSError:
+            pass
         time.sleep(0.05)
-raise SystemExit(f"cannot send QEMU key through monitor: {last_error}")
+raise SystemExit(f"cannot send QEMU key through QMP: {last_error}")
 PY
 }
 
@@ -234,6 +278,7 @@ qemu-system-x86_64 \
     "${media_args[@]}" \
     -serial "file:$serial" \
     -monitor "unix:$monitor,server,nowait" \
+    -qmp "unix:$qmp,server=on,wait=off" \
     -display none \
     "${network_args[@]}" \
     -no-reboot \
