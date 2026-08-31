@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add kernel/fs/kurofs.hpp kernel/fs/kurofs.cpp tests/test_kurofs.cpp scripts/run-host-tests.sh
+          git add kernel/fs/kurofs.hpp kernel/fs/kurofs.cpp tests/test_kurofs_allocator.cpp scripts/run-host-tests.sh
           git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
           git commit -m "feat(4.0): add persistent KuroFS allocators"
           git pull --rebase origin gpt/road-to-15-consolidation
