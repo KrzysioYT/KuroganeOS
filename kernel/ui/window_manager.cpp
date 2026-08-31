@@ -915,11 +915,6 @@ Status close(WindowId id) {
     Slot* slot = find(id, &slot_index);
     if (slot == nullptr) return Status::NotFound;
 
-    if (is_home_surface(slot->info.title)) {
-        if (slot->info.state == WindowState::Minimized) return Status::Ok;
-        return minimize(id);
-    }
-
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     for (size_t index = position + 1U; index < g_count; ++index) {
@@ -931,6 +926,15 @@ Status close(WindowId id) {
     choose_top_focus();
     mark_full_dirty();
     return Status::Ok;
+}
+
+Status dismiss(WindowId id) {
+    if (!g_initialized) return Status::NotInitialized;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    if (!is_home_surface(slot->info.title)) return close(id);
+    if (slot->info.state == WindowState::Minimized) return Status::Ok;
+    return minimize(id);
 }
 
 Status present_surface(
@@ -1151,7 +1155,7 @@ Status dispatch(const input::Event& event) {
     }
     if (event.type == input::EventType::KeyDown && event.alt &&
         event.key == drivers::keyboard::KeyCode::F4) {
-        return g_focused == INVALID_WINDOW ? Status::NotFound : close(g_focused);
+        return g_focused == INVALID_WINDOW ? Status::NotFound : dismiss(g_focused);
     }
     if (event.type == input::EventType::KeyDown && event.alt &&
         event.key == drivers::keyboard::KeyCode::Tab) {
@@ -1195,7 +1199,7 @@ Status dispatch(const input::Event& event) {
             if (slot == nullptr) return Status::NotFound;
             if (!is_login_surface(*slot)) {
                 const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
-                if (rect_contains(chrome.dismiss_control, event.x, event.y)) return close(target);
+                if (rect_contains(chrome.dismiss_control, event.x, event.y)) return dismiss(target);
                 if (rect_contains(chrome.minimize_control, event.x, event.y)) return minimize(target);
                 if (rect_contains(chrome.expand_control, event.x, event.y)) {
                     return slot->info.state == WindowState::Maximized ? restore(target) : maximize(target);

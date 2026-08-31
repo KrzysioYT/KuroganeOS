@@ -282,5 +282,35 @@ int main() {
         info.bounds.width != replacement_bounds.width ||
         info.bounds.height != replacement_bounds.height) return 55;
     if (close(capture_replacement) != Status::Ok) return 56;
+
+    // HOME has separate user-dismiss and process-lifecycle semantics.  A UI
+    // dismiss minimizes the persistent surface, while lifecycle close must
+    // release the generation and retained bytes immediately.
+    WindowId home = INVALID_WINDOW;
+    if (create_window("RED FLUX HOME", 17U, {100, 100, 360, 260},
+                      draw, receive, nullptr, &home) != Status::Ok ||
+        query(home, &info) != Status::Ok ||
+        info.state != WindowState::Minimized) return 57;
+    uint8_t home_payload[16]{};
+    home_payload[0] = UINT8_C(0x5a);
+    if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=
+            Status::Ok ||
+        restore(home) != Status::Ok || query(home, &info) != Status::Ok ||
+        info.state != WindowState::Normal) return 58;
+    if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
+        info.state != WindowState::Minimized) return 59;
+    SurfaceView home_surface{};
+    if (read_surface(home, &home_surface) != Status::Ok ||
+        home_surface.size != sizeof(home_payload) || home_surface.data == nullptr ||
+        home_surface.data[0] != UINT8_C(0x5a)) return 60;
+    const WindowId stale_home = home;
+    if (close(home) != Status::Ok || query(stale_home, &info) != Status::NotFound ||
+        read_surface(stale_home, &home_surface) != Status::NotFound) return 61;
+    WindowId next_home_slot = INVALID_WINDOW;
+    if (create_window("AfterHome", 18U, {110, 110, 300, 220},
+                      draw, receive, nullptr, &next_home_slot) != Status::Ok ||
+        next_home_slot == stale_home ||
+        read_surface(next_home_slot, &home_surface) != Status::InvalidState) return 62;
+    if (close(next_home_slot) != Status::Ok) return 63;
     return 0;
 }

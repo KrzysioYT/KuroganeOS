@@ -100,6 +100,10 @@ Status create_window(
     void* context,
     WindowId* out_id);
 Status close(WindowId id);
+// User-facing dismissal preserves the persistent HOME surface by
+// minimizing it. close() is lifecycle destruction and always releases
+// the slot/surface, including process-exit cleanup for HOME.
+Status dismiss(WindowId id);
 Status focus(WindowId id);
 Status move(WindowId id, int32_t x, int32_t y);
 Status minimize(WindowId id);

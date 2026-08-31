@@ -212,7 +212,7 @@ static void build_scene(kui_scene* scene) {
     (void)kui_flow_panel(&root, 1U, "RED FLUX APPS / START");
     (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / APPLICATIONS");
     (void)kui_flow_label(&root, 3U,
-        "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN DESKTOP");
+        "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN  L: LOG OUT");
 
     kui_flow_begin(&apps, scene, 1U);
     for (index = 0U; index < APP_COUNT; ++index) {
@@ -297,6 +297,9 @@ int main(void) {
             select_and_launch(5U);
         } else if (event.character == 'a' || event.character == 'A') {
             select_and_launch(6U);
+        } else if (event.character == 'l' || event.character == 'L') {
+            puts("[TEST] desktop_logout_requested: PASS");
+            break;
         } else if (gui_key_cancel(&event)) {
             (void)strlcpy(g_status, "APPS / START / DOCK ACTIVE", sizeof(g_status));
         } else {
