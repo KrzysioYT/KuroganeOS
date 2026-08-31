@@ -1,0 +1,216 @@
+name: Qualify 3.5 Connected Userspace Closeout
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-connected-userspace-closeout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  component-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Dispatch and require same-SHA 3.5 component gates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          ref="${GITHUB_REF_NAME}"
+          sha="${GITHUB_SHA}"
+          api="https://api.github.com/repos/${repo}"
+          started_epoch="$(date -u +%s)"
+          workflows=(
+            qualify-socket-core.yml
+            qualify-dns-service.yml
+            qualify-network-events.yml
+            qualify-3.5-audio-app-kvm.yml
+            qualify-tls-https-runtime.yml
+            qualify-3.4-regression-sweep.yml
+          )
+
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
+          payload="$(jq -cn --arg ref "$ref" '{ref:$ref}')"
+
+          for workflow in "${workflows[@]}"; do
+            response="$(mktemp)"
+            code="$(curl -sS -o "$response" -w '%{http_code}' -X POST "${auth[@]}" \
+              "$api/actions/workflows/$workflow/dispatches" -d "$payload")"
+            if [[ "$code" != 204 ]]; then
+              echo "[closeout] dispatch failed workflow=$workflow http=$code" >&2
+              cat "$response" >&2 || true
+              rm -f "$response"
+              exit 1
+            fi
+            rm -f "$response"
+            echo "[closeout] dispatched $workflow for ref=$ref sha=$sha"
+          done
+
+          evidence="$(mktemp)"
+          trap 'rm -f "$evidence"' EXIT
+          for workflow in "${workflows[@]}"; do
+            run_id=""
+            status=""
+            conclusion=""
+            for _ in $(seq 1 360); do
+              runs="$(curl -fsS "${auth[@]}" "$api/actions/workflows/$workflow/runs?event=workflow_dispatch&per_page=30")"
+              row="$(jq -r --arg sha "$sha" --argjson started "$started_epoch" '
+                [.workflow_runs[]
+                  | select(.head_sha == $sha)
+                  | select((.created_at | fromdateiso8601) >= $started)]
+                | sort_by(.created_at)
+                | last
+                | if . == null then "" else [.id,.status,(.conclusion // "")] | @tsv end
+              ' <<<"$runs")"
+              if [[ -z "$row" ]]; then
+                sleep 5
+                continue
+              fi
+              IFS=$'\t' read -r run_id status conclusion <<<"$row"
+              if [[ "$status" == completed ]]; then
+                break
+              fi
+              sleep 5
+            done
+
+            if [[ -z "$run_id" || "$status" != completed ]]; then
+              echo "[closeout] timeout waiting for $workflow on $sha" >&2
+              exit 1
+            fi
+            echo "$workflow $run_id $conclusion" | tee -a "$evidence"
+            if [[ "$conclusion" != success ]]; then
+              echo "[closeout] component gate failed: $workflow run=$run_id conclusion=$conclusion" >&2
+              echo "https://github.com/$repo/actions/runs/$run_id" >&2
+              exit 1
+            fi
+          done
+
+          echo '### 3.5 same-SHA component evidence' >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          while read -r workflow run_id conclusion; do
+            echo "- $workflow — run $run_id — $conclusion" >> "$GITHUB_STEP_SUMMARY"
+          done < "$evidence"
+          echo '[closeout] all component gates: PASS'
+
+  final-kvm-regression:
+    needs: component-gates
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact closeout SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify KVM qualification host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run full host regression suite
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+          test -s dist/SHA256SUMS.txt
+
+      - name: Require clean production KVM boot and network
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=kvm \
+            -cpu host \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+            -audiodev driver=none,id=kurogane_audio \
+            -device AC97,audiodev=kurogane_audio \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          passed=0
+          for _ in $(seq 1 900); do
+            if grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial" 2>/dev/null && \
+               grep -Fq '[TEST] dhcp_lease: PASS' "$serial" 2>/dev/null && \
+               grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" 2>/dev/null; then
+              passed=1
+              break
+            fi
+            if grep -Eq '\[TEST\] (ALL_REQUIRED_TESTS_PASSED|dhcp_lease|network_gateway_icmp): FAIL' "$serial" 2>/dev/null; then
+              break
+            fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then break; fi
+            sleep 0.2
+          done
+
+          kill "$pid" >/dev/null 2>&1 || true
+          wait "$pid" >/dev/null 2>&1 || true
+          pid=""
+          cat "$qemu_log"
+          tail -n 12000 "$serial"
+          [[ "$passed" -eq 1 ]] || { echo 'final clean KVM regression did not reach required runtime state' >&2; exit 1; }
+          grep -F '[TEST] dhcp_lease: PASS' "$serial"
+          grep -F '[TEST] network_gateway_icmp: PASS' "$serial"
+          grep -F '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"
+          grep -F 'AC97: Intel ICH PCM output ready' "$serial"
+          echo '[TEST] connected_userspace_closeout: PASS'
+          echo '[closeout] clean OVMF/KVM production regression: PASS'
