@@ -88,6 +88,8 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta);
 ku_status_t kui_scene_select(kui_scene* scene, uint32_t id);
 ku_status_t kui_scene_select_next(kui_scene* scene, int32_t direction);
 uint32_t kui_scene_selected(const kui_scene* scene);
+// Returns the interactive visible view under a content-local pointer, or 0.
+uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y);
 ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene);
 
 void kui_flow_begin(kui_flow* flow, kui_scene* scene, uint32_t parent_id);

@@ -4,14 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+HOST_CC="${HOST_CC:-cc}"
 HOST_CXX="${HOST_CXX:-c++}"
 HOST_PYTHON="${HOST_PYTHON:-python3}"
 OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
 
 mkdir -p "$OUT_DIR"
 
-echo "[host-tests] compiler: $HOST_CXX"
-echo "[host-tests] python:   $HOST_PYTHON"
+echo "[host-tests] C compiler:   $HOST_CC"
+echo "[host-tests] C++ compiler: $HOST_CXX"
+echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
@@ -20,6 +22,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
   -o "$OUT_DIR/test_sdk_abi"
 
 "$OUT_DIR/test_sdk_abi"
+
+# Exercise production libui row geometry and pointer hit-testing.
+"$HOST_CC" \
+  -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+  -Isdk/include \
+  tests/test_libui_pointer.c sdk/src/libui.c \
+  -o "$OUT_DIR/test_libui_pointer"
+
+"$OUT_DIR/test_libui_pointer"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \

@@ -60,6 +60,11 @@ enum ku_ui_event_type {
     KU_UI_EVENT_POINTER = 3
 };
 
+/*
+ * Pointer coordinates are relative to the drawable content origin of the
+ * target window. They can be negative when a captured pointer leaves the
+ * content area; applications must not treat them as screen coordinates.
+ */
 typedef struct ku_ui_event {
     uint32_t structure_size;
     uint32_t type;

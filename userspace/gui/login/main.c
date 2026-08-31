@@ -139,8 +139,8 @@ static void build_scene(
         (void)kui_flow_button(&session, 10U,
             polish ? "WEJDZ DO RED FLUX" : "ENTER RED FLUX DESKTOP");
         (void)kui_flow_label(&session, 11U,
-            polish ? "ENTER LUB KLIKNIJ, ABY OTWORZYC SESJE"
-                   : "ENTER OR CLICK TO START THE SESSION");
+            polish ? "KLIKNIJ, ABY OTWORZYC SESJE"
+                   : "CLICK TO START THE SESSION");
     }
     if (error != NULL && error[0] != '\0') {
         (void)kui_flow_label(&session, 13U, error);
@@ -344,6 +344,7 @@ int main(void) {
     const char* error = NULL;
     ku_window_t window;
     kui_scene scene;
+    uint32_t pointer_buttons = 0U;
 
     load_profile(&profile);
     window = gui_open("KUROGANE LOGIN", 280, 245, 520, 290);
@@ -377,17 +378,19 @@ int main(void) {
             continue;
         }
 
-        if (!profile.password_required &&
-            event.type == KU_UI_EVENT_POINTER &&
-            (event.buttons & UINT32_C(1)) != 0U) {
-            return start_session(window, &profile);
+        if (!profile.password_required && event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t previous_buttons = pointer_buttons;
+            pointer_buttons = event.buttons;
+            if ((event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U &&
+                kui_scene_hit_test(&scene, event.x, event.y) == 10U) {
+                return start_session(window, &profile);
+            }
+            continue;
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (!profile.password_required) {
-            if (gui_key_activate(&event)) return start_session(window, &profile);
-            continue;
-        }
+        if (!profile.password_required) continue;
 
         if (event.key == KU_UI_KEY_BACKSPACE) {
             if (password_length != 0U) password[--password_length] = '\0';

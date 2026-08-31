@@ -124,6 +124,9 @@ Status list(ListCallback callback, void* context);
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
+// Returns the drawable application-content rectangle in screen coordinates.
+// Login owns its full surface; normal Flux windows exclude chrome.
+Status content_geometry(WindowId id, ui::Rect* out_geometry);
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds);
 
 // Public syscall bridge for session-local desktop shortcuts. `action` uses the

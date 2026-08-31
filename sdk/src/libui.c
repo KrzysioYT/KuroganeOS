@@ -293,6 +293,31 @@ uint32_t kui_scene_selected(const kui_scene* scene) {
     return scene == (const kui_scene*)0 ? 0U : scene->selected_id;
 }
 
+uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
+    const int32_t top_inset = 12;
+    const int32_t row_height = 22;
+    uint32_t rows;
+    uint32_t target_row;
+    uint32_t visible_index = 0U;
+    uint32_t output_line = 0U;
+    uint32_t index;
+    if (scene == (const kui_scene*)0 || x < 0 || y < top_inset) return 0U;
+    rows = scene->visible_rows == 0U || scene->visible_rows > KU_UI_MAX_LINES
+        ? KU_UI_MAX_LINES : scene->visible_rows;
+    target_row = (uint32_t)((y - top_inset) / row_height);
+    if (target_row >= rows) return 0U;
+    for (index = 0U; index < scene->view_count && output_line < rows; ++index) {
+        const kui_view* view = &scene->views[index];
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (visible_index++ < scene->scroll_offset) continue;
+        if (output_line == target_row) {
+            return interactive_view(view) ? view->id : 0U;
+        }
+        ++output_line;
+    }
+    return 0U;
+}
+
 ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
     ku_ui_frame frame;
     uint32_t index;

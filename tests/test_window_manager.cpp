@@ -36,10 +36,16 @@ int main() {
         query(first, &info) != Status::Ok || info.z_order != 1U) return 5;
 
     ChromeGeometry chrome{};
+    ui::Rect content{};
     if (chrome_geometry(first, &chrome) != Status::Ok ||
+        content_geometry(first, &content) != Status::Ok ||
         chrome.header.height <= 30 || chrome.resize_grip.width <= 0 ||
         chrome.minimize_control.x >= chrome.expand_control.x ||
-        chrome.expand_control.x >= chrome.dismiss_control.x) return 6;
+        chrome.expand_control.x >= chrome.dismiss_control.x ||
+        content.x != info.bounds.x + 4 ||
+        content.y != chrome.header.y + chrome.header.height ||
+        content.width != info.bounds.width - 8 ||
+        content.height != info.bounds.height - chrome.header.height - 4) return 6;
 
     if (move(first, -100, 10000) != Status::Ok ||
         query(first, &info) != Status::Ok ||
@@ -107,11 +113,29 @@ int main() {
     if (dispatch(event) != Status::Ok || query(first, &info) != Status::Ok ||
         info.state != WindowState::Maximized) return 18;
 
-    // Alt+F4 remains a stable keyboard path regardless of Flux chrome.
+    // Physical desktop/window shortcuts are detached in mouse-first Flux.
+    const WindowId shortcut_focus = focused_window();
     event = {};
     event.type = input::EventType::KeyDown;
     event.alt = true;
     event.key = drivers::keyboard::KeyCode::F4;
+    if (dispatch(event) != Status::Ok || window_count() != 2U ||
+        focused_window() != shortcut_focus || query(first, &info) != Status::Ok) return 19;
+    event.key = drivers::keyboard::KeyCode::Tab;
+    if (dispatch(event) != Status::Ok || window_count() != 2U ||
+        focused_window() != shortcut_focus) return 19;
+    event = {};
+    event.type = input::EventType::KeyDown;
+    event.key = drivers::keyboard::KeyCode::LeftGui;
+    if (dispatch(event) != Status::Ok || window_count() != 2U ||
+        focused_window() != shortcut_focus) return 19;
+    if (chrome_geometry(first, &chrome) != Status::Ok) return 19;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = chrome.dismiss_control.x + chrome.dismiss_control.width / 2;
+    event.y = chrome.dismiss_control.y + chrome.dismiss_control.height / 2;
     if (dispatch(event) != Status::Ok || window_count() != 1U ||
         query(first, &info) != Status::NotFound) return 19;
     if (!render_if_needed() || render_if_needed()) return 20;

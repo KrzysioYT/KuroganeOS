@@ -404,6 +404,17 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
     return geometry;
 }
 
+ui::Rect calculate_content(const Slot& slot) {
+    if (is_login_surface(slot)) return slot.info.bounds;
+    const ui::Rect& bounds = slot.info.bounds;
+    return {
+        bounds.x + 4,
+        bounds.y + HEADER_HEIGHT,
+        bounds.width - 8,
+        bounds.height - HEADER_HEIGHT - 4,
+    };
+}
+
 ui::Rect dock_pin_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
     if (position >= DOCK_PIN_COUNT) return {};
@@ -579,27 +590,6 @@ WindowId hit_test(int32_t x, int32_t y) {
     return INVALID_WINDOW;
 }
 
-Status cycle_focus() {
-    const size_t tasks = exposed_window_count();
-    if (tasks == 0U) return Status::NotFound;
-    size_t current = tasks;
-    for (size_t position = 0U; position < tasks; ++position) {
-        Slot* slot = exposed_at(position);
-        if (slot != nullptr && slot->info.id == g_focused) {
-            current = position;
-            break;
-        }
-    }
-    for (size_t offset = 1U; offset <= tasks; ++offset) {
-        const size_t position = (current + offset) % tasks;
-        Slot* slot = exposed_at(position);
-        if (slot != nullptr && slot->info.state != WindowState::Minimized) {
-            return focus(slot->info.id);
-        }
-    }
-    return Status::NotFound;
-}
-
 Status activate_ribbon_item(size_t position) {
     Slot* slot = exposed_at(position);
     if (slot == nullptr) return Status::NotFound;
@@ -729,12 +719,7 @@ void draw_window_slot(Slot& slot) {
             1U);
     }
     if (slot.draw != nullptr) {
-        const ui::Rect content = {
-            bounds.x + 4,
-            bounds.y + HEADER_HEIGHT,
-            bounds.width - 8,
-            bounds.height - HEADER_HEIGHT - 4,
-        };
+        const ui::Rect content = calculate_content(slot);
         graphics::set_clip(
             content.x, content.y, content.width, content.height);
         graphics::set_text_scale_limit(content.width >= 800 ? 2U : 1U);
@@ -1128,6 +1113,15 @@ Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     return Status::Ok;
 }
 
+Status content_geometry(WindowId id, ui::Rect* out_geometry) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_geometry == nullptr) return Status::InvalidArgument;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    *out_geometry = calculate_content(*slot);
+    return Status::Ok;
+}
+
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     if (!g_initialized) return Status::NotInitialized;
     if (out_bounds == nullptr) return Status::InvalidArgument;
@@ -1171,21 +1165,9 @@ Status desktop_pin(
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
 
-    // Windows/Super key opens the persistent Red Flux application list.
-    if (event.type == input::EventType::KeyDown &&
-        (event.key == drivers::keyboard::KeyCode::LeftGui ||
-         event.key == drivers::keyboard::KeyCode::RightGui)) {
-        return login_surface() == nullptr
-            ? activate_dock_pin(0U) : Status::InvalidState;
-    }
-    if (event.type == input::EventType::KeyDown && event.alt &&
-        event.key == drivers::keyboard::KeyCode::F4) {
-        return g_focused == INVALID_WINDOW ? Status::NotFound : dismiss(g_focused);
-    }
-    if (event.type == input::EventType::KeyDown && event.alt &&
-        event.key == drivers::keyboard::KeyCode::Tab) {
-        return cycle_focus();
-    }
+    // Red Flux is mouse-first: physical desktop/window shortcuts are not
+    // intercepted globally. Keyboard events continue to the focused app so
+    // text entry, terminals and accessibility paths remain available.
 
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {

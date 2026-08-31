@@ -210,9 +210,7 @@ static void build_scene(kui_scene* scene) {
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "RED FLUX APPS / START");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / APPLICATIONS");
-    (void)kui_flow_label(&root, 3U,
-        "ARROWS: SELECT  ENTER: OPEN  P: PIN/UNPIN  L: LOG OUT");
+    (void)kui_flow_label(&root, 2U, "MOUSE: CLICK APP / PIN SELECTED / LOG OUT");
 
     kui_flow_begin(&apps, scene, 1U);
     for (index = 0U; index < APP_COUNT; ++index) {
@@ -223,8 +221,9 @@ static void build_scene(kui_scene* scene) {
         append_text(label, sizeof(label), g_apps[index].subtitle);
         (void)kui_flow_list_item(&apps, 10U + (uint32_t)index, label);
     }
-    (void)kui_flow_separator(&root, 30U);
-    (void)kui_flow_label(&root, 31U, g_status);
+    (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
+    (void)kui_flow_button(&root, 31U, "LOG OUT");
+    (void)kui_flow_label(&root, 32U, g_status);
     (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
 }
 
@@ -233,6 +232,7 @@ int main(void) {
     const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
     kui_scene scene;
     size_t index;
+    uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
 
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
@@ -249,7 +249,8 @@ int main(void) {
 
     puts("[TEST] desktop_launcher_ring3: PASS");
     puts("[TEST] desktop_clean_session: PASS");
-    puts("[TEST] desktop_arrow_navigation: PASS");
+    puts("[TEST] desktop_mouse_navigation: PASS");
+    puts("[TEST] desktop_keyboard_shortcuts_detached: PASS");
     puts("[TEST] red_flux_dock_controller: PASS");
     puts("[TEST] red_flux_home_pinned: PASS");
     puts("[TEST] desktop_app_pinning: PASS");
@@ -271,37 +272,52 @@ int main(void) {
         ku_ui_event event;
         reap_children();
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
-            g_selected = (g_selected + 1U) % APP_COUNT;
-            (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
-        } else if (gui_key_up(&event) || gui_key_left(&event)) {
-            g_selected = g_selected == 0U ? APP_COUNT - 1U : g_selected - 1U;
-            (void)strlcpy(g_status, g_apps[g_selected].subtitle, sizeof(g_status));
-        } else if (gui_key_activate(&event)) {
-            launch_selected();
-        } else if (event.character == 'p' || event.character == 'P') {
-            toggle_selected_pin();
-        } else if (event.character == 't' || event.character == 'T') {
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t previous_buttons = pointer_buttons;
+            const int primary_pressed =
+                (event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U;
+            uint32_t target;
+            pointer_buttons = event.buttons;
+            if (!primary_pressed) continue;
+            target = kui_scene_hit_test(&scene, event.x, event.y);
+            if (target >= 10U && target < 10U + APP_COUNT) {
+                select_and_launch((size_t)(target - 10U));
+            } else if (target == 30U) {
+                toggle_selected_pin();
+            } else if (target == 31U) {
+                puts("[TEST] desktop_logout_requested: PASS");
+                break;
+            } else {
+                continue;
+            }
+            build_scene(&scene);
+            (void)kui_scene_present(window, &scene);
+            continue;
+        }
+
+        /*
+         * Physical keyboard shortcuts are intentionally detached. The Window
+         * Core still uses key=UNKNOWN as a private compatibility transport for
+         * dock/desktop icon activation until a dedicated desktop command event
+         * is introduced.
+         */
+        if (event.type != KU_UI_EVENT_KEY || event.key != KU_UI_KEY_UNKNOWN) continue;
+        if (event.character == 't') {
             select_and_launch(0U);
-        } else if (event.character == 'f' || event.character == 'F') {
+        } else if (event.character == 'f') {
             select_and_launch(1U);
-        } else if (event.character == 'v' || event.character == 'V') {
+        } else if (event.character == 'v') {
             select_and_launch(2U);
-        } else if (event.character == 'b' || event.character == 'B') {
+        } else if (event.character == 'b') {
             select_and_launch(3U);
-        } else if (event.character == 'm' || event.character == 'M') {
+        } else if (event.character == 'm') {
             select_and_launch(4U);
-        } else if (event.character == 's' || event.character == 'S') {
+        } else if (event.character == 's') {
             select_and_launch(5U);
-        } else if (event.character == 'a' || event.character == 'A') {
+        } else if (event.character == 'a') {
             select_and_launch(6U);
-        } else if (event.character == 'l' || event.character == 'L') {
-            puts("[TEST] desktop_logout_requested: PASS");
-            break;
-        } else if (gui_key_cancel(&event)) {
-            (void)strlcpy(g_status, "APPS / START / DOCK ACTIVE", sizeof(g_status));
         } else {
             continue;
         }

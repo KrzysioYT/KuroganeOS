@@ -147,7 +147,7 @@ void queue_user_event(Context& context, const ku_ui_event& event) {
 }
 
 void input_user_window(
-    windowing::WindowId,
+    windowing::WindowId window,
     const input::Event& input_event,
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
@@ -161,9 +161,13 @@ void input_user_window(
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
                input_event.type == input::EventType::MouseButtonUp) {
+        ui::Rect content{};
+        if (windowing::content_geometry(window, &content) != windowing::Status::Ok) {
+            return;
+        }
         event.type = KU_UI_EVENT_POINTER;
-        event.x = input_event.x;
-        event.y = input_event.y;
+        event.x = input_event.x - content.x;
+        event.y = input_event.y - content.y;
         event.buttons = input_event.buttons;
     } else {
         return;
