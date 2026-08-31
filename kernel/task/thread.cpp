@@ -479,6 +479,12 @@ Status create_for_process(
     }
 
     const uint64_t flags = save_and_disable_interrupts();
+    // A Ring-3 parent may spawn/wait many short-lived children while the
+    // top-level preemptive scheduler remains active.  Those children are
+    // already fully terminated before the parent issues the next spawn,
+    // so recycle their scheduler slots here instead of waiting for the
+    // outer run to finish and eventually exhausting MAX_THREADS.
+    reap_terminated();
     size_t index = kInvalidSlot;
     for (size_t candidate = 0U; candidate < MAX_THREADS; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
