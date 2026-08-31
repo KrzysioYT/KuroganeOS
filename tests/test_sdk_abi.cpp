@@ -1,5 +1,6 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
+#include <kurogane/dns_service.h>
 #include <kurogane/event.h>
 #include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
@@ -119,6 +120,13 @@ int main() {
     static_assert(offsetof(ku_file_seek_request, offset) == 16);
     static_assert(offsetof(ku_file_seek_request, new_offset) == 24);
     static_assert(offsetof(ku_file_seek_request, reserved) == 32);
+
+    static_assert(KU_DNS_SERVICE_NAME_SIZE == 7U);
+    static_assert(KU_DNS_SERVICE_HOST_CAPACITY == 64U);
+    static_assert(sizeof(ku_dns_service_request) == 88U);
+    static_assert(sizeof(ku_dns_service_response) == 24U);
+    static_assert(offsetof(ku_dns_service_request, host) == 24U);
+    static_assert(offsetof(ku_dns_service_response, address) == 16U);
 
     static_assert(KU_IPC_SERVICE_NAME_CAPACITY == 32U);
     static_assert(KU_IPC_MESSAGE_CAPACITY == 256U);

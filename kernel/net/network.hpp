@@ -48,7 +48,8 @@ enum class Status : uint8_t {
     NoRoute,
     NeighborResolutionPending,
     IterationStopped,
-    InterfaceError
+    InterfaceError,
+    NameNotFound
 };
 
 struct MacAddress {

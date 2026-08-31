@@ -471,8 +471,10 @@ Status parse_dns_a_response(
     if (packet_length < 12U) return Status::FrameTooShort;
     const uint16_t flags = read_be16(packet + 2U);
     if (read_be16(packet) != expected_transaction_id) return Status::NotForUs;
-    if ((flags & UINT16_C(0x8000)) == 0U ||
-        (flags & UINT16_C(0x000f)) != 0U) return Status::MalformedPacket;
+    if ((flags & UINT16_C(0x8000)) == 0U) return Status::MalformedPacket;
+    const uint16_t response_code = flags & UINT16_C(0x000f);
+    if (response_code == UINT16_C(3)) return Status::NameNotFound;
+    if (response_code != 0U) return Status::InterfaceError;
     const size_t questions = read_be16(packet + 4U);
     const size_t answers = read_be16(packet + 6U);
     if (questions == 0U || answers == 0U) return Status::WouldBlock;

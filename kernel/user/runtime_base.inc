@@ -498,6 +498,7 @@ ku_status_t network_status(net::Status status) {
         case net::Status::Ok: return KU_STATUS_OK;
         case net::Status::WouldBlock:
         case net::Status::NeighborResolutionPending: return KU_STATUS_WOULD_BLOCK;
+        case net::Status::NameNotFound: return KU_STATUS_NOT_FOUND;
         case net::Status::InvalidArgument:
         case net::Status::InvalidConfiguration: return KU_STATUS_INVALID_ARGUMENT;
         case net::Status::BufferTooSmall:

@@ -74,6 +74,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 "$OUT_DIR/test_socket"
 
 "$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_dns_protocol.cpp \
+  kernel/net/protocols.cpp \
+  kernel/net/network.cpp \
+  -o "$OUT_DIR/test_dns_protocol"
+
+"$OUT_DIR/test_dns_protocol"
+
+"$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -DKUROGANE_HOST_TEST \
   tests/test_diagnostic_event_ring.cpp \

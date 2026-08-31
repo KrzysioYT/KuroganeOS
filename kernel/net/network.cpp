@@ -1493,6 +1493,7 @@ const char* status_message(Status status) {
             return "neighbor resolution pending";
         case Status::IterationStopped: return "iteration stopped";
         case Status::InterfaceError: return "interface error";
+        case Status::NameNotFound: return "DNS name not found";
     }
     return "unknown status";
 }
