@@ -1,0 +1,162 @@
+name: Qualify 3.5 Audio Service
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-audio-service.yml'
+      - 'kernel/drivers/audio/**'
+      - 'kernel/drivers/builtin_drivers.cpp'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'sdk/include/kurogane/audio.h'
+      - 'sdk/include/kurogane/audio_service.h'
+      - 'sdk/include/kurogane/service.h'
+      - 'userspace/system/audiod/**'
+      - 'userspace/system/audio-service-probe/**'
+      - 'userspace/system/audio-exit-client/**'
+      - 'userspace/system/audio-owner-exit/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audio-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject Ring-3 audio qualification probes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "audioserviceprobe|userspace/system/audio-service-probe/main.c|system/audprb|c"\n'
+              '    "audioexitclient|userspace/system/audio-exit-client/main.c|system/audxcli|c"\n'
+              '    "audioownerexit|userspace/system/audio-owner-exit/main.c|system/audownx|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'audio build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          spawn = anchor + (
+              '\n'
+              '    const ku_result_t audio_probe_pid = u_spawn("/system/audprb");\n'
+              '    if (audio_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] audio_service_roundtrip: FAIL code=90\\n");\n'
+              '        ku_exit(43);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'audio init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, spawn, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/audprb' scripts/build-linux.sh
+          grep -F 'system/audxcli' scripts/build-linux.sh
+          grep -F 'system/audownx' scripts/build-linux.sh
+          grep -F 'u_spawn("/system/audprb")' userspace/system/init/main.c
+          grep -F '[TEST] audio_service_roundtrip: PASS' userspace/system/audio-service-probe/main.c
+          grep -F '[TEST] audio_exit_cleanup: PASS' userspace/system/audio-service-probe/main.c
+          grep -F '[TEST] audio_exit_client_armed: PASS' userspace/system/audio-exit-client/main.c
+          grep -F '[TEST] audio_owner_exit_armed: PASS' userspace/system/audio-owner-exit/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real AC97 audiod runtime through Ring-3
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          cleanup() { rm -rf -- "$tmp"; }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          set +e
+          timeout --signal=TERM --kill-after=5s 180s \
+            qemu-system-x86_64 \
+              -machine q35,accel=tcg \
+              -cpu max \
+              -m 1024 \
+              -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+              -drive if=pflash,format=raw,unit=1,file="$vars" \
+              -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+              -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+              -netdev user,id=kurogane_net \
+              -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+              -audiodev driver=none,id=kurogane_audio \
+              -device AC97,audiodev=kurogane_audio \
+              -serial "file:$serial" \
+              -display none \
+              -no-reboot \
+              -no-shutdown \
+              >"$qemu_log" 2>&1
+          qemu_status=$?
+          set -e
+
+          cat "$qemu_log"
+          tail -n 12000 "$serial"
+          grep -F '[TEST] audio_exit_client_armed: PASS' "$serial"
+          grep -F '[TEST] audio_service_roundtrip: PASS' "$serial"
+          grep -F '[TEST] audio_owner_exit_armed: PASS' "$serial"
+          grep -F '[TEST] audio_exit_cleanup: PASS' "$serial"
+          if grep -F '[TEST] audio_service_roundtrip: FAIL' "$serial"; then
+            echo 'audio qualification emitted a failure marker' >&2
+            exit 1
+          fi
+          if [[ "$qemu_status" -ne 0 && "$qemu_status" -ne 124 ]]; then
+            echo "QEMU exited unexpectedly with status $qemu_status" >&2
+            exit "$qemu_status"
+          fi
+          echo '[audio-service] OVMF/QEMU AC97 Ring-3 qualification: PASS'
