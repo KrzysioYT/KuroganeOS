@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/dev-apply-mouse-first-gui.yml
       - scripts/dev-apply-mouse-first-gui.py
+      - scripts/dev-apply-mouse-first-gui-v2.py
 
 permissions:
   contents: write
@@ -34,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ./scripts/dev-apply-mouse-first-gui.py
+          python3 ./scripts/dev-apply-mouse-first-gui-v2.py
 
       - name: Run full host regressions
         shell: bash
