@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--require-marker TEXT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -16,7 +16,13 @@ require_tls=false
 send_key_after_marker=""
 send_key_name=""
 send_key_sent=false
+send_key_count_markers=()
+send_key_count_targets=()
+send_key_count_names=()
+send_key_count_sent=()
 require_markers=()
+require_marker_count_markers=()
+require_marker_count_targets=()
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
@@ -32,7 +38,21 @@ while (($#)); do
             send_key_name="$3"
             shift 3
             ;;
+        --send-key-after-marker-count)
+            [[ $# -ge 4 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ && -n "$4" ]] || usage
+            send_key_count_markers+=("$2")
+            send_key_count_targets+=("$3")
+            send_key_count_names+=("$4")
+            send_key_count_sent+=(false)
+            shift 4
+            ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
+        --require-marker-count)
+            [[ $# -ge 3 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ ]] || usage
+            require_marker_count_markers+=("$2")
+            require_marker_count_targets+=("$3")
+            shift 3
+            ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
@@ -53,6 +73,12 @@ if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo "invalid QEMU sendkey name: $send_key_name" >&2
     exit 2
 fi
+for key in "${send_key_count_names[@]}"; do
+    if [[ ! "$key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        echo "invalid QEMU sendkey name: $key" >&2
+        exit 2
+    fi
+done
 if $require_network && [[ "$nic_model" == "none" ]]; then
     echo "--require-network/--require-tls needs --nic e1000, pcnet or virtio" >&2
     exit 2
@@ -75,6 +101,13 @@ cleanup() {
     rm -rf -- "$tmp"
 }
 trap cleanup EXIT INT TERM
+
+marker_occurrences() {
+    local marker="$1"
+    local count
+    count="$(grep -F -c -- "$marker" "$serial" 2>/dev/null || true)"
+    printf '%s\n' "${count:-0}"
+}
 
 send_qemu_key() {
     local key="$1"
@@ -226,7 +259,20 @@ while ((SECONDS < deadline)); do
             send_key_sent=true
             echo "[uefi-qemu] sent key '$send_key_name' after marker: $send_key_after_marker"
         fi
-        if ((${#require_markers[@]} != 0)); then
+        for index in "${!send_key_count_markers[@]}"; do
+            if [[ "${send_key_count_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${send_key_count_markers[$index]}"
+            target="${send_key_count_targets[$index]}"
+            if (( $(marker_occurrences "$marker") >= target )); then
+                key="${send_key_count_names[$index]}"
+                send_qemu_key "$key"
+                send_key_count_sent[$index]=true
+                echo "[uefi-qemu] sent key '$key' after marker occurrence $target: $marker"
+            fi
+        done
+        if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
             all_markers_ready=true
             for index in "${!require_markers[@]}"; do
                 require_marker="${require_markers[$index]}"
@@ -240,10 +286,20 @@ while ((SECONDS < deadline)); do
                     all_markers_ready=false
                 fi
             done
+            for index in "${!require_marker_count_markers[@]}"; do
+                marker="${require_marker_count_markers[$index]}"
+                target="${require_marker_count_targets[$index]}"
+                if (( $(marker_occurrences "$marker") < target )); then
+                    all_markers_ready=false
+                fi
+            done
             if $all_markers_ready; then
                 echo "[uefi-qemu] required runtime markers: PASS"
                 for require_marker in "${require_markers[@]}"; do
                     echo "[uefi-qemu] marker: $require_marker"
+                done
+                for index in "${!require_marker_count_markers[@]}"; do
+                    echo "[uefi-qemu] marker count: ${require_marker_count_markers[$index]} >= ${require_marker_count_targets[$index]}"
                 done
                 echo "[uefi-qemu] firmware CODE: $firmware_code"
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
