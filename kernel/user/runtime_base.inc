@@ -95,6 +95,112 @@ struct Context {
     bool active;
 };
 
+bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
+    for (size_t index = 0U; index < KU_UI_NATIVE_TEXT_CAPACITY; ++index) {
+        if (text[index] == '\0') return true;
+    }
+    return false;
+}
+
+bool native_command_valid(const ku_ui_native_command& command) {
+    if (command.type < KU_UI_NATIVE_PANEL || command.type > KU_UI_NATIVE_SEPARATOR ||
+        (command.flags & ~(KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED)) != 0U ||
+        command.reserved != 0U || !native_text_terminated(command.text)) {
+        return false;
+    }
+    if (command.x < 0 || command.y < 0 || command.height <= 0 || command.width < 0 ||
+        command.x > KU_UI_NATIVE_COORD_LIMIT || command.y > KU_UI_NATIVE_COORD_LIMIT ||
+        command.width > KU_UI_NATIVE_COORD_LIMIT || command.height > KU_UI_NATIVE_COORD_LIMIT) {
+        return false;
+    }
+    if (command.type == KU_UI_NATIVE_PROGRESS && command.maximum == 0U) return false;
+    return true;
+}
+
+bool native_frame_valid(const ku_ui_native_frame& frame) {
+    if (frame.structure_size != sizeof(ku_ui_native_frame) ||
+        frame.magic != KU_UI_NATIVE_MAGIC || frame.version != KU_UI_NATIVE_VERSION ||
+        frame.command_count > KU_UI_NATIVE_MAX_COMMANDS || frame.reserved != 0U) {
+        return false;
+    }
+    for (uint32_t index = 0U; index < frame.command_count; ++index) {
+        if (!native_command_valid(frame.commands[index])) return false;
+    }
+    return true;
+}
+
+ui::Rect native_bounds(
+    const ui::Rect& content,
+    const ku_ui_native_command& command) {
+    int32_t width = command.width;
+    if (width == 0) width = content.width - command.x - 16;
+    if (width < 1) width = 1;
+    const int32_t available_width = content.width - command.x;
+    if (available_width > 0 && width > available_width) width = available_width;
+    int32_t height = command.height;
+    const int32_t available_height = content.height - command.y;
+    if (available_height > 0 && height > available_height) height = available_height;
+    if (height < 1) height = 1;
+    return {content.x + command.x, content.y + command.y, width, height};
+}
+
+void draw_native_frame(
+    const ku_ui_native_frame& frame,
+    const ui::Rect& content,
+    bool focused) {
+    const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
+    const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
+    const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
+    graphics::fill_rect(content.x, content.y, content.width, content.height, background);
+    if (content.width > 48) {
+        graphics::fill_rect(content.x + 16, content.y + 7,
+                            content.width - 32, 1,
+                            focused ? accent : graphics::rgb(45, 47, 52));
+    }
+
+    for (uint32_t index = 0U; index < frame.command_count; ++index) {
+        const ku_ui_native_command& command = frame.commands[index];
+        const ui::Rect bounds = native_bounds(content, command);
+        const bool selected = (command.flags & KU_UI_NATIVE_SELECTED) != 0U;
+        const bool disabled = (command.flags & KU_UI_NATIVE_DISABLED) != 0U;
+        switch (command.type) {
+            case KU_UI_NATIVE_PANEL:
+                ui::panel(bounds, true);
+                graphics::draw_text(bounds.x + 12, bounds.y + 11, command.text,
+                                    foreground, background, 1U, true);
+                break;
+            case KU_UI_NATIVE_LABEL:
+                graphics::draw_text(bounds.x, bounds.y + 6, command.text,
+                                    disabled ? ui::default_theme().text_muted : foreground,
+                                    background, 1U, true);
+                break;
+            case KU_UI_NATIVE_BUTTON:
+                ui::button(bounds, command.text, selected);
+                break;
+            case KU_UI_NATIVE_INPUT:
+                ui::input_field(bounds, command.text, selected);
+                break;
+            case KU_UI_NATIVE_LIST_ITEM:
+                ui::list_row(bounds, command.text, selected, disabled);
+                break;
+            case KU_UI_NATIVE_PROGRESS: {
+                graphics::draw_text(bounds.x, bounds.y, command.text,
+                                    foreground, background, 1U, true);
+                const int32_t bar_y = bounds.y + 18;
+                const int32_t bar_height = bounds.height > 24 ? bounds.height - 20 : 8;
+                ui::progress({bounds.x, bar_y, bounds.width, bar_height},
+                             command.value, command.maximum);
+                break;
+            }
+            case KU_UI_NATIVE_SEPARATOR:
+                ui::separator(bounds.x, bounds.y + bounds.height / 2, bounds.width);
+                break;
+            default:
+                break;
+        }
+    }
+}
+
 void draw_user_window(
     windowing::WindowId,
     const ui::Rect& content,
@@ -102,10 +208,23 @@ void draw_user_window(
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
     if (context == nullptr || !context->active || !context->ui.active) return;
-    ku_ui_frame frame = context->ui.frame;
+
     windowing::SurfaceView retained{};
     if (windowing::read_surface(context->ui.window, &retained) == windowing::Status::Ok &&
-        retained.data != nullptr && retained.size == sizeof(frame)) {
+        retained.data != nullptr && retained.size == sizeof(ku_ui_native_frame)) {
+        ku_ui_native_frame native{};
+        auto* destination = reinterpret_cast<uint8_t*>(&native);
+        for (size_t index = 0U; index < sizeof(native); ++index) {
+            destination[index] = retained.data[index];
+        }
+        if (native_frame_valid(native)) {
+            draw_native_frame(native, content, focused);
+            return;
+        }
+    }
+
+    ku_ui_frame frame = context->ui.frame;
+    if (retained.data != nullptr && retained.size == sizeof(frame)) {
         auto* destination = reinterpret_cast<uint8_t*>(&frame);
         for (size_t index = 0U; index < sizeof(frame); ++index) {
             destination[index] = retained.data[index];
@@ -1219,11 +1338,36 @@ void syscall_handler(
         }
         case KU_SYS_UI_PRESENT: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
-                frame.rdx != sizeof(ku_ui_frame) ||
-                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ui_frame))) {
+                (frame.rdx != sizeof(ku_ui_frame) &&
+                 frame.rdx != sizeof(ku_ui_native_frame)) ||
+                frame.rdx > SIZE_MAX ||
+                !validate_user_buffer(
+                    *context, frame.rsi, static_cast<size_t>(frame.rdx))) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+
+            if (frame.rdx == sizeof(ku_ui_native_frame)) {
+                const auto* user_native = reinterpret_cast<const ku_ui_native_frame*>(
+                    static_cast<uintptr_t>(frame.rsi));
+                if (!native_frame_valid(*user_native)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                    return;
+                }
+                const windowing::Status surface_status = windowing::present_surface(
+                    context->ui.window, sizeof(ku_ui_native_frame), 1U,
+                    sizeof(ku_ui_native_frame), user_native,
+                    sizeof(ku_ui_native_frame));
+                if (surface_status != windowing::Status::Ok) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                system_metrics::record_graphics_work(
+                    UINT64_C(1) + static_cast<uint64_t>(user_native->command_count));
+                frame.rax = KU_STATUS_OK;
+                return;
+            }
+
             const auto* user_frame = reinterpret_cast<const ku_ui_frame*>(
                 static_cast<uintptr_t>(frame.rsi));
             if (user_frame->structure_size != sizeof(ku_ui_frame) ||

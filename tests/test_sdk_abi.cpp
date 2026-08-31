@@ -152,6 +152,11 @@ int main() {
 
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_native_command) == 112);
+    static_assert(sizeof(ku_ui_native_frame) == 3616);
+    static_assert(sizeof(ku_ui_native_frame) <= 4096);
+    static_assert(KU_UI_NATIVE_MAGIC == UINT32_C(0x4B554932));
+    static_assert(KU_UI_NATIVE_MAX_COMMANDS == 32U);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);

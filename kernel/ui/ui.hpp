@@ -62,6 +62,10 @@ void pulse_item(const Rect& bounds, const char* title, bool focused, bool minimi
 void label(const Rect& bounds, const char* text,
            graphics::Color color = 0, uint32_t scale = 1);
 void button(const Rect& bounds, const char* text, bool selected = false);
+void input_field(const Rect& bounds, const char* text, bool focused = false);
+void list_row(
+    const Rect& bounds, const char* text, bool selected = false,
+    bool disabled = false);
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum);
 void separator(int32_t x, int32_t y, int32_t width);
 

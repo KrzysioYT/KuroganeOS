@@ -7,6 +7,56 @@
 #define KU_UI_MAX_LINES 12U
 #define KU_UI_LINE_CAPACITY 64U
 
+/* Native bounded retained-widget transport. Legacy ku_ui_frame remains ABI-stable. */
+#define KU_UI_NATIVE_MAGIC UINT32_C(0x4B554932) /* KUI2 */
+#define KU_UI_NATIVE_VERSION UINT32_C(1)
+#define KU_UI_NATIVE_MAX_COMMANDS 32U
+#define KU_UI_NATIVE_TEXT_CAPACITY 64U
+#define KU_UI_NATIVE_COORD_LIMIT 4096
+
+enum ku_ui_native_command_type {
+    KU_UI_NATIVE_PANEL = 1,
+    KU_UI_NATIVE_LABEL = 2,
+    KU_UI_NATIVE_BUTTON = 3,
+    KU_UI_NATIVE_INPUT = 4,
+    KU_UI_NATIVE_LIST_ITEM = 5,
+    KU_UI_NATIVE_PROGRESS = 6,
+    KU_UI_NATIVE_SEPARATOR = 7
+};
+
+enum ku_ui_native_command_flags {
+    KU_UI_NATIVE_SELECTED = UINT32_C(1) << 0,
+    KU_UI_NATIVE_DISABLED = UINT32_C(1) << 1
+};
+
+typedef struct ku_ui_native_command {
+    uint32_t type;
+    uint32_t flags;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    uint32_t foreground_rgb;
+    uint32_t background_rgb;
+    uint32_t accent_rgb;
+    uint32_t value;
+    uint32_t maximum;
+    uint32_t reserved;
+    char text[KU_UI_NATIVE_TEXT_CAPACITY];
+} ku_ui_native_command;
+
+typedef struct ku_ui_native_frame {
+    uint32_t structure_size;
+    uint32_t magic;
+    uint32_t version;
+    uint32_t command_count;
+    uint32_t background_rgb;
+    uint32_t foreground_rgb;
+    uint32_t accent_rgb;
+    uint32_t reserved;
+    ku_ui_native_command commands[KU_UI_NATIVE_MAX_COMMANDS];
+} ku_ui_native_frame;
+
 typedef uint32_t ku_window_t;
 #define KU_INVALID_WINDOW UINT32_C(0)
 
@@ -91,6 +141,14 @@ static inline ku_status_t ku_ui_present(
     return (ku_status_t)ku_syscall3(
         KU_SYS_UI_PRESENT, window, (uint64_t)(uintptr_t)frame,
         sizeof(ku_ui_frame));
+}
+
+static inline ku_status_t ku_ui_present_native(
+    ku_window_t window,
+    const ku_ui_native_frame* frame) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_UI_PRESENT, window, (uint64_t)(uintptr_t)frame,
+        sizeof(ku_ui_native_frame));
 }
 
 static inline ku_status_t ku_ui_poll(

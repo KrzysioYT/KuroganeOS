@@ -506,6 +506,42 @@ void button(const Rect& bounds, const char* text, bool selected) {
                         kTheme.text, background, 2U, true);
 }
 
+void input_field(const Rect& bounds, const char* text, bool focused) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = focused
+        ? graphics::rgb(24, 18, 22) : kTheme.panel_alt;
+    const graphics::Color border = focused ? kRedBright : kTheme.border;
+    graphics::fill_rect(bounds.x + 3, bounds.y + 3,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
+    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
+                        focused ? kRedBright : kRedDeep);
+    graphics::draw_text(bounds.x + 12, bounds.y + (bounds.height - 8) / 2,
+                        text ? text : "", kTheme.text, background, 1U, true);
+}
+
+void list_row(
+    const Rect& bounds, const char* text, bool selected, bool disabled) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = selected
+        ? graphics::rgb(43, 20, 25) : kGraphite;
+    const graphics::Color signal = selected
+        ? kRedBright : (disabled ? kInactiveSignal : kSteel);
+    const graphics::Color foreground = disabled ? kTheme.text_muted : kTheme.text;
+    graphics::fill_rect(bounds.x + 3, bounds.y + 3,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        selected ? kRedMuted : kTheme.border);
+    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height, signal);
+    if (selected && bounds.width > 48) {
+        graphics::fill_rect(bounds.x + 12, bounds.y, 34, 2, kRedBright);
+    }
+    graphics::draw_text(bounds.x + 14, bounds.y + (bounds.height - 8) / 2,
+                        text ? text : "", foreground, background, 1U, true);
+}
+
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum) {
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
                         kTheme.panel_alt);
