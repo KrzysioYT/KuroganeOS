@@ -1,0 +1,90 @@
+name: Dev Apply Flux Settings Cards
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-flux-settings-cards.yml
+      - scripts/dev-apply-flux-settings-cards.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded persistent Settings migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-flux-settings-cards.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove Settings persistence across process restart on KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] flux_home_system_pulse: PASS' 770 379 \
+            --click-after-marker '[TEST] flux_settings_toggle_cards: PASS' 680 393 \
+            --click-after-marker '[TEST] desktop_settings_profile_persist: PASS' 911 223 \
+            --click-after-marker '[TEST] desktop_settings_closed: PASS' 770 379 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] flux_settings_toggle_cards: PASS' \
+            --require-marker '[TEST] desktop_settings_profile_persist: PASS' \
+            --require-marker '[TEST] desktop_settings_closed: PASS' \
+            --require-marker '[TEST] desktop_settings_profile_restore: PASS'
+
+      - name: Commit and publish Settings cards
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            sdk/include/kurogane/ui.h \
+            sdk/include/kurogane/libui.h \
+            sdk/src/libui.c \
+            kernel/user/runtime_base.inc \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            userspace/gui/settings/main.c \
+            tests/test_sdk_abi.cpp \
+            tests/test_libui_pointer.c \
+            tests/test_mouse_first_apps.py
+          git diff --cached --quiet && { echo "guard produced no Settings production changes"; exit 1; }
+          git commit -m "feat(gui): add persistent Flux Settings cards"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
