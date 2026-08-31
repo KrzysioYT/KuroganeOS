@@ -16,6 +16,10 @@ struct DamageRect {
     int32_t height;
 };
 
+// Bounded outer compositor clip.  Application/window clips may only
+// further restrict drawing and cannot expand beyond these regions.
+constexpr size_t MAX_COMPOSITOR_DAMAGE_REGIONS = 16U;
+
 constexpr Color rgb(uint8_t red, uint8_t green, uint8_t blue) {
     return (static_cast<Color>(red) << 16) |
            (static_cast<Color>(green) << 8) |
@@ -36,6 +40,9 @@ bool begin_frame();
 void end_frame();
 void end_frame_regions(const DamageRect* regions, size_t count);
 bool frame_active();
+bool set_damage_regions(const DamageRect* regions, size_t count);
+void reset_damage_regions();
+bool damage_regions_active();
 
 // All primitive drawing honors the current clip. WindowManager uses this to
 // guarantee that application content cannot overwrite window chrome or a

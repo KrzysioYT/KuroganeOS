@@ -26,6 +26,9 @@ struct ClipState {
 };
 
 ClipState g_clip{};
+DamageRect g_damage_regions[MAX_COMPOSITOR_DAMAGE_REGIONS]{};
+size_t g_damage_count = 0U;
+bool g_damage_active = false;
 uint32_t g_text_scale_limit = UINT32_MAX;
 
 struct Glyph {
@@ -143,6 +146,37 @@ uint32_t effective_scale(uint32_t requested) {
     return requested > g_text_scale_limit ? g_text_scale_limit : requested;
 }
 
+bool clip_damage_rect(const DamageRect& input, DamageRect* output) {
+    if (output == nullptr || input.width <= 0 || input.height <= 0) return false;
+    int64_t left = input.x;
+    int64_t top = input.y;
+    int64_t right = static_cast<int64_t>(input.x) + input.width;
+    int64_t bottom = static_cast<int64_t>(input.y) + input.height;
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > static_cast<int64_t>(g_framebuffer.width)) right = g_framebuffer.width;
+    if (bottom > static_cast<int64_t>(g_framebuffer.height)) bottom = g_framebuffer.height;
+    if (left >= right || top >= bottom) return false;
+    *output = {
+        static_cast<int32_t>(left), static_cast<int32_t>(top),
+        static_cast<int32_t>(right - left),
+        static_cast<int32_t>(bottom - top),
+    };
+    return true;
+}
+
+bool damage_contains(int32_t x, int32_t y) {
+    if (!g_damage_active) return true;
+    for (size_t index = 0U; index < g_damage_count; ++index) {
+        const DamageRect& region = g_damage_regions[index];
+        if (x >= region.x && y >= region.y &&
+            x < region.x + region.width && y < region.y + region.height) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void clip_edges(
     int64_t& left, int64_t& top, int64_t& right, int64_t& bottom) {
     if (left < 0) left = 0;
@@ -166,6 +200,8 @@ bool init(const KuroganeFramebuffer& framebuffer) {
     g_available = false;
     g_frame_active = false;
     g_clip = {};
+    g_damage_count = 0U;
+    g_damage_active = false;
     g_text_scale_limit = UINT32_MAX;
     if (!framebuffer.base || framebuffer.width == 0 ||
         framebuffer.height == 0 ||
@@ -196,6 +232,7 @@ bool begin_frame() {
         return false;
     }
     g_frame_active = true;
+    reset_damage_regions();
     reset_clip();
     reset_text_scale_limit();
     return true;
@@ -254,6 +291,7 @@ void end_frame_regions(const DamageRect* regions, size_t count) {
     }
 
     g_frame_active = false;
+    reset_damage_regions();
     reset_clip();
     reset_text_scale_limit();
 }
@@ -269,6 +307,26 @@ void end_frame() {
 }
 
 bool frame_active() { return g_frame_active; }
+
+bool set_damage_regions(const DamageRect* regions, size_t count) {
+    reset_damage_regions();
+    if (!g_available || regions == nullptr || count == 0U ||
+        count > MAX_COMPOSITOR_DAMAGE_REGIONS) return false;
+    for (size_t index = 0U; index < count; ++index) {
+        DamageRect clipped{};
+        if (!clip_damage_rect(regions[index], &clipped)) continue;
+        g_damage_regions[g_damage_count++] = clipped;
+    }
+    g_damage_active = g_damage_count != 0U;
+    return g_damage_active;
+}
+
+void reset_damage_regions() {
+    g_damage_count = 0U;
+    g_damage_active = false;
+}
+
+bool damage_regions_active() { return g_damage_active; }
 
 void set_clip(int32_t x, int32_t y, int32_t rectangle_width, int32_t rectangle_height) {
     int64_t left = x;
@@ -305,6 +363,7 @@ void put_pixel(int32_t x, int32_t y, Color color) {
     if (g_clip.enabled &&
         (x < g_clip.left || x >= g_clip.right ||
          y < g_clip.top || y >= g_clip.bottom)) return;
+    if (!damage_contains(x, y)) return;
     auto* row = reinterpret_cast<uint32_t*>(
         draw_base() + static_cast<size_t>(y) * draw_pitch());
     row[x] = native_color(color);
@@ -327,14 +386,30 @@ void fill_rect(int32_t x, int32_t y, int32_t rectangle_width,
     if (left >= right || top >= bottom) return;
 
     const uint32_t native = native_color(color);
-    for (int32_t py = static_cast<int32_t>(top);
-         py < static_cast<int32_t>(bottom); ++py) {
-        auto* row = reinterpret_cast<uint32_t*>(
-            draw_base() + static_cast<size_t>(py) * draw_pitch());
-        for (int32_t px = static_cast<int32_t>(left);
-             px < static_cast<int32_t>(right); ++px) {
-            row[px] = native;
+    const auto paint = [native](int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
+        for (int32_t py = y1; py < y2; ++py) {
+            auto* row = reinterpret_cast<uint32_t*>(
+                draw_base() + static_cast<size_t>(py) * draw_pitch());
+            for (int32_t px = x1; px < x2; ++px) row[px] = native;
         }
+    };
+    if (!g_damage_active) {
+        paint(static_cast<int32_t>(left), static_cast<int32_t>(top),
+              static_cast<int32_t>(right), static_cast<int32_t>(bottom));
+        return;
+    }
+
+    for (size_t index = 0U; index < g_damage_count; ++index) {
+        const DamageRect& damage = g_damage_regions[index];
+        int64_t clipped_left = left > damage.x ? left : damage.x;
+        int64_t clipped_top = top > damage.y ? top : damage.y;
+        const int64_t damage_right = static_cast<int64_t>(damage.x) + damage.width;
+        const int64_t damage_bottom = static_cast<int64_t>(damage.y) + damage.height;
+        int64_t clipped_right = right < damage_right ? right : damage_right;
+        int64_t clipped_bottom = bottom < damage_bottom ? bottom : damage_bottom;
+        if (clipped_left >= clipped_right || clipped_top >= clipped_bottom) continue;
+        paint(static_cast<int32_t>(clipped_left), static_cast<int32_t>(clipped_top),
+              static_cast<int32_t>(clipped_right), static_cast<int32_t>(clipped_bottom));
     }
 }
 
@@ -423,13 +498,38 @@ void scroll_up(uint32_t pixels, Color fill) {
     }
     reset_clip();
     const size_t pitch = draw_pitch();
-    const size_t bytes_to_move =
-        static_cast<size_t>(g_framebuffer.height - pixels) * pitch;
     auto* base = draw_base();
-    memmove(base, base + static_cast<size_t>(pixels) * pitch, bytes_to_move);
-    fill_rect(0, static_cast<int32_t>(g_framebuffer.height - pixels),
-              static_cast<int32_t>(g_framebuffer.width),
-              static_cast<int32_t>(pixels), fill);
+    if (!g_damage_active) {
+        const size_t bytes_to_move =
+            static_cast<size_t>(g_framebuffer.height - pixels) * pitch;
+        memmove(base, base + static_cast<size_t>(pixels) * pitch, bytes_to_move);
+        fill_rect(0, static_cast<int32_t>(g_framebuffer.height - pixels),
+                  static_cast<int32_t>(g_framebuffer.width),
+                  static_cast<int32_t>(pixels), fill);
+        return;
+    }
+
+    const uint32_t native = native_color(fill);
+    // Process destination rows top-to-bottom.  Every scroll source row is
+    // strictly below its destination, so source pixels are read before they
+    // can be modified even when damage regions overlap.
+    for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
+        for (size_t index = 0U; index < g_damage_count; ++index) {
+            const DamageRect& region = g_damage_regions[index];
+            if (y < static_cast<uint32_t>(region.y) ||
+                y >= static_cast<uint32_t>(region.y + region.height)) continue;
+            auto* destination = reinterpret_cast<uint32_t*>(
+                base + static_cast<size_t>(y) * pitch) + region.x;
+            const size_t span = static_cast<size_t>(region.width);
+            if (y + pixels < g_framebuffer.height) {
+                const auto* source = reinterpret_cast<const uint32_t*>(
+                    base + static_cast<size_t>(y + pixels) * pitch) + region.x;
+                memmove(destination, source, span * sizeof(uint32_t));
+            } else {
+                for (size_t x = 0U; x < span; ++x) destination[x] = native;
+            }
+        }
+    }
 }
 
 } // namespace graphics

@@ -1318,19 +1318,24 @@ bool render_if_needed() {
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
     const bool buffered = graphics::begin_frame();
+    graphics::DamageRect regions[MAX_DAMAGE_REGIONS]{};
+    bool partial_raster = false;
+    if (pending_mode == DirtyMode::Regions && pending_count != 0U) {
+        for (size_t index = 0U; index < pending_count; ++index) {
+            regions[index] = {
+                pending[index].x, pending[index].y,
+                pending[index].width, pending[index].height,
+            };
+        }
+        partial_raster = graphics::set_damage_regions(regions, pending_count);
+    }
     render_layers();
+    graphics::reset_damage_regions();
     if (buffered) {
-        if (pending_mode == DirtyMode::Full || pending_count == 0U) {
-            graphics::end_frame();
-        } else {
-            graphics::DamageRect regions[MAX_DAMAGE_REGIONS]{};
-            for (size_t index = 0U; index < pending_count; ++index) {
-                regions[index] = {
-                    pending[index].x, pending[index].y,
-                    pending[index].width, pending[index].height,
-                };
-            }
+        if (partial_raster) {
             graphics::end_frame_regions(regions, pending_count);
+        } else {
+            graphics::end_frame();
         }
     }
     show_cursor(input::pointer_x(), input::pointer_y());

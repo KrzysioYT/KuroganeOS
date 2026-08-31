@@ -29,6 +29,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_graphics_runtime"
 
+# Exercise the real framebuffer backbuffer with a bounded outer damage mask.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_framebuffer_damage.cpp \
+  kernel/drivers/framebuffer.cpp \
+  -o "$OUT_DIR/test_framebuffer_damage"
+
+"$OUT_DIR/test_framebuffer_damage"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
