@@ -1,0 +1,81 @@
+name: Dev Apply Flux Status Strip
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-flux-status-strip.yml
+      - scripts/dev-apply-flux-status-strip.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded live status strip migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-flux-status-strip.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove status strip in network and audio runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --nic e1000 --audio ac97 --require-network --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] flux_status_strip_live: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+
+      - name: Commit and publish live status strip
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            kernel/ui/window_manager.hpp \
+            kernel/ui/window_manager.cpp \
+            kernel/apps/desktop_session.cpp \
+            tests/test_window_manager.cpp \
+            tests/test_mouse_first_apps.py
+          git diff --cached --quiet && { echo "guard produced no status-strip production changes"; exit 1; }
+          git commit -m "feat(gui): add live Flux system status strip"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
