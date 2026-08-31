@@ -22,6 +22,7 @@ enum class Status : uint8_t {
 
 Status initialize();
 bool ready();
+bool link_up();
 bool detected();
 Driver driver();
 NetworkInterface* interface();

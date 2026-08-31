@@ -472,6 +472,10 @@ bool ready() {
     return g_device.initialized && g_status == Status::Ok;
 }
 
+bool link_up() {
+    return ready() && (read_register(g_device, REG_STATUS) & STATUS_LU) != 0U;
+}
+
 NetworkInterface* interface() {
     return ready() ? &g_device.interface : nullptr;
 }

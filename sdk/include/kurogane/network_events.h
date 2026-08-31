@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-/* Edge-triggered state-change topics emitted by /system/neteventd.
+/* Edge-triggered state-change topics emitted by /system/netevtd.
  * Consumers query ku_network_get_status() after receiving a signal. */
 #define KU_NETWORK_EVENT_CHANGED "network.changed"
 #define KU_NETWORK_EVENT_CHANGED_SIZE 15U

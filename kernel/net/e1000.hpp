@@ -25,6 +25,7 @@ enum class Status : uint8_t {
 
 Status initialize();
 bool ready();
+bool link_up();
 NetworkInterface* interface();
 const MacAddress* hardware_address();
 uint64_t transmitted_frames();

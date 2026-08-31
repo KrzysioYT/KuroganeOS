@@ -412,7 +412,10 @@ Status initialize() {
 #endif
 }
 
-bool ready() { return g_ready; }
+bool ready() {
+    if (!g_ready) return false;
+    return !g_physical || physical::link_up();
+}
 
 Status poll(size_t budget, size_t* processed) {
     if (!g_ready) {
@@ -762,7 +765,9 @@ Status list_neighbors(NeighborCallback callback, void* context) {
     return net::list_neighbors(&g_stack, callback, context);
 }
 
-bool physical_interface() { return g_ready && g_physical; }
+bool physical_interface() {
+    return g_ready && g_physical && physical::link_up();
+}
 bool physical_device_detected() { return g_physical_detected; }
 Status physical_status() { return g_physical_status; }
 bool dhcp_configured() { return g_ready && g_dhcp; }
