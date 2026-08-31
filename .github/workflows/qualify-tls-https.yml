@@ -1,0 +1,313 @@
+name: Qualify 3.5 TLS HTTPS
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-tls-https.yml'
+      - 'scripts/qualification/tls-local-services.py'
+      - 'kernel/net/tls/**'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/net/tcp_client.cpp'
+      - 'kernel/net/tcp_client.hpp'
+      - 'kernel/net/network.cpp'
+      - 'kernel/net/network.hpp'
+      - 'kernel/main.cpp'
+      - 'rootfs/etc/ssl/certs.pem'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tls-https:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build QEMU and TLS dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 openssl \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Generate deterministic qualification PKI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/qualification/tls
+          out=build/qualification/tls
+
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
+            -subj '/CN=Kurogane TLS Qualification CA' \
+            -addext 'basicConstraints=critical,CA:TRUE' \
+            -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+            -keyout "$out/trusted-ca.key" -out "$out/trusted-ca.crt"
+          openssl req -newkey rsa:2048 -nodes -sha256 \
+            -subj '/CN=kurogane.test' \
+            -keyout "$out/trusted.key" -out "$out/trusted.csr"
+          cat > "$out/trusted.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:kurogane.test
+          EOF
+          openssl x509 -req -sha256 -days 2 \
+            -in "$out/trusted.csr" \
+            -CA "$out/trusted-ca.crt" -CAkey "$out/trusted-ca.key" -CAcreateserial \
+            -extfile "$out/trusted.ext" -out "$out/trusted.crt"
+
+          openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 2 \
+            -subj '/CN=Kurogane Untrusted Qualification CA' \
+            -addext 'basicConstraints=critical,CA:TRUE' \
+            -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+            -keyout "$out/untrusted-ca.key" -out "$out/untrusted-ca.crt"
+          openssl req -newkey rsa:2048 -nodes -sha256 \
+            -subj '/CN=untrusted.kurogane.test' \
+            -keyout "$out/untrusted.key" -out "$out/untrusted.csr"
+          cat > "$out/untrusted.ext" <<'EOF'
+          basicConstraints=critical,CA:FALSE
+          keyUsage=critical,digitalSignature,keyEncipherment
+          extendedKeyUsage=serverAuth
+          subjectAltName=DNS:untrusted.kurogane.test
+          EOF
+          openssl x509 -req -sha256 -days 2 \
+            -in "$out/untrusted.csr" \
+            -CA "$out/untrusted-ca.crt" -CAkey "$out/untrusted-ca.key" -CAcreateserial \
+            -extfile "$out/untrusted.ext" -out "$out/untrusted.crt"
+
+          openssl verify -CAfile "$out/trusted-ca.crt" "$out/trusted.crt"
+          openssl verify -CAfile "$out/untrusted-ca.crt" "$out/untrusted.crt"
+          cat "$out/trusted-ca.crt" >> rootfs/etc/ssl/certs.pem
+
+      - name: Inject production TLS runtime qualification
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/main.cpp')
+          text = path.read_text()
+          anchor = '''        terminal::println(
+              net::service::ping_address(public_probe, 2U) == net::Status::Ok
+                  ? "[TEST] network_online_icmp: PASS"
+                  : "[TEST] network_online_icmp: SKIP");
+          '''
+          probe = anchor + '''        {
+              static uint8_t tls_output[4096]{};
+              static uint8_t tls_bounded[128]{};
+              size_t tls_length = 0U;
+              uint16_t http_status = 0U;
+              net::Status tls_status = net::service::https_get(
+                  "kurogane.test", "/ok",
+                  tls_output, sizeof(tls_output), &tls_length, &http_status);
+              bool body_ok = false;
+              static constexpr char expected_body[] = "KURO_TLS_OK";
+              for (size_t start = 0U;
+                   start + sizeof(expected_body) - 1U <= tls_length;
+                   ++start) {
+                  size_t matched = 0U;
+                  while (matched < sizeof(expected_body) - 1U &&
+                         tls_output[start + matched] ==
+                             static_cast<uint8_t>(expected_body[matched])) {
+                      ++matched;
+                  }
+                  if (matched == sizeof(expected_body) - 1U) {
+                      body_ok = true;
+                      break;
+                  }
+              }
+              if (tls_status != net::Status::Ok || http_status != 200U ||
+                  !body_ok) {
+                  terminal::println("[TEST] tls_https_valid: FAIL");
+                  boot_failure("TLS", "verified HTTPS request failed");
+              }
+              terminal::println("[TEST] tls_https_valid: PASS");
+
+              tls_length = 0U;
+              http_status = 0U;
+              tls_status = net::service::https_get(
+                  "wrong.kurogane.test", "/ok",
+                  tls_output, sizeof(tls_output), &tls_length, &http_status);
+              if (tls_status != net::Status::InterfaceError) {
+                  terminal::println("[TEST] tls_hostname_reject: FAIL");
+                  boot_failure("TLS", "hostname mismatch was not rejected");
+              }
+              terminal::println("[TEST] tls_hostname_reject: PASS");
+
+              tls_length = 0U;
+              http_status = 0U;
+              tls_status = net::service::https_get(
+                  "untrusted.kurogane.test", "/ok",
+                  tls_output, sizeof(tls_output), &tls_length, &http_status);
+              if (tls_status != net::Status::InterfaceError) {
+                  terminal::println("[TEST] tls_untrusted_ca_reject: FAIL");
+                  boot_failure("TLS", "untrusted certificate was not rejected");
+              }
+              terminal::println("[TEST] tls_untrusted_ca_reject: PASS");
+
+              tls_length = 0U;
+              http_status = 0U;
+              tls_status = net::service::https_get(
+                  "kurogane.test", "/large",
+                  tls_bounded, sizeof(tls_bounded), &tls_length, &http_status);
+              if (tls_status != net::Status::BufferTooSmall ||
+                  tls_length != sizeof(tls_bounded) || http_status != 200U) {
+                  terminal::println("[TEST] tls_bounded_response: FAIL");
+                  boot_failure("TLS", "bounded HTTPS response contract failed");
+              }
+              terminal::println("[TEST] tls_bounded_response: PASS");
+              terminal::println("[TEST] tls_https: PASS");
+          }
+          '''
+          count = text.count(anchor)
+          if count != 1:
+              raise SystemExit(f'TLS probe anchor count={count}, expected 1')
+          path.write_text(text.replace(anchor, probe, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F '[TEST] tls_https_valid: PASS' kernel/main.cpp
+          grep -F '[TEST] tls_hostname_reject: PASS' kernel/main.cpp
+          grep -F '[TEST] tls_untrusted_ca_reject: PASS' kernel/main.cpp
+          grep -F '[TEST] tls_bounded_response: PASS' kernel/main.cpp
+          grep -F '[TEST] tls_https: PASS' kernel/main.cpp
+          grep -F 'Kurogane TLS Qualification CA' <(openssl x509 -in build/qualification/tls/trusted-ca.crt -noout -subject)
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real verified TLS HTTPS runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          services_log="$tmp/services.log"
+          sni_log="$tmp/sni.log"
+          dns_log="$tmp/dns.log"
+          service_pid_file="$tmp/services.pid"
+          resolv_backup="$tmp/resolv.conf"
+          vars="$tmp/OVMF_VARS.fd"
+          qemu_pid=""
+          services_pid=""
+
+          cp /etc/resolv.conf "$resolv_backup"
+          cleanup() {
+            if [[ -n "$qemu_pid" ]] && kill -0 "$qemu_pid" >/dev/null 2>&1; then
+              kill "$qemu_pid" >/dev/null 2>&1 || true
+              wait "$qemu_pid" >/dev/null 2>&1 || true
+            fi
+            if [[ -f "$service_pid_file" ]]; then
+              services_pid="$(cat "$service_pid_file")"
+              sudo kill "$services_pid" >/dev/null 2>&1 || true
+            fi
+            sudo cp "$resolv_backup" /etc/resolv.conf >/dev/null 2>&1 || true
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          out="$GITHUB_WORKSPACE/build/qualification/tls"
+          sudo sh -c "echo \$\$ > '$service_pid_file'; exec python3 '$GITHUB_WORKSPACE/scripts/qualification/tls-local-services.py' \
+            --trusted-cert '$out/trusted.crt' --trusted-key '$out/trusted.key' \
+            --untrusted-cert '$out/untrusted.crt' --untrusted-key '$out/untrusted.key' \
+            --sni-log '$sni_log' --dns-log '$dns_log' > '$services_log' 2>&1" &
+
+          for _ in $(seq 1 100); do
+            [[ -f "$service_pid_file" ]] && grep -Fq 'ready' "$services_log" 2>/dev/null && break
+            sleep 0.1
+          done
+          grep -F 'DNS 127.0.0.1:53 + HTTPS 127.0.0.1:443 ready' "$services_log"
+
+          printf 'nameserver 127.0.0.1\noptions timeout:1 attempts:1\n' | sudo tee /etc/resolv.conf >/dev/null
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu max \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          qemu_pid=$!
+
+          found=0
+          for _ in $(seq 1 1200); do
+            if grep -Fq '[TEST] tls_https_valid: FAIL' "$serial" 2>/dev/null || \
+               grep -Fq '[TEST] tls_hostname_reject: FAIL' "$serial" 2>/dev/null || \
+               grep -Fq '[TEST] tls_untrusted_ca_reject: FAIL' "$serial" 2>/dev/null || \
+               grep -Fq '[TEST] tls_bounded_response: FAIL' "$serial" 2>/dev/null; then
+              break
+            fi
+            if grep -Fq '[TEST] tls_https: PASS' "$serial" 2>/dev/null; then
+              found=1
+              break
+            fi
+            if ! kill -0 "$qemu_pid" >/dev/null 2>&1; then break; fi
+            sleep 0.2
+          done
+
+          kill "$qemu_pid" >/dev/null 2>&1 || true
+          wait "$qemu_pid" >/dev/null 2>&1 || true
+          qemu_pid=""
+          cat "$qemu_log"
+          tail -n 12000 "$serial"
+          cat "$services_log"
+          echo '[tls-https] DNS queries:'
+          cat "$dns_log"
+          echo '[tls-https] SNI names:'
+          cat "$sni_log"
+
+          [[ "$found" -eq 1 ]] || { echo 'TLS HTTPS PASS marker not observed' >&2; exit 1; }
+          grep -F '[TEST] tls_https_valid: PASS' "$serial"
+          grep -F '[TEST] tls_hostname_reject: PASS' "$serial"
+          grep -F '[TEST] tls_untrusted_ca_reject: PASS' "$serial"
+          grep -F '[TEST] tls_bounded_response: PASS' "$serial"
+          grep -F '[TEST] tls_https: PASS' "$serial"
+          grep -Fx 'kurogane.test' "$dns_log"
+          grep -Fx 'wrong.kurogane.test' "$dns_log"
+          grep -Fx 'untrusted.kurogane.test' "$dns_log"
+          grep -Fx 'kurogane.test' "$sni_log"
+          grep -Fx 'wrong.kurogane.test' "$sni_log"
+          grep -Fx 'untrusted.kurogane.test' "$sni_log"
+          echo '[tls-https] verified CA + hostname + SNI + bounded HTTPS runtime: PASS'
