@@ -47,5 +47,20 @@ if text.count(old_host_anchor) != 1:
         f"host socket insertion anchor count={text.count(old_host_anchor)}, expected 1")
 text = text.replace(old_host_anchor, new_host_anchor, 1)
 
+status_anchor = "# Pin the public DNS service ABI in the normal SDK regression.\n"
+status_patch = '''replace_once(
+    "kernel/net/network.cpp",
+    "        case Status::IterationStopped: return \\\"iteration stopped\\\";\\n"
+    "        case Status::InterfaceError: return \\\"interface error\\\";\\n",
+    "        case Status::IterationStopped: return \\\"iteration stopped\\\";\\n"
+    "        case Status::InterfaceError: return \\\"interface error\\\";\\n"
+    "        case Status::NameNotFound: return \\\"DNS name not found\\\";\\n",
+)
+
+'''
+if text.count(status_anchor) != 1:
+    raise SystemExit(f"status-message insertion anchor count={text.count(status_anchor)}, expected 1")
+text = text.replace(status_anchor, status_patch + status_anchor, 1)
+
 path.write_text(text)
 print("DNS service patcher corrected for current HEAD")
