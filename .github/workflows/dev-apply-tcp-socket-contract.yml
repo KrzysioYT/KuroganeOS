@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/dev-apply-tcp-socket-contract.yml'
       - 'scripts/dev-apply-tcp-socket-contract.py'
+      - 'scripts/dev-fix-tcp-patcher.py'
 
 permissions:
   contents: write
@@ -23,6 +24,9 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Correct guarded patch anchors
+        run: python3 scripts/dev-fix-tcp-patcher.py
+
       - name: Apply guarded source patch
         run: |
           python3 scripts/dev-apply-tcp-socket-contract.py
@@ -38,7 +42,7 @@ jobs:
 
       - name: Exclude one-shot staging machinery
         run: |
-          git checkout "$GITHUB_SHA" -- scripts/dev-apply-tcp-socket-contract.py .github/workflows/dev-apply-tcp-socket-contract.yml
+          git checkout "$GITHUB_SHA" -- scripts/dev-apply-tcp-socket-contract.py scripts/dev-fix-tcp-patcher.py .github/workflows/dev-apply-tcp-socket-contract.yml
           git diff --check
 
       - name: Commit qualified source patch
