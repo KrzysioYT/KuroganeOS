@@ -85,3 +85,5 @@ jobs:
             --require-marker '[TEST] flux_desktop_survives_probe: PASS' \
             --require-marker '[TEST] desktop_launcher_ring3: PASS' \
             --timeout 240
+
+# QMP input acknowledgement qualification touch.
