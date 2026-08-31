@@ -1,0 +1,79 @@
+name: Qualify 3.6 Flux Runtime Core
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'userspace/system/flux-surface-worker/**'
+      - 'userspace/system/flux-crash-worker/**'
+      - 'userspace/system/flux-surface-probe/**'
+      - 'kernel/ui/window_manager.*'
+      - 'kernel/user/runtime_base.inc'
+      - '.github/workflows/qualify-flux-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flux-runtime:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout qualification source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject session-tree runtime probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text(encoding='utf-8')
+          needle = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          if text.count(needle) != 1:
+              raise SystemExit('build-linux probe insertion point changed')
+          text = text.replace(
+              needle,
+              needle +
+              '    "fluxworker|userspace/system/flux-surface-worker/main.c|system/fluxwrk|c"\n' +
+              '    "fluxcrash|userspace/system/flux-crash-worker/main.c|system/fluxcrsh|c"\n' +
+              '    "fluxprobe|userspace/system/flux-surface-probe/main.c|system/fluxprobe|c"\n',
+              1)
+          build.write_text(text, encoding='utf-8')
+
+          launcher = Path('userspace/gui/launcher/main.c')
+          text = launcher.read_text(encoding='utf-8')
+          needle = '''    if (window == KU_INVALID_WINDOW) return 1;\n\n    for (index = 0U; index < CHILD_CAPACITY; ++index) {'''
+          replacement = '''    if (window == KU_INVALID_WINDOW) return 1;\n\n    {\n        static const char flux_probe_path[] = "/system/fluxprobe";\n        const ku_result_t probe_pid = ku_process_spawn(\n            flux_probe_path, sizeof(flux_probe_path) - 1U);\n        int32_t probe_exit = 0;\n        if (probe_pid <= 0) {\n            puts("[TEST] flux_desktop_survives_probe: FAIL");\n            return 80;\n        }\n        for (;;) {\n            const ku_status_t wait_status = ku_process_wait((uint64_t)probe_pid, &probe_exit);\n            if (wait_status == KU_STATUS_OK) break;\n            if (wait_status != KU_STATUS_WOULD_BLOCK) {\n                puts("[TEST] flux_desktop_survives_probe: FAIL");\n                return 81;\n            }\n            (void)ku_yield();\n        }\n        if (probe_exit != 0) {\n            puts("[TEST] flux_desktop_survives_probe: FAIL");\n            return 82;\n        }\n        puts("[TEST] flux_desktop_survives_probe: PASS");\n    }\n\n    for (index = 0U; index < CHILD_CAPACITY; ++index) {'''
+          if text.count(needle) != 1:
+              raise SystemExit('launcher session-root insertion point changed')
+          launcher.write_text(text.replace(needle, replacement, 1), encoding='utf-8')
+          PY
+          git diff --check
+          grep -F 'fluxworker|userspace/system/flux-surface-worker/main.c' scripts/build-linux.sh
+          grep -F '[TEST] flux_desktop_survives_probe: PASS' userspace/gui/launcher/main.c
+
+      - name: Build release media
+        shell: bash
+        run: bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Qualify retained surfaces and crash isolation in OVMF
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] flux_retained_surface_present: PASS' \
+            --require-marker '[TEST] flux_surface_exit_cleanup: PASS' \
+            --require-marker '[TEST] flux_gui_crash_isolation: PASS' \
+            --require-marker '[TEST] flux_desktop_survives_probe: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS' \
+            --timeout 240
