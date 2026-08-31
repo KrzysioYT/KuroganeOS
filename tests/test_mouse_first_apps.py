@@ -50,6 +50,21 @@ assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
 assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
 assert "red_flux_tile_launcher: PASS" in launcher
 
+control_center = read("userspace/gui/performance/main.c")
+assert 'gui_open("CONTROL CENTER"' in control_center
+assert '"FLUX CONTROL CENTER"' in control_center
+assert "ku_system_get_snapshot" in control_center
+assert "ku_network_get_status" in control_center
+assert "ku_audio_get_state" in control_center and "ku_audio_set" in control_center
+assert "KU_UI_EVENT_POINTER" in control_center and "kui_scene_hit_test" in control_center
+assert "KU_UI_EVENT_KEY" not in control_center
+assert "kui_flow_progress" in control_center and "kui_flow_button" in control_center
+assert "flux_control_center_live: PASS" in control_center
+assert "flux_control_center_audio_action: PASS" in control_center
+assert '"CONTROL CENTER"' in launcher
+assert '"system pulse / network / audio"' in launcher
+assert "\"CONTROL CENTER\", 'v'" in window_manager
+
 browser = read("userspace/gui/browser/main.c")
 assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"
 assert "kui_scene_hit_test" in browser, "browser: hit test missing"

@@ -77,7 +77,7 @@ constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
     {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
     {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
     {"FILES", 'f', ui::DockIcon::Files, "FILES"},
-    {"PERFORMANCE", 'v', ui::DockIcon::Monitor, "PERF"},
+    {"CONTROL CENTER", 'v', ui::DockIcon::Monitor, "CTRL"},
     {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
     {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
     {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
@@ -196,7 +196,7 @@ bool is_home_surface(const char* title) {
 }
 
 bool is_performance_surface(const char* title) {
-    return text_equals(title, "PERFORMANCE");
+    return text_equals(title, "CONTROL CENTER");
 }
 
 Slot* login_surface() {
@@ -505,13 +505,19 @@ bool valid_bounds(const ui::Rect& bounds) {
 ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requested) {
     if (!is_performance_surface(title)) return requested;
     const WorkspaceGeometry workspace = calculate_workspace();
-    if (workspace.work_area.width < 300 || workspace.work_area.height < 240) {
+    if (workspace.work_area.width < 320 || workspace.work_area.height < 300) {
         return requested;
     }
-    const int32_t width = workspace.work_area.width >= 390 ? 360 : 300;
-    const int32_t height = workspace.work_area.height >= 350 ? 310 : 240;
+    int32_t width = workspace.work_area.width - 36;
+    int32_t height = workspace.work_area.height - 12;
+    if (width > 580) width = 580;
+    if (height > 500) height = 500;
+    if (width < 360) width = 360;
+    if (height < 420) height = 420;
+    if (width > workspace.work_area.width) width = workspace.work_area.width;
+    if (height > workspace.work_area.height) height = workspace.work_area.height;
     return {
-        workspace.work_area.x + workspace.work_area.width - width - 18,
+        workspace.work_area.x + (workspace.work_area.width - width) / 2,
         workspace.work_area.y + (workspace.work_area.height - height) / 2,
         width,
         height,
