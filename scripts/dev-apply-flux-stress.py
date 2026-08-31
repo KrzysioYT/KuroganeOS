@@ -66,7 +66,7 @@ def main() -> None:
         r'''    if (close(next_home_slot) != Status::Ok) return 63;
 
     // P6 churn: exercise the production state machine repeatedly while
-    // accounting every bounded retained resource.  A leak or stale generation
+    // accounting every bounded retained resource. A leak or stale generation
     // makes the exact baseline checks fail deterministically.
     ResourceSnapshot baseline{};
     if (resource_snapshot(&baseline) != Status::Ok ||
@@ -113,8 +113,13 @@ def main() -> None:
         event.y = chrome.resize_grip.y + 1;
         if (dispatch(event) != Status::Ok) return 71;
         event.type = input::EventType::MouseMove;
-        event.x = chrome.resize_grip.x + 12 + static_cast<int32_t>(iteration % 11U);
-        event.y = chrome.resize_grip.y + 9 + static_cast<int32_t>(iteration % 7U);
+        // Move beyond the bottom-right edge, not merely farther inside the
+        // 18px resize grip. This exercises growth while remaining subject to
+        // Window Core workspace clamps.
+        event.x = chrome.resize_grip.x + chrome.resize_grip.width + 24 +
+            static_cast<int32_t>(iteration % 11U);
+        event.y = chrome.resize_grip.y + chrome.resize_grip.height + 20 +
+            static_cast<int32_t>(iteration % 7U);
         if (dispatch(event) != Status::Ok) return 72;
         event.type = input::EventType::MouseButtonUp;
         event.buttons = 0U;
