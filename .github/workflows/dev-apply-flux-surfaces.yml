@@ -1,0 +1,55 @@
+name: Dev Apply 3.6 Flux Surfaces
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-flux-surfaces.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-flux-surfaces:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout patch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply deterministic production patch
+        run: python3 scripts/dev-apply-flux-surfaces.py
+
+      - name: Validate patch and host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'MAX_SURFACE_PAYLOAD_BYTES' kernel/ui/window_manager.hpp
+          grep -F 'present_surface(' kernel/ui/window_manager.cpp
+          grep -F 'read_surface(' kernel/user/runtime_base.inc
+          grep -F 'test_window_manager' scripts/run-host-tests.sh
+          bash ./scripts/run-host-tests.sh
+
+      - name: Commit production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add \
+            kernel/ui/window_manager.hpp \
+            kernel/ui/window_manager.cpp \
+            kernel/user/runtime_base.inc \
+            tests/test_window_manager.cpp \
+            scripts/run-host-tests.sh
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no source changes to commit' >&2; exit 1; }
+          git commit -m 'feat(3.6): add retained per-window surfaces'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
