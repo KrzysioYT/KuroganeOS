@@ -232,6 +232,7 @@ void encode_inode(const Inode& inode, uint8_t* bytes) {
     store_u64(bytes + 32U, inode.extent_blocks);
     store_u32(bytes + 40U, inode.link_count);
     store_u32(bytes + 44U, inode.generation);
+    store_u32(bytes + 48U, inode.revision);
     store_u32(bytes + kInodeChecksumOffset, crc32(bytes, kInodeChecksumOffset));
 }
 
@@ -249,9 +250,10 @@ Status decode_inode(const uint8_t* bytes, uint64_t expected_id, Inode* output) {
     inode.extent_blocks = load_u64(bytes + 32U);
     inode.link_count = load_u32(bytes + 40U);
     inode.generation = load_u32(bytes + 44U);
+    inode.revision = load_u32(bytes + 48U);
     if (inode.id != expected_id ||
         (inode.type != InodeType::Regular && inode.type != InodeType::Directory) ||
-        inode.link_count == 0U || inode.generation == 0U) {
+        inode.link_count == 0U || inode.generation == 0U || inode.revision == 0U) {
         return Status::InvalidRootInode;
     }
     *output = inode;
@@ -290,6 +292,7 @@ Status initialize_inode_table(
     root.extent_blocks = 0U;
     root.link_count = 1U;
     root.generation = 1U;
+    root.revision = 1U;
     encode_inode(root, sector);
     return write_one(device, geometry.inode_table_start, sector);
 }
@@ -699,6 +702,7 @@ Status allocate_inode(
             inode.extent_blocks = 0U;
             inode.link_count = 1U;
             inode.generation = 1U;
+            inode.revision = 1U;
             encode_inode(inode, sector + offset);
             status = write_one(filesystem->device, table_block, sector);
             if (status != Status::Ok) return status;
@@ -718,15 +722,16 @@ Status update_inode(FileSystem* filesystem, Inode* inode) {
     Inode current{};
     Status status = read_inode(filesystem, inode->id, &current);
     if (status != Status::Ok) return status;
-    if (current.generation != inode->generation || current.type != inode->type) {
+    if (current.generation != inode->generation ||
+        current.revision != inode->revision || current.type != inode->type) {
         return Status::StaleInode;
     }
-    if (current.generation == UINT32_MAX) return Status::ArithmeticOverflow;
+    if (current.revision == UINT32_MAX) return Status::ArithmeticOverflow;
     status = validate_inode_extent(filesystem, *inode);
     if (status != Status::Ok) return status;
 
     Inode candidate = *inode;
-    candidate.generation = current.generation + 1U;
+    candidate.revision = current.revision + 1U;
     uint64_t table_block = 0U;
     size_t offset = 0U;
     status = locate_inode(filesystem, candidate.id, &table_block, &offset);
@@ -807,8 +812,8 @@ Status read_inode_data(
     Inode current{};
     Status status = read_inode(filesystem, inode->id, &current);
     if (status != Status::Ok) return status;
-    if (current.generation != inode->generation || current.type != inode->type ||
-        current.extent_start != inode->extent_start ||
+    if (current.generation != inode->generation || current.revision != inode->revision ||
+        current.type != inode->type || current.extent_start != inode->extent_start ||
         current.extent_blocks != inode->extent_blocks || current.size != inode->size) {
         return Status::StaleInode;
     }

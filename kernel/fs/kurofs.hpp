@@ -59,7 +59,10 @@ struct Inode {
     uint64_t extent_start;
     uint64_t extent_blocks;
     uint32_t link_count;
+    // Stable incarnation identity. Future inode-slot reuse must advance this.
     uint32_t generation;
+    // Optimistic metadata revision; every successful update_inode advances it.
+    uint32_t revision;
 };
 
 struct FileSystem {

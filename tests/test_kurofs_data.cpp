@@ -61,6 +61,7 @@ int main() {
     Inode inode{};
     if (!expect(read_inode(&fs, inode_id, &inode) == Status::Ok, "read fresh inode")) return 1;
     const uint32_t original_generation = inode.generation;
+    const uint32_t original_revision = inode.revision;
 
     uint8_t payload[700]{};
     for (size_t index = 0U; index < sizeof(payload); ++index)
@@ -71,10 +72,11 @@ int main() {
     inode.extent_blocks = 2U;
     inode.size = sizeof(payload);
     if (!expect(update_inode(&fs, &inode) == Status::Ok, "publish inode ownership")) return 1;
-    if (!expect(inode.generation == original_generation + 1U, "generation increment")) return 1;
+    if (!expect(inode.generation == original_generation, "incarnation generation stable")) return 1;
+    if (!expect(inode.revision == original_revision + 1U, "metadata revision increment")) return 1;
 
     Inode stale = inode;
-    stale.generation = original_generation;
+    stale.revision = original_revision;
     if (!expect(update_inode(&fs, &stale) == Status::StaleInode, "reject stale update")) return 1;
 
     Inode illegal = inode;
@@ -96,8 +98,8 @@ int main() {
     if (!expect(read_inode(&remounted, inode_id, &persisted) == Status::Ok,
                 "read persisted inode")) return 1;
     if (!expect(persisted.extent_start == extent && persisted.extent_blocks == 2U &&
-                persisted.size == sizeof(payload) && persisted.generation == inode.generation,
-                "persisted inode fields")) return 1;
+                persisted.size == sizeof(payload) && persisted.generation == inode.generation &&
+                persisted.revision == inode.revision, "persisted inode fields")) return 1;
 
     uint8_t output[800]{};
     size_t read = 0U;
@@ -111,7 +113,7 @@ int main() {
                 "reject extent overflow")) return 1;
 
     Inode stale_read = persisted;
-    stale_read.generation -= 1U;
+    stale_read.revision -= 1U;
     if (!expect(read_inode_data(&remounted, &stale_read, 0U, output, sizeof(output), &read) == Status::StaleInode,
                 "reject stale read snapshot")) return 1;
 
