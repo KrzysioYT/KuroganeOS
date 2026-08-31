@@ -33,8 +33,20 @@ assert "desktop_files_mouse_navigation: PASS" in files
 assert "desktop_files_keyboard_shortcuts_detached: PASS" in files
 
 settings = read("userspace/gui/settings/main.c")
-for control in ("RED CORE", "LOW CONTRAST RED", "VOLUME -10", "VOLUME +10", "MUTE / UNMUTE"):
-    assert control in settings, f"settings: missing mouse control {control}"
+assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
+assert "ku_settings_connect" in settings, "settings: persistent settingsd integration missing"
+assert "UI_LOW_CONTRAST_KEY" in settings
+assert "desktop_settings_profile_persist: PASS" in settings
+assert "desktop_settings_profile_restore: PASS" in settings
+for control in ("LOW CONTRAST RED", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE"):
+    assert control in settings, f"settings: missing modern control {control}"
+assert "RED CORE" not in settings, "settings: legacy theme-button UI returned"
+assert "MUTE / UNMUTE" not in settings, "settings: legacy audio button returned"
+assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
+assert "ku_settings_connect" in settings, "settings: persistent settingsd integration missing"
+assert "write_bool_setting" in settings and "read_bool_setting" in settings
+assert "desktop_settings_profile_persist: PASS" in settings
+assert "desktop_settings_profile_restore: PASS" in settings
 assert "desktop_settings_mouse_navigation: PASS" in settings
 assert "desktop_settings_keyboard_shortcuts_detached: PASS" in settings
 

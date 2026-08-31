@@ -27,7 +27,8 @@ enum ku_ui_native_command_type {
     KU_UI_NATIVE_SEPARATOR = 7,
     KU_UI_NATIVE_TILE = 8,
     KU_UI_NATIVE_METRIC = 9,
-    KU_UI_NATIVE_NOTICE = 10
+    KU_UI_NATIVE_NOTICE = 10,
+    KU_UI_NATIVE_TOGGLE = 11
 };
 
 enum ku_ui_native_icon {

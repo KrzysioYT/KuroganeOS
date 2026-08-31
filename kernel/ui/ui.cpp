@@ -662,6 +662,34 @@ void notice_card(
                         priority >= 3U ? signal : graphics::rgb(44, 47, 53));
 }
 
+void toggle_switch(
+    const Rect& bounds, const char* title, const char* detail,
+    bool checked, bool hovered, bool pressed) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    graphics::Color background = checked ? graphics::rgb(34, 18, 23) : kGraphite;
+    graphics::Color border = checked ? kRedMuted : kTheme.border;
+    if (hovered) border = kSteel;
+    if (pressed) background = checked ? graphics::rgb(48, 20, 27) : graphics::rgb(27, 29, 34);
+    graphics::fill_rect(bounds.x + 3, bounds.y + 3, bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
+    graphics::draw_text(bounds.x + 12, bounds.y + 9,
+                        title ? title : "SETTING", kTheme.text, background, 1U, true);
+    graphics::draw_text(bounds.x + 12, bounds.y + 27,
+                        detail ? detail : "", kTheme.text_muted, background, 1U, true);
+    const int32_t track_width = 42;
+    const int32_t track_height = 20;
+    const int32_t track_x = bounds.x + bounds.width - track_width - 12;
+    const int32_t track_y = bounds.y + (bounds.height - track_height) / 2;
+    graphics::fill_rect(track_x, track_y, track_width, track_height,
+                        checked ? kRedMuted : graphics::rgb(43, 46, 52));
+    graphics::draw_rect(track_x, track_y, track_width, track_height,
+                        checked ? kRedBright : kSteel);
+    const int32_t knob_x = checked ? track_x + track_width - 17 : track_x + 3;
+    graphics::fill_rect(knob_x, track_y + 3, 14, 14,
+                        checked ? kTheme.text : graphics::rgb(151, 156, 166));
+}
+
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected, bool pinned, bool running, bool hovered, bool pressed) {

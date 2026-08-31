@@ -166,6 +166,7 @@ int main() {
     static_assert(KU_UI_NATIVE_TILE == 8);
     static_assert(KU_UI_NATIVE_METRIC == 9);
     static_assert(KU_UI_NATIVE_NOTICE == 10);
+    static_assert(KU_UI_NATIVE_TOGGLE == 11);
     static_assert(KU_UI_NATIVE_ICON_FOLDER == 8);
     static_assert(KU_UI_NATIVE_ICON_DOCUMENT == 9);
     static_assert(KU_UI_NATIVE_ICON_NOTIFICATION == 10);

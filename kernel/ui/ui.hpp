@@ -87,6 +87,9 @@ void metric_card(
 void notice_card(
     const Rect& bounds, const char* title, const char* detail,
     uint32_t priority);
+void toggle_switch(
+    const Rect& bounds, const char* title, const char* detail,
+    bool checked, bool hovered = false, bool pressed = false);
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected = false, bool pinned = false, bool running = false,

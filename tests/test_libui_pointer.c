@@ -158,6 +158,27 @@ int main(void) {
                 &notices, 24, center_y(&notice_frame, 3U)), 63U, "notice refresh hit")) return 12;
     }
 
+    {
+        kui_scene toggles;
+        kui_flow flow;
+        ku_ui_native_frame toggle_frame;
+        kui_scene_initialize(&toggles);
+        toggles.visible_rows = 3U;
+        kui_flow_begin(&flow, &toggles, 0U);
+        if (kui_flow_panel(&flow, 70U, "SETTINGS") != KU_STATUS_OK ||
+            kui_flow_toggle(&flow, 71U, "LOW CONTRAST\nPERSISTENT", 1) != KU_STATUS_OK ||
+            kui_flow_toggle(&flow, 72U, "MUTE\nAUDIO", 0) != KU_STATUS_OK) return 13;
+        if (kui_scene_build_native(&toggles, &toggle_frame) != KU_STATUS_OK ||
+            toggle_frame.commands[1].type != KU_UI_NATIVE_TOGGLE ||
+            toggle_frame.commands[1].value != 1U || toggle_frame.commands[1].maximum != 1U ||
+            toggle_frame.commands[2].type != KU_UI_NATIVE_TOGGLE ||
+            toggle_frame.commands[2].value != 0U ||
+            !expect(kui_scene_hit_test(
+                &toggles, 24, center_y(&toggle_frame, 1U)), 71U, "toggle on hit") ||
+            !expect(kui_scene_hit_test(
+                &toggles, 24, center_y(&toggle_frame, 2U)), 72U, "toggle off hit")) return 14;
+    }
+
     puts("libui native packet + mouse hit-test tests passed");
     return 0;
 }

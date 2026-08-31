@@ -105,7 +105,7 @@ bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
 bool native_command_valid(
     const ku_ui_native_command& command, uint32_t version) {
     const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_3
-        ? KU_UI_NATIVE_NOTICE
+        ? KU_UI_NATIVE_TOGGLE
         : (version >= KU_UI_NATIVE_VERSION_2
             ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR);
     uint32_t allowed_flags = KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED;
@@ -124,9 +124,12 @@ bool native_command_valid(
     }
     if ((command.type == KU_UI_NATIVE_PROGRESS ||
          command.type == KU_UI_NATIVE_METRIC ||
-         command.type == KU_UI_NATIVE_NOTICE) && command.maximum == 0U) return false;
+         command.type == KU_UI_NATIVE_NOTICE ||
+         command.type == KU_UI_NATIVE_TOGGLE) && command.maximum == 0U) return false;
     if (command.type == KU_UI_NATIVE_NOTICE &&
         (command.value < 1U || command.value > 4U || command.maximum != 4U)) return false;
+    if (command.type == KU_UI_NATIVE_TOGGLE &&
+        (command.value > 1U || command.maximum != 1U)) return false;
     if (command.type == KU_UI_NATIVE_TILE) {
         const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
             ? KU_UI_NATIVE_ICON_COUNT : UINT32_C(8);
@@ -222,7 +225,8 @@ void draw_native_frame(
             (command.type == KU_UI_NATIVE_BUTTON ||
              command.type == KU_UI_NATIVE_INPUT ||
              command.type == KU_UI_NATIVE_LIST_ITEM ||
-             command.type == KU_UI_NATIVE_TILE);
+             command.type == KU_UI_NATIVE_TILE ||
+             command.type == KU_UI_NATIVE_TOGGLE);
         const bool hovered = pointer_owner && interactive &&
             ui::contains(bounds, pointer_x, pointer_y);
         const bool pressed = hovered && primary_down;
@@ -271,6 +275,14 @@ void draw_native_frame(
                 char detail[32];
                 split_native_tile_text(command.text, title, detail);
                 ui::notice_card(bounds, title, detail, command.value);
+                break;
+            }
+            case KU_UI_NATIVE_TOGGLE: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::toggle_switch(
+                    bounds, title, detail, command.value != 0U, hovered, pressed);
                 break;
             }
             case KU_UI_NATIVE_TILE: {
