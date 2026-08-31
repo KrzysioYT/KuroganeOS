@@ -186,6 +186,41 @@ def main() -> None:
         "        case Status::ArithmeticOverflow: return \"window surface size overflow\";\n"
         "        case Status::InvalidState:",
     )
+    replace_once(
+        source,
+        "size_t focused_position() {\n"
+        "    size_t exposed_position = 0U;\n"
+        "    for (size_t position = 0U; position < g_count; ++position) {\n"
+        "        const Slot& slot = g_slots[g_order[position]];\n"
+        "        if (!exposed(slot) || is_home_surface(slot.info.title)) continue;\n"
+        "        if (slot.info.id == g_focused) return exposed_position;\n"
+        "        ++exposed_position;\n"
+        "    }\n"
+        "    return exposed_window_count();\n"
+        "}\n\n"
+        "bool title_hit",
+        "#ifndef KUROGANE_HOST_TEST\n"
+        "size_t focused_position() {\n"
+        "    size_t exposed_position = 0U;\n"
+        "    for (size_t position = 0U; position < g_count; ++position) {\n"
+        "        const Slot& slot = g_slots[g_order[position]];\n"
+        "        if (!exposed(slot) || is_home_surface(slot.info.title)) continue;\n"
+        "        if (slot.info.id == g_focused) return exposed_position;\n"
+        "        ++exposed_position;\n"
+        "    }\n"
+        "    return exposed_window_count();\n"
+        "}\n"
+        "#endif\n\n"
+        "bool title_hit",
+    )
+    replace_once(
+        source,
+        "    const DirtyMode pending_mode = g_dirty;\n    const size_t pending_count = g_damage_count;",
+        "#ifndef KUROGANE_HOST_TEST\n"
+        "    const DirtyMode pending_mode = g_dirty;\n"
+        "#endif\n"
+        "    const size_t pending_count = g_damage_count;",
+    )
 
     replace_once(
         runtime,
