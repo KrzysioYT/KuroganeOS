@@ -91,6 +91,17 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_diagnostic_event_ring"
 
+# Exercise the production Flux Window Core, including retained surface
+# ownership and generation-safe cleanup, without framebuffer hardware.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST \
+  tests/test_window_manager.cpp \
+  kernel/ui/window_manager.cpp \
+  -o "$OUT_DIR/test_window_manager"
+
+"$OUT_DIR/test_window_manager"
+
 # Exercise the production TCP client with a deterministic fake wire. This
 # protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
 # without relying on host sockets or libc networking.

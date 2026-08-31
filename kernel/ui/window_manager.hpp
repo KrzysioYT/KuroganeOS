@@ -10,6 +10,9 @@ namespace windowing {
 
 constexpr size_t MAX_WINDOWS = 12U;
 constexpr size_t MAX_DAMAGE_REGIONS = 16U;
+// Retained surfaces are kernel-owned and deliberately bounded.  The
+// current public ku_ui_frame compatibility payload is 800 bytes.
+constexpr size_t MAX_SURFACE_PAYLOAD_BYTES = 4096U;
 using WindowId = uint32_t;
 constexpr WindowId INVALID_WINDOW = 0U;
 
@@ -19,6 +22,8 @@ enum class Status : uint8_t {
     InvalidArgument,
     NotFound,
     CapacityReached,
+    PayloadTooLarge,
+    ArithmeticOverflow,
     InvalidState,
     IterationStopped,
 };
@@ -38,6 +43,14 @@ struct WindowInfo {
     uint8_t z_order;
     bool focused;
     char title[33];
+};
+
+struct SurfaceView {
+    size_t width;
+    size_t height;
+    size_t stride;
+    const uint8_t* data;
+    size_t size;
 };
 
 struct WorkspaceGeometry {
@@ -99,6 +112,14 @@ Status desktop_pin(
 void invalidate();
 void invalidate_window(WindowId id);
 void invalidate_region(const ui::Rect& region);
+Status present_surface(
+    WindowId id,
+    size_t width,
+    size_t height,
+    size_t stride,
+    const void* payload,
+    size_t payload_size);
+Status read_surface(WindowId id, SurfaceView* out_surface);
 bool render_if_needed();
 size_t window_count();
 WindowId focused_window();

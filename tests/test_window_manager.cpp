@@ -115,5 +115,44 @@ int main() {
     if (dispatch(event) != Status::Ok || window_count() != 1U ||
         query(first, &info) != Status::NotFound) return 19;
     if (!render_if_needed() || render_if_needed()) return 20;
+
+    // A retained surface is copied into kernel-owned bounded storage.
+    WindowId surface_window = INVALID_WINDOW;
+    if (create_window("Surface", 12U, {60, 70, 300, 220},
+                      draw, receive, nullptr, &surface_window) != Status::Ok) return 21;
+    uint8_t payload[32]{};
+    for (size_t index = 0U; index < sizeof(payload); ++index) {
+        payload[index] = static_cast<uint8_t>(index + 1U);
+    }
+    if (present_surface(surface_window, 8U, 4U, 8U, payload, sizeof(payload)) != Status::Ok) {
+        return 22;
+    }
+    payload[0] = UINT8_C(0xff);
+    SurfaceView retained{};
+    if (read_surface(surface_window, &retained) != Status::Ok ||
+        retained.width != 8U || retained.height != 4U || retained.stride != 8U ||
+        retained.size != sizeof(payload) || retained.data == nullptr ||
+        retained.data[0] != UINT8_C(1) || retained.data[31] != UINT8_C(32)) return 23;
+
+    if (present_surface(surface_window, 8U, 4U, 7U, payload, 28U) != Status::InvalidArgument ||
+        present_surface(surface_window, 8U, 4U, 8U, payload, 31U) != Status::InvalidArgument) {
+        return 24;
+    }
+    if (present_surface(surface_window, 1U, 2U, static_cast<size_t>(-1),
+                        payload, sizeof(payload)) != Status::ArithmeticOverflow) return 25;
+    uint8_t oversized[MAX_SURFACE_PAYLOAD_BYTES + 1U]{};
+    if (present_surface(surface_window, 1U, sizeof(oversized), 1U,
+                        oversized, sizeof(oversized)) != Status::PayloadTooLarge) return 26;
+
+    const WindowId stale_surface = surface_window;
+    if (close(surface_window) != Status::Ok ||
+        read_surface(stale_surface, &retained) != Status::NotFound) return 27;
+    WindowId replacement = INVALID_WINDOW;
+    if (create_window("Replacement", 13U, {70, 80, 300, 220},
+                      draw, receive, nullptr, &replacement) != Status::Ok ||
+        replacement == stale_surface ||
+        read_surface(replacement, &retained) != Status::InvalidState ||
+        read_surface(stale_surface, &retained) != Status::NotFound) return 28;
+    if (close(replacement) != Status::Ok) return 29;
     return 0;
 }

@@ -102,7 +102,15 @@ void draw_user_window(
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
     if (context == nullptr || !context->active || !context->ui.active) return;
-    const ku_ui_frame& frame = context->ui.frame;
+    ku_ui_frame frame = context->ui.frame;
+    windowing::SurfaceView retained{};
+    if (windowing::read_surface(context->ui.window, &retained) == windowing::Status::Ok &&
+        retained.data != nullptr && retained.size == sizeof(frame)) {
+        auto* destination = reinterpret_cast<uint8_t*>(&frame);
+        for (size_t index = 0U; index < sizeof(frame); ++index) {
+            destination[index] = retained.data[index];
+        }
+    }
     const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
@@ -1232,10 +1240,16 @@ void syscall_handler(
                     return;
                 }
             }
+            const windowing::Status surface_status = windowing::present_surface(
+                context->ui.window, sizeof(ku_ui_frame), 1U, sizeof(ku_ui_frame),
+                user_frame, sizeof(ku_ui_frame));
+            if (surface_status != windowing::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
             context->ui.frame = *user_frame;
             system_metrics::record_graphics_work(
                 UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
-            windowing::invalidate_window(context->ui.window);
             frame.rax = KU_STATUS_OK;
             return;
         }

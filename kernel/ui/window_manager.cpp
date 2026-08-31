@@ -46,8 +46,18 @@ enum class DirtyMode : uint8_t {
     Full,
 };
 
+struct SurfaceState {
+    size_t width;
+    size_t height;
+    size_t stride;
+    size_t size;
+    bool valid;
+    uint8_t payload[MAX_SURFACE_PAYLOAD_BYTES];
+};
+
 struct Slot {
     WindowInfo info;
+    SurfaceState surface;
     DrawCallback draw;
     InputCallback input_callback;
     void* context;
@@ -98,6 +108,26 @@ bool g_cursor_visible = false;
 int32_t g_cursor_x = 0;
 int32_t g_cursor_y = 0;
 #endif
+
+void clear_surface(SurfaceState& surface) {
+    for (size_t index = 0U; index < MAX_SURFACE_PAYLOAD_BYTES; ++index) {
+        surface.payload[index] = 0U;
+    }
+    surface.width = 0U;
+    surface.height = 0U;
+    surface.stride = 0U;
+    surface.size = 0U;
+    surface.valid = false;
+}
+
+void release_slot(Slot& slot) {
+    clear_surface(slot.surface);
+    slot.info = {};
+    slot.draw = nullptr;
+    slot.input_callback = nullptr;
+    slot.context = nullptr;
+    slot.occupied = false;
+}
 
 void mark_full_dirty() {
     g_dirty = DirtyMode::Full;
@@ -490,10 +520,7 @@ void purge_exposed_session() {
             continue;
         }
         static_cast<void>(process::terminate(slot.info.owner_pid, 0));
-        slot.occupied = false;
-        slot.draw = nullptr;
-        slot.input_callback = nullptr;
-        slot.context = nullptr;
+        release_slot(slot);
     }
     g_count = write_position;
     g_focused = INVALID_WINDOW;
@@ -516,6 +543,7 @@ void choose_top_focus() {
     update_z_order();
 }
 
+#ifndef KUROGANE_HOST_TEST
 size_t focused_position() {
     size_t exposed_position = 0U;
     for (size_t position = 0U; position < g_count; ++position) {
@@ -526,6 +554,7 @@ size_t focused_position() {
     }
     return exposed_window_count();
 }
+#endif
 
 bool title_hit(const Slot& slot, int32_t x, int32_t y) {
     if (is_login_surface(slot)) return false;
@@ -866,6 +895,7 @@ Status create_window(
     slot.draw = draw;
     slot.input_callback = input_callback;
     slot.context = context;
+    clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
     if (owner_pid != 0U && !home) g_focused = slot.info.id;
     update_z_order();
@@ -891,11 +921,61 @@ Status close(WindowId id) {
         g_order[index - 1U] = g_order[index];
     }
     --g_count;
-    slot->occupied = false;
+    release_slot(*slot);
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
     if (g_resized == id) g_resized = INVALID_WINDOW;
     choose_top_focus();
     mark_full_dirty();
+    return Status::Ok;
+}
+
+Status present_surface(
+    WindowId id,
+    size_t width,
+    size_t height,
+    size_t stride,
+    const void* payload,
+    size_t payload_size) {
+    if (!g_initialized) return Status::NotInitialized;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    if (payload == nullptr || width == 0U || height == 0U || stride == 0U ||
+        width > stride) {
+        return Status::InvalidArgument;
+    }
+    const size_t maximum_size = static_cast<size_t>(-1);
+    if (stride > maximum_size / height) return Status::ArithmeticOverflow;
+    const size_t required = stride * height;
+    if (required != payload_size) return Status::InvalidArgument;
+    if (required > MAX_SURFACE_PAYLOAD_BYTES) return Status::PayloadTooLarge;
+
+    const auto* source_bytes = static_cast<const uint8_t*>(payload);
+    for (size_t index = 0U; index < required; ++index) {
+        slot->surface.payload[index] = source_bytes[index];
+    }
+    for (size_t index = required; index < slot->surface.size; ++index) {
+        slot->surface.payload[index] = 0U;
+    }
+    slot->surface.width = width;
+    slot->surface.height = height;
+    slot->surface.stride = stride;
+    slot->surface.size = required;
+    slot->surface.valid = true;
+    invalidate_window(id);
+    return Status::Ok;
+}
+
+Status read_surface(WindowId id, SurfaceView* out_surface) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_surface == nullptr) return Status::InvalidArgument;
+    Slot* slot = find(id);
+    if (slot == nullptr) return Status::NotFound;
+    if (!slot->surface.valid) return Status::InvalidState;
+    out_surface->width = slot->surface.width;
+    out_surface->height = slot->surface.height;
+    out_surface->stride = slot->surface.stride;
+    out_surface->data = slot->surface.payload;
+    out_surface->size = slot->surface.size;
     return Status::Ok;
 }
 
@@ -1169,7 +1249,9 @@ void invalidate_region(const ui::Rect& region) {
 
 bool render_if_needed() {
     if (!g_initialized || g_dirty == DirtyMode::None) return false;
+#ifndef KUROGANE_HOST_TEST
     const DirtyMode pending_mode = g_dirty;
+#endif
     const size_t pending_count = g_damage_count;
     ui::Rect pending[MAX_DAMAGE_REGIONS]{};
     for (size_t index = 0U; index < pending_count; ++index) {
@@ -1211,6 +1293,8 @@ const char* status_message(Status status) {
         case Status::InvalidArgument: return "invalid window argument";
         case Status::NotFound: return "window not found";
         case Status::CapacityReached: return "window table full";
+        case Status::PayloadTooLarge: return "window surface payload too large";
+        case Status::ArithmeticOverflow: return "window surface size overflow";
         case Status::InvalidState: return "invalid window state";
         case Status::IterationStopped: return "window iteration stopped";
     }
