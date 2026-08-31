@@ -1,0 +1,190 @@
+name: Qualify 3.5 DNS Service
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-dns-service.yml'
+      - '.github/workflows/qualify-socket-core.yml'
+      - 'kernel/net/network.cpp'
+      - 'kernel/net/network.hpp'
+      - 'kernel/net/protocols.cpp'
+      - 'kernel/net/protocols.hpp'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/ipc/channel.cpp'
+      - 'kernel/ipc/channel.hpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'sdk/include/kurogane/network.h'
+      - 'sdk/include/kurogane/dns_service.h'
+      - 'userspace/system/dnsd/**'
+      - 'userspace/system/dns-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'tests/test_dns_protocol.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dns-service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build DNS protocol host regression
+        run: |
+          mkdir -p build/tests/host
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_dns_protocol.cpp \
+            kernel/net/protocols.cpp \
+            kernel/net/network.cpp \
+            -o build/tests/host/test_dns_protocol
+
+      - name: Run DNS protocol host regression
+        run: build/tests/host/test_dns_protocol
+
+      - name: Inject Ring-3 DNS service qualification
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = '    "dnsprobe|userspace/system/dns-probe/main.c|system/dnsprb|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'DNS build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          # Test-only fault injection. Production dnsd has no crash/debug opcode.
+          dnsd = Path('userspace/system/dnsd/main.c')
+          text = dnsd.read_text()
+          anchor = '        if (request->operation != KU_DNS_SERVICE_RESOLVE_A) {\n'
+          fault = (
+              '        if (request->operation == UINT32_C(0xfffffffe)) {\n'
+              '            ku_exit(90);\n'
+              '        }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'DNSD fault anchor count={text.count(anchor)}')
+          dnsd.write_text(text.replace(anchor, fault + anchor, 1))
+
+          probe = Path('userspace/system/dns-probe/main.c')
+          text = probe.read_text()
+          anchor = (
+              'static void fail_service(uint32_t code) {\n'
+              '    (void)u_puts("[TEST] dns_service_roundtrip: FAIL code=");\n'
+              '    (void)u_put_u64(code);\n'
+              '    (void)u_puts("\\n");\n'
+              '    ku_exit((int32_t)(40U + code));\n'
+              '}\n\n'
+          )
+          addition = anchor + (
+              'static void fail_restart(uint32_t code) {\n'
+              '    (void)u_puts("[TEST] dns_service_restart: FAIL code=");\n'
+              '    (void)u_put_u64(code);\n'
+              '    (void)u_puts("\\n");\n'
+              '    ku_exit((int32_t)(80U + code));\n'
+              '}\n\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'DNS probe failure anchor count={text.count(anchor)}')
+          text = text.replace(anchor, addition, 1)
+
+          anchor = (
+              '    (void)u_puts("[TEST] dns_service_roundtrip: PASS\\n");\n'
+              '    ku_exit(0);\n'
+          )
+          restart = (
+              '    (void)u_puts("[TEST] dns_service_roundtrip: PASS\\n");\n'
+              '\n'
+              '    connected = connect_dns_service();\n'
+              '    if (connected <= 0) fail_restart(1U);\n'
+              '    connection = (ku_service_connection_t)connected;\n'
+              '    initialize_request(\n'
+              '        &request, UINT64_C(900), UINT32_C(0xfffffffe), "fault.invalid");\n'
+              '    if (ku_service_send(connection, &request, sizeof(request)) != KU_STATUS_OK) {\n'
+              '        fail_restart(2U);\n'
+              '    }\n'
+              '    (void)ku_sleep(8U);\n'
+              '\n'
+              '    connected = connect_dns_service();\n'
+              '    if (connected <= 0) fail_restart(3U);\n'
+              '    connection = (ku_service_connection_t)connected;\n'
+              '    initialize_request(\n'
+              '        &request, UINT64_C(901), KU_DNS_SERVICE_RESOLVE_A, "example.com");\n'
+              '    if (transact_request(connection, &request, &response) != KU_STATUS_OK ||\n'
+              '        response.status != KU_STATUS_OK || response.request_id != UINT64_C(901) ||\n'
+              '        !nonzero_address(response.address)) {\n'
+              '        fail_restart(4U);\n'
+              '    }\n'
+              '    if (ku_service_close(connection) != KU_STATUS_OK) fail_restart(5U);\n'
+              '    (void)u_puts("[TEST] dns_service_restart: PASS\\n");\n'
+              '    ku_exit(0);\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'DNS probe completion anchor count={text.count(anchor)}')
+          probe.write_text(text.replace(anchor, restart, 1))
+
+          # Run the probe asynchronously: PID 1 must remain free to supervise
+          # and restart dnsd after the test-only fault request.
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          spawn = anchor + (
+              '\n'
+              '    const ku_result_t dns_probe_pid = u_spawn("/system/dnsprb");\n'
+              '    if (dns_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] dns_service_roundtrip: FAIL code=90\\n");\n'
+              '        ku_exit(43);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'DNS init probe anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, spawn, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/dnsprb' scripts/build-linux.sh
+          grep -F 'UINT32_C(0xfffffffe)' userspace/system/dnsd/main.c
+          grep -F '[TEST] dns_service_restart: PASS' userspace/system/dns-probe/main.c
+          grep -F 'u_spawn("/system/dnsprb")' userspace/system/init/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real Ring-3 DNS service runtime markers
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --nic e1000 \
+            --require-network \
+            --require-marker '[TEST] public_dns_resolve: PASS' \
+            --require-marker '[TEST] dns_service_roundtrip: PASS' \
+            --require-marker '[TEST] dns_service_restart: PASS' \
+            --timeout 240
