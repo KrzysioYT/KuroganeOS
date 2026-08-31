@@ -8,6 +8,7 @@ on:
       - .github/workflows/dev-apply-native-pointer-feedback.yml
       - scripts/dev-apply-native-pointer-feedback.py
       - scripts/dev-apply-native-pointer-feedback-v2.py
+      - scripts/dev-apply-native-pointer-feedback-v3.py
 
 permissions:
   contents: write
@@ -35,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ./scripts/dev-apply-native-pointer-feedback-v2.py
+          python3 ./scripts/dev-apply-native-pointer-feedback-v3.py
 
       - name: Run full host regressions
         shell: bash
