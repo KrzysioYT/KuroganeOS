@@ -1,0 +1,56 @@
+name: Qualify 3.6 Flux Session Recovery
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'userspace/gui/login/**'
+      - 'userspace/gui/launcher/**'
+      - 'userspace/system/init/**'
+      - 'kernel/ui/window_manager.*'
+      - 'kernel/apps/desktop_session.cpp'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - '.github/workflows/qualify-flux-session-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  flux-session-recovery:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout qualification source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Build clean release media
+        shell: bash
+        run: bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Qualify repeated LOGIN HOME LOGOUT recovery in OVMF
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
+            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 meta_l \
+            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 l \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 2 ret \
+            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 2 meta_l \
+            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 2 l \
+            --require-marker '[TEST] flux_session_owner: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
+            --require-marker-count '[TEST] live_login_profile: PASS' 3 \
+            --require-marker-count '[TEST] red_flux_login_to_desktop: PASS' 2 \
+            --require-marker-count '[TEST] desktop_launcher_ring3: PASS' 2 \
+            --require-marker-count '[TEST] desktop_logout_requested: PASS' 2 \
+            --require-marker-count 'init: session gate ended; returning to login' 2 \
+            --timeout 240
