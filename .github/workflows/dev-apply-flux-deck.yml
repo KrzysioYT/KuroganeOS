@@ -57,7 +57,6 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --timeout 240 \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
-            --click-after-marker '[TEST] red_flux_home_surface: PASS' 281 727 \
             --click-after-marker '[TEST] red_flux_home_surface: PASS' 574 265 \
             --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
             --require-marker '[TEST] red_flux_tile_launcher: PASS' \
