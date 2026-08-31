@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import pathlib
 import struct
 import zlib
@@ -14,6 +16,8 @@ ENTRY_SIZE = 160
 MAX_FILES = 64
 DEST_ESP = 1
 DEST_ROOT = 2
+APP_MANIFEST_DIRECTORY = "apps/manifests"
+APP_MANIFEST_EXTENSION = "MNF"
 
 
 def is_short_component(component: str) -> bool:
@@ -34,6 +38,24 @@ def checked_path(path: str) -> str:
     if not all(is_short_component(part) for part in path.split("/") if part):
         raise ValueError(f"path is outside the installer's FAT 8.3 contract: {path}")
     return path
+
+
+def installer_relative_path(relative: str) -> str:
+    """Map registry manifest source names onto transport-only FAT 8.3 names.
+
+    Application identity remains the `id=` field inside each manifest. The
+    registry enumerates the manifest directory and parses that logical ID, so
+    installer media must not make the source filename part of the public app
+    identity contract. A stable 40-bit digest keeps every physical manifest
+    basename within eight FAT characters while leaving `.MNF` as a bounded
+    transport extension.
+    """
+    path = pathlib.PurePosixPath(relative)
+    if path.parent.as_posix().lower() != APP_MANIFEST_DIRECTORY:
+        return relative
+    digest = hashlib.sha256(relative.encode("utf-8")).digest()[:5]
+    basename = base64.b32encode(digest).decode("ascii")
+    return f"{APP_MANIFEST_DIRECTORY}/{basename}.{APP_MANIFEST_EXTENSION}"
 
 
 def main() -> int:
@@ -71,10 +93,13 @@ def main() -> int:
     add(DEST_ROOT, "/boot/kernel.elf", kernel.read_bytes())
 
     # Build the root payload as a real overlay: files from --overlay replace
-    # files at the same path from --rootfs. The final merged paths are then
-    # added through add(), so collisions with protected installer-generated
-    # records (for example /boot/kernel.elf) still fail closed.
+    # files at the same source path from --rootfs. Application manifests are
+    # translated to a transport-only 8.3 filename before package insertion;
+    # their logical application ID remains entirely inside the file contents.
+    # Distinct source paths that map to the same physical package path fail
+    # closed instead of being mistaken for an overlay replacement.
     root_records: dict[str, bytes] = {}
+    root_origins: dict[str, str] = {}
     overlay_replacements = 0
 
     def collect_tree(tree: pathlib.Path, replace_existing: bool) -> None:
@@ -85,12 +110,18 @@ def main() -> int:
             # keeps installer writes within the FAT 8.3 contract.
             if relative.lower() == "etc/system.conf":
                 continue
-            package_path = checked_path("/" + relative)
+            installer_relative = installer_relative_path(relative)
+            package_path = checked_path("/" + installer_relative)
             if package_path in root_records:
-                if not replace_existing:
-                    raise ValueError(f"duplicate rootfs path: {package_path}")
+                existing_origin = root_origins[package_path]
+                if not replace_existing or existing_origin != relative:
+                    raise ValueError(
+                        "installer path collision: "
+                        f"{existing_origin} and {relative} -> {package_path}"
+                    )
                 overlay_replacements += 1
             root_records[package_path] = source.read_bytes()
+            root_origins[package_path] = relative
 
     collect_tree(rootfs, False)
     collect_tree(overlay, True)
