@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/dev-apply-kurofs-data-auto.yml
       - scripts/dev-apply-kurofs-data.py
+      - scripts/dev-apply-kurofs-data-v2.py
 
 permissions:
   contents: write
@@ -35,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ./scripts/dev-apply-kurofs-data.py
+          python3 ./scripts/dev-apply-kurofs-data-v2.py
 
       - name: Run full host regressions
         shell: bash
