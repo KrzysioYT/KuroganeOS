@@ -1,0 +1,248 @@
+name: Qualify 3.5 Network Events
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-network-events.yml'
+      - 'kernel/net/e1000.cpp'
+      - 'kernel/net/e1000.hpp'
+      - 'kernel/net/physical.cpp'
+      - 'kernel/net/physical.hpp'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'sdk/include/kurogane/network.h'
+      - 'sdk/include/kurogane/network_events.h'
+      - 'sdk/include/kurogane/event.h'
+      - 'sdk/include/kurogane/event_broker.h'
+      - 'userspace/system/network-eventd/**'
+      - 'userspace/system/network-event-probe/**'
+      - 'userspace/system/eventd/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network-events:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject Ring-3 network event qualification probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = '    "networkeventprobe|userspace/system/network-event-probe/main.c|system/netevprb|c"\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'network event build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          spawn = anchor + (
+              '\n'
+              '    const ku_result_t network_event_probe_pid = u_spawn("/system/netevprb");\n'
+              '    if (network_event_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] network_events: FAIL code=90\\n");\n'
+              '        ku_exit(44);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'network event init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, spawn, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/netevprb' scripts/build-linux.sh
+          grep -F 'u_spawn("/system/netevprb")' userspace/system/init/main.c
+          grep -F '[TEST] network_events_armed: PASS' userspace/system/network-event-probe/main.c
+          grep -F '[TEST] network_events_down: PASS' userspace/system/network-event-probe/main.c
+          grep -F '[TEST] network_events: PASS' userspace/system/network-event-probe/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real E1000 link events through Ring-3
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qmp="$tmp/qmp.sock"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu max \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,id=kurogane_nic,mac=52:54:00:4b:55:01 \
+            -serial "file:$serial" \
+            -qmp "unix:$qmp,server=on,wait=off" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          python3 - "$qmp" "$serial" "$pid" <<'PY'
+          import json
+          import os
+          import socket
+          import sys
+          import time
+
+          qmp_path, serial_path, pid_text = sys.argv[1:]
+          qemu_pid = int(pid_text)
+
+          def qemu_alive():
+              try:
+                  os.kill(qemu_pid, 0)
+                  return True
+              except OSError:
+                  return False
+
+          def serial_text():
+              try:
+                  with open(serial_path, 'r', encoding='utf-8', errors='replace') as handle:
+                      return handle.read()
+              except FileNotFoundError:
+                  return ''
+
+          def wait_marker(marker, timeout):
+              deadline = time.monotonic() + timeout
+              failure = '[TEST] network_events: FAIL'
+              while time.monotonic() < deadline:
+                  text = serial_text()
+                  if failure in text:
+                      raise RuntimeError(text[-12000:])
+                  if marker in text:
+                      return
+                  if not qemu_alive():
+                      raise RuntimeError('QEMU exited before marker: ' + marker + '\n' + text[-12000:])
+                  time.sleep(0.2)
+              raise RuntimeError('timeout waiting for ' + marker + '\n' + serial_text()[-12000:])
+
+          deadline = time.monotonic() + 20.0
+          while not os.path.exists(qmp_path) and time.monotonic() < deadline:
+              if not qemu_alive():
+                  raise RuntimeError('QEMU exited before QMP socket')
+              time.sleep(0.1)
+          if not os.path.exists(qmp_path):
+              raise RuntimeError('QMP socket did not appear')
+
+          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          sock.connect(qmp_path)
+          stream = sock.makefile('rwb', buffering=0)
+
+          def read_object():
+              line = stream.readline()
+              if not line:
+                  raise RuntimeError('QMP connection closed')
+              return json.loads(line.decode('utf-8'))
+
+          greeting = read_object()
+          if 'QMP' not in greeting:
+              raise RuntimeError('invalid QMP greeting: ' + repr(greeting))
+
+          sequence = 0
+          def command(name, arguments=None):
+              nonlocal_sequence = None
+              global sequence
+              sequence += 1
+              ident = f'kuro-{sequence}'
+              payload = {'execute': name, 'id': ident}
+              if arguments is not None:
+                  payload['arguments'] = arguments
+              stream.write((json.dumps(payload) + '\n').encode('utf-8'))
+              while True:
+                  reply = read_object()
+                  if reply.get('id') != ident:
+                      continue
+                  if 'error' in reply:
+                      raise RuntimeError(f'QMP {name} failed: {reply["error"]}')
+                  return reply.get('return')
+
+          command('qmp_capabilities')
+          filters = command('query-rx-filter')
+          nic_name = None
+          for entry in filters:
+              if str(entry.get('main-mac', '')).lower() == '52:54:00:4b:55:01':
+                  nic_name = entry.get('name')
+                  break
+          if not nic_name:
+              raise RuntimeError('E1000 net client not found in query-rx-filter: ' + repr(filters))
+          print('[network-events] QMP net client:', nic_name)
+
+          wait_marker('[TEST] network_events_armed: PASS', 180.0)
+          command('set_link', {'name': nic_name, 'up': False})
+          wait_marker('[TEST] network_events_down: PASS', 30.0)
+          command('set_link', {'name': nic_name, 'up': True})
+          wait_marker('[TEST] network_events: PASS', 30.0)
+          print('[network-events] real E1000 OFF->ON event path: PASS')
+          PY
+
+          grep -F '[TEST] network_events_armed: PASS' "$serial"
+          grep -F '[TEST] network_events_down: PASS' "$serial"
+          grep -F '[TEST] network_events: PASS' "$serial"
+          echo '[network-events] OVMF/QEMU Ring-3 qualification: PASS'
