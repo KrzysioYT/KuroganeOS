@@ -1,0 +1,56 @@
+name: Dev Apply 3.6 Flux Lifecycle
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-flux-lifecycle.py'
+      - '.github/workflows/dev-apply-flux-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-flux-lifecycle:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout lifecycle patch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply production lifecycle patch
+        run: python3 scripts/dev-apply-flux-lifecycle.py
+
+      - name: Validate lifecycle and full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'Status dismiss(WindowId id);' kernel/ui/window_manager.hpp
+          grep -F 'Status dismiss(WindowId id)' kernel/ui/window_manager.cpp
+          grep -F 'return g_focused == INVALID_WINDOW ? Status::NotFound : dismiss(g_focused);' kernel/ui/window_manager.cpp
+          grep -F '[TEST] desktop_logout_requested: PASS' userspace/gui/launcher/main.c
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Commit lifecycle production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add \
+            kernel/ui/window_manager.cpp \
+            kernel/ui/window_manager.hpp \
+            tests/test_window_manager.cpp \
+            userspace/gui/launcher/main.c
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no lifecycle changes to commit' >&2; exit 1; }
+          git commit -m 'fix(3.6): separate Flux dismiss from lifecycle destroy'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
