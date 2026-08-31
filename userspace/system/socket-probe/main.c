@@ -4,6 +4,7 @@
 
 #define SOCKET_ROUNDTRIP_PORT UINT16_C(45350)
 #define SOCKET_EXIT_PORT UINT16_C(45351)
+#define SOCKET_WAKE_PORT UINT16_C(45352)
 
 static ku_ipv4_endpoint loopback_endpoint(uint16_t port) {
     ku_ipv4_endpoint endpoint;
@@ -73,6 +74,53 @@ static int qualify_udp_roundtrip(void) {
     return 1;
 }
 
+static int qualify_blocking_readiness(void) {
+    static const uint8_t payload[] = {'w', 'a', 'k', 'e'};
+    uint8_t received[sizeof(payload)];
+    ku_ipv4_endpoint source = {{0U, 0U, 0U, 0U}, 0U, 0U};
+    uint32_t ready = KU_SOCKET_READY_NONE;
+    int32_t worker_exit = -1;
+    uint32_t attempts;
+    ku_result_t result;
+    ku_result_t worker;
+    ku_socket_t receiver;
+    const ku_ipv4_endpoint endpoint = loopback_endpoint(SOCKET_WAKE_PORT);
+
+    result = ku_socket_create(KU_SOCKET_DATAGRAM, KU_SOCKET_PROTOCOL_UDP);
+    if (result <= 0) return 0;
+    receiver = (ku_socket_t)result;
+    if (ku_socket_bind(receiver, &endpoint) != KU_STATUS_OK) return 0;
+    if (ku_socket_poll(receiver, KU_SOCKET_READY_READ, &ready) != KU_STATUS_OK ||
+        ready != KU_SOCKET_READY_NONE) return 0;
+
+    worker = u_spawn("/system/sockwake");
+    if (worker <= 0) return 0;
+    ready = KU_SOCKET_READY_NONE;
+    if (ku_socket_wait(receiver, KU_SOCKET_READY_READ, UINT64_C(64), &ready) !=
+            KU_STATUS_OK || (ready & KU_SOCKET_READY_READ) == 0U) {
+        return 0;
+    }
+    result = ku_socket_receive(receiver, received, sizeof(received), &source);
+    if (result != (ku_result_t)sizeof(payload) ||
+        !bytes_equal(received, payload, sizeof(payload)) || !is_loopback(&source)) {
+        return 0;
+    }
+    for (attempts = 0U; attempts < 64U; ++attempts) {
+        const ku_status_t status = ku_wait((uint64_t)worker, &worker_exit);
+        if (status == KU_STATUS_OK) break;
+        if (status != KU_STATUS_WOULD_BLOCK) return 0;
+        (void)ku_yield();
+    }
+    if (worker_exit != 0) return 0;
+
+    ready = KU_SOCKET_READY_NONE;
+    if (ku_socket_wait(receiver, KU_SOCKET_READY_READ, UINT64_C(2), &ready) !=
+            KU_STATUS_TIMED_OUT || ready != KU_SOCKET_READY_NONE) {
+        return 0;
+    }
+    return ku_socket_close(receiver) == KU_STATUS_OK;
+}
+
 static int qualify_handle_generation(void) {
     ku_result_t result;
     ku_socket_t stale;
@@ -114,6 +162,12 @@ __attribute__((noreturn)) void _start(void) {
         ku_exit(1);
     }
     (void)u_puts("[TEST] socket_udp_roundtrip: PASS\n");
+
+    if (!qualify_blocking_readiness()) {
+        (void)u_puts("[TEST] socket_readiness: FAIL\n");
+        ku_exit(4);
+    }
+    (void)u_puts("[TEST] socket_readiness: PASS\n");
 
     if (!qualify_handle_generation()) {
         (void)u_puts("[TEST] socket_handle_generation: FAIL\n");

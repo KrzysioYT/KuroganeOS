@@ -58,6 +58,7 @@ uint64_t g_timer_ticks = 0U;
 uint64_t g_preemptive_limit = 0U;
 uint64_t g_preemptive_start_tick = 0U;
 bool g_preemptive_timed_out = false;
+PreDispatchHook g_pre_dispatch_hook = nullptr;
 #if !defined(KUROGANE_HOST_TEST)
 alignas(16) uint8_t g_timeout_return_stack[4096U]{};
 arch::x86_64::interrupts::InterruptFrame g_timeout_return_frame{};
@@ -280,6 +281,29 @@ arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
     static_cast<void>(activate_slot(kInvalidSlot));
     return &g_timeout_return_frame;
 }
+
+arch::x86_64::interrupts::InterruptFrame* prepare_blocked_return(
+    size_t previous) {
+    Slot& old = g_slots[previous];
+    g_current = kInvalidSlot;
+    g_preemptive_active = false;
+    g_preemptive_timed_out = false;
+    g_timeout_return_frame = {};
+    uintptr_t top = reinterpret_cast<uintptr_t>(
+        g_timeout_return_stack + sizeof(g_timeout_return_stack));
+    top &= ~static_cast<uintptr_t>(0xFU);
+    const uintptr_t target_stack = top - sizeof(uint64_t);
+    *reinterpret_cast<uint64_t*>(target_stack) = 0U;
+    g_timeout_return_frame.rip = reinterpret_cast<uint64_t>(
+        &x86_64_thread_timeout_return);
+    g_timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
+    g_timeout_return_frame.rflags = UINT64_C(0x2);
+    g_timeout_return_frame.rsp = target_stack;
+    g_timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
+    static_cast<void>(old);
+    static_cast<void>(activate_slot(kInvalidSlot));
+    return &g_timeout_return_frame;
+}
 #endif
 
 arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
@@ -375,12 +399,27 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
 #if defined(KUROGANE_HOST_TEST)
         return &frame;
 #else
+        if (old.state == State::Blocked) {
+            return prepare_blocked_return(previous);
+        }
         __asm__ volatile("sti; hlt; cli" : : : "memory");
 #endif
     }
 }
 
 } // namespace
+
+Status set_pre_dispatch_hook(PreDispatchHook hook) {
+    if (hook == nullptr) return Status::InvalidArgument;
+    const uint64_t flags = save_and_disable_interrupts();
+    if (g_pre_dispatch_hook != nullptr && g_pre_dispatch_hook != hook) {
+        restore_interrupts(flags);
+        return Status::Busy;
+    }
+    g_pre_dispatch_hook = hook;
+    restore_interrupts(flags);
+    return Status::Ok;
+}
 
 Status initialize() {
     const uint64_t flags = save_and_disable_interrupts();
@@ -621,6 +660,9 @@ Status run_preemptive_for(
     if (!g_initialized) {
         return Status::NotInitialized;
     }
+    if (g_pre_dispatch_hook != nullptr) {
+        g_pre_dispatch_hook();
+    }
     const uint64_t flags = save_and_disable_interrupts();
     if (g_run_active || g_current != kInvalidSlot || g_preemptive_active) {
         restore_interrupts(flags);
@@ -854,6 +896,45 @@ Status request_yield() {
     }
     Slot& slot = g_slots[g_current];
     slot.yield_requested = true;
+    return Status::Ok;
+}
+
+Status block_current() {
+    if (!g_initialized) return Status::NotInitialized;
+    const uint64_t flags = save_and_disable_interrupts();
+    if (g_current == kInvalidSlot || !g_run_active) {
+        restore_interrupts(flags);
+        return Status::NotRunning;
+    }
+    Slot& slot = g_slots[g_current];
+    if (slot.process_id == 0U || slot.state != State::Running) {
+        restore_interrupts(flags);
+        return Status::CorruptContext;
+    }
+    slot.wake_tick = 0U;
+    slot.yield_requested = false;
+    slot.state = State::Blocked;
+    restore_interrupts(flags);
+    return Status::Ok;
+}
+
+Status wake_user(ThreadId id, uint64_t accumulator) {
+    if (!g_initialized) return Status::NotInitialized;
+    size_t index = 0U;
+    if (!decode_id(id, &index)) return Status::NotFound;
+    const uint64_t flags = save_and_disable_interrupts();
+    Slot& slot = g_slots[index];
+    if (slot.state != State::Blocked || slot.id != id ||
+        slot.process_id == 0U || slot.interrupt_frame == nullptr ||
+        (slot.interrupt_frame->cs & 3U) != 3U) {
+        restore_interrupts(flags);
+        return Status::NotFound;
+    }
+    slot.interrupt_frame->rax = accumulator;
+    slot.state = State::Ready;
+    slot.wake_tick = 0U;
+    slot.yield_requested = false;
+    restore_interrupts(flags);
     return Status::Ok;
 }
 

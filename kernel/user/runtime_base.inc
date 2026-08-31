@@ -20,6 +20,7 @@
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
+#include "../net/socket.hpp"
 #include "../task/process.hpp"
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
@@ -168,6 +169,87 @@ Context g_context_storage[kMaximumContexts]{};
 bool g_context_storage_used[kMaximumContexts]{};
 uint64_t g_process_identity = 0U;
 uint64_t g_audio_owner_pid = 0U;
+
+struct SocketWaiter {
+    uint64_t pid;
+    threading::ThreadId tid;
+    net::socket::Handle socket;
+    uint32_t requested;
+    uint64_t deadline_tick;
+    bool finite_timeout;
+    bool active;
+};
+
+SocketWaiter g_socket_waiters[kMaximumContexts]{};
+
+ku_status_t socket_wait_status(net::socket::Status status) {
+    using SocketStatus = net::socket::Status;
+    switch (status) {
+        case SocketStatus::Ok:
+        case SocketStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case SocketStatus::InvalidArgument:
+        case SocketStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
+        case SocketStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
+        case SocketStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
+        case SocketStatus::AddressInUse: return KU_STATUS_ALREADY_EXISTS;
+        case SocketStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
+        case SocketStatus::BufferTooSmall:
+        case SocketStatus::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case SocketStatus::NotInitialized:
+        case SocketStatus::NotBound:
+        case SocketStatus::NotConnected: return KU_STATUS_BAD_STATE;
+        case SocketStatus::TransportError: return KU_STATUS_IO_ERROR;
+    }
+    return KU_STATUS_IO_ERROR;
+}
+
+void clear_socket_waiter(threading::ThreadId tid) {
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (waiter.active && waiter.tid == tid) waiter = {};
+    }
+}
+
+SocketWaiter* reserve_socket_waiter(threading::ThreadId tid) {
+    clear_socket_waiter(tid);
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (!waiter.active) return &waiter;
+    }
+    return nullptr;
+}
+
+void socket_wait_pre_dispatch() {
+    const uint64_t now = threading::timer_ticks();
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (!waiter.active) continue;
+        threading::Stat stat{};
+        if (threading::stat(waiter.tid, &stat) != threading::Status::Ok ||
+            stat.process_id != waiter.pid || stat.state != threading::State::Blocked) {
+            waiter = {};
+            continue;
+        }
+
+        uint32_t ready = net::socket::ReadyNone;
+        const net::socket::Status status = net::socket::readiness(
+            waiter.pid, waiter.socket, waiter.requested, &ready);
+        uint64_t completion = 0U;
+        bool complete = false;
+        if (status != net::socket::Status::Ok) {
+            completion = static_cast<uint64_t>(socket_wait_status(status));
+            complete = true;
+        } else if ((ready & waiter.requested) != 0U) {
+            completion = ready;
+            complete = true;
+        } else if (waiter.finite_timeout && now >= waiter.deadline_tick) {
+            completion = static_cast<uint64_t>(KU_STATUS_TIMED_OUT);
+            complete = true;
+        }
+        if (!complete) continue;
+        const threading::ThreadId tid = waiter.tid;
+        waiter = {};
+        static_cast<void>(threading::wake_user(tid, completion));
+    }
+}
 
 uint64_t save_and_disable_interrupts() {
     uint64_t flags = 0U;
@@ -1007,6 +1089,51 @@ void syscall_handler(
                         ? KU_STATUS_OUT_OF_MEMORY : KU_STATUS_BAD_STATE);
             return;
         }
+        case KU_SYS_SOCKET_WAIT: {
+            if (frame.rdi == KU_SOCKET_INVALID || frame.rsi == 0U ||
+                (frame.rsi & ~static_cast<uint64_t>(KU_SOCKET_READY_ALL)) != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            uint32_t ready = net::socket::ReadyNone;
+            const net::socket::Status readiness_status = net::socket::readiness(
+                context->pid, static_cast<net::socket::Handle>(frame.rdi),
+                static_cast<uint32_t>(frame.rsi), &ready);
+            if (readiness_status != net::socket::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(socket_wait_status(readiness_status));
+                return;
+            }
+            if ((ready & static_cast<uint32_t>(frame.rsi)) != 0U) {
+                frame.rax = ready;
+                return;
+            }
+            if (frame.rdx == 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_TIMED_OUT);
+                return;
+            }
+            SocketWaiter* waiter = reserve_socket_waiter(context->tid);
+            if (waiter == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_MEMORY);
+                return;
+            }
+            const uint64_t now = threading::timer_ticks();
+            const bool finite = frame.rdx != UINT64_MAX;
+            const uint64_t deadline = !finite || frame.rdx > UINT64_MAX - now
+                ? UINT64_MAX : now + frame.rdx;
+            *waiter = {
+                context->pid, context->tid,
+                static_cast<net::socket::Handle>(frame.rdi),
+                static_cast<uint32_t>(frame.rsi), deadline, finite, true};
+            if (threading::block_current() != threading::Status::Ok) {
+                *waiter = {};
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            // The saved Ring-3 frame cannot be selected while Blocked.
+            // wake_user() overwrites RAX with readiness or a terminal status.
+            frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
+            return;
+        }
         case KU_SYS_WAIT: {
             if (!validate_user_buffer(*context, frame.rsi, sizeof(int32_t), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
@@ -1507,6 +1634,7 @@ void syscall_handler(
 
 Status cleanup(Context& context) {
     Status result = Status::Ok;
+    clear_socket_waiter(context.tid);
     if (g_audio_owner_pid == context.pid) {
         if (drivers::audio::ac97::initialized() &&
             drivers::audio::ac97::busy() &&
@@ -1568,6 +1696,11 @@ Status initialize() {
     for (size_t index = 0U; index < kMaximumContexts; ++index) {
         g_context_storage[index] = {};
         g_context_storage_used[index] = false;
+        g_socket_waiters[index] = {};
+    }
+    if (threading::set_pre_dispatch_hook(socket_wait_pre_dispatch) !=
+        threading::Status::Ok) {
+        return Status::SchedulerRegistrationFailed;
     }
     if (!arch::x86_64::interrupts::register_handler(kSyscallVector, syscall_handler) ||
         !arch::x86_64::interrupts::set_gate_privilege(
@@ -1756,6 +1889,8 @@ const char* status_message(Status status) {
         case Status::CpuUnsupported: return "CPU lacks NX support";
         case Status::InterruptRegistrationFailed:
             return "cannot install ring-3 syscall gate";
+        case Status::SchedulerRegistrationFailed:
+            return "cannot install ring-3 readiness scheduler hook";
         case Status::NotInitialized: return "user runtime not initialized";
         case Status::Busy: return "another user image is active";
         case Status::RootUnavailable: return "persistent root unavailable";

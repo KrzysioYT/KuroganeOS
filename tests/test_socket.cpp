@@ -22,6 +22,9 @@ struct FakeTransport {
     uint16_t sent_destination_port = 0U;
     uint8_t sent_payload[net::UDP_MAX_PAYLOAD]{};
     size_t sent_size = 0U;
+    bool tcp_establish = false;
+    bool tcp_peer_close = false;
+    bool tcp_error = false;
 };
 
 net::Status fake_send_udp(
@@ -66,60 +69,83 @@ net::Status fake_take_udp(void* opaque, net::UdpDatagram* datagram) {
     return net::Status::Ok;
 }
 
-net::Status unsupported_tcp_begin_connect(
+net::Status fake_tcp_begin_connect(
     void* opaque,
     net::tcp_client::Client* client,
     const net::IPv4Address& destination,
     uint16_t source_port,
     uint16_t destination_port,
     uint32_t initial_sequence) {
-    (void)opaque;
-    (void)client;
-    (void)destination;
-    (void)source_port;
-    (void)destination_port;
-    (void)initial_sequence;
-    return net::Status::UnsupportedProtocol;
+    auto* transport = static_cast<FakeTransport*>(opaque);
+    if (transport == nullptr || client == nullptr || source_port == 0U ||
+        destination_port == 0U || initial_sequence == 0U) {
+        return net::Status::InvalidArgument;
+    }
+    client->peer = destination;
+    client->local_port = source_port;
+    client->remote_port = destination_port;
+    client->state = net::tcp_client::State::SynSent;
+    client->connected = false;
+    return net::Status::WouldBlock;
 }
 
-net::Status unsupported_tcp_progress(void* opaque, net::tcp_client::Client* client) {
-    (void)opaque;
-    (void)client;
-    return net::Status::UnsupportedProtocol;
+net::Status fake_tcp_progress(void* opaque, net::tcp_client::Client* client) {
+    auto* transport = static_cast<FakeTransport*>(opaque);
+    if (transport == nullptr || client == nullptr) return net::Status::InvalidArgument;
+    if (transport->tcp_error) {
+        client->state = net::tcp_client::State::Error;
+        client->connected = false;
+        return net::Status::InterfaceError;
+    }
+    if (transport->tcp_peer_close) {
+        client->state = net::tcp_client::State::CloseWait;
+        client->connected = true;
+        client->peer_closed = true;
+        return net::Status::Ok;
+    }
+    if (transport->tcp_establish) {
+        client->state = net::tcp_client::State::Established;
+        client->connected = true;
+        return net::Status::Ok;
+    }
+    return net::Status::WouldBlock;
 }
 
-net::Status unsupported_tcp_try_send(
+net::Status fake_tcp_try_send(
     void* opaque,
     net::tcp_client::Client* client,
     const uint8_t* data,
     size_t length,
     size_t* out_sent) {
-    (void)opaque;
-    (void)client;
-    (void)data;
-    (void)length;
+    auto* transport = static_cast<FakeTransport*>(opaque);
     if (out_sent != nullptr) *out_sent = 0U;
-    return net::Status::UnsupportedProtocol;
+    if (transport == nullptr || client == nullptr || data == nullptr ||
+        length == 0U || out_sent == nullptr) return net::Status::InvalidArgument;
+    if (!client->connected) return net::Status::WouldBlock;
+    *out_sent = length;
+    return net::Status::Ok;
 }
 
-net::Status unsupported_tcp_try_receive(
+net::Status fake_tcp_try_receive(
     void* opaque,
     net::tcp_client::Client* client,
     uint8_t* output,
     size_t output_capacity,
     size_t* out_length) {
-    (void)opaque;
-    (void)client;
-    (void)output;
-    (void)output_capacity;
+    auto* transport = static_cast<FakeTransport*>(opaque);
     if (out_length != nullptr) *out_length = 0U;
-    return net::Status::UnsupportedProtocol;
+    if (transport == nullptr || client == nullptr || output == nullptr ||
+        output_capacity == 0U || out_length == nullptr) {
+        return net::Status::InvalidArgument;
+    }
+    return client->peer_closed ? net::Status::Ok : net::Status::WouldBlock;
 }
 
-net::Status unsupported_tcp_begin_close(void* opaque, net::tcp_client::Client* client) {
-    (void)opaque;
-    (void)client;
-    return net::Status::UnsupportedProtocol;
+net::Status fake_tcp_begin_close(void* opaque, net::tcp_client::Client* client) {
+    if (opaque == nullptr || client == nullptr) return net::Status::InvalidArgument;
+    client->state = net::tcp_client::State::Closed;
+    client->connected = false;
+    return net::Status::Ok;
 }
 
 void queue_datagram(
@@ -163,11 +189,11 @@ int main() {
         fake_send_udp,
         fake_poll,
         fake_take_udp,
-        unsupported_tcp_begin_connect,
-        unsupported_tcp_progress,
-        unsupported_tcp_try_send,
-        unsupported_tcp_try_receive,
-        unsupported_tcp_begin_close,
+        fake_tcp_begin_connect,
+        fake_tcp_progress,
+        fake_tcp_try_send,
+        fake_tcp_try_receive,
+        fake_tcp_begin_close,
     };
     CHECK(initialize(backend) == Status::Ok);
     CHECK(initialize(backend) == Status::AlreadyInitialized);
@@ -237,7 +263,26 @@ int main() {
     CHECK(send(owner, auto_bound, request, sizeof(request) - 1U) == Status::Ok);
     CHECK(transport.sent_source_port >= EPHEMERAL_PORT_FIRST);
 
-    CHECK(active_count(owner) == 2U);
+    Handle tcp = INVALID_HANDLE;
+    CHECK(create(owner, Type::Stream, Protocol::Tcp, &tcp) == Status::Ok);
+    CHECK(connect(owner, tcp, remote) == Status::WouldBlock);
+    uint32_t tcp_ready = ReadyNone;
+    CHECK(readiness(owner, tcp, ReadyWrite | ReadyConnected, &tcp_ready) == Status::Ok);
+    CHECK(tcp_ready == ReadyNone);
+    transport.tcp_establish = true;
+    CHECK(readiness(owner, tcp, ReadyWrite | ReadyConnected, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & (ReadyWrite | ReadyConnected)) ==
+        (ReadyWrite | ReadyConnected));
+    transport.tcp_peer_close = true;
+    CHECK(readiness(owner, tcp, ReadyRead | ReadyHangup, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & (ReadyRead | ReadyHangup)) == (ReadyRead | ReadyHangup));
+    transport.tcp_peer_close = false;
+    transport.tcp_error = true;
+    CHECK(readiness(owner, tcp, ReadyError, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & ReadyError) != 0U);
+    transport.tcp_error = false;
+
+    CHECK(active_count(owner) == 3U);
     release_process(owner);
     CHECK(active_count(owner) == 0U);
     CHECK(send(owner, replacement, request, sizeof(request) - 1U) == Status::StaleHandle);

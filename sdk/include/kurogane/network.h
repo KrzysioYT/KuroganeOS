@@ -194,27 +194,29 @@ static inline ku_status_t ku_socket_poll(
 }
 
 /*
- * Scheduler-friendly readiness wait. Socket operations remain non-blocking;
- * callers that want to wait sleep between readiness probes instead of spinning.
- * timeout_ticks == 0 performs a single probe. UINT64_MAX waits indefinitely.
+ * Event-driven readiness wait. A not-ready socket blocks the current Ring-3
+ * thread in the scheduler; kernel-side network progress wakes that exact saved
+ * syscall frame. timeout_ticks == 0 performs one probe. UINT64_MAX is infinite.
  */
 static inline ku_status_t ku_socket_wait(
     ku_socket_t socket,
     uint32_t requested,
     uint64_t timeout_ticks,
     uint32_t* ready) {
-    uint64_t elapsed = 0U;
-    for (;;) {
-        ku_status_t status = ku_socket_poll(socket, requested, ready);
-        if (status != KU_STATUS_OK) return status;
-        if ((*ready & requested) != 0U) return KU_STATUS_OK;
-        if (timeout_ticks == 0U || elapsed >= timeout_ticks) {
-            return KU_STATUS_TIMED_OUT;
-        }
-        status = ku_sleep(1U);
-        if (status != KU_STATUS_OK) return status;
-        if (elapsed != UINT64_MAX) ++elapsed;
+    ku_result_t result;
+    if (socket == KU_SOCKET_INVALID || ready == NULL || requested == 0U ||
+        (requested & ~KU_SOCKET_READY_ALL) != 0U) {
+        return KU_STATUS_INVALID_ARGUMENT;
     }
+    *ready = KU_SOCKET_READY_NONE;
+    result = ku_syscall3(KU_SYS_SOCKET_WAIT, socket, requested, timeout_ticks);
+    if (result < 0) return (ku_status_t)result;
+    if (result == 0 || ((uint64_t)result & ~KU_SOCKET_READY_ALL) != 0U ||
+        (((uint32_t)result & requested) == 0U)) {
+        return KU_STATUS_CORRUPT_DATA;
+    }
+    *ready = (uint32_t)result;
+    return KU_STATUS_OK;
 }
 
 static inline ku_status_t ku_http_get(ku_http_request* request) {

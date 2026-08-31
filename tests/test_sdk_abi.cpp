@@ -69,6 +69,19 @@ int main() {
     static_assert(KU_SYS_EVENT_RESET == 52);
     static_assert(KU_SYS_EVENT_POLL == 53);
     static_assert(KU_SYS_EVENT_CLOSE == 54);
+    static_assert(KU_SYS_IPC_QUERY == 55);
+    static_assert(KU_SYS_DNS_RESOLVE_A == 56);
+    static_assert(KU_SYS_SOCKET_CREATE == 57);
+    static_assert(KU_SYS_SOCKET_BIND == 58);
+    static_assert(KU_SYS_SOCKET_CONNECT == 59);
+    static_assert(KU_SYS_SOCKET_SEND == 60);
+    static_assert(KU_SYS_SOCKET_RECEIVE == 61);
+    static_assert(KU_SYS_SOCKET_CLOSE == 62);
+    static_assert(KU_SYS_SOCKET_POLL == 63);
+    static_assert(KU_SYS_DEVICE_ENUMERATE == 64);
+    static_assert(KU_SYS_DEVICE_QUERY == 65);
+    static_assert(KU_SYS_DEVICE_RESOURCE == 66);
+    static_assert(KU_SYS_SOCKET_WAIT == 67);
 
     static_assert(KU_EVENT_AUTO_RESET == 0);
     static_assert(KU_EVENT_MANUAL_RESET == 1);

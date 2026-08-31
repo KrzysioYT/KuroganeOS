@@ -12,6 +12,7 @@ enum class Status : uint8_t {
     AlreadyInitialized,
     CpuUnsupported,
     InterruptRegistrationFailed,
+    SchedulerRegistrationFailed,
     NotInitialized,
     Busy,
     RootUnavailable,
