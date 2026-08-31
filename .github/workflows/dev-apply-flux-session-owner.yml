@@ -1,0 +1,58 @@
+name: Dev Apply 3.6 Flux Session Ownership
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-flux-session-owner.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-flux-session-owner:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout patch commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply deterministic production patch
+        run: python3 scripts/dev-apply-flux-session-owner.py
+
+      - name: Validate ownership, host regressions and release kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F '[TEST] flux_session_owner: PASS' kernel/main.cpp
+          ! grep -F 'desktop auto-launch failed:' kernel/main.cpp
+          ! grep -F 'kurogane_start_desktop_session' kernel/user/console.cpp
+          grep -F 'cannot start Flux session while another application owns the host' kernel/apps/desktop_session.cpp
+          grep -F -- '--send-key-after-marker' scripts/smoke-uefi-iso-qemu.sh
+          grep -F -- "--send-key-after-marker '[TEST] live_login_profile: PASS' ret" .github/workflows/qualify-flux-runtime.yml
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Commit production source and qualification harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add \
+            kernel/main.cpp \
+            kernel/apps/desktop_session.cpp \
+            kernel/user/console.cpp \
+            scripts/smoke-uefi-iso-qemu.sh \
+            .github/workflows/qualify-flux-runtime.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no source changes to commit' >&2; exit 1; }
+          git commit -m 'fix(3.6): unify Flux desktop session ownership'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
