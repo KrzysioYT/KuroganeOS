@@ -37,6 +37,19 @@ login = read("userspace/gui/login/main.c")
 assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
 assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
 
+window_manager = read("kernel/ui/window_manager.cpp")
+assert "slot.info.state = owner_pid == 0U" in window_manager, "desktop: HOME is still minimized on session entry"
+assert "owner_pid != 0U && !home" not in window_manager, "desktop: HOME does not receive initial focus"
+launcher_session = read("userspace/gui/launcher/main.c")
+assert "desktop_performance_autostart" not in launcher_session, "launcher: diagnostic Performance autostart returned"
+assert "FLUX DECK / READY" in launcher_session
+
+launcher = read("userspace/gui/launcher/main.c")
+assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
+assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
+assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
+assert "red_flux_tile_launcher: PASS" in launcher
+
 browser = read("userspace/gui/browser/main.c")
 assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"
 assert "kui_scene_hit_test" in browser, "browser: hit test missing"

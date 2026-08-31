@@ -278,6 +278,7 @@ for _ in range(40):
         execute(stream, "input-send-event", {"events": [
             {"type": "btn", "data": {"down": False, "button": "left"}}
         ]})
+        time.sleep(0.35)
         stream.close()
         client.close()
         print(f"[qmp] clicked guest pointer at {target_x},{target_y}")

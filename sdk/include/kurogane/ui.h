@@ -9,7 +9,9 @@
 
 /* Native bounded retained-widget transport. Legacy ku_ui_frame remains ABI-stable. */
 #define KU_UI_NATIVE_MAGIC UINT32_C(0x4B554932) /* KUI2 */
-#define KU_UI_NATIVE_VERSION UINT32_C(1)
+#define KU_UI_NATIVE_VERSION_1 UINT32_C(1)
+#define KU_UI_NATIVE_VERSION_2 UINT32_C(2)
+#define KU_UI_NATIVE_VERSION KU_UI_NATIVE_VERSION_2
 #define KU_UI_NATIVE_MAX_COMMANDS 32U
 #define KU_UI_NATIVE_TEXT_CAPACITY 64U
 #define KU_UI_NATIVE_COORD_LIMIT 4096
@@ -21,12 +23,27 @@ enum ku_ui_native_command_type {
     KU_UI_NATIVE_INPUT = 4,
     KU_UI_NATIVE_LIST_ITEM = 5,
     KU_UI_NATIVE_PROGRESS = 6,
-    KU_UI_NATIVE_SEPARATOR = 7
+    KU_UI_NATIVE_SEPARATOR = 7,
+    KU_UI_NATIVE_TILE = 8
+};
+
+enum ku_ui_native_icon {
+    KU_UI_NATIVE_ICON_HOME = 0,
+    KU_UI_NATIVE_ICON_TERMINAL = 1,
+    KU_UI_NATIVE_ICON_FILES = 2,
+    KU_UI_NATIVE_ICON_PERFORMANCE = 3,
+    KU_UI_NATIVE_ICON_BROWSER = 4,
+    KU_UI_NATIVE_ICON_MONITOR = 5,
+    KU_UI_NATIVE_ICON_SETTINGS = 6,
+    KU_UI_NATIVE_ICON_ABOUT = 7,
+    KU_UI_NATIVE_ICON_COUNT = 8
 };
 
 enum ku_ui_native_command_flags {
     KU_UI_NATIVE_SELECTED = UINT32_C(1) << 0,
-    KU_UI_NATIVE_DISABLED = UINT32_C(1) << 1
+    KU_UI_NATIVE_DISABLED = UINT32_C(1) << 1,
+    KU_UI_NATIVE_PINNED = UINT32_C(1) << 2,
+    KU_UI_NATIVE_RUNNING = UINT32_C(1) << 3
 };
 
 typedef struct ku_ui_native_command {

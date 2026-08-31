@@ -220,6 +220,60 @@ void dock_icon(const Rect& bounds, DockIcon icon,
             break;
     }
 }
+void app_icon_glyph(
+    const Rect& bounds, AppIcon icon,
+    graphics::Color foreground, graphics::Color accent) {
+    const int32_t x = bounds.x + 10;
+    const int32_t y = bounds.y + 12;
+    switch (icon) {
+        case AppIcon::Terminal:
+            graphics::draw_rect(x, y, 28, 24, foreground);
+            graphics::draw_text(x + 5, y + 8, ">_", accent, kTheme.panel_alt, 1U, true);
+            break;
+        case AppIcon::Files:
+            graphics::fill_rect(x, y + 5, 30, 22, foreground);
+            graphics::fill_rect(x + 3, y, 12, 7, foreground);
+            graphics::fill_rect(x + 3, y + 10, 24, 14, kGraphite);
+            break;
+        case AppIcon::Performance:
+            graphics::draw_rect(x, y, 30, 26, foreground);
+            graphics::fill_rect(x + 5, y + 15, 4, 7, accent);
+            graphics::fill_rect(x + 13, y + 10, 4, 12, accent);
+            graphics::fill_rect(x + 21, y + 5, 4, 17, accent);
+            break;
+        case AppIcon::Browser:
+            graphics::draw_rect(x, y, 30, 26, foreground);
+            graphics::fill_rect(x, y + 6, 30, 1, accent);
+            graphics::draw_rect(x + 8, y + 10, 14, 11, accent);
+            break;
+        case AppIcon::Monitor:
+            graphics::draw_rect(x, y, 30, 22, foreground);
+            line(x + 4, y + 13, x + 9, y + 13, accent);
+            line(x + 9, y + 13, x + 13, y + 7, accent);
+            line(x + 13, y + 7, x + 18, y + 17, accent);
+            line(x + 18, y + 17, x + 25, y + 10, accent);
+            graphics::fill_rect(x + 12, y + 24, 7, 2, foreground);
+            break;
+        case AppIcon::Settings:
+            graphics::draw_rect(x + 6, y + 4, 18, 18, foreground);
+            graphics::fill_rect(x + 13, y, 4, 26, accent);
+            graphics::fill_rect(x + 2, y + 11, 26, 4, accent);
+            graphics::fill_rect(x + 11, y + 9, 8, 8, kGraphite);
+            break;
+        case AppIcon::About:
+            graphics::draw_rect(x + 6, y, 18, 26, foreground);
+            graphics::fill_rect(x + 13, y + 5, 4, 4, accent);
+            graphics::fill_rect(x + 13, y + 12, 4, 9, accent);
+            break;
+        case AppIcon::Home:
+        default:
+            graphics::fill_rect(x + 5, y + 10, 21, 16, foreground);
+            line(x + 4, y + 11, x + 15, y, accent);
+            line(x + 15, y, x + 27, y + 11, accent);
+            break;
+    }
+}
+
 } // namespace
 
 const Theme& default_theme() { return kTheme; }
@@ -519,6 +573,39 @@ void input_field(const Rect& bounds, const char* text, bool focused) {
                         focused ? kRedBright : kRedDeep);
     graphics::draw_text(bounds.x + 12, bounds.y + (bounds.height - 8) / 2,
                         text ? text : "", kTheme.text, background, 1U, true);
+}
+
+void app_tile(
+    const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
+    bool selected, bool pinned, bool running) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = selected
+        ? graphics::rgb(49, 20, 27)
+        : (running ? graphics::rgb(24, 22, 26) : kGraphite);
+    const graphics::Color border = selected
+        ? kRedBright : (running ? kSteel : kTheme.border);
+    graphics::fill_rect(bounds.x + 4, bounds.y + 5,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
+    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
+                        selected ? kRedBright : (running ? kRedMuted : kRedDeep));
+    if (selected) {
+        graphics::fill_rect(bounds.x + 12, bounds.y, 48, 2, kRedBright);
+    }
+    app_icon_glyph(bounds, icon, kTheme.text, selected ? kRedBright : kRedMuted);
+    graphics::draw_text(bounds.x + 50, bounds.y + 13,
+                        title ? title : "APP", kTheme.text, background, 1U, true);
+    graphics::draw_text(bounds.x + 50, bounds.y + 31,
+                        subtitle ? subtitle : "", kTheme.text_muted, background, 1U, true);
+    if (pinned) {
+        graphics::fill_rect(bounds.x + bounds.width - 13, bounds.y + 9, 5, 5, kRedBright);
+        graphics::fill_rect(bounds.x + bounds.width - 11, bounds.y + 14, 1, 7, kRedMuted);
+    }
+    if (running) {
+        graphics::fill_rect(bounds.x + 12, bounds.y + bounds.height - 7, 28, 2,
+                            selected ? kRedBright : kRedMuted);
+    }
 }
 
 void list_row(

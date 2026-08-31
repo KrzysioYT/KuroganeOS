@@ -102,10 +102,17 @@ bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
     return false;
 }
 
-bool native_command_valid(const ku_ui_native_command& command) {
-    if (command.type < KU_UI_NATIVE_PANEL || command.type > KU_UI_NATIVE_SEPARATOR ||
-        (command.flags & ~(KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED)) != 0U ||
-        command.reserved != 0U || !native_text_terminated(command.text)) {
+bool native_command_valid(
+    const ku_ui_native_command& command, uint32_t version) {
+    const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_2
+        ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR;
+    uint32_t allowed_flags = KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED;
+    if (version >= KU_UI_NATIVE_VERSION_2) {
+        allowed_flags |= KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING;
+    }
+    if (command.type < KU_UI_NATIVE_PANEL || command.type > maximum_type ||
+        (command.flags & ~allowed_flags) != 0U || command.reserved != 0U ||
+        !native_text_terminated(command.text)) {
         return false;
     }
     if (command.x < 0 || command.y < 0 || command.height <= 0 || command.width < 0 ||
@@ -114,17 +121,22 @@ bool native_command_valid(const ku_ui_native_command& command) {
         return false;
     }
     if (command.type == KU_UI_NATIVE_PROGRESS && command.maximum == 0U) return false;
+    if (command.type == KU_UI_NATIVE_TILE && command.value >= KU_UI_NATIVE_ICON_COUNT) {
+        return false;
+    }
     return true;
 }
 
 bool native_frame_valid(const ku_ui_native_frame& frame) {
     if (frame.structure_size != sizeof(ku_ui_native_frame) ||
-        frame.magic != KU_UI_NATIVE_MAGIC || frame.version != KU_UI_NATIVE_VERSION ||
+        frame.magic != KU_UI_NATIVE_MAGIC ||
+        (frame.version != KU_UI_NATIVE_VERSION_1 &&
+         frame.version != KU_UI_NATIVE_VERSION_2) ||
         frame.command_count > KU_UI_NATIVE_MAX_COMMANDS || frame.reserved != 0U) {
         return false;
     }
     for (uint32_t index = 0U; index < frame.command_count; ++index) {
-        if (!native_command_valid(frame.commands[index])) return false;
+        if (!native_command_valid(frame.commands[index], frame.version)) return false;
     }
     return true;
 }
@@ -142,6 +154,31 @@ ui::Rect native_bounds(
     if (available_height > 0 && height > available_height) height = available_height;
     if (height < 1) height = 1;
     return {content.x + command.x, content.y + command.y, width, height};
+}
+
+void split_native_tile_text(
+    const char* text, char title[32], char subtitle[32]) {
+    size_t source = 0U;
+    size_t title_size = 0U;
+    size_t subtitle_size = 0U;
+    bool second = false;
+    title[0] = '\0';
+    subtitle[0] = '\0';
+    if (text == nullptr) return;
+    while (source < KU_UI_NATIVE_TEXT_CAPACITY && text[source] != '\0') {
+        const char value = text[source++];
+        if (!second && value == '\n') {
+            second = true;
+            continue;
+        }
+        if (!second) {
+            if (title_size + 1U < 32U) title[title_size++] = value;
+        } else if (subtitle_size + 1U < 32U) {
+            subtitle[subtitle_size++] = value;
+        }
+    }
+    title[title_size] = '\0';
+    subtitle[subtitle_size] = '\0';
 }
 
 void draw_native_frame(
@@ -195,6 +232,18 @@ void draw_native_frame(
             case KU_UI_NATIVE_SEPARATOR:
                 ui::separator(bounds.x, bounds.y + bounds.height / 2, bounds.width);
                 break;
+            case KU_UI_NATIVE_TILE: {
+                char title[32];
+                char subtitle[32];
+                split_native_tile_text(command.text, title, subtitle);
+                ui::app_tile(
+                    bounds, title, subtitle,
+                    static_cast<ui::AppIcon>(command.value),
+                    selected,
+                    (command.flags & KU_UI_NATIVE_PINNED) != 0U,
+                    (command.flags & KU_UI_NATIVE_RUNNING) != 0U);
+                break;
+            }
             default:
                 break;
         }

@@ -17,13 +17,16 @@ enum kui_view_type {
     KUI_VIEW_INPUT = 4,
     KUI_VIEW_LIST_ITEM = 5,
     KUI_VIEW_PROGRESS = 6,
-    KUI_VIEW_SEPARATOR = 7
+    KUI_VIEW_SEPARATOR = 7,
+    KUI_VIEW_TILE = 8
 };
 
 enum kui_view_flags {
     KUI_VIEW_HIDDEN = UINT32_C(1) << 0,
     KUI_VIEW_SELECTED = UINT32_C(1) << 1,
-    KUI_VIEW_DISABLED = UINT32_C(1) << 2
+    KUI_VIEW_DISABLED = UINT32_C(1) << 2,
+    KUI_VIEW_PINNED = UINT32_C(1) << 3,
+    KUI_VIEW_RUNNING = UINT32_C(1) << 4
 };
 
 typedef struct kui_view {
@@ -71,6 +74,12 @@ ku_status_t kui_scene_add(
     uint32_t parent_id,
     uint32_t type,
     const char* text);
+ku_status_t kui_scene_add_tile(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t icon);
 ku_status_t kui_scene_add_progress(
     kui_scene* scene,
     uint32_t id,
@@ -100,6 +109,8 @@ ku_status_t kui_flow_label(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_button(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_input(kui_flow* flow, uint32_t id, const char* text);
 ku_status_t kui_flow_list_item(kui_flow* flow, uint32_t id, const char* text);
+ku_status_t kui_flow_tile(
+    kui_flow* flow, uint32_t id, const char* text, uint32_t icon);
 ku_status_t kui_flow_progress(
     kui_flow* flow,
     uint32_t id,

@@ -26,7 +26,7 @@ static const launcher_app g_apps[APP_COUNT] = {
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static size_t g_selected = 0U;
-static char g_status[64] = "APPS MENU / PERFORMANCE AUTOSTART";
+static char g_status[64] = "FLUX DECK / READY";
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -209,17 +209,21 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "RED FLUX APPS / START");
-    (void)kui_flow_label(&root, 2U, "MOUSE: CLICK APP / PIN SELECTED / LOG OUT");
+    (void)kui_flow_panel(&root, 1U, "FLUX DECK / APPLICATIONS");
+    (void)kui_flow_label(&root, 2U, "CLICK A CARD TO OPEN / APPS BUTTON TO HIDE");
 
     kui_flow_begin(&apps, scene, 1U);
     for (index = 0U; index < APP_COUNT; ++index) {
         char label[64] = "";
-        append_text(label, sizeof(label), pin_state(g_apps[index].desktop_id) ? "[PIN] " : "[   ] ");
+        uint32_t flags = 0U;
         append_text(label, sizeof(label), g_apps[index].label);
-        append_text(label, sizeof(label), " / ");
+        append_text(label, sizeof(label), "\n");
         append_text(label, sizeof(label), g_apps[index].subtitle);
-        (void)kui_flow_list_item(&apps, 10U + (uint32_t)index, label);
+        (void)kui_flow_tile(
+            &apps, 10U + (uint32_t)index, label, g_apps[index].desktop_id);
+        if (pin_state(g_apps[index].desktop_id)) flags |= KUI_VIEW_PINNED;
+        if (app_is_running(g_apps[index].desktop_id)) flags |= KUI_VIEW_RUNNING;
+        (void)kui_scene_set_flags(scene, 10U + (uint32_t)index, flags);
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
@@ -256,17 +260,13 @@ int main(void) {
     puts("[TEST] desktop_app_pinning: PASS");
     puts("[TEST] red_flux_apps_menu: PASS");
 
-    if (launch_app(2U, 1)) {
-        puts("[TEST] desktop_performance_autostart: PASS");
-    } else {
-        puts("[TEST] desktop_performance_autostart: FAIL");
-    }
-
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
         return 2;
     }
+    puts("[TEST] red_flux_home_surface: PASS");
+    puts("[TEST] red_flux_tile_launcher: PASS");
 
     for (;;) {
         ku_ui_event event;

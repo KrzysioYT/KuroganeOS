@@ -406,6 +406,12 @@ ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
 
 ui::Rect calculate_content(const Slot& slot) {
     if (is_login_surface(slot)) return slot.info.bounds;
+    if (is_home_surface(slot.info.title)) {
+        return {
+            slot.info.bounds.x + 8, slot.info.bounds.y + 8,
+            slot.info.bounds.width - 16, slot.info.bounds.height - 16,
+        };
+    }
     const ui::Rect& bounds = slot.info.bounds;
     return {
         bounds.x + 4,
@@ -573,7 +579,7 @@ size_t focused_position() {
 #endif
 
 bool title_hit(const Slot& slot, int32_t x, int32_t y) {
-    if (is_login_surface(slot)) return false;
+    if (is_login_surface(slot) || is_home_surface(slot.info.title)) return false;
     const ChromeGeometry chrome = calculate_chrome(slot.info.bounds);
     return rect_contains(chrome.header, x, y) &&
         !rect_contains(chrome.minimize_control, x, y) &&
@@ -604,6 +610,9 @@ Status activate_dock_pin(size_t position) {
     if (existing != nullptr) {
         if (existing->info.state == WindowState::Minimized) {
             return restore(existing->info.id);
+        }
+        if (position == 0U && existing->info.focused) {
+            return minimize(existing->info.id);
         }
         return focus(existing->info.id);
     }
@@ -701,6 +710,19 @@ void draw_window_slot(Slot& slot) {
         return;
     }
 
+    if (is_home_surface(slot.info.title)) {
+        ui::panel(bounds, true);
+        if (slot.draw != nullptr) {
+            const ui::Rect content = calculate_content(slot);
+            graphics::set_clip(content.x, content.y, content.width, content.height);
+            graphics::set_text_scale_limit(1U);
+            slot.draw(slot.info.id, content, true, slot.context);
+            graphics::reset_text_scale_limit();
+            graphics::reset_clip();
+        }
+        return;
+    }
+
     const ChromeGeometry chrome = calculate_chrome(bounds);
     ui::flux_window(bounds, slot.info.title, slot.info.focused);
     ui::flux_control(chrome.minimize_control, ui::FluxControl::Minimize, slot.info.focused);
@@ -735,7 +757,7 @@ void render_layers() {
 
     Slot* login = login_surface();
     if (login != nullptr) {
-        ui::login_backdrop("LOCAL SESSION / ENTER TO CONTINUE");
+        ui::login_backdrop("LOCAL SESSION / MOUSE READY");
         draw_window_slot(*login);
         return;
     }
@@ -848,8 +870,8 @@ Status create_window(
     const ui::Rect requested_bounds = normalize_new_window_bounds(title, bounds);
     if (!valid_bounds(requested_bounds)) return Status::InvalidArgument;
 
-    const bool home = is_home_surface(title);
 #ifndef KUROGANE_HOST_TEST
+    const bool home = is_home_surface(title);
     const bool login = text_equals(title, "KUROGANE LOGIN");
     if (login) {
         purge_exposed_session();
@@ -879,7 +901,7 @@ Status create_window(
     slot.info.bounds = requested_bounds;
     slot.info.restore_bounds = requested_bounds;
     slot.info.owner_pid = owner_pid;
-    slot.info.state = (owner_pid == 0U || home)
+    slot.info.state = owner_pid == 0U
         ? WindowState::Minimized : WindowState::Normal;
     copy_title(slot.info.title, title);
     slot.draw = draw;
@@ -887,7 +909,7 @@ Status create_window(
     slot.context = context;
     clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
-    if (owner_pid != 0U && !home) g_focused = slot.info.id;
+    if (owner_pid != 0U) g_focused = slot.info.id;
     update_z_order();
     mark_full_dirty();
     *out_id = slot.info.id;
@@ -1204,7 +1226,7 @@ Status dispatch(const input::Event& event) {
             static_cast<void>(focus(target));
             Slot* slot = find(target);
             if (slot == nullptr) return Status::NotFound;
-            if (!is_login_surface(*slot)) {
+            if (!is_login_surface(*slot) && !is_home_surface(slot->info.title)) {
                 const ChromeGeometry chrome = calculate_chrome(slot->info.bounds);
                 if (rect_contains(chrome.dismiss_control, event.x, event.y)) return dismiss(target);
                 if (rect_contains(chrome.minimize_control, event.x, event.y)) return minimize(target);

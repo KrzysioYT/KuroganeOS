@@ -32,12 +32,23 @@ enum class FluxControl : uint8_t {
 };
 
 enum class DockIcon : uint8_t {
-    Home = 0,
+    Home,
     Terminal,
     Files,
     Monitor,
     Settings,
     About,
+};
+
+enum class AppIcon : uint8_t {
+    Home = 0,
+    Terminal = 1,
+    Files = 2,
+    Performance = 3,
+    Browser = 4,
+    Monitor = 5,
+    Settings = 6,
+    About = 7,
 };
 
 const Theme& default_theme();
@@ -63,6 +74,9 @@ void label(const Rect& bounds, const char* text,
            graphics::Color color = 0, uint32_t scale = 1);
 void button(const Rect& bounds, const char* text, bool selected = false);
 void input_field(const Rect& bounds, const char* text, bool focused = false);
+void app_tile(
+    const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
+    bool selected = false, bool pinned = false, bool running = false);
 void list_row(
     const Rect& bounds, const char* text, bool selected = false,
     bool disabled = false);

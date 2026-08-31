@@ -70,6 +70,39 @@ int main(void) {
         !expect(kui_scene_hit_test(&scene, 24, center_y(&native, 0U)), 2U, "scroll first") ||
         !expect(kui_scene_hit_test(&scene, 24, center_y(&native, 1U)), 4U, "scroll list")) return 6;
 
+    {
+        kui_scene tiles;
+        kui_flow flow;
+        ku_ui_native_frame tile_frame;
+        kui_scene_initialize(&tiles);
+        tiles.visible_rows = 6U;
+        kui_flow_begin(&flow, &tiles, 0U);
+        if (kui_flow_panel(&flow, 20U, "DECK") != KU_STATUS_OK ||
+            kui_flow_tile(&flow, 21U, "TERMINAL\nSHELL", KU_UI_NATIVE_ICON_TERMINAL) != KU_STATUS_OK ||
+            kui_flow_tile(&flow, 22U, "FILES\nROOT", KU_UI_NATIVE_ICON_FILES) != KU_STATUS_OK ||
+            kui_flow_tile(&flow, 23U, "WEB\nNETWORK", KU_UI_NATIVE_ICON_BROWSER) != KU_STATUS_OK ||
+            kui_flow_tile(&flow, 24U, "SETTINGS\nSYSTEM", KU_UI_NATIVE_ICON_SETTINGS) != KU_STATUS_OK) return 7;
+        if (kui_scene_set_flags(&tiles, 22U, KUI_VIEW_PINNED | KUI_VIEW_RUNNING) != KU_STATUS_OK ||
+            kui_scene_build_native(&tiles, &tile_frame) != KU_STATUS_OK ||
+            tile_frame.version != KU_UI_NATIVE_VERSION_2 ||
+            tile_frame.commands[1].type != KU_UI_NATIVE_TILE ||
+            tile_frame.commands[1].y != tile_frame.commands[2].y ||
+            tile_frame.commands[2].y != tile_frame.commands[3].y ||
+            tile_frame.commands[1].x >= tile_frame.commands[2].x ||
+            tile_frame.commands[2].x >= tile_frame.commands[3].x ||
+            tile_frame.commands[4].y <= tile_frame.commands[1].y ||
+            (tile_frame.commands[2].flags & (KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING)) !=
+                (KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING) ||
+            !expect(kui_scene_hit_test(
+                &tiles,
+                tile_frame.commands[2].x + tile_frame.commands[2].width / 2,
+                center_y(&tile_frame, 2U)), 22U, "tile column hit") ||
+            !expect(kui_scene_hit_test(
+                &tiles,
+                tile_frame.commands[2].x + tile_frame.commands[2].width + 4,
+                center_y(&tile_frame, 2U)), 0U, "tile gap inert")) return 8;
+    }
+
     puts("libui native packet + mouse hit-test tests passed");
     return 0;
 }
