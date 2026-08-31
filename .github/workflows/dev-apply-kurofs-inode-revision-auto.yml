@@ -43,14 +43,24 @@ jobs:
         run: |
           set -euo pipefail
           make CONFIG=release kernel
-      - name: Commit production inode revision split
+      - name: Commit and publish production inode revision split
         shell: bash
         run: |
           set -euo pipefail
+          branch=gpt/road-to-15-consolidation
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add kernel/fs/kurofs.hpp kernel/fs/kurofs.cpp tests/test_kurofs_data.cpp
           git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
           git commit -m "fix(4.0): separate inode incarnation from revision"
-          git pull --rebase origin gpt/road-to-15-consolidation
-          git push origin HEAD:gpt/road-to-15-consolidation
+          for attempt in 1 2 3; do
+            git fetch origin "$branch"
+            git rebase "origin/$branch"
+            if git push origin "HEAD:$branch"; then
+              exit 0
+            fi
+            echo "publish race on attempt $attempt; retrying after ref refresh"
+            sleep 1
+          done
+          echo "failed to publish production inode revision split after bounded retries"
+          exit 1
