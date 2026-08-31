@@ -1,0 +1,81 @@
+name: Dev Apply Native Pointer Feedback
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-native-pointer-feedback.yml
+      - scripts/dev-apply-native-pointer-feedback.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded native pointer feedback
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-native-pointer-feedback.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove real pointer path through Flux Deck
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] red_flux_home_surface: PASS' 574 265 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] red_flux_tile_launcher: PASS' \
+            --require-marker '[TEST] desktop_files_real_vfs: PASS'
+
+      - name: Commit and publish pointer feedback
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            kernel/ui/window_manager.hpp \
+            kernel/ui/window_manager.cpp \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            kernel/user/runtime_base.inc \
+            tests/test_window_manager.cpp
+          git diff --cached --quiet && { echo "guard produced no pointer-feedback production changes"; exit 1; }
+          git commit -m "feat(gui): add native hover and pressed feedback"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
