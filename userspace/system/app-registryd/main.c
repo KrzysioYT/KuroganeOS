@@ -145,6 +145,16 @@ static int read_manifest(const char* path, appreg_entry* output) {
     return parse_manifest(buffer, (size_t)read_result, output);
 }
 
+static int executable_exists(const char* path) {
+    const size_t path_length = text_length(path, KU_APPLICATION_EXECUTABLE_CAPACITY);
+    ku_file_stat info;
+    if (path_length == 0U || path_length >= KU_APPLICATION_EXECUTABLE_CAPACITY) return 0;
+    clear_bytes(&info, sizeof(info));
+    info.structure_size = sizeof(info);
+    if (ku_file_stat_path(path, path_length, &info) != KU_STATUS_OK) return 0;
+    return info.type == KU_FILE_TYPE_REGULAR && info.size != 0U;
+}
+
 static int id_exists(const char* id) {
     uint32_t index;
     for (index = 0U; index < entry_count; ++index) {
@@ -181,7 +191,8 @@ static void load_registry(void) {
         for (index = 0U; index < item.name_length; ++index) path[prefix_length + index] = item.name[index];
         path[prefix_length + item.name_length] = '\0';
         clear_bytes(&parsed, sizeof(parsed));
-        if (!read_manifest(path, &parsed) || id_exists(parsed.id)) continue;
+        if (!read_manifest(path, &parsed) || !executable_exists(parsed.executable) ||
+            id_exists(parsed.id)) continue;
         entries[entry_count++] = parsed;
     }
     (void)ku_file_close(directory);
