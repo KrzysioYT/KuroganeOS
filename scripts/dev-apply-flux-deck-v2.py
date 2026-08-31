@@ -55,6 +55,32 @@ text = replace_once(
     "remove Performance autostart")
 write(path, text)
 
+path = "tests/test_window_manager.cpp"
+text = read(path)
+text = replace_once(
+    text,
+    '    if (create_window("RED FLUX HOME", 17U, {100, 100, 360, 260},\n'
+    '                      draw, receive, nullptr, &home) != Status::Ok ||\n'
+    '        query(home, &info) != Status::Ok ||\n'
+    '        info.state != WindowState::Minimized) return 57;\n'
+    '    uint8_t home_payload[16]{};\n'
+    '    home_payload[0] = UINT8_C(0x5a);\n'
+    '    if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=\n'
+    '            Status::Ok ||\n'
+    '        restore(home) != Status::Ok || query(home, &info) != Status::Ok ||\n'
+    '        info.state != WindowState::Normal) return 58;\n',
+    '    if (create_window("RED FLUX HOME", 17U, {100, 100, 360, 260},\n'
+    '                      draw, receive, nullptr, &home) != Status::Ok ||\n'
+    '        query(home, &info) != Status::Ok ||\n'
+    '        info.state != WindowState::Normal || focused_window() != home) return 57;\n'
+    '    uint8_t home_payload[16]{};\n'
+    '    home_payload[0] = UINT8_C(0x5a);\n'
+    '    if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=\n'
+    '            Status::Ok || query(home, &info) != Status::Ok ||\n'
+    '        info.state != WindowState::Normal) return 58;\n',
+    "HOME visible lifecycle regression")
+write(path, text)
+
 path = "tests/test_mouse_first_apps.py"
 text = read(path)
 text = replace_once(
