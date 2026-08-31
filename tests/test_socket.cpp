@@ -107,6 +107,11 @@ int main() {
         fake_send_udp,
         fake_poll,
         fake_take_udp,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
     };
     CHECK(initialize(backend) == Status::Ok);
     CHECK(initialize(backend) == Status::AlreadyInitialized);
