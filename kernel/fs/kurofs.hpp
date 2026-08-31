@@ -13,6 +13,8 @@ constexpr uint32_t INODE_SIZE = 128U;
 constexpr uint64_t ROOT_INODE = 1U;
 constexpr uint32_t DEFAULT_INODE_COUNT = 1024U;
 constexpr uint64_t FEATURE_NONE = 0U;
+constexpr uint32_t DIRECTORY_ENTRY_SIZE = 128U;
+constexpr size_t MAX_DIRECTORY_NAME = 63U;
 
 enum class Status : uint8_t {
     Ok = 0,
@@ -27,6 +29,11 @@ enum class Status : uint8_t {
     InvalidRootInode,
     InvalidExtent,
     StaleInode,
+    NotFound,
+    AlreadyExists,
+    NotDirectory,
+    NameTooLong,
+    CorruptDirectory,
     NoSpace,
     BlockDeviceError,
 };
@@ -69,6 +76,14 @@ struct FileSystem {
     const storage::block::Device* device;
     Geometry geometry;
     bool mounted;
+};
+
+struct DirectoryEntry {
+    char name[MAX_DIRECTORY_NAME + 1U];
+    size_t name_length;
+    uint64_t inode_id;
+    uint32_t inode_generation;
+    InodeType type;
 };
 
 // Formats the complete bounded block device as KuroFS v1. Metadata publication
@@ -124,6 +139,19 @@ Status read_inode_data(
     void* destination,
     size_t capacity,
     size_t* out_read);
+
+// Directory records are fixed-size, CRC-protected and append-only until
+// transactional unlink/reclamation is introduced. Child inode generation
+// is bound into each record so stale aliases become corruption, not access.
+Status directory_entry_at(
+    FileSystem* filesystem, const Inode* directory,
+    uint64_t index, DirectoryEntry* output);
+Status directory_lookup(
+    FileSystem* filesystem, const Inode* directory,
+    const char* name, DirectoryEntry* output);
+Status directory_append(
+    FileSystem* filesystem, Inode* directory,
+    const char* name, uint64_t child_inode_id);
 
 const char* status_message(Status status);
 

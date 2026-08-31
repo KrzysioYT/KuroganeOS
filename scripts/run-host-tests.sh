@@ -64,6 +64,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_data"
 
+# Exercise CRC-protected KuroFS directory persistence and copy-on-grow.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_directory.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_directory"
+
+"$OUT_DIR/test_kurofs_directory"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_ipc.cpp \

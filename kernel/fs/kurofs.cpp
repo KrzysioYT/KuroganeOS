@@ -540,6 +540,101 @@ void copy_bytes(uint8_t* destination, const uint8_t* source, size_t size) {
     for (size_t index = 0U; index < size; ++index) destination[index] = source[index];
 }
 
+Status parse_directory_name(const char* name, size_t* out_length) {
+    if (name == nullptr || out_length == nullptr || name[0] == '\0') {
+        return Status::InvalidArgument;
+    }
+    size_t length = 0U;
+    for (; length <= MAX_DIRECTORY_NAME; ++length) {
+        const char character = name[length];
+        if (character == '\0') break;
+        if (character == '/') return Status::InvalidArgument;
+    }
+    if (length > MAX_DIRECTORY_NAME) return Status::NameTooLong;
+    if ((length == 1U && name[0] == '.') ||
+        (length == 2U && name[0] == '.' && name[1] == '.')) {
+        return Status::InvalidArgument;
+    }
+    *out_length = length;
+    return Status::Ok;
+}
+
+bool same_name(const DirectoryEntry& entry, const char* name, size_t length) {
+    if (entry.name_length != length) return false;
+    for (size_t index = 0U; index < length; ++index) {
+        if (entry.name[index] != name[index]) return false;
+    }
+    return true;
+}
+
+bool same_inode_snapshot(const Inode& left, const Inode& right) {
+    return left.id == right.id && left.type == right.type && left.flags == right.flags &&
+        left.size == right.size && left.extent_start == right.extent_start &&
+        left.extent_blocks == right.extent_blocks && left.link_count == right.link_count &&
+        left.generation == right.generation && left.revision == right.revision;
+}
+
+Status require_current_snapshot(
+    FileSystem* filesystem, const Inode* snapshot, Inode* current) {
+    if (filesystem == nullptr || snapshot == nullptr || current == nullptr) {
+        return Status::InvalidArgument;
+    }
+    const Status status = read_inode(filesystem, snapshot->id, current);
+    if (status != Status::Ok) return status;
+    if (!same_inode_snapshot(*snapshot, *current)) return Status::StaleInode;
+    return Status::Ok;
+}
+
+void encode_directory_entry(
+    const char* name, size_t name_length, const Inode& child, uint8_t* record) {
+    clear_bytes(record, DIRECTORY_ENTRY_SIZE);
+    store_u64(record + 0U, child.id);
+    store_u32(record + 8U, child.generation);
+    store_u32(record + 12U, static_cast<uint32_t>(child.type));
+    store_u32(record + 16U, static_cast<uint32_t>(name_length));
+    for (size_t index = 0U; index < name_length; ++index) record[20U + index] = static_cast<uint8_t>(name[index]);
+    store_u32(record + DIRECTORY_ENTRY_SIZE - sizeof(uint32_t),
+              crc32(record, DIRECTORY_ENTRY_SIZE - sizeof(uint32_t)));
+}
+
+Status decode_directory_entry(const uint8_t* record, DirectoryEntry* output) {
+    if (record == nullptr || output == nullptr) return Status::InvalidArgument;
+    const uint32_t checksum = load_u32(record + DIRECTORY_ENTRY_SIZE - sizeof(uint32_t));
+    if (checksum != crc32(record, DIRECTORY_ENTRY_SIZE - sizeof(uint32_t))) {
+        return Status::CorruptDirectory;
+    }
+    DirectoryEntry entry{};
+    entry.inode_id = load_u64(record + 0U);
+    entry.inode_generation = load_u32(record + 8U);
+    entry.type = static_cast<InodeType>(load_u32(record + 12U));
+    const uint32_t encoded_length = load_u32(record + 16U);
+    if (entry.inode_id == 0U || entry.inode_generation == 0U ||
+        (entry.type != InodeType::Regular && entry.type != InodeType::Directory) ||
+        encoded_length == 0U || encoded_length > MAX_DIRECTORY_NAME) {
+        return Status::CorruptDirectory;
+    }
+    entry.name_length = encoded_length;
+    for (size_t index = 0U; index < entry.name_length; ++index) {
+        const char character = static_cast<char>(record[20U + index]);
+        if (character == '\0' || character == '/') return Status::CorruptDirectory;
+        entry.name[index] = character;
+    }
+    entry.name[entry.name_length] = '\0';
+    *output = entry;
+    return Status::Ok;
+}
+
+Status validate_directory_child(
+    FileSystem* filesystem, const DirectoryEntry& entry) {
+    Inode child{};
+    const Status status = read_inode(filesystem, entry.inode_id, &child);
+    if (status != Status::Ok || child.generation != entry.inode_generation ||
+        child.type != entry.type) {
+        return Status::CorruptDirectory;
+    }
+    return Status::Ok;
+}
+
 } // namespace
 
 Status format(const storage::block::Device* device, uint32_t inode_count) {
@@ -853,6 +948,153 @@ Status read_inode_data(
     return Status::Ok;
 }
 
+Status directory_entry_at(
+    FileSystem* filesystem,
+    const Inode* directory,
+    uint64_t index,
+    DirectoryEntry* output) {
+    if (filesystem == nullptr || directory == nullptr || output == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    Inode current{};
+    Status status = require_current_snapshot(filesystem, directory, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Directory) return Status::NotDirectory;
+    if ((current.size % DIRECTORY_ENTRY_SIZE) != 0U) return Status::CorruptDirectory;
+    const uint64_t entry_count = current.size / DIRECTORY_ENTRY_SIZE;
+    if (index >= entry_count) return Status::NotFound;
+    uint64_t offset = 0U;
+    if (!multiply_u64(index, DIRECTORY_ENTRY_SIZE, &offset)) {
+        return Status::ArithmeticOverflow;
+    }
+    uint8_t record[DIRECTORY_ENTRY_SIZE]{};
+    size_t read = 0U;
+    status = read_inode_data(
+        filesystem, &current, offset, record, sizeof(record), &read);
+    if (status != Status::Ok) return status;
+    if (read != sizeof(record)) return Status::CorruptDirectory;
+    status = decode_directory_entry(record, output);
+    if (status != Status::Ok) return status;
+    return validate_directory_child(filesystem, *output);
+}
+
+Status directory_lookup(
+    FileSystem* filesystem,
+    const Inode* directory,
+    const char* name,
+    DirectoryEntry* output) {
+    if (filesystem == nullptr || directory == nullptr || output == nullptr) {
+        return Status::InvalidArgument;
+    }
+    size_t name_length = 0U;
+    Status status = parse_directory_name(name, &name_length);
+    if (status != Status::Ok) return status;
+    Inode current{};
+    status = require_current_snapshot(filesystem, directory, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Directory) return Status::NotDirectory;
+    if ((current.size % DIRECTORY_ENTRY_SIZE) != 0U) return Status::CorruptDirectory;
+    const uint64_t entry_count = current.size / DIRECTORY_ENTRY_SIZE;
+    for (uint64_t index = 0U; index < entry_count; ++index) {
+        DirectoryEntry entry{};
+        status = directory_entry_at(filesystem, &current, index, &entry);
+        if (status != Status::Ok) return status;
+        if (same_name(entry, name, name_length)) {
+            *output = entry;
+            return Status::Ok;
+        }
+    }
+    return Status::NotFound;
+}
+
+Status directory_append(
+    FileSystem* filesystem,
+    Inode* directory,
+    const char* name,
+    uint64_t child_inode_id) {
+    if (filesystem == nullptr || directory == nullptr || child_inode_id == 0U) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    size_t name_length = 0U;
+    Status status = parse_directory_name(name, &name_length);
+    if (status != Status::Ok) return status;
+    Inode current{};
+    status = require_current_snapshot(filesystem, directory, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Directory) return Status::NotDirectory;
+    if ((current.size % DIRECTORY_ENTRY_SIZE) != 0U) return Status::CorruptDirectory;
+    if (child_inode_id == current.id) return Status::InvalidArgument;
+
+    const uint64_t entry_count = current.size / DIRECTORY_ENTRY_SIZE;
+    for (uint64_t index = 0U; index < entry_count; ++index) {
+        DirectoryEntry existing{};
+        status = directory_entry_at(filesystem, &current, index, &existing);
+        if (status != Status::Ok) return status;
+        if (same_name(existing, name, name_length) || existing.inode_id == child_inode_id) {
+            return Status::AlreadyExists;
+        }
+    }
+
+    Inode child{};
+    status = read_inode(filesystem, child_inode_id, &child);
+    if (status != Status::Ok) return status;
+    uint8_t record[DIRECTORY_ENTRY_SIZE]{};
+    encode_directory_entry(name, name_length, child, record);
+
+    uint64_t required_size = 0U;
+    if (!add_u64(current.size, DIRECTORY_ENTRY_SIZE, &required_size)) {
+        return Status::ArithmeticOverflow;
+    }
+    uint64_t old_capacity = 0U;
+    if (!multiply_u64(current.extent_blocks, kSectorSize, &old_capacity)) {
+        return Status::ArithmeticOverflow;
+    }
+
+    Inode candidate = current;
+    if (required_size > old_capacity) {
+        uint64_t needed_blocks = divide_round_up(required_size, kSectorSize);
+        uint64_t target_blocks = current.extent_blocks == 0U ? 1U : current.extent_blocks;
+        if (target_blocks < needed_blocks) {
+            if (target_blocks <= UINT64_MAX / 2U) target_blocks *= 2U;
+            if (target_blocks < needed_blocks) target_blocks = needed_blocks;
+        }
+        uint64_t new_extent = 0U;
+        status = allocate_blocks(filesystem, target_blocks, &new_extent);
+        if (status != Status::Ok) return status;
+
+        uint64_t copied = 0U;
+        while (copied < current.size) {
+            uint8_t chunk[DIRECTORY_ENTRY_SIZE]{};
+            size_t read = 0U;
+            status = read_inode_data(
+                filesystem, &current, copied, chunk, sizeof(chunk), &read);
+            if (status != Status::Ok) return status;
+            if (read == 0U) return Status::CorruptDirectory;
+            status = write_extent_data(
+                filesystem, new_extent, target_blocks, copied, chunk, read);
+            if (status != Status::Ok) return status;
+            copied += static_cast<uint64_t>(read);
+        }
+        status = write_extent_data(
+            filesystem, new_extent, target_blocks, current.size, record, sizeof(record));
+        if (status != Status::Ok) return status;
+        candidate.extent_start = new_extent;
+        candidate.extent_blocks = target_blocks;
+    } else {
+        status = write_extent_data(
+            filesystem, current.extent_start, current.extent_blocks,
+            current.size, record, sizeof(record));
+        if (status != Status::Ok) return status;
+    }
+    candidate.size = required_size;
+    status = update_inode(filesystem, &candidate);
+    if (status != Status::Ok) return status;
+    *directory = candidate;
+    return Status::Ok;
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
@@ -867,6 +1109,11 @@ const char* status_message(Status status) {
         case Status::InvalidRootInode: return "invalid root inode";
         case Status::InvalidExtent: return "invalid or unallocated KuroFS extent";
         case Status::StaleInode: return "stale KuroFS inode generation";
+        case Status::NotFound: return "KuroFS entry not found";
+        case Status::AlreadyExists: return "KuroFS entry already exists";
+        case Status::NotDirectory: return "KuroFS inode is not a directory";
+        case Status::NameTooLong: return "KuroFS name too long";
+        case Status::CorruptDirectory: return "corrupt KuroFS directory";
         case Status::NoSpace: return "no free KuroFS space";
         case Status::BlockDeviceError: return "block device error";
     }
