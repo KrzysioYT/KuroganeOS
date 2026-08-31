@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/dev-apply-flux-deck.yml
       - scripts/dev-apply-flux-deck.py
+      - scripts/dev-apply-flux-deck-v2.py
 
 permissions:
   contents: write
@@ -34,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ./scripts/dev-apply-flux-deck.py
+          python3 ./scripts/dev-apply-flux-deck-v2.py
           bash -n ./scripts/smoke-uefi-iso-qemu.sh
 
       - name: Run full host regressions
