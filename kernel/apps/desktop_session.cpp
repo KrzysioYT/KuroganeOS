@@ -1,6 +1,7 @@
 #include "framework.hpp"
 
 #include "../core/log.hpp"
+#include "../core/string.hpp"
 #include "../drivers/framebuffer.hpp"
 #include "../terminal.hpp"
 #include "../ui/window_manager.hpp"
@@ -61,7 +62,15 @@ void flux_session_input(const input::Event& event) {
 
 extern "C" bool kurogane_start_desktop_session() {
     if (applications::running()) {
-        return true;
+        const char* active = applications::active_name();
+        const bool already_owner = active != nullptr &&
+            kstd::streq(active, "flux-session");
+        if (!already_owner) {
+            log::write(
+                log::Level::Error, "GUI",
+                "cannot start Flux session while another application owns the host");
+        }
+        return already_owner;
     }
 
     const applications::Status registration =

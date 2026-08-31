@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--require-marker TEXT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--require-marker TEXT ...]" >&2
     exit 2
 }
 
@@ -13,6 +13,9 @@ timeout_seconds=60
 nic_model="none"
 require_network=false
 require_tls=false
+send_key_after_marker=""
+send_key_name=""
+send_key_sent=false
 require_markers=()
 while (($#)); do
     case "$1" in
@@ -22,6 +25,13 @@ while (($#)); do
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
+        --send-key-after-marker)
+            [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
+            [[ -z "$send_key_after_marker" ]] || { echo "only one --send-key-after-marker is supported" >&2; exit 2; }
+            send_key_after_marker="$2"
+            send_key_name="$3"
+            shift 3
+            ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         -h|--help) usage ;;
         -*) usage ;;
@@ -39,6 +49,10 @@ case "$nic_model" in
     none|e1000|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
 esac
+if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "invalid QEMU sendkey name: $send_key_name" >&2
+    exit 2
+fi
 if $require_network && [[ "$nic_model" == "none" ]]; then
     echo "--require-network/--require-tls needs --nic e1000, pcnet or virtio" >&2
     exit 2
@@ -51,6 +65,7 @@ media="$(cd "$(dirname "$media")" && pwd)/$(basename "$media")"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-smoke.XXXXXX")"
 serial="$tmp/serial.log"
 qemu_log="$tmp/qemu.log"
+monitor="$tmp/qemu-monitor.sock"
 pid=""
 cleanup() {
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
@@ -60,6 +75,30 @@ cleanup() {
     rm -rf -- "$tmp"
 }
 trap cleanup EXIT INT TERM
+
+send_qemu_key() {
+    local key="$1"
+    python3 - "$monitor" "$key" <<'PY'
+import socket
+import sys
+import time
+
+path, key = sys.argv[1], sys.argv[2]
+last_error = None
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.connect(path)
+        client.sendall((f"sendkey {key}\n").encode("ascii"))
+        client.close()
+        raise SystemExit(0)
+    except OSError as error:
+        last_error = error
+        client.close()
+        time.sleep(0.05)
+raise SystemExit(f"cannot send QEMU key through monitor: {last_error}")
+PY
+}
 
 firmware_code="${OVMF_CODE:-}"
 firmware_vars_template="${OVMF_VARS:-}"
@@ -161,6 +200,7 @@ qemu-system-x86_64 \
     -drive if=pflash,format=raw,unit=1,file="$firmware_vars" \
     "${media_args[@]}" \
     -serial "file:$serial" \
+    -monitor "unix:$monitor,server,nowait" \
     -display none \
     "${network_args[@]}" \
     -no-reboot \
@@ -180,6 +220,12 @@ done
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        if [[ -n "$send_key_after_marker" && "$send_key_sent" == false ]] &&
+           grep -Fq "$send_key_after_marker" "$serial"; then
+            send_qemu_key "$send_key_name"
+            send_key_sent=true
+            echo "[uefi-qemu] sent key '$send_key_name' after marker: $send_key_after_marker"
+        fi
         if ((${#require_markers[@]} != 0)); then
             all_markers_ready=true
             for index in "${!require_markers[@]}"; do

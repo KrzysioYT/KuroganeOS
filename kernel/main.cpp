@@ -41,6 +41,7 @@
 
 extern "C" unsigned char kernel_stack_bottom[];
 extern "C" unsigned char kernel_stack_top[];
+extern "C" bool kurogane_start_desktop_session();
 
 namespace {
 
@@ -1805,6 +1806,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (context.safe_mode) {
         shell::initialize(false);
     } else {
+        if (context.force_desktop) {
+            if (!kurogane_start_desktop_session()) {
+                boot_failure("GUI", "cannot establish Flux desktop session owner");
+            }
+            terminal::println("[TEST] flux_session_owner: PASS");
+        }
         user::console::initialize();
         process::ProcessId init_pid = process::INVALID_PROCESS_ID;
         const process::Status init_status =
@@ -1817,35 +1824,6 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         log::write(log::Level::Info, "INIT", "spawned /system/init as PID 1");
     }
 
-    if (context.force_desktop && !context.safe_mode) {
-        const auto auto_launch_status = applications::launch("desktop");
-        if (auto_launch_status != applications::Status::Ok) {
-            terminal::write("desktop auto-launch failed: ");
-            terminal::println(
-                applications::status_message(auto_launch_status));
-        } else {
-            log::write(
-                log::Level::Warn,
-                "GUI",
-                "desktop alpha session started");
-            static const char* const desktop_apps[] = {
-                "/gui/terminal", "/gui/files", "/gui/sysmon",
-                "/gui/about", "/gui/settings"
-            };
-            bool desktop_apps_ok = true;
-            for (const char* path : desktop_apps) {
-                if (process::spawn(path, nullptr) != process::Status::Ok) {
-                    desktop_apps_ok = false;
-                    terminal::write("desktop cannot launch ");
-                    terminal::println(path);
-                }
-            }
-            terminal::println(
-                desktop_apps_ok
-                    ? "[TEST] desktop_userspace_apps: PASS"
-                    : "[TEST] desktop_userspace_apps: FAIL");
-        }
-    }
 
     kernel_loop();
 }
