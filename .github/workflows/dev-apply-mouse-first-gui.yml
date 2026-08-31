@@ -9,6 +9,7 @@ on:
       - scripts/dev-apply-mouse-first-gui.py
       - scripts/dev-apply-mouse-first-gui-v2.py
       - scripts/dev-apply-mouse-first-gui-v3.py
+      - scripts/dev-apply-mouse-first-gui-v4.py
 
 permissions:
   contents: write
@@ -36,7 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 ./scripts/dev-apply-mouse-first-gui-v3.py
+          python3 ./scripts/dev-apply-mouse-first-gui-v4.py
 
       - name: Run full host regressions
         shell: bash
