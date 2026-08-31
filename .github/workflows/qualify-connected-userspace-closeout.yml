@@ -211,6 +211,6 @@ jobs:
           grep -F '[TEST] dhcp_lease: PASS' "$serial"
           grep -F '[TEST] network_gateway_icmp: PASS' "$serial"
           grep -F '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"
-          grep -F 'AC97: Intel ICH PCM output ready' "$serial"
+          grep -F 'Intel ICH AC97 PCM output ready' "$serial"
           echo '[TEST] connected_userspace_closeout: PASS'
           echo '[closeout] clean OVMF/KVM production regression: PASS'
