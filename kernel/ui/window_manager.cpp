@@ -531,6 +531,11 @@ void purge_exposed_session() {
 }
 #endif
 
+void cancel_capture(WindowId id) {
+    if (g_dragged == id) g_dragged = INVALID_WINDOW;
+    if (g_resized == id) g_resized = INVALID_WINDOW;
+}
+
 void choose_top_focus() {
     g_focused = INVALID_WINDOW;
     for (size_t position = g_count; position > 0U; --position) {
@@ -922,8 +927,7 @@ Status close(WindowId id) {
     }
     --g_count;
     release_slot(*slot);
-    if (g_dragged == id) g_dragged = INVALID_WINDOW;
-    if (g_resized == id) g_resized = INVALID_WINDOW;
+    cancel_capture(id);
     choose_top_focus();
     mark_full_dirty();
     return Status::Ok;
@@ -1027,6 +1031,7 @@ Status minimize(WindowId id) {
     if (slot->info.state == WindowState::Minimized || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
+    cancel_capture(id);
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
@@ -1040,6 +1045,7 @@ Status maximize(WindowId id) {
     if (slot->info.state == WindowState::Maximized || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
+    cancel_capture(id);
     if (slot->info.state == WindowState::Normal) slot->info.restore_bounds = slot->info.bounds;
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
@@ -1056,6 +1062,7 @@ Status restore(WindowId id) {
     if (slot->info.state == WindowState::Normal || is_login_surface(*slot)) {
         return Status::InvalidState;
     }
+    cancel_capture(id);
     slot->info.state = WindowState::Normal;
     slot->info.bounds = slot->info.restore_bounds;
     static_cast<void>(focus(id));
@@ -1153,6 +1160,10 @@ Status dispatch(const input::Event& event) {
 
     if (event.type == input::EventType::MouseButtonDown &&
         event.button == drivers::mouse::Left) {
+        // A fresh primary-button press starts a fresh capture decision.
+        // This recovers deterministically if a prior button-up was lost.
+        g_dragged = INVALID_WINDOW;
+        g_resized = INVALID_WINDOW;
         const WorkspaceGeometry workspace = calculate_workspace();
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
@@ -1207,12 +1218,19 @@ Status dispatch(const input::Event& event) {
                (event.buttons & drivers::mouse::Left) != 0U) {
         if (g_resized != INVALID_WINDOW) {
             Slot* slot = find(g_resized);
-            if (slot != nullptr) resize_window(*slot, event.x, event.y);
+            if (slot != nullptr) {
+                resize_window(*slot, event.x, event.y);
+            } else {
+                g_resized = INVALID_WINDOW;
+            }
         } else if (g_dragged != INVALID_WINDOW) {
-            static_cast<void>(move(
-                g_dragged,
-                event.x - g_drag_offset_x,
-                event.y - g_drag_offset_y));
+            const WindowId dragged = g_dragged;
+            if (move(
+                    dragged,
+                    event.x - g_drag_offset_x,
+                    event.y - g_drag_offset_y) != Status::Ok) {
+                g_dragged = INVALID_WINDOW;
+            }
         }
     } else if (event.type == input::EventType::MouseButtonUp &&
                event.button == drivers::mouse::Left) {
@@ -1257,6 +1275,15 @@ Status damage_snapshot(DamageSnapshot* out_snapshot) {
     for (size_t index = 0U; index < g_damage_count; ++index) {
         out_snapshot->regions[index] = g_damage_regions[index];
     }
+    return Status::Ok;
+}
+
+Status interaction_snapshot(InteractionSnapshot* out_snapshot) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (out_snapshot == nullptr) return Status::InvalidArgument;
+    out_snapshot->focused = g_focused;
+    out_snapshot->dragged = g_dragged;
+    out_snapshot->resized = g_resized;
     return Status::Ok;
 }
 

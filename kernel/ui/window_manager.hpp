@@ -59,6 +59,12 @@ struct DamageSnapshot {
     ui::Rect regions[MAX_DAMAGE_REGIONS];
 };
 
+struct InteractionSnapshot {
+    WindowId focused;
+    WindowId dragged;
+    WindowId resized;
+};
+
 struct WorkspaceGeometry {
     ui::Rect work_area;
     ui::Rect signal_spine;
@@ -119,6 +125,7 @@ void invalidate();
 void invalidate_window(WindowId id);
 void invalidate_region(const ui::Rect& region);
 Status damage_snapshot(DamageSnapshot* out_snapshot);
+Status interaction_snapshot(InteractionSnapshot* out_snapshot);
 Status present_surface(
     WindowId id,
     size_t width,

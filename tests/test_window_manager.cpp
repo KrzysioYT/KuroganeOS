@@ -201,5 +201,86 @@ int main() {
     if (focus(second) != Status::Ok || damage_snapshot(&damage) != Status::Ok ||
         !damage.full || damage.count != 0U) return 41;
     if (close(damage_window) != Status::Ok) return 42;
+
+    // Capture is owned by the live generation and must be cancelled by
+    // every state transition that makes drag/resize invalid.
+    WindowId capture = INVALID_WINDOW;
+    if (create_window("Capture", 15U, {120, 120, 300, 220},
+                      draw, receive, nullptr, &capture) != Status::Ok ||
+        chrome_geometry(capture, &chrome) != Status::Ok) return 43;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = chrome.header.x + 10;
+    event.y = chrome.header.y + 10;
+    if (dispatch(event) != Status::Ok) return 44;
+    InteractionSnapshot interaction{};
+    if (interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.dragged != capture || interaction.resized != INVALID_WINDOW) return 45;
+    if (query(capture, &info) != Status::Ok) return 46;
+    const ui::Rect before_minimize = info.bounds;
+    if (minimize(capture) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.dragged != INVALID_WINDOW ||
+        interaction.resized != INVALID_WINDOW ||
+        interaction.focused == capture) return 47;
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.buttons = drivers::mouse::Left;
+    event.x = 700;
+    event.y = 500;
+    if (dispatch(event) != Status::Ok || query(capture, &info) != Status::Ok ||
+        info.bounds.x != before_minimize.x || info.bounds.y != before_minimize.y ||
+        info.bounds.width != before_minimize.width ||
+        info.bounds.height != before_minimize.height) return 48;
+    if (restore(capture) != Status::Ok || chrome_geometry(capture, &chrome) != Status::Ok) {
+        return 49;
+    }
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = chrome.resize_grip.x + chrome.resize_grip.width / 2;
+    event.y = chrome.resize_grip.y + chrome.resize_grip.height / 2;
+    if (dispatch(event) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.resized != capture || interaction.dragged != INVALID_WINDOW) return 50;
+    if (maximize(capture) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.resized != INVALID_WINDOW || interaction.dragged != INVALID_WINDOW) {
+        return 51;
+    }
+    if (restore(capture) != Status::Ok || chrome_geometry(capture, &chrome) != Status::Ok) {
+        return 52;
+    }
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = chrome.resize_grip.x + 1;
+    event.y = chrome.resize_grip.y + 1;
+    if (dispatch(event) != Status::Ok || close(capture) != Status::Ok ||
+        interaction_snapshot(&interaction) != Status::Ok ||
+        interaction.dragged != INVALID_WINDOW || interaction.resized != INVALID_WINDOW) {
+        return 53;
+    }
+    WindowId capture_replacement = INVALID_WINDOW;
+    if (create_window("Capture2", 16U, {130, 130, 300, 220},
+                      draw, receive, nullptr, &capture_replacement) != Status::Ok ||
+        capture_replacement == capture || query(capture_replacement, &info) != Status::Ok) {
+        return 54;
+    }
+    const ui::Rect replacement_bounds = info.bounds;
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.buttons = drivers::mouse::Left;
+    event.x = 700;
+    event.y = 500;
+    if (dispatch(event) != Status::Ok || query(capture_replacement, &info) != Status::Ok ||
+        info.bounds.x != replacement_bounds.x || info.bounds.y != replacement_bounds.y ||
+        info.bounds.width != replacement_bounds.width ||
+        info.bounds.height != replacement_bounds.height) return 55;
+    if (close(capture_replacement) != Status::Ok) return 56;
     return 0;
 }
