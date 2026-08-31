@@ -13,7 +13,7 @@ if count != 2:
 p.write_text(text.replace(old_send_progress, new_send_progress))
 '''
 
-new = '''# send() and receive() have deliberately different surrounding state checks,
+new = """# send() and receive() have deliberately different surrounding state checks,
 # so qualify each progression path with its own exact anchor.
 replace_once("kernel/net/socket.cpp", old_send_progress, new_send_progress)
 
@@ -33,7 +33,7 @@ new_receive_progress = '''        if (!slot->connected) {
         }
 '''
 replace_once("kernel/net/socket.cpp", old_receive_progress, new_receive_progress)
-'''
+"""
 
 count = text.count(old)
 if count != 1:
