@@ -53,7 +53,7 @@ static void preview_path(
     if (count >= 4 && (unsigned char)data[0] == 0x7FU &&
         data[1] == 'E' && data[2] == 'L' && data[3] == 'F') {
         (void)strlcpy(line1, "ELF64 EXECUTABLE", line1_capacity);
-        (void)strlcpy(line2, "ENTER TO LAUNCH", line2_capacity);
+        (void)strlcpy(line2, "CLICK OPEN TO LAUNCH", line2_capacity);
         return;
     }
 
@@ -81,6 +81,54 @@ static void preview_path(
     if (line1[0] == '\0') (void)strlcpy(line1, "VFS / READABLE FILE", line1_capacity);
 }
 
+static void refresh_selected(
+    size_t selected,
+    char* status,
+    size_t status_capacity,
+    char* preview1,
+    size_t preview1_capacity,
+    char* preview2,
+    size_t preview2_capacity) {
+    (void)strlcpy(status, g_entries[selected].path, status_capacity);
+    preview_path(
+        g_entries[selected].path,
+        preview1,
+        preview1_capacity,
+        preview2,
+        preview2_capacity);
+}
+
+static void open_selected(
+    size_t selected,
+    char* status,
+    size_t status_capacity,
+    char* preview1,
+    size_t preview1_capacity,
+    char* preview2,
+    size_t preview2_capacity) {
+    if (g_entries[selected].launchable) {
+        const ku_result_t pid = ku_process_spawn(
+            g_entries[selected].path, strlen(g_entries[selected].path));
+        if (pid > 0) {
+            char number[24];
+            (void)strlcpy(status, "OPENED PID ", status_capacity);
+            gui_u64(number, sizeof(number), (uint64_t)pid);
+            append_text(status, status_capacity, number);
+        } else {
+            (void)strlcpy(status, "LAUNCH FAILED", status_capacity);
+        }
+        return;
+    }
+    refresh_selected(
+        selected,
+        status,
+        status_capacity,
+        preview1,
+        preview1_capacity,
+        preview2,
+        preview2_capacity);
+}
+
 static void build_scene(
     kui_scene* scene,
     size_t selected,
@@ -90,7 +138,7 @@ static void build_scene(
     kui_flow root;
     kui_flow entries;
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
+    scene->visible_rows = 14U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -99,7 +147,7 @@ static void build_scene(
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FILES / QUICK ACCESS");
-    (void)kui_flow_label(&root, 2U, "ARROWS SELECT   ENTER OPEN   R REFRESH");
+    (void)kui_flow_label(&root, 2U, "MOUSE / SELECT ENTRY   OPEN   REFRESH");
 
     kui_flow_begin(&entries, scene, 1U);
     for (size_t index = 0U; index < ENTRY_COUNT; ++index) {
@@ -109,9 +157,11 @@ static void build_scene(
         append_text(label, sizeof(label), g_entries[index].label);
         (void)kui_flow_list_item(&entries, 10U + (uint32_t)index, label);
     }
-    (void)kui_flow_label(&root, 31U, status);
-    (void)kui_flow_label(&root, 32U, preview1);
-    (void)kui_flow_label(&root, 33U, preview2);
+    (void)kui_flow_button(&root, 30U, "OPEN SELECTED");
+    (void)kui_flow_button(&root, 31U, "REFRESH PREVIEW");
+    (void)kui_flow_label(&root, 32U, status);
+    (void)kui_flow_label(&root, 33U, preview1);
+    (void)kui_flow_label(&root, 34U, preview2);
     (void)kui_scene_select(scene, 10U + (uint32_t)selected);
 }
 
@@ -120,6 +170,7 @@ int main(void) {
     if (window == KU_INVALID_WINDOW) return 1;
 
     size_t selected = 0U;
+    uint32_t pointer_buttons = 0U;
     char status[64] = "PERSISTENT ROOT / READ ABI";
     char preview1[64];
     char preview2[64];
@@ -133,44 +184,53 @@ int main(void) {
     }
     puts("[TEST] desktop_files_real_vfs: PASS");
     puts("[TEST] flux_scene_files: PASS");
-    puts("[TEST] desktop_files_3_1_navigation: PASS");
+    puts("[TEST] desktop_files_mouse_navigation: PASS");
+    puts("[TEST] desktop_files_keyboard_shortcuts_detached: PASS");
 
     for (;;) {
         ku_ui_event event;
-        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_KEY) continue;
+        uint32_t target;
+        const int wait_result = gui_wait_event(window, &event);
+        if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (event.type != KU_UI_EVENT_POINTER) continue;
 
-        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
-            selected = (selected + 1U) % ENTRY_COUNT;
-            (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (gui_key_up(&event) || gui_key_left(&event)) {
-            selected = selected == 0U ? ENTRY_COUNT - 1U : selected - 1U;
-            (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (event.character == 'r' || event.character == 'R') {
+        {
+            const uint32_t previous_buttons = pointer_buttons;
+            const int primary_pressed =
+                (event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U;
+            pointer_buttons = event.buttons;
+            if (!primary_pressed) continue;
+        }
+
+        target = kui_scene_hit_test(&scene, event.x, event.y);
+        if (target >= 10U && target < 10U + ENTRY_COUNT) {
+            selected = (size_t)(target - 10U);
+            refresh_selected(
+                selected,
+                status,
+                sizeof(status),
+                preview1,
+                sizeof(preview1),
+                preview2,
+                sizeof(preview2));
+        } else if (target == 30U) {
+            open_selected(
+                selected,
+                status,
+                sizeof(status),
+                preview1,
+                sizeof(preview1),
+                preview2,
+                sizeof(preview2));
+        } else if (target == 31U) {
             (void)strlcpy(status, "VFS / PREVIEW REFRESHED", sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-        } else if (gui_key_activate(&event)) {
-            if (g_entries[selected].launchable) {
-                const ku_result_t pid = ku_process_spawn(
-                    g_entries[selected].path, strlen(g_entries[selected].path));
-                if (pid > 0) {
-                    char number[24];
-                    (void)strlcpy(status, "OPENED PID ", sizeof(status));
-                    gui_u64(number, sizeof(number), (uint64_t)pid);
-                    append_text(status, sizeof(status), number);
-                } else {
-                    (void)strlcpy(status, "LAUNCH FAILED", sizeof(status));
-                }
-            } else {
-                (void)strlcpy(status, g_entries[selected].path, sizeof(status));
-                preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
-            }
-        } else if (gui_key_cancel(&event)) {
-            selected = 0U;
-            (void)strlcpy(status, "PERSISTENT ROOT / READ ABI", sizeof(status));
-            preview_path(g_entries[selected].path, preview1, sizeof(preview1), preview2, sizeof(preview2));
+            preview_path(
+                g_entries[selected].path,
+                preview1,
+                sizeof(preview1),
+                preview2,
+                sizeof(preview2));
         } else {
             continue;
         }
@@ -178,6 +238,7 @@ int main(void) {
         build_scene(&scene, selected, status, preview1, preview2);
         (void)kui_scene_present(window, &scene);
     }
+
     (void)ku_ui_close(window);
     return 0;
 }

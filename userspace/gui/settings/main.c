@@ -64,7 +64,7 @@ static void build_scene(
     (void)kui_flow_button(&settings, 22U, "VOLUME +10");
     (void)kui_flow_button(&settings, 23U, "MUTE / UNMUTE");
     (void)kui_flow_separator(&settings, 24U);
-    (void)kui_flow_label(&settings, 25U, "ARROWS / TAB SELECT   ENTER APPLY");
+    (void)kui_flow_label(&settings, 25U, "MOUSE / CLICK A CONTROL TO APPLY");
 
     if (selected != 10U && selected != 11U &&
         selected != 21U && selected != 22U && selected != 23U) {
@@ -105,6 +105,7 @@ int main(void) {
 
     int low_contrast = 0;
     uint32_t selected = 10U;
+    uint32_t pointer_buttons = 0U;
     ku_audio_state audio;
     kui_scene scene;
     (void)read_audio(&audio);
@@ -115,27 +116,36 @@ int main(void) {
     }
     puts("[TEST] desktop_settings_real: PASS");
     puts("[TEST] flux_scene_settings: PASS");
-    puts("[TEST] desktop_settings_arrow_navigation: PASS");
+    puts("[TEST] desktop_settings_mouse_navigation: PASS");
+    puts("[TEST] desktop_settings_keyboard_shortcuts_detached: PASS");
     puts("[TEST] desktop_audio_settings_ui: PASS");
 
     for (;;) {
         ku_ui_event event;
-        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_KEY) continue;
+        uint32_t target;
+        const int wait_result = gui_wait_event(window, &event);
+        if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (event.type != KU_UI_EVENT_POINTER) continue;
 
-        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
-            (void)kui_scene_select_next(&scene, 1);
-            selected = kui_scene_selected(&scene);
-        } else if (gui_key_up(&event) || gui_key_left(&event)) {
-            (void)kui_scene_select_next(&scene, -1);
-            selected = kui_scene_selected(&scene);
-        } else if (gui_key_activate(&event)) {
-            if (selected == 10U) low_contrast = 0;
-            else if (selected == 11U) low_contrast = 1;
-            else apply_audio(selected, &audio);
-        } else if (gui_key_cancel(&event)) {
+        {
+            const uint32_t previous_buttons = pointer_buttons;
+            const int primary_pressed =
+                (event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U;
+            pointer_buttons = event.buttons;
+            if (!primary_pressed) continue;
+        }
+
+        target = kui_scene_hit_test(&scene, event.x, event.y);
+        if (target == 10U) {
+            selected = target;
             low_contrast = 0;
-            selected = 10U;
+        } else if (target == 11U) {
+            selected = target;
+            low_contrast = 1;
+        } else if (target == 21U || target == 22U || target == 23U) {
+            selected = target;
+            apply_audio(target, &audio);
         } else {
             continue;
         }
@@ -143,6 +153,7 @@ int main(void) {
         build_scene(&scene, low_contrast, selected, &audio);
         (void)kui_scene_present(window, &scene);
     }
+
     (void)ku_ui_close(window);
     return 0;
 }
