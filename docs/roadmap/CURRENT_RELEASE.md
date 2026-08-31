@@ -1,114 +1,96 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
 
-## CURRENT FORMAL VERSION
+## COMPILED / RUNTIME VERSION
 
 **3.3.3-dev — Red Flux**
 
-Status: **QUALIFIED (SCOPED DEV MILESTONE)**
+The embedded runtime version string intentionally remains `3.3.3-dev`. Road-to-15 engineering milestones are qualified independently and do not silently relabel already-built media.
 
-Progress: **100% of the defined Red Flux scope**
-
-The compiled/runtime version string remains `3.3.3-dev`. Road-to-15 milestone qualification is tracked independently from that string; qualifying 3.4 does not silently relabel already-built 3.3.3-dev media.
-
-Red Flux remains qualified for its deliberately bounded UEFI/installer/FAT32/Ring-3/network/TLS/desktop/audio/GOP scope. Later SMP, NVMe parity, hardware GPU acceleration, HDA, final security isolation, package/update/recovery and Forge work remain future milestones.
-
-### Current 3.3.3 evidence
-
-- Fatal Diagnostic deliberate-fault qualification: Actions run `33315953767` — **PASS** after the 3.4 runtime stack-ownership fix.
-- Fatal Diagnostic remains kernel-owned, heap-independent after fatal transition, userspace/PNG-independent, with real CPU/process/register state, bounded event history, serial mirror and nested panic fallback.
-- Oracle VirtualBox remains **OPTIONAL / EXTERNAL VALIDATION** and is not a milestone percentage or release blocker when the environment is unavailable.
+`3.3.3-dev` remains **QUALIFIED** for its scoped Red Flux UEFI/installer/FAT32/Ring-3/network/TLS/desktop/audio/GOP definition. Oracle VirtualBox remains optional external validation and is not a milestone percentage or release blocker.
 
 ---
 
-## QUALIFIED MILESTONE
+## QUALIFIED MILESTONES
 
-**3.4.0-dev — System Services**
+### 3.4.0-dev — System Services
 
 Status: **QUALIFIED**
 
-The milestone is closed from real runtime evidence, not from code presence alone.
+Qualified scope includes named IPC, Service SDK/version negotiation, Event Broker, Settings, Notification, Account, Session and Clipboard services, persistent filesystem API, lifecycle cleanup, restart/rebind, bounded service-channel churn and clean OVMF/QEMU combined-runtime regression.
 
-### System Services qualification status
+Authoritative closeout evidence:
+- combined System Services closeout: Actions run `33317140601` — PASS;
+- full 3.4 regression sweep: Actions run `33317520153` — PASS;
+- 3.4 regression re-run on the final 3.5 SHA: Actions run `33410600879` — PASS.
 
-| Area | Status | Evidence / boundary |
-|---|---|---|
-| Service Core | QUALIFIED | named registration/unregister/discovery/lookup, PID ownership, metadata and version negotiation |
-| Named IPC | QUALIFIED | generation-safe endpoints/connections and process-exit cleanup |
-| Event Broker | QUALIFIED | subscribe/unsubscribe/publish/wait/wakeup with Ring-3 scheduling integration |
-| Settings Service | QUALIFIED | typed persistent settings, reload and change events |
-| Notification Service | QUALIFIED | lifecycle, roundtrip and liveness |
-| Account Service | QUALIFIED | service lifecycle, lookup/roundtrip and liveness |
-| Session Service | QUALIFIED | owned session lifecycle, Login integration, roundtrip and liveness |
-| Clipboard Service | QUALIFIED | bounded state, roundtrip, process ownership, crash/restart/rebind |
-| Filesystem public API | QUALIFIED | persistent FAT32/VFS API and Ring-3 filesystem probe |
-| Service Recovery | QUALIFIED | stale cleanup, restart/rebind and forced Ring-3 service crash recovery |
-| Version Negotiation | QUALIFIED | metadata contract and client/server negotiation |
-| Lifecycle Cleanup | QUALIFIED | process spawn/wait/reap, stale-frame retirement and resource release |
-| Stress | QUALIFIED | 256-iteration channel churn runtime proof |
-| Combined Runtime | QUALIFIED | all required System Services closeout markers under OVMF/QEMU |
+### 3.5.0-dev — Connected Userspace
 
-### Root-cause closure
+Status: **QUALIFIED**
 
-The historical closeout panic after `[TEST] filesystem_service_api: PASS` was not a kernel `ud2`. The runtime `RIP=0xA3C01` was outside the loaded PIE kernel (`KERNEL_LOAD_BASE=0x3CF89000`), proving corrupted control flow. The expected saved return normalized to `0x4A678`, immediately after `x86_64_enter_user` in `user::runtime::run()` (`kernel/user/runtime_base.inc:1734`).
+Connected Userspace is closed from fresh same-SHA runtime evidence at source SHA `7f715a9d654a76b300f1161ba86f4e97fee5e500`.
 
-Bounded diagnostics then showed `fsprobe` had `saved_return=0` and its saved launch stack sat 0x198 bytes inside the old 32 KiB syscall/IRQ entry reserve. A deep FAT32 syscall therefore overlapped the suspended Ring-3 launch chain. Commit `66fffaf225447261abc264500d5cf6f36165e7b9` fixes the invariant by enlarging the per-thread kernel stack to 96 KiB and reserving 64 KiB for Ring-3 syscall/IRQ entry while retaining a disjoint 32 KiB launch region.
+Qualified scope includes:
+- process-owned generation-safe public sockets and exit cleanup;
+- UDP roundtrip/readiness and TCP progression/refused/reset/timeout/cleanup;
+- DNS Service roundtrip plus crash/restart/rebind;
+- live E1000 carrier-driven Network Events through Event Broker to Ring-3;
+- verified TLS/HTTPS with CA, hostname, SNI and bounded-response validation;
+- asynchronous `audiod.v1`, bounded queues/mixing and AC'97 process-exit cleanup;
+- Application Registry manifests/catalog/executable validation/client cleanup;
+- full compatibility regression against the already-qualified 3.4 service stack.
 
-The second closeout failure was a qualification-harness process-budget error, not a kernel regression. With `MAX_PROCESSES=16` / `MAX_THREADS=16`, ten simultaneous one-shot closeout clients overcommitted the bounded table. Commit `76ac39e4421a1ae0ba720f46b040de10cf9e2096` serializes and reaps real probes without raising production limits or weakening required markers.
+Fresh component evidence on the final 3.5 SHA:
+- Socket/TCP: run `33410591776` — PASS;
+- DNS Service: run `33410593584` — PASS;
+- Network Events: run `33410595658` — PASS;
+- Audio + App Registry KVM: run `33410597347` — PASS;
+- TLS/HTTPS: run `33410598935` — PASS;
+- 3.4 regression sweep: run `33410600879` — PASS.
 
-### Authoritative 3.4 evidence
+Final Connected Userspace closeout: Actions run `33410583405` — **PASS**. Self-hosted KVM job `99549667506` ran the complete host suite, clean release IMG/ISO build and uninjected production OVMF/q35/KVM runtime with E1000 + Intel ICH AC'97. Required runtime evidence included:
 
-- Event Broker roundtrip: Actions run `33315953868` — **PASS**.
-- Settings persistence: Actions run `33315953774` — **PASS**.
-- Notification lifecycle: Actions run `33315953760` — **PASS**.
-- Fatal Diagnostic regression after runtime stack fix: Actions run `33315953767` — **PASS**.
-- Combined System Services closeout: Actions run `33317140601` — **PASS**, all required roundtrip/liveness/version/filesystem/lookup markers observed.
-- System Services regression sweep: Actions run `33317520153` — **PASS**.
-  - host kernel/VFS/IPC/TCP/SDK suite PASS;
-  - process spawn/wait/reap PASS;
-  - kernel and Ring-3 preemption PASS;
-  - syscall process ABI PASS;
-  - filesystem API PASS;
-  - 256× service channel churn PASS;
-  - deliberate Ring-3 `clipboardd` crash isolation PASS;
-  - clipboard restart + stale connection rebind PASS;
-  - clean release media build and OVMF/QEMU runtime PASS.
+```text
+[TEST] dhcp_lease: PASS
+[TEST] network_gateway_icmp: PASS
+[TEST] ALL_REQUIRED_TESTS_PASSED
+[INFO][AC97][CPU0][KERNEL] Intel ICH AC97 PCM output ready (48 kHz S16LE stereo)
+[TEST] connected_userspace_closeout: PASS
+[closeout] clean OVMF/KVM production regression: PASS
+```
 
-No known 3.4 release blocker remains after these runs.
+No known 3.5 blocker remains.
 
 ---
 
 ## ACTIVE DEVELOPMENT
 
-**3.5.0-dev — Connected Userspace**
+**3.6.0-dev — Flux Stabilization**
 
 Status: **IN DEVELOPMENT**
 
-Already present and preserved:
-- IPv4, DHCP, DNS, TCP, TLS and HTTPS foundations;
-- public DNS A-resolution ABI and Ring-3 integration;
-- Event Broker wait/wakeup foundation;
-- bounded existing TCP client implementation.
+The existing Red Flux Window Core already provides generation-checked window IDs, focus/z-order, drag, interactive resize, minimize/maximize/restore/close, Alt+Tab/Alt+F4, clipping, a software pointer, session ownership and a full-frame software backbuffer.
 
 ### CURRENT TASK
 
-Implement the real process-owned public socket ABI without recreating the network stack:
+Move the desktop from compatibility full-frame presentation toward a bounded native surface/compositor model without rewriting the working Window Core:
 
-1. generation-safe socket identities and bounded socket table;
-2. explicit PID ownership and `release_process(pid)` cleanup;
-3. public socket type/protocol/status contracts;
-4. `socket()` / `close()`;
-5. `bind()` / `connect()` / `send()` / `recv()`;
-6. real passive TCP foundation before claiming `listen()` / `accept()`;
-7. Event-Broker-backed asynchronous UDP/TCP readiness rather than permanent busy-loop polling.
+1. add bounded per-window surface ownership and generation-safe surface state;
+2. add bounded damage regions and clipping with deterministic full-frame fallback;
+3. integrate damage with present/move/resize/focus/close paths;
+4. guarantee process/window/surface cleanup when an app exits or crashes;
+5. then harden focus/input/drag/resize and Login → Home → Login supervision;
+6. finish with repeated window/session churn and long-runtime OVMF/KVM qualification.
+
+GPU acceleration is not part of this milestone; Forge Graphics remains a later formal gate.
 
 ### Road to 15 status
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**
-- `3.5.0-dev` — Connected Userspace — **ACTIVE**
-- `3.6.0-dev` — Flux Stabilization — pending
+- `3.5.0-dev` — Connected Userspace — **QUALIFIED**
+- `3.6.0-dev` — Flux Stabilization — **ACTIVE**
 - `4.0.0-dev` — Pre-Steel — pending
 - `5.0.0-dev` — Steel / Hardware — pending
 - `6.0.0-dev` — Core Steel — pending
@@ -119,5 +101,5 @@ Implement the real process-owned public socket ABI without recreating the networ
 - `11.0.0-dev` — Anvil — pending
 - `12.0.0-dev` — Platform / Web — pending
 - `13.0.0-dev` — Forge Design — pending
-- `14.0.0-rc` — Forge Desktop / RC — pending
+- `14.0.0-rc` — Forge Desktop / release candidate — pending
 - `15.0.0` — STABLE — final target
