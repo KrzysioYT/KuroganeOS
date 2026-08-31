@@ -156,8 +156,9 @@ int main() {
     static_assert(sizeof(ku_ui_native_frame) == 3616);
     static_assert(sizeof(ku_ui_native_frame) <= 4096);
     static_assert(KU_UI_NATIVE_MAGIC == UINT32_C(0x4B554932));
-    static_assert(KU_UI_NATIVE_VERSION == KU_UI_NATIVE_VERSION_2);
+    static_assert(KU_UI_NATIVE_VERSION == KU_UI_NATIVE_VERSION_3);
     static_assert(KU_UI_NATIVE_TILE == 8);
+    static_assert(KU_UI_NATIVE_METRIC == 9);
     static_assert(KU_UI_NATIVE_ICON_COUNT == 8);
     static_assert(KU_UI_NATIVE_MAX_COMMANDS == 32U);
     static_assert(sizeof(ku_ui_event) == 32);

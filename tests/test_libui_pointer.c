@@ -84,7 +84,7 @@ int main(void) {
             kui_flow_tile(&flow, 24U, "SETTINGS\nSYSTEM", KU_UI_NATIVE_ICON_SETTINGS) != KU_STATUS_OK) return 7;
         if (kui_scene_set_flags(&tiles, 22U, KUI_VIEW_PINNED | KUI_VIEW_RUNNING) != KU_STATUS_OK ||
             kui_scene_build_native(&tiles, &tile_frame) != KU_STATUS_OK ||
-            tile_frame.version != KU_UI_NATIVE_VERSION_2 ||
+            tile_frame.version != KU_UI_NATIVE_VERSION_3 ||
             tile_frame.commands[1].type != KU_UI_NATIVE_TILE ||
             tile_frame.commands[1].y != tile_frame.commands[2].y ||
             tile_frame.commands[2].y != tile_frame.commands[3].y ||
@@ -101,6 +101,40 @@ int main(void) {
                 &tiles,
                 tile_frame.commands[2].x + tile_frame.commands[2].width + 4,
                 center_y(&tile_frame, 2U)), 0U, "tile gap inert")) return 8;
+    }
+
+    {
+        kui_scene metrics;
+        kui_flow flow;
+        ku_ui_native_frame metric_frame;
+        kui_scene_initialize(&metrics);
+        metrics.visible_rows = 7U;
+        kui_flow_begin(&flow, &metrics, 0U);
+        if (kui_flow_panel(&flow, 40U, "PULSE") != KU_STATUS_OK ||
+            kui_flow_metric(&flow, 41U, "CPU\n23%", 23U, 100U) != KU_STATUS_OK ||
+            kui_flow_metric(&flow, 42U, "RAM\n48%", 48U, 100U) != KU_STATUS_OK ||
+            kui_flow_metric(&flow, 43U, "DISK\n7%", 7U, 100U) != KU_STATUS_OK ||
+            kui_flow_metric(&flow, 44U, "NETWORK\nONLINE", 100U, 100U) != KU_STATUS_OK ||
+            kui_flow_metric(&flow, 45U, "AUDIO\n64%", 64U, 100U) != KU_STATUS_OK ||
+            kui_flow_tile(&flow, 46U, "FILES\nROOT", KU_UI_NATIVE_ICON_FILES) != KU_STATUS_OK) return 9;
+        if (kui_scene_build_native(&metrics, &metric_frame) != KU_STATUS_OK ||
+            metric_frame.version != KU_UI_NATIVE_VERSION_3 ||
+            metric_frame.command_count != 7U ||
+            metric_frame.commands[1].type != KU_UI_NATIVE_METRIC ||
+            metric_frame.commands[5].type != KU_UI_NATIVE_METRIC ||
+            metric_frame.commands[1].value != 23U || metric_frame.commands[1].maximum != 100U ||
+            metric_frame.commands[1].y != metric_frame.commands[2].y ||
+            metric_frame.commands[2].y != metric_frame.commands[3].y ||
+            metric_frame.commands[3].y != metric_frame.commands[4].y ||
+            metric_frame.commands[4].y != metric_frame.commands[5].y ||
+            metric_frame.commands[1].x >= metric_frame.commands[2].x ||
+            metric_frame.commands[2].x >= metric_frame.commands[3].x ||
+            metric_frame.commands[3].x >= metric_frame.commands[4].x ||
+            metric_frame.commands[4].x >= metric_frame.commands[5].x ||
+            metric_frame.commands[6].y <= metric_frame.commands[1].y ||
+            !expect(kui_scene_hit_test(
+                &metrics, metric_frame.commands[3].x + 4,
+                center_y(&metric_frame, 3U)), 0U, "metric inert")) return 10;
     }
 
     puts("libui native packet + mouse hit-test tests passed");

@@ -104,8 +104,10 @@ bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
 
 bool native_command_valid(
     const ku_ui_native_command& command, uint32_t version) {
-    const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_2
-        ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR;
+    const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_3
+        ? KU_UI_NATIVE_METRIC
+        : (version >= KU_UI_NATIVE_VERSION_2
+            ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR);
     uint32_t allowed_flags = KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED;
     if (version >= KU_UI_NATIVE_VERSION_2) {
         allowed_flags |= KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING;
@@ -120,7 +122,8 @@ bool native_command_valid(
         command.width > KU_UI_NATIVE_COORD_LIMIT || command.height > KU_UI_NATIVE_COORD_LIMIT) {
         return false;
     }
-    if (command.type == KU_UI_NATIVE_PROGRESS && command.maximum == 0U) return false;
+    if ((command.type == KU_UI_NATIVE_PROGRESS ||
+         command.type == KU_UI_NATIVE_METRIC) && command.maximum == 0U) return false;
     if (command.type == KU_UI_NATIVE_TILE && command.value >= KU_UI_NATIVE_ICON_COUNT) {
         return false;
     }
@@ -131,7 +134,8 @@ bool native_frame_valid(const ku_ui_native_frame& frame) {
     if (frame.structure_size != sizeof(ku_ui_native_frame) ||
         frame.magic != KU_UI_NATIVE_MAGIC ||
         (frame.version != KU_UI_NATIVE_VERSION_1 &&
-         frame.version != KU_UI_NATIVE_VERSION_2) ||
+         frame.version != KU_UI_NATIVE_VERSION_2 &&
+         frame.version != KU_UI_NATIVE_VERSION_3) ||
         frame.command_count > KU_UI_NATIVE_MAX_COMMANDS || frame.reserved != 0U) {
         return false;
     }
@@ -249,6 +253,14 @@ void draw_native_frame(
             case KU_UI_NATIVE_SEPARATOR:
                 ui::separator(bounds.x, bounds.y + bounds.height / 2, bounds.width);
                 break;
+            case KU_UI_NATIVE_METRIC: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::metric_card(
+                    bounds, title, detail, command.value, command.maximum);
+                break;
+            }
             case KU_UI_NATIVE_TILE: {
                 char title[32];
                 char subtitle[32];

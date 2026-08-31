@@ -49,6 +49,12 @@ assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
 assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
 assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
 assert "red_flux_tile_launcher: PASS" in launcher
+assert "kui_flow_metric" in launcher, "launcher: System Pulse metric cards missing"
+assert "ku_system_get_snapshot" in launcher, "launcher: live CPU/RAM/disk source missing"
+assert "ku_network_get_status" in launcher, "launcher: live network source missing"
+assert "ku_audio_get_state" in launcher, "launcher: live audio source missing"
+assert "flux_home_system_pulse: PASS" in launcher
+assert "CLICK A CARD TO OPEN" not in launcher, "launcher: instruction-banner UI returned"
 
 control_center = read("userspace/gui/performance/main.c")
 assert 'gui_open("CONTROL CENTER"' in control_center

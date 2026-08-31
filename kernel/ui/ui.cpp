@@ -589,6 +589,38 @@ void input_field(
                         text ? text : "", kTheme.text, background, 1U, true);
 }
 
+void metric_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t value, uint32_t maximum) {
+    if (bounds.width <= 0 || bounds.height <= 0 || maximum == 0U) return;
+    if (value > maximum) value = maximum;
+    const graphics::Color background = kGraphite;
+    const uint32_t percent = static_cast<uint32_t>(
+        (static_cast<uint64_t>(value) * 100U) / maximum);
+    const graphics::Color signal = value == 0U
+        ? kSteel : (percent >= 80U ? kRedBright : kRedMuted);
+    graphics::fill_rect(bounds.x + 3, bounds.y + 3,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
+    graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
+    graphics::draw_text(bounds.x + 10, bounds.y + 9,
+                        title ? title : "METRIC", kTheme.text, background, 1U, true);
+    graphics::draw_text(bounds.x + 10, bounds.y + 25,
+                        detail ? detail : "", kTheme.text_muted, background, 1U, true);
+    if (bounds.width > 24 && bounds.height > 16) {
+        const int32_t bar_x = bounds.x + 10;
+        const int32_t bar_y = bounds.y + bounds.height - 10;
+        const int32_t bar_width = bounds.width - 20;
+        const int32_t active_width = static_cast<int32_t>(
+            (static_cast<uint64_t>(value) * static_cast<uint64_t>(bar_width)) / maximum);
+        graphics::fill_rect(bar_x, bar_y, bar_width, 3, graphics::rgb(35, 38, 44));
+        if (active_width > 0) {
+            graphics::fill_rect(bar_x, bar_y, active_width, 3, signal);
+        }
+    }
+}
+
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected, bool pinned, bool running, bool hovered, bool pressed) {

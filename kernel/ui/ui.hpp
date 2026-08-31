@@ -78,6 +78,9 @@ void button(
 void input_field(
     const Rect& bounds, const char* text, bool focused = false,
     bool hovered = false, bool pressed = false);
+void metric_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t value, uint32_t maximum);
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected = false, bool pinned = false, bool running = false,

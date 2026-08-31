@@ -34,6 +34,33 @@ static void append_text(char* destination, size_t capacity, const char* source) 
     (void)strlcpy(destination + used, source, capacity - used);
 }
 
+static void append_percent(char* destination, size_t capacity, uint32_t value) {
+    char number[24];
+    gui_u64(number, sizeof(number), value > 100U ? 100U : value);
+    append_text(destination, capacity, number);
+    append_text(destination, capacity, "%");
+}
+
+static int read_system(ku_system_snapshot* snapshot) {
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->structure_size = sizeof(*snapshot);
+    return ku_system_get_snapshot(snapshot) == KU_STATUS_OK &&
+        snapshot->version == KU_SYSTEM_SNAPSHOT_VERSION;
+}
+
+static int read_network(ku_network_status* network) {
+    memset(network, 0, sizeof(*network));
+    network->structure_size = sizeof(*network);
+    return ku_network_get_status(network) == KU_STATUS_OK;
+}
+
+static int read_audio(ku_audio_state* audio) {
+    memset(audio, 0, sizeof(*audio));
+    audio->structure_size = sizeof(*audio);
+    return ku_audio_get_state(audio) == KU_STATUS_OK &&
+        audio->version == KU_AUDIO_STATE_VERSION;
+}
+
 static void reap_children(void) {
     size_t index;
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
@@ -199,9 +226,53 @@ static void toggle_selected_pin(void) {
 static void build_scene(kui_scene* scene) {
     kui_flow root;
     kui_flow apps;
+    ku_system_snapshot system;
+    ku_network_status network;
+    ku_audio_state audio;
+    const int system_valid = read_system(&system);
+    const int network_valid = read_network(&network);
+    const int audio_valid = read_audio(&audio);
+    char cpu[64] = "CPU\n";
+    char ram[64] = "RAM\n";
+    char disk[64] = "DISK\n";
+    char net[64] = "NETWORK\n";
+    char sound[64] = "AUDIO\n";
+    uint32_t net_value = 0U;
+    uint32_t audio_value = 0U;
     size_t index;
+
+    if (system_valid) {
+        append_percent(cpu, sizeof(cpu), system.cpu_percent);
+        append_percent(ram, sizeof(ram), system.ram_percent);
+        append_percent(disk, sizeof(disk), system.disk_percent);
+    } else {
+        append_text(cpu, sizeof(cpu), "--");
+        append_text(ram, sizeof(ram), "--");
+        append_text(disk, sizeof(disk), "--");
+    }
+    if (!network_valid) {
+        append_text(net, sizeof(net), "UNKNOWN");
+    } else if (network.ready != 0U) {
+        append_text(net, sizeof(net), "ONLINE");
+        net_value = 100U;
+    } else if (network.physical != 0U) {
+        append_text(net, sizeof(net), "LINK");
+        net_value = 35U;
+    } else {
+        append_text(net, sizeof(net), "OFFLINE");
+    }
+    if (!audio_valid || audio.available == 0U) {
+        append_text(sound, sizeof(sound), "OFFLINE");
+    } else if (audio.muted != 0U) {
+        append_text(sound, sizeof(sound), "MUTED");
+        audio_value = audio.volume_percent;
+    } else {
+        append_percent(sound, sizeof(sound), audio.volume_percent);
+        audio_value = audio.volume_percent;
+    }
+
     kui_scene_initialize(scene);
-    scene->visible_rows = 12U;
+    scene->visible_rows = 15U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -209,8 +280,15 @@ static void build_scene(kui_scene* scene) {
         UINT32_C(0xDE192D));
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "FLUX DECK / APPLICATIONS");
-    (void)kui_flow_label(&root, 2U, "CLICK A CARD TO OPEN / APPS BUTTON TO HIDE");
+    (void)kui_flow_panel(&root, 1U, "FLUX HOME / SYSTEM PULSE");
+    (void)kui_flow_metric(&root, 2U, cpu,
+                          system_valid ? system.cpu_percent : 0U, 100U);
+    (void)kui_flow_metric(&root, 3U, ram,
+                          system_valid ? system.ram_percent : 0U, 100U);
+    (void)kui_flow_metric(&root, 4U, disk,
+                          system_valid ? system.disk_percent : 0U, 100U);
+    (void)kui_flow_metric(&root, 5U, net, net_value, 100U);
+    (void)kui_flow_metric(&root, 6U, sound, audio_value, 100U);
 
     kui_flow_begin(&apps, scene, 1U);
     for (index = 0U; index < APP_COUNT; ++index) {
@@ -227,7 +305,6 @@ static void build_scene(kui_scene* scene) {
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
-    (void)kui_flow_label(&root, 32U, g_status);
     (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
 }
 
@@ -237,6 +314,7 @@ int main(void) {
     kui_scene scene;
     size_t index;
     uint32_t pointer_buttons = 0U;
+    uint32_t refresh_ticks = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
 
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
@@ -267,11 +345,25 @@ int main(void) {
     }
     puts("[TEST] red_flux_home_surface: PASS");
     puts("[TEST] red_flux_tile_launcher: PASS");
+    puts("[TEST] flux_home_system_pulse: PASS");
 
     for (;;) {
         ku_ui_event event;
+        int available;
         reap_children();
-        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        available = kui_next_event(window, &event);
+        if (available < 0) break;
+        if (available == 0) {
+            ++refresh_ticks;
+            if (refresh_ticks >= KU_SYSTEM_TICKS_PER_SECOND) {
+                refresh_ticks = 0U;
+                build_scene(&scene);
+                if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+            }
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (event.type == KU_UI_EVENT_CLOSE) break;
 
         if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;

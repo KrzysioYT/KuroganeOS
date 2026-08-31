@@ -107,7 +107,7 @@ ku_status_t kui_scene_add(
     const char* text) {
     kui_view* view;
     if (scene == (kui_scene*)0 || id == 0U || text == (const char*)0 ||
-        type < KUI_VIEW_PANEL || type > KUI_VIEW_TILE) {
+        type < KUI_VIEW_PANEL || type > KUI_VIEW_METRIC) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     if (scene->view_count >= KUI_MAX_VIEWS) return KU_STATUS_OUT_OF_MEMORY;
@@ -158,6 +158,19 @@ ku_status_t kui_scene_add_progress(
     return kui_scene_set_value(scene, id, value, maximum);
 }
 
+ku_status_t kui_scene_add_metric(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t value,
+    uint32_t maximum) {
+    ku_status_t status = kui_scene_add(
+        scene, id, parent_id, KUI_VIEW_METRIC, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_value(scene, id, value, maximum);
+}
+
 ku_status_t kui_scene_set_text(
     kui_scene* scene, uint32_t id, const char* text) {
     kui_view* view = find_view(scene, id);
@@ -183,7 +196,9 @@ ku_status_t kui_scene_set_flags(
 ku_status_t kui_scene_set_value(
     kui_scene* scene, uint32_t id, uint32_t value, uint32_t maximum) {
     kui_view* view = find_view(scene, id);
-    if (view == (kui_view*)0 || view->type != KUI_VIEW_PROGRESS || maximum == 0U) {
+    if (view == (kui_view*)0 ||
+        (view->type != KUI_VIEW_PROGRESS && view->type != KUI_VIEW_METRIC) ||
+        maximum == 0U) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     view->maximum = maximum;
@@ -260,6 +275,7 @@ typedef struct kui_native_layout {
 typedef struct kui_native_layout_state {
     int32_t cursor_y;
     uint32_t tile_column;
+    uint32_t metric_column;
 } kui_native_layout_state;
 
 #define KUI_TILE_COLUMNS 3U
@@ -267,6 +283,11 @@ typedef struct kui_native_layout_state {
 #define KUI_TILE_HEIGHT 68
 #define KUI_TILE_GAP_X 12
 #define KUI_TILE_GAP_Y 8
+#define KUI_METRIC_COLUMNS 5U
+#define KUI_METRIC_WIDTH 112
+#define KUI_METRIC_HEIGHT 58
+#define KUI_METRIC_GAP_X 8
+#define KUI_METRIC_GAP_Y 8
 
 static int32_t native_view_height(uint32_t type) {
     switch (type) {
@@ -278,6 +299,7 @@ static int32_t native_view_height(uint32_t type) {
         case KUI_VIEW_PROGRESS: return 44;
         case KUI_VIEW_SEPARATOR: return 10;
         case KUI_VIEW_TILE: return KUI_TILE_HEIGHT;
+        case KUI_VIEW_METRIC: return KUI_METRIC_HEIGHT;
         default: return 0;
     }
 }
@@ -285,12 +307,19 @@ static int32_t native_view_height(uint32_t type) {
 static void native_layout_initialize(kui_native_layout_state* state) {
     state->cursor_y = 16;
     state->tile_column = 0U;
+    state->metric_column = 0U;
 }
 
 static void native_flush_tiles(kui_native_layout_state* state) {
     if (state->tile_column == 0U) return;
     state->cursor_y += KUI_TILE_HEIGHT + KUI_TILE_GAP_Y;
     state->tile_column = 0U;
+}
+
+static void native_flush_metrics(kui_native_layout_state* state) {
+    if (state->metric_column == 0U) return;
+    state->cursor_y += KUI_METRIC_HEIGHT + KUI_METRIC_GAP_Y;
+    state->metric_column = 0U;
 }
 
 static void native_layout_view(
@@ -300,7 +329,20 @@ static void native_layout_view(
     kui_native_layout* output) {
     const uint32_t depth = view_depth(scene, view);
     const int32_t indent = (int32_t)(depth * 12U);
+    if (view->type == KUI_VIEW_METRIC) {
+        native_flush_tiles(state);
+        if (state->metric_column >= KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        output->x = 16 + indent +
+            (int32_t)state->metric_column * (KUI_METRIC_WIDTH + KUI_METRIC_GAP_X);
+        output->y = state->cursor_y;
+        output->width = KUI_METRIC_WIDTH;
+        output->height = KUI_METRIC_HEIGHT;
+        ++state->metric_column;
+        if (state->metric_column == KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        return;
+    }
     if (view->type == KUI_VIEW_TILE) {
+        native_flush_metrics(state);
         if (state->tile_column >= KUI_TILE_COLUMNS) native_flush_tiles(state);
         output->x = 16 + indent +
             (int32_t)state->tile_column * (KUI_TILE_WIDTH + KUI_TILE_GAP_X);
@@ -312,6 +354,7 @@ static void native_layout_view(
         return;
     }
 
+    native_flush_metrics(state);
     native_flush_tiles(state);
     output->x = 16 + indent;
     output->y = state->cursor_y;
@@ -467,6 +510,18 @@ ku_status_t kui_flow_progress(
     return flow == (kui_flow*)0
         ? KU_STATUS_INVALID_ARGUMENT
         : kui_scene_add_progress(
+            flow->scene, id, flow->parent_id, text, value, maximum);
+}
+
+ku_status_t kui_flow_metric(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    uint32_t value,
+    uint32_t maximum) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_metric(
             flow->scene, id, flow->parent_id, text, value, maximum);
 }
 
