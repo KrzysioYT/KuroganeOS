@@ -33,6 +33,32 @@ storage::block::Status flush_cb(void* context) {
     return storage::block::Status::Ok;
 }
 
+uint32_t test_crc32(const uint8_t* data, size_t size) {
+    uint32_t crc = UINT32_C(0xffffffff);
+    for (size_t index = 0U; index < size; ++index) {
+        crc ^= static_cast<uint32_t>(data[index]);
+        for (uint32_t bit = 0U; bit < 8U; ++bit) {
+            const uint32_t mask = static_cast<uint32_t>(
+                -static_cast<int32_t>(crc & UINT32_C(1)));
+            crc = (crc >> 1U) ^ (UINT32_C(0xedb88320) & mask);
+        }
+    }
+    return ~crc;
+}
+
+void test_store_u32(uint8_t* bytes, uint32_t value) {
+    for (size_t index = 0U; index < 4U; ++index) {
+        bytes[index] = static_cast<uint8_t>((value >> (index * 8U)) & UINT32_C(0xff));
+    }
+}
+
+uint32_t test_load_u32(const uint8_t* bytes) {
+    return static_cast<uint32_t>(bytes[0]) |
+        (static_cast<uint32_t>(bytes[1]) << 8U) |
+        (static_cast<uint32_t>(bytes[2]) << 16U) |
+        (static_cast<uint32_t>(bytes[3]) << 24U);
+}
+
 bool expect(bool condition, const char* message) {
     if (!condition) std::fprintf(stderr, "FAIL: %s\n", message);
     return condition;
@@ -111,6 +137,22 @@ int main() {
                 "EOF zero read")) return 1;
     if (!expect(write_extent_data(&remounted, extent, 2U, 1000U, patch, sizeof(patch)) == Status::NoSpace,
                 "reject extent overflow")) return 1;
+
+    // Simulate an older KuroFS v1 inode whose formerly reserved revision
+    // field is zero while preserving a valid inode checksum.
+    const uint64_t root_byte = remounted.geometry.inode_table_start * SECTOR_SIZE;
+    uint8_t* const legacy_root = storage_bytes + root_byte;
+    test_store_u32(legacy_root + 48U, 0U);
+    test_store_u32(legacy_root + INODE_SIZE - sizeof(uint32_t),
+                   test_crc32(legacy_root, INODE_SIZE - sizeof(uint32_t)));
+    FileSystem legacy_mount{};
+    if (!expect(mount(&legacy_mount, &device) == Status::Ok, "mount legacy v1 revision-zero inode")) return 1;
+    Inode legacy_root_inode{};
+    if (!expect(read_inode(&legacy_mount, ROOT_INODE, &legacy_root_inode) == Status::Ok &&
+                legacy_root_inode.revision == 1U, "normalize legacy revision")) return 1;
+    if (!expect(update_inode(&legacy_mount, &legacy_root_inode) == Status::Ok &&
+                legacy_root_inode.revision == 2U, "upgrade legacy inode on write")) return 1;
+    if (!expect(test_load_u32(legacy_root + 48U) == 2U, "persist upgraded revision encoding")) return 1;
 
     Inode stale_read = persisted;
     stale_read.revision -= 1U;

@@ -251,6 +251,10 @@ Status decode_inode(const uint8_t* bytes, uint64_t expected_id, Inode* output) {
     inode.link_count = load_u32(bytes + 40U);
     inode.generation = load_u32(bytes + 44U);
     inode.revision = load_u32(bytes + 48U);
+    // Pre-revision KuroFS v1 images left this reserved field zero. Treat
+    // that encoding as the initial metadata revision so existing v1
+    // volumes remain mountable and upgrade naturally on the next write.
+    if (inode.revision == 0U) inode.revision = 1U;
     if (inode.id != expected_id ||
         (inode.type != InodeType::Regular && inode.type != InodeType::Directory) ||
         inode.link_count == 0U || inode.generation == 0U || inode.revision == 0U) {
