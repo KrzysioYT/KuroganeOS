@@ -35,13 +35,11 @@ jobs:
 
       - name: Run host regression suite
         run: |
-          chmod +x scripts/*.sh
           bash ./scripts/run-host-tests.sh
 
-      - name: Remove one-shot development machinery
+      - name: Keep workflow changes out of source commit
         run: |
-          rm -f scripts/dev-apply-socket-readiness.py
-          rm -f .github/workflows/dev-apply-socket-readiness.yml
+          git checkout "$GITHUB_SHA" -- .github/workflows/qualify-socket-core.yml
           git diff --check
 
       - name: Commit qualified source patch
