@@ -66,6 +66,62 @@ net::Status fake_take_udp(void* opaque, net::UdpDatagram* datagram) {
     return net::Status::Ok;
 }
 
+net::Status unsupported_tcp_begin_connect(
+    void* opaque,
+    net::tcp_client::Client* client,
+    const net::IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t initial_sequence) {
+    (void)opaque;
+    (void)client;
+    (void)destination;
+    (void)source_port;
+    (void)destination_port;
+    (void)initial_sequence;
+    return net::Status::UnsupportedProtocol;
+}
+
+net::Status unsupported_tcp_progress(void* opaque, net::tcp_client::Client* client) {
+    (void)opaque;
+    (void)client;
+    return net::Status::UnsupportedProtocol;
+}
+
+net::Status unsupported_tcp_try_send(
+    void* opaque,
+    net::tcp_client::Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent) {
+    (void)opaque;
+    (void)client;
+    (void)data;
+    (void)length;
+    if (out_sent != nullptr) *out_sent = 0U;
+    return net::Status::UnsupportedProtocol;
+}
+
+net::Status unsupported_tcp_try_receive(
+    void* opaque,
+    net::tcp_client::Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length) {
+    (void)opaque;
+    (void)client;
+    (void)output;
+    (void)output_capacity;
+    if (out_length != nullptr) *out_length = 0U;
+    return net::Status::UnsupportedProtocol;
+}
+
+net::Status unsupported_tcp_begin_close(void* opaque, net::tcp_client::Client* client) {
+    (void)opaque;
+    (void)client;
+    return net::Status::UnsupportedProtocol;
+}
+
 void queue_datagram(
     FakeTransport& transport,
     const net::IPv4Address& source,
@@ -107,11 +163,11 @@ int main() {
         fake_send_udp,
         fake_poll,
         fake_take_udp,
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr,
+        unsupported_tcp_begin_connect,
+        unsupported_tcp_progress,
+        unsupported_tcp_try_send,
+        unsupported_tcp_try_receive,
+        unsupported_tcp_begin_close,
     };
     CHECK(initialize(backend) == Status::Ok);
     CHECK(initialize(backend) == Status::AlreadyInitialized);
@@ -124,7 +180,7 @@ int main() {
     CHECK(active_count(owner) == 1U);
 
     Handle unsupported = INVALID_HANDLE;
-    CHECK(create(owner, Type::Stream, Protocol::Tcp, &unsupported) == Status::NotSupported);
+    CHECK(create(owner, Type::Stream, Protocol::Udp, &unsupported) == Status::NotSupported);
     CHECK(unsupported == INVALID_HANDLE);
 
     const Endpoint local{{{0U, 0U, 0U, 0U}}, UINT16_C(4242)};
