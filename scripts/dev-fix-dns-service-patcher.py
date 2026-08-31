@@ -36,5 +36,16 @@ if text.count(old_include) != 1:
     raise SystemExit(f"SDK include patch anchor count={text.count(old_include)}, expected 1")
 text = text.replace(old_include, new_include, 1)
 
+old_host_anchor = '''    '\"$OUT_DIR/test_socket\"\\n\\n',
+    '\"$OUT_DIR/test_socket\"\\n\\n'
+'''
+new_host_anchor = '''    '  -o \"$OUT_DIR/test_socket\"\\n\\n\"$OUT_DIR/test_socket\"\\n\\n',
+    '  -o \"$OUT_DIR/test_socket\"\\n\\n\"$OUT_DIR/test_socket\"\\n\\n'
+'''
+if text.count(old_host_anchor) != 1:
+    raise SystemExit(
+        f"host socket insertion anchor count={text.count(old_host_anchor)}, expected 1")
+text = text.replace(old_host_anchor, new_host_anchor, 1)
+
 path.write_text(text)
 print("DNS service patcher corrected for current HEAD")
