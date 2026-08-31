@@ -4,6 +4,8 @@
 #include <kurogane/network.h>
 #include <kurogane/network_events.h>
 
+/* Qualification observes externally driven carrier edges; it never publishes
+ * network events itself. Keep the probe a consumer of the production path. */
 #define NETWORK_EVENT_PROBE_ATTEMPTS 2000U
 
 static void clear_bytes(void* destination, size_t size) {
