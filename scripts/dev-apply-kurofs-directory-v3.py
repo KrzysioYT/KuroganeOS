@@ -24,9 +24,9 @@ bad_nul = r"'\\0'"
 good_nul = r"'\0'"
 bad_count = text.count(bad_nul)
 good_count = text.count(good_nul)
-if bad_count == 2 and good_count == 0:
+if bad_count == 4 and good_count == 0:
     text = text.replace(bad_nul, good_nul)
-elif bad_count == 0 and good_count == 2:
+elif bad_count == 0 and good_count == 4:
     pass
 else:
     raise SystemExit(
