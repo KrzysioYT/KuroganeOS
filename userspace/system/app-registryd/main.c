@@ -4,7 +4,7 @@
 #include <kurogane/filesystem.h>
 
 #define APPREG_MAX_CLIENTS 8U
-#define APPREG_MANIFEST_DIRECTORY "/apps/manifests"
+#define APPREG_MANIFEST_DIRECTORY "/apps/appman"
 #define APPREG_MANIFEST_BUFFER_CAPACITY 512U
 #define APPREG_PATH_CAPACITY 160U
 
