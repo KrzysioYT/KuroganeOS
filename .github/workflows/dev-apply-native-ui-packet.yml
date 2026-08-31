@@ -1,0 +1,79 @@
+name: Dev Apply Native UI Packet
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-native-ui-packet.yml
+      - scripts/dev-apply-native-ui-packet.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded native UI migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-native-ui-packet.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Boot native libui login surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 180 \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+
+      - name: Commit and publish native UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            sdk/include/kurogane/ui.h \
+            sdk/include/kurogane/libui.h \
+            sdk/src/libui.c \
+            kernel/ui/ui.hpp \
+            kernel/ui/ui.cpp \
+            kernel/user/runtime_base.inc \
+            tests/test_sdk_abi.cpp \
+            tests/test_libui_pointer.c
+          git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
+          git commit -m "feat(gui): add native retained widget transport"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
