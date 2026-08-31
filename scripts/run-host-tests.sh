@@ -55,6 +55,15 @@ echo "[host-tests] python:   $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_allocator"
 
+# Exercise durable KuroFS extent contents and generation-safe inode publication.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_data.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_data"
+
+"$OUT_DIR/test_kurofs_data"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_ipc.cpp \

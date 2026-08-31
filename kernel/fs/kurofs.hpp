@@ -25,6 +25,8 @@ enum class Status : uint8_t {
     CorruptSuperblock,
     InvalidGeometry,
     InvalidRootInode,
+    InvalidExtent,
+    StaleInode,
     NoSpace,
     BlockDeviceError,
 };
@@ -92,6 +94,33 @@ Status allocate_blocks(
 // first and publish the inode only after data ownership is durable.
 Status allocate_inode(
     FileSystem* filesystem, InodeType type, uint64_t* out_inode_id);
+
+// Persist an update to an already allocated inode. The caller supplies the
+// generation it read; success increments that generation, making stale
+// snapshots fail deterministically. Any published extent must already be
+// fully allocated in the persistent bitmap.
+Status update_inode(FileSystem* filesystem, Inode* inode);
+
+// Write bytes into an already allocated extent. This is deliberately lower
+// level than inode publication: callers can make data durable first and only
+// then publish size/ownership through update_inode().
+Status write_extent_data(
+    FileSystem* filesystem,
+    uint64_t first_block,
+    uint64_t block_count,
+    uint64_t offset,
+    const void* source,
+    size_t size);
+
+// Read at most the persisted inode size. EOF is reported as zero bytes. The
+// supplied inode snapshot must still match the on-disk generation.
+Status read_inode_data(
+    FileSystem* filesystem,
+    const Inode* inode,
+    uint64_t offset,
+    void* destination,
+    size_t capacity,
+    size_t* out_read);
 
 const char* status_message(Status status);
 
