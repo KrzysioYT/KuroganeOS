@@ -79,6 +79,11 @@ jobs:
             scripts/run-host-tests.sh
           git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
           git commit -m "feat(gui): make Red Flux desktop mouse-first"
+          # Media generation may update tracked build metadata. At this point all
+          # qualified production changes are committed, so discard only residual
+          # workspace changes before rebasing the commit onto a concurrently
+          # advanced branch. Never force-push.
+          git reset --hard HEAD
           git fetch origin gpt/road-to-15-consolidation
           git rebase origin/gpt/road-to-15-consolidation
           git push origin HEAD:gpt/road-to-15-consolidation
