@@ -265,6 +265,18 @@ void app_icon_glyph(
             graphics::fill_rect(x + 13, y + 5, 4, 4, accent);
             graphics::fill_rect(x + 13, y + 12, 4, 9, accent);
             break;
+        case AppIcon::Folder:
+            graphics::fill_rect(x, y + 6, 30, 21, foreground);
+            graphics::fill_rect(x + 3, y + 1, 13, 7, foreground);
+            graphics::fill_rect(x + 4, y + 11, 22, 12, kGraphite);
+            graphics::fill_rect(x + 6, y + 14, 18, 2, accent);
+            break;
+        case AppIcon::Document:
+            graphics::draw_rect(x + 4, y, 22, 27, foreground);
+            graphics::fill_rect(x + 9, y + 7, 12, 2, accent);
+            graphics::fill_rect(x + 9, y + 13, 12, 2, foreground);
+            graphics::fill_rect(x + 9, y + 19, 9, 2, foreground);
+            break;
         case AppIcon::Home:
         default:
             graphics::fill_rect(x + 5, y + 10, 21, 16, foreground);

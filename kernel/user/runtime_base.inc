@@ -124,8 +124,10 @@ bool native_command_valid(
     }
     if ((command.type == KU_UI_NATIVE_PROGRESS ||
          command.type == KU_UI_NATIVE_METRIC) && command.maximum == 0U) return false;
-    if (command.type == KU_UI_NATIVE_TILE && command.value >= KU_UI_NATIVE_ICON_COUNT) {
-        return false;
+    if (command.type == KU_UI_NATIVE_TILE) {
+        const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
+            ? KU_UI_NATIVE_ICON_COUNT : UINT32_C(8);
+        if (command.value >= icon_limit) return false;
     }
     return true;
 }

@@ -20,7 +20,15 @@ for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
         assert helper not in text, f"{path}: shortcut helper returned: {helper}"
 
 files = read("userspace/gui/files/main.c")
-assert "OPEN SELECTED" in files and "REFRESH PREVIEW" in files
+for control in ("PARENT FOLDER", "OPEN / ENTER", "NEXT PAGE"):
+    assert control in files, f"files: missing explorer control {control}"
+assert "ku_file_readdir" in files and "KU_FILE_OPEN_DIRECTORY" in files
+assert "kui_flow_tile" in files, "files: directory grid is not tile-based"
+assert "KU_UI_NATIVE_ICON_FOLDER" in files and "KU_UI_NATIVE_ICON_DOCUMENT" in files
+assert "quick_entry" not in files and "g_entries" not in files
+assert "flux_files_readdir: PASS" in files
+assert "flux_files_directory_grid: PASS" in files
+assert "flux_files_breadcrumb: PASS" in files
 assert "desktop_files_mouse_navigation: PASS" in files
 assert "desktop_files_keyboard_shortcuts_detached: PASS" in files
 

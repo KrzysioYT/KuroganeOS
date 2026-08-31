@@ -49,6 +49,8 @@ enum class AppIcon : uint8_t {
     Monitor = 5,
     Settings = 6,
     About = 7,
+    Folder = 8,
+    Document = 9,
 };
 
 const Theme& default_theme();

@@ -159,7 +159,9 @@ int main() {
     static_assert(KU_UI_NATIVE_VERSION == KU_UI_NATIVE_VERSION_3);
     static_assert(KU_UI_NATIVE_TILE == 8);
     static_assert(KU_UI_NATIVE_METRIC == 9);
-    static_assert(KU_UI_NATIVE_ICON_COUNT == 8);
+    static_assert(KU_UI_NATIVE_ICON_FOLDER == 8);
+    static_assert(KU_UI_NATIVE_ICON_DOCUMENT == 9);
+    static_assert(KU_UI_NATIVE_ICON_COUNT == 10);
     static_assert(KU_UI_NATIVE_MAX_COMMANDS == 32U);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);

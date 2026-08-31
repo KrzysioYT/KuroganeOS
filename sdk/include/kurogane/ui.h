@@ -38,7 +38,9 @@ enum ku_ui_native_icon {
     KU_UI_NATIVE_ICON_MONITOR = 5,
     KU_UI_NATIVE_ICON_SETTINGS = 6,
     KU_UI_NATIVE_ICON_ABOUT = 7,
-    KU_UI_NATIVE_ICON_COUNT = 8
+    KU_UI_NATIVE_ICON_FOLDER = 8,
+    KU_UI_NATIVE_ICON_DOCUMENT = 9,
+    KU_UI_NATIVE_ICON_COUNT = 10
 };
 
 enum ku_ui_native_command_flags {
