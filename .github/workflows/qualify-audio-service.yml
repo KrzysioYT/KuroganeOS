@@ -48,7 +48,7 @@ jobs:
           qemu-system-x86_64 --version | head -n 1
 
       - name: Inject Ring-3 audio qualification probes
-        shell: python
+        shell: python3 {0}
         run: |
           from pathlib import Path
 
