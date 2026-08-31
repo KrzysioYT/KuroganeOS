@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/dev-apply-dns-service-contract.yml'
       - 'scripts/dev-apply-dns-service-contract.py'
+      - 'scripts/dev-fix-dns-service-patcher.py'
 
 permissions:
   contents: write
@@ -23,6 +24,9 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Correct guarded DNS patcher for current source
+        run: python3 scripts/dev-fix-dns-service-patcher.py
+
       - name: Apply guarded DNS source patch
         run: |
           python3 scripts/dev-apply-dns-service-contract.py
@@ -38,7 +42,10 @@ jobs:
 
       - name: Exclude one-shot staging machinery
         run: |
-          git checkout "$GITHUB_SHA" -- scripts/dev-apply-dns-service-contract.py .github/workflows/dev-apply-dns-service-contract.yml
+          git checkout "$GITHUB_SHA" -- \
+            scripts/dev-apply-dns-service-contract.py \
+            scripts/dev-fix-dns-service-patcher.py \
+            .github/workflows/dev-apply-dns-service-contract.yml
           git diff --check
 
       - name: Commit qualified source patch
