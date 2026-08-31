@@ -7,6 +7,8 @@ on:
     paths:
       - 'kernel/net/socket.cpp'
       - 'kernel/net/socket.hpp'
+      - 'kernel/net/tcp_client.cpp'
+      - 'kernel/net/tcp_client.hpp'
       - 'kernel/user/runtime.cpp'
       - 'sdk/include/kurogane/network.h'
       - 'userspace/system/socket-probe/**'
@@ -37,7 +39,9 @@ jobs:
         run: |
           mkdir -p build/tests/host
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-            tests/test_socket.cpp kernel/net/socket.cpp \
+            -DKUROGANE_HOST_TEST -ffunction-sections -fdata-sections \
+            tests/test_socket.cpp kernel/net/socket.cpp kernel/net/tcp_client.cpp \
+            -Wl,--gc-sections \
             -o build/tests/host/test_socket
 
       - name: Run socket ownership host regression
