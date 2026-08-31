@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -11,6 +11,7 @@ media_kind="iso"
 persistent_disk=false
 timeout_seconds=60
 nic_model="none"
+audio_model="none"
 require_network=false
 require_tls=false
 send_key_after_marker=""
@@ -33,6 +34,7 @@ while (($#)); do
         --persistent-disk) persistent_disk=true; shift ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
+        --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
         --send-key-after-marker)
@@ -80,6 +82,10 @@ fi
 case "$nic_model" in
     none|e1000|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
+esac
+case "$audio_model" in
+    none|ac97) ;;
+    *) echo "invalid audio model: $audio_model" >&2; usage ;;
 esac
 if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo "invalid QEMU sendkey name: $send_key_name" >&2
@@ -366,6 +372,16 @@ if [[ "$nic_model" != "none" ]]; then
     )
 fi
 
+audio_args=()
+if [[ "$audio_model" == "ac97" ]]; then
+    # The null backend keeps CI headless while still exposing a real PCI
+    # Intel AC97 device to KuroganeOS. Guest DMA/mixer programming remains real.
+    audio_args=(
+        -audiodev none,id=kurogane_audio
+        -device AC97,audiodev=kurogane_audio
+    )
+fi
+
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
     if $persistent_disk; then
@@ -398,6 +414,7 @@ qemu-system-x86_64 \
     -qmp "unix:$qmp,server=on,wait=off" \
     -display none \
     "${network_args[@]}" \
+    "${audio_args[@]}" \
     -no-reboot \
     -no-shutdown \
     >"$qemu_log" 2>&1 &
