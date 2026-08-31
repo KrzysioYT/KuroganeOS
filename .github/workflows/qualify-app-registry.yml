@@ -24,8 +24,8 @@ permissions:
 
 jobs:
   app-registry:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 25
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
@@ -33,6 +33,16 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify Kurogane build host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
 
       - name: Inject registry qualification fixtures and probe
         shell: python
@@ -87,14 +97,6 @@ jobs:
           test -f rootfs/apps/appman/bad.mnf
           test -f rootfs/apps/appman/miss.mnf
           test -f rootfs/apps/appman/long.mnf
-
-      - name: Install build and QEMU dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential binutils python3 \
-            qemu-system-x86 ovmf \
-            mtools dosfstools gdisk xorriso
 
       - name: Run full host regression suite
         run: bash ./scripts/run-host-tests.sh
@@ -166,8 +168,8 @@ jobs:
           cp "$vars_template" "$vars"
 
           qemu-system-x86_64 \
-            -machine q35,accel=tcg \
-            -cpu max \
+            -machine q35,accel=kvm \
+            -cpu host \
             -m 1024 \
             -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
             -drive if=pflash,format=raw,unit=1,file="$vars" \
@@ -183,7 +185,7 @@ jobs:
           pid=$!
 
           found=0
-          for _ in $(seq 1 900); do
+          for _ in $(seq 1 600); do
             if grep -Fq '[TEST] app_registry: FAIL' "$serial" 2>/dev/null; then break; fi
             if grep -Fq '[TEST] app_registry: PASS' "$serial" 2>/dev/null; then found=1; break; fi
             if ! kill -0 "$pid" >/dev/null 2>&1; then break; fi
