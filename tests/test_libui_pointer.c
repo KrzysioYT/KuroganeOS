@@ -137,6 +137,27 @@ int main(void) {
                 center_y(&metric_frame, 3U)), 0U, "metric inert")) return 10;
     }
 
+    {
+        kui_scene notices;
+        kui_flow flow;
+        ku_ui_native_frame notice_frame;
+        kui_scene_initialize(&notices);
+        notices.visible_rows = 4U;
+        kui_flow_begin(&flow, &notices, 0U);
+        if (kui_flow_panel(&flow, 60U, "NOTIFICATIONS") != KU_STATUS_OK ||
+            kui_flow_notice(&flow, 61U, "SYSTEM READY\nServices online", 2U) != KU_STATUS_OK ||
+            kui_flow_notice(&flow, 62U, "SECURITY\nReview requested", 4U) != KU_STATUS_OK ||
+            kui_flow_button(&flow, 63U, "REFRESH") != KU_STATUS_OK) return 11;
+        if (kui_scene_build_native(&notices, &notice_frame) != KU_STATUS_OK ||
+            notice_frame.commands[1].type != KU_UI_NATIVE_NOTICE ||
+            notice_frame.commands[1].value != 2U || notice_frame.commands[1].maximum != 4U ||
+            notice_frame.commands[2].type != KU_UI_NATIVE_NOTICE ||
+            !expect(kui_scene_hit_test(
+                &notices, 24, center_y(&notice_frame, 1U)), 0U, "notice inert") ||
+            !expect(kui_scene_hit_test(
+                &notices, 24, center_y(&notice_frame, 3U)), 63U, "notice refresh hit")) return 12;
+    }
+
     puts("libui native packet + mouse hit-test tests passed");
     return 0;
 }

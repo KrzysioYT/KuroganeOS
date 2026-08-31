@@ -11,7 +11,8 @@
 enum ku_notification_operation {
     KU_NOTIFICATION_POST = 1,
     KU_NOTIFICATION_GET = 2,
-    KU_NOTIFICATION_DISMISS = 3
+    KU_NOTIFICATION_DISMISS = 3,
+    KU_NOTIFICATION_LIST_PUBLIC = 4
 };
 
 enum ku_notification_type {
@@ -30,6 +31,11 @@ enum ku_notification_priority {
 enum ku_notification_state {
     KU_NOTIFICATION_STATE_ACTIVE = 1,
     KU_NOTIFICATION_STATE_DISMISSED = 2
+};
+
+enum ku_notification_flags {
+    /* Explicit opt-in: record may be enumerated by Notification Center. */
+    KU_NOTIFICATION_FLAG_PUBLIC = UINT32_C(1) << 0
 };
 
 typedef struct ku_notification_request {

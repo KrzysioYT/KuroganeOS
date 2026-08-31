@@ -105,7 +105,7 @@ bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
 bool native_command_valid(
     const ku_ui_native_command& command, uint32_t version) {
     const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_3
-        ? KU_UI_NATIVE_METRIC
+        ? KU_UI_NATIVE_NOTICE
         : (version >= KU_UI_NATIVE_VERSION_2
             ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR);
     uint32_t allowed_flags = KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED;
@@ -123,7 +123,10 @@ bool native_command_valid(
         return false;
     }
     if ((command.type == KU_UI_NATIVE_PROGRESS ||
-         command.type == KU_UI_NATIVE_METRIC) && command.maximum == 0U) return false;
+         command.type == KU_UI_NATIVE_METRIC ||
+         command.type == KU_UI_NATIVE_NOTICE) && command.maximum == 0U) return false;
+    if (command.type == KU_UI_NATIVE_NOTICE &&
+        (command.value < 1U || command.value > 4U || command.maximum != 4U)) return false;
     if (command.type == KU_UI_NATIVE_TILE) {
         const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
             ? KU_UI_NATIVE_ICON_COUNT : UINT32_C(8);
@@ -261,6 +264,13 @@ void draw_native_frame(
                 split_native_tile_text(command.text, title, detail);
                 ui::metric_card(
                     bounds, title, detail, command.value, command.maximum);
+                break;
+            }
+            case KU_UI_NATIVE_NOTICE: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::notice_card(bounds, title, detail, command.value);
                 break;
             }
             case KU_UI_NATIVE_TILE: {

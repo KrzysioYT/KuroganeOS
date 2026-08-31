@@ -26,7 +26,8 @@ enum ku_ui_native_command_type {
     KU_UI_NATIVE_PROGRESS = 6,
     KU_UI_NATIVE_SEPARATOR = 7,
     KU_UI_NATIVE_TILE = 8,
-    KU_UI_NATIVE_METRIC = 9
+    KU_UI_NATIVE_METRIC = 9,
+    KU_UI_NATIVE_NOTICE = 10
 };
 
 enum ku_ui_native_icon {
@@ -40,7 +41,8 @@ enum ku_ui_native_icon {
     KU_UI_NATIVE_ICON_ABOUT = 7,
     KU_UI_NATIVE_ICON_FOLDER = 8,
     KU_UI_NATIVE_ICON_DOCUMENT = 9,
-    KU_UI_NATIVE_ICON_COUNT = 10
+    KU_UI_NATIVE_ICON_NOTIFICATION = 10,
+    KU_UI_NATIVE_ICON_COUNT = 11
 };
 
 enum ku_ui_native_command_flags {

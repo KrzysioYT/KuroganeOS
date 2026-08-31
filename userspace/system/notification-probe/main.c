@@ -71,8 +71,21 @@ static ku_status_t post(
     request.operation = KU_NOTIFICATION_POST;
     request.type = KU_NOTIFICATION_TYPE_APPLICATION;
     request.priority = KU_NOTIFICATION_PRIORITY_HIGH;
+    request.flags = KU_NOTIFICATION_FLAG_PUBLIC;
     copy_text(request.title, sizeof(request.title), "Road to 15");
     copy_text(request.body, sizeof(request.body), "Notification service roundtrip");
+    return transact(connection, &request, response);
+}
+
+static ku_status_t list_public(
+    ku_service_connection_t connection,
+    uint64_t cursor,
+    ku_notification_response* response) {
+    ku_notification_request request;
+    clear_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_NOTIFICATION_LIST_PUBLIC;
+    request.notification_id = cursor;
     return transact(connection, &request, response);
 }
 
@@ -112,6 +125,30 @@ __attribute__((noreturn)) void _start(void) {
     }
     id = response.notification_id;
     (void)u_puts("[TEST] notification_service_post: PASS\n");
+
+    {
+        uint64_t cursor = 0U;
+        uint32_t attempts = 0U;
+        int found = 0;
+        while (attempts++ < 32U) {
+            const ku_status_t listed = list_public(
+                (ku_service_connection_t)connected, cursor, &response);
+            if (listed == KU_STATUS_NOT_FOUND) break;
+            if (listed != KU_STATUS_OK ||
+                (response.flags & KU_NOTIFICATION_FLAG_PUBLIC) == 0U ||
+                response.notification_id <= cursor) {
+                (void)u_puts("[TEST] notification_service_public_list: FAIL\n");
+                ku_exit(6);
+            }
+            cursor = response.notification_id;
+            if (cursor == id) { found = 1; break; }
+        }
+        if (!found) {
+            (void)u_puts("[TEST] notification_service_public_list: FAIL\n");
+            ku_exit(6);
+        }
+        (void)u_puts("[TEST] notification_service_public_list: PASS\n");
+    }
 
     if (by_id(
             (ku_service_connection_t)connected,

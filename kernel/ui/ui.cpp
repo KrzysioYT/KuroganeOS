@@ -277,6 +277,12 @@ void app_icon_glyph(
             graphics::fill_rect(x + 9, y + 13, 12, 2, foreground);
             graphics::fill_rect(x + 9, y + 19, 9, 2, foreground);
             break;
+        case AppIcon::Notification:
+            graphics::draw_rect(x + 8, y + 5, 15, 17, foreground);
+            graphics::fill_rect(x + 11, y + 2, 9, 4, foreground);
+            graphics::fill_rect(x + 5, y + 20, 21, 3, accent);
+            graphics::fill_rect(x + 13, y + 25, 5, 2, foreground);
+            break;
         case AppIcon::Home:
         default:
             graphics::fill_rect(x + 5, y + 10, 21, 16, foreground);
@@ -631,6 +637,29 @@ void metric_card(
             graphics::fill_rect(bar_x, bar_y, active_width, 3, signal);
         }
     }
+}
+
+void notice_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t priority) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = graphics::rgb(14, 15, 18);
+    graphics::Color signal = kSteel;
+    if (priority >= 4U) signal = kRedBright;
+    else if (priority == 3U) signal = kRedMuted;
+    else if (priority == 2U) signal = graphics::rgb(176, 181, 191);
+    graphics::fill_rect(bounds.x + 4, bounds.y + 4, bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
+    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height, signal);
+    graphics::fill_rect(bounds.x + 13, bounds.y + 13, 8, 8, signal);
+    graphics::draw_text(bounds.x + 29, bounds.y + 10,
+                        title ? title : "NOTIFICATION", kTheme.text, background, 1U, true);
+    graphics::draw_text(bounds.x + 29, bounds.y + 30,
+                        detail ? detail : "", kTheme.text_muted, background, 1U, true);
+    graphics::fill_rect(bounds.x + 13, bounds.y + bounds.height - 12,
+                        bounds.width > 32 ? bounds.width - 26 : 4, 2,
+                        priority >= 3U ? signal : graphics::rgb(44, 47, 53));
 }
 
 void app_tile(

@@ -51,6 +51,7 @@ enum class AppIcon : uint8_t {
     About = 7,
     Folder = 8,
     Document = 9,
+    Notification = 10,
 };
 
 const Theme& default_theme();
@@ -83,6 +84,9 @@ void input_field(
 void metric_card(
     const Rect& bounds, const char* title, const char* detail,
     uint32_t value, uint32_t maximum);
+void notice_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t priority);
 void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected = false, bool pinned = false, bool running = false,

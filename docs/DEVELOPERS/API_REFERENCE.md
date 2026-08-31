@@ -470,3 +470,13 @@ Use SDK wrappers instead of hardcoding syscall numbers.
 9. update this document.
 
 Never trust a pointer, size, enum or nested address supplied by Ring-3.
+
+
+## Notification public feed (notifications.v1)
+
+`notifications.v1` keeps `GET` and `DISMISS` owner-scoped. A producer may opt a
+record into the desktop feed with `KU_NOTIFICATION_FLAG_PUBLIC`. Observers use
+`KU_NOTIFICATION_LIST_PUBLIC` with `notification_id` as an exclusive cursor;
+the service returns the next active public record or `KU_STATUS_NOT_FOUND` at
+the end. Records without the public flag are never returned by this operation.
+The public-feed flag does not grant observers dismiss rights.

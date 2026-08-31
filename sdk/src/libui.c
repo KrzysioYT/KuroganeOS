@@ -107,7 +107,7 @@ ku_status_t kui_scene_add(
     const char* text) {
     kui_view* view;
     if (scene == (kui_scene*)0 || id == 0U || text == (const char*)0 ||
-        type < KUI_VIEW_PANEL || type > KUI_VIEW_METRIC) {
+        type < KUI_VIEW_PANEL || type > KUI_VIEW_NOTICE) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     if (scene->view_count >= KUI_MAX_VIEWS) return KU_STATUS_OUT_OF_MEMORY;
@@ -171,6 +171,19 @@ ku_status_t kui_scene_add_metric(
     return kui_scene_set_value(scene, id, value, maximum);
 }
 
+ku_status_t kui_scene_add_notice(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t priority) {
+    ku_status_t status;
+    if (priority < 1U || priority > 4U) return KU_STATUS_INVALID_ARGUMENT;
+    status = kui_scene_add(scene, id, parent_id, KUI_VIEW_NOTICE, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_value(scene, id, priority, 4U);
+}
+
 ku_status_t kui_scene_set_text(
     kui_scene* scene, uint32_t id, const char* text) {
     kui_view* view = find_view(scene, id);
@@ -197,7 +210,8 @@ ku_status_t kui_scene_set_value(
     kui_scene* scene, uint32_t id, uint32_t value, uint32_t maximum) {
     kui_view* view = find_view(scene, id);
     if (view == (kui_view*)0 ||
-        (view->type != KUI_VIEW_PROGRESS && view->type != KUI_VIEW_METRIC) ||
+        (view->type != KUI_VIEW_PROGRESS && view->type != KUI_VIEW_METRIC &&
+         view->type != KUI_VIEW_NOTICE) ||
         maximum == 0U) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
@@ -300,6 +314,7 @@ static int32_t native_view_height(uint32_t type) {
         case KUI_VIEW_SEPARATOR: return 10;
         case KUI_VIEW_TILE: return KUI_TILE_HEIGHT;
         case KUI_VIEW_METRIC: return KUI_METRIC_HEIGHT;
+        case KUI_VIEW_NOTICE: return 72;
         default: return 0;
     }
 }
@@ -523,6 +538,16 @@ ku_status_t kui_flow_metric(
         ? KU_STATUS_INVALID_ARGUMENT
         : kui_scene_add_metric(
             flow->scene, id, flow->parent_id, text, value, maximum);
+}
+
+ku_status_t kui_flow_notice(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    uint32_t priority) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_notice(flow->scene, id, flow->parent_id, text, priority);
 }
 
 ku_status_t kui_flow_separator(kui_flow* flow, uint32_t id) {

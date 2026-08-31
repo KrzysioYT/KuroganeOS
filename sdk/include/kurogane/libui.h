@@ -19,7 +19,8 @@ enum kui_view_type {
     KUI_VIEW_PROGRESS = 6,
     KUI_VIEW_SEPARATOR = 7,
     KUI_VIEW_TILE = 8,
-    KUI_VIEW_METRIC = 9
+    KUI_VIEW_METRIC = 9,
+    KUI_VIEW_NOTICE = 10
 };
 
 enum kui_view_flags {
@@ -95,6 +96,12 @@ ku_status_t kui_scene_add_metric(
     const char* text,
     uint32_t value,
     uint32_t maximum);
+ku_status_t kui_scene_add_notice(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t priority);
 ku_status_t kui_scene_set_text(
     kui_scene* scene, uint32_t id, const char* text);
 ku_status_t kui_scene_set_flags(
@@ -131,6 +138,11 @@ ku_status_t kui_flow_metric(
     const char* text,
     uint32_t value,
     uint32_t maximum);
+ku_status_t kui_flow_notice(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    uint32_t priority);
 ku_status_t kui_flow_separator(kui_flow* flow, uint32_t id);
 
 #ifdef __cplusplus

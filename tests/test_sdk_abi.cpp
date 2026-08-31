@@ -5,6 +5,7 @@
 #include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
+#include <kurogane/notification.h>
 #include <kurogane/service.h>
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
@@ -140,6 +141,11 @@ int main() {
     static_assert(std::is_same_v<ku_service_connection_t, ku_ipc_handle_t>);
     static_assert(std::is_same_v<ku_service_message, ku_ipc_message>);
 
+    static_assert(KU_NOTIFICATION_LIST_PUBLIC == 4);
+    static_assert(KU_NOTIFICATION_FLAG_PUBLIC == (UINT32_C(1) << 0));
+    static_assert(sizeof(ku_notification_request) == 208U);
+    static_assert(sizeof(ku_notification_response) == 216U);
+
     static_assert(KU_EVENT_BROKER_SERVICE_NAME_SIZE == 9U);
     static_assert(KU_EVENT_BROKER_TOPIC_CAPACITY == 32U);
     static_assert(KU_EVENT_BROKER_SUBSCRIBE == 1);
@@ -159,9 +165,11 @@ int main() {
     static_assert(KU_UI_NATIVE_VERSION == KU_UI_NATIVE_VERSION_3);
     static_assert(KU_UI_NATIVE_TILE == 8);
     static_assert(KU_UI_NATIVE_METRIC == 9);
+    static_assert(KU_UI_NATIVE_NOTICE == 10);
     static_assert(KU_UI_NATIVE_ICON_FOLDER == 8);
     static_assert(KU_UI_NATIVE_ICON_DOCUMENT == 9);
-    static_assert(KU_UI_NATIVE_ICON_COUNT == 10);
+    static_assert(KU_UI_NATIVE_ICON_NOTIFICATION == 10);
+    static_assert(KU_UI_NATIVE_ICON_COUNT == 11);
     static_assert(KU_UI_NATIVE_MAX_COMMANDS == 32U);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);

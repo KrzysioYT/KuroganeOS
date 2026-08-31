@@ -62,6 +62,14 @@ assert "ku_system_get_snapshot" in launcher, "launcher: live CPU/RAM/disk source
 assert "ku_network_get_status" in launcher, "launcher: live network source missing"
 assert "ku_audio_get_state" in launcher, "launcher: live audio source missing"
 assert "flux_home_system_pulse: PASS" in launcher
+assert "flux_home_public_notification: PASS" in launcher
+assert "/gui/notify" in launcher and "KU_UI_NATIVE_ICON_NOTIFICATION" in launcher
+assert "SYSTEM APP / NOT PINNABLE" in launcher
+notifications = read("userspace/gui/notifications/main.c")
+assert "KU_NOTIFICATION_LIST_PUBLIC" in notifications
+assert "kui_flow_notice" in notifications
+assert "flux_notification_center_connected: PASS" in notifications
+assert "flux_notification_center_public_record: PASS" in notifications
 assert "CLICK A CARD TO OPEN" not in launcher, "launcher: instruction-banner UI returned"
 
 control_center = read("userspace/gui/performance/main.c")

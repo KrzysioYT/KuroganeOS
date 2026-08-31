@@ -74,6 +74,19 @@ static notificationd_record* reserve_record(void) {
     return (notificationd_record*)0;
 }
 
+static notificationd_record* find_public_after(uint64_t cursor) {
+    notificationd_record* best = (notificationd_record*)0;
+    size_t index = 0U;
+    for (; index < NOTIFICATIOND_MAX_RECORDS; ++index) {
+        notificationd_record* record = &records[index];
+        if (!record->active ||
+            (record->flags & KU_NOTIFICATION_FLAG_PUBLIC) == 0U ||
+            record->id <= cursor) continue;
+        if (best == (notificationd_record*)0 || record->id < best->id) best = record;
+    }
+    return best;
+}
+
 static notificationd_record* find_record(uint64_t owner_pid, uint64_t id) {
     size_t index = 0U;
     for (; index < NOTIFICATIOND_MAX_RECORDS; ++index) {
@@ -144,7 +157,7 @@ static ku_status_t post_notification(
     if (created == (notificationd_record**)0) return KU_STATUS_INVALID_ARGUMENT;
     *created = (notificationd_record*)0;
     if (request->notification_id != 0U || request->reserved != 0U ||
-        request->flags != 0U || !type_valid(request->type) ||
+        (request->flags & ~KU_NOTIFICATION_FLAG_PUBLIC) != 0U || !type_valid(request->type) ||
         !priority_valid(request->priority) ||
         !bounded_text_valid(request->title, sizeof(request->title), 0) ||
         !bounded_text_valid(request->body, sizeof(request->body), 1))
@@ -201,6 +214,22 @@ static void handle_request(
             (void)send_response(
                 client->connection, status, record,
                 status == KU_STATUS_OK ? KU_NOTIFICATION_STATE_ACTIVE : 0U);
+            break;
+        case KU_NOTIFICATION_LIST_PUBLIC:
+            if (request->reserved != 0U || request->flags != 0U ||
+                request->type != 0U || request->priority != 0U ||
+                request->title[0] != '\0' || request->body[0] != '\0') {
+                (void)send_response(
+                    client->connection, KU_STATUS_INVALID_ARGUMENT,
+                    (const notificationd_record*)0, 0U);
+                break;
+            }
+            record = find_public_after(request->notification_id);
+            (void)send_response(
+                client->connection,
+                record != (notificationd_record*)0 ? KU_STATUS_OK : KU_STATUS_NOT_FOUND,
+                record,
+                record != (notificationd_record*)0 ? KU_NOTIFICATION_STATE_ACTIVE : 0U);
             break;
         case KU_NOTIFICATION_GET:
             if (request->notification_id == 0U) {
