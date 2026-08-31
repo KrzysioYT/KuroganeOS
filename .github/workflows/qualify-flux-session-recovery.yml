@@ -54,3 +54,5 @@ jobs:
             --require-marker-count '[TEST] desktop_logout_requested: PASS' 2 \
             --require-marker-count 'init: session gate ended; returning to login' 2 \
             --timeout 240
+
+# Rerun after acknowledged QMP input and active-run thread slot recycling.
