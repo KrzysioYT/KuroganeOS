@@ -36,6 +36,8 @@ constexpr size_t HBA_PORT_STRIDE = 0x80U;
 constexpr uint32_t CAP_NUMBER_OF_PORTS_MASK = UINT32_C(0x1F);
 constexpr uint32_t CAP_NUMBER_OF_SLOTS_MASK = UINT32_C(0x1F) << 8U;
 constexpr uint32_t CAP_SUPPORTS_CLO = UINT32_C(1) << 24U;
+constexpr uint32_t CAP_SUPPORTS_STAGGERED_SPIN_UP =
+    UINT32_C(1) << 27U;
 constexpr uint32_t CAP_SUPPORTS_64_BIT = UINT32_C(1) << 31U;
 constexpr uint32_t CAP2_BIOS_HANDOFF = UINT32_C(1);
 constexpr uint32_t GHC_HBA_RESET = UINT32_C(1);
@@ -83,10 +85,6 @@ constexpr uint32_t PORT_INTERFACE_ERROR_MASK =
     PORT_INTERRUPT_INTERFACE_FATAL | PORT_INTERRUPT_HOST_BUS_DATA |
     PORT_INTERRUPT_HOST_BUS_FATAL;
 constexpr uint32_t SATA_SIGNATURE_ATA = UINT32_C(0x00000101);
-constexpr uint32_t SATA_STATUS_DET_MASK = UINT32_C(0x0F);
-constexpr uint32_t SATA_STATUS_IPM_MASK = UINT32_C(0x0F) << 8U;
-constexpr uint32_t SATA_STATUS_DEVICE_PRESENT = UINT32_C(0x03);
-constexpr uint32_t SATA_STATUS_INTERFACE_ACTIVE = UINT32_C(0x01) << 8U;
 
 constexpr size_t COMMAND_LIST_OFFSET = 0U;
 constexpr size_t RECEIVED_FIS_OFFSET = 1024U;
@@ -145,6 +143,7 @@ struct Controller {
     uint8_t slot_count;
     bool supports_64_bit_dma;
     bool supports_clo;
+    bool supports_staggered_spin_up;
     bool active;
 };
 
@@ -506,6 +505,9 @@ Status claim_controller(Controller& controller) {
         (controller.capabilities & CAP_SUPPORTS_64_BIT) != 0U;
     controller.supports_clo =
         (controller.capabilities & CAP_SUPPORTS_CLO) != 0U;
+    controller.supports_staggered_spin_up =
+        (controller.capabilities &
+         CAP_SUPPORTS_STAGGERED_SPIN_UP) != 0U;
     const size_t required_register_bytes = HBA_PORT_BASE +
         static_cast<size_t>(controller.port_count) * HBA_PORT_STRIDE;
     if (required_register_bytes > controller.mapped_register_bytes) {
@@ -1073,10 +1075,27 @@ bool sata_device_present(Controller& controller, uint8_t port_number) {
     probe.controller = &controller;
     probe.port_number = port_number;
 
-    // A global HBA reset may leave staggered-spin-up ports with SUD clear and
-    // the link in a transitional state. Request power/spin-up and active IPM,
-    // then poll a bounded interval before deciding that an implemented port
-    // is empty. No command structures or media accesses are involved here.
+    const protocol::LinkState initial_state =
+        protocol::classify_sata_status(
+            read_port_register(probe, PORT_SSTS));
+    if (initial_state == protocol::LinkState::Active) {
+        return true;
+    }
+    if (initial_state == protocol::LinkState::Offline ||
+        initial_state == protocol::LinkState::Unsupported) {
+        return false;
+    }
+    // On controllers without staggered spin-up, DET=0 is a stable empty-port
+    // result. Polling it millions of times turns every MMIO read into an
+    // unnecessary virtualization exit and also delays real hardware boot.
+    if (initial_state == protocol::LinkState::NoDevice &&
+        !controller.supports_staggered_spin_up) {
+        return false;
+    }
+
+    // Transitional links and CAP.SSS controllers can legitimately need SUD
+    // after HBA reset. Request power/spin-up and active IPM, then retain the
+    // existing bounded wait only for those states where a transition can occur.
     uint32_t command = read_port_register(probe, PORT_CMD);
     command |= PORT_CMD_POWER_ON | PORT_CMD_SPIN_UP;
     command &= ~PORT_CMD_INTERFACE_CONTROL_MASK;
@@ -1086,12 +1105,17 @@ bool sata_device_present(Controller& controller, uint8_t port_number) {
     for (uint32_t attempt = 0U;
          attempt < LINK_POLL_ITERATIONS;
          ++attempt) {
-        const uint32_t sata_status = read_port_register(probe, PORT_SSTS);
-        if ((sata_status & SATA_STATUS_DET_MASK) ==
-                SATA_STATUS_DEVICE_PRESENT &&
-            (sata_status & SATA_STATUS_IPM_MASK) ==
-                SATA_STATUS_INTERFACE_ACTIVE) {
+        const protocol::LinkState state =
+            protocol::classify_sata_status(
+                read_port_register(probe, PORT_SSTS));
+        if (state == protocol::LinkState::Active) {
             return true;
+        }
+        if (state == protocol::LinkState::Offline ||
+            state == protocol::LinkState::Unsupported ||
+            (state == protocol::LinkState::NoDevice &&
+             !controller.supports_staggered_spin_up)) {
+            return false;
         }
         cpu_relax();
     }

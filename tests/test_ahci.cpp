@@ -10,6 +10,7 @@
 namespace {
 
 using ProtocolStatus = storage::ahci::protocol::Status;
+using LinkState = storage::ahci::protocol::LinkState;
 using DmaStatus = storage::dma::Status;
 
 #define CHECK(expression)                                                     \
@@ -90,6 +91,24 @@ bool test_bar_decode() {
     CHECK(storage::ahci::protocol::decode_bar5(
               UINT32_C(0xFEBF0008), UINT32_C(0xFFFFE008), &bar) ==
           ProtocolStatus::UnsupportedPciBar);
+    return true;
+}
+
+bool test_sata_link_state_classification() {
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x000)) == LinkState::NoDevice);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x001)) == LinkState::Transitional);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x103)) == LinkState::Active);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x003)) == LinkState::Transitional);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x203)) == LinkState::Transitional);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x004)) == LinkState::Offline);
+    CHECK(storage::ahci::protocol::classify_sata_status(
+              UINT32_C(0x002)) == LinkState::Unsupported);
     return true;
 }
 
@@ -251,6 +270,7 @@ int main() {
     };
     const TestCase tests[] = {
         {"BAR5 decode", test_bar_decode},
+        {"SATA link-state classification", test_sata_link_state_classification},
         {"IDENTIFY 512-byte sectors", test_identify_512_byte_sectors},
         {"IDENTIFY 4K and rejection paths", test_identify_4k_and_rejections},
         {"register H2D FIS", test_command_fis},

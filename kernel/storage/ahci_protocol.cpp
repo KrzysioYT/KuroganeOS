@@ -51,6 +51,33 @@ Status decode_bar5(uint32_t original, uint32_t size_probe, PciBar* output) {
     return Status::Ok;
 }
 
+LinkState classify_sata_status(uint32_t sata_status) {
+    constexpr uint32_t det_mask = UINT32_C(0x0F);
+    constexpr uint32_t ipm_mask = UINT32_C(0x0F) << 8U;
+    constexpr uint32_t det_no_device = UINT32_C(0x00);
+    constexpr uint32_t det_present_no_link = UINT32_C(0x01);
+    constexpr uint32_t det_present_link = UINT32_C(0x03);
+    constexpr uint32_t det_offline = UINT32_C(0x04);
+    constexpr uint32_t ipm_active = UINT32_C(0x01) << 8U;
+
+    const uint32_t det = sata_status & det_mask;
+    const uint32_t ipm = sata_status & ipm_mask;
+    switch (det) {
+        case det_no_device:
+            return LinkState::NoDevice;
+        case det_present_no_link:
+            return LinkState::Transitional;
+        case det_present_link:
+            return ipm == ipm_active
+                ? LinkState::Active
+                : LinkState::Transitional;
+        case det_offline:
+            return LinkState::Offline;
+        default:
+            return LinkState::Unsupported;
+    }
+}
+
 Status parse_identify(
     const uint16_t words[ATA_IDENTIFY_WORD_COUNT],
     IdentifyInfo* output) {
