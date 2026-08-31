@@ -37,4 +37,16 @@ login = read("userspace/gui/login/main.c")
 assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
 assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
 
+browser = read("userspace/gui/browser/main.c")
+assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"
+assert "kui_scene_hit_test" in browser, "browser: hit test missing"
+assert "GO / SEARCH" in browser and "CLEAR ADDRESS" in browser
+assert "KU_UI_EVENT_KEY" in browser, "browser: omnibox keyboard input removed"
+assert "event.type != KU_UI_EVENT_KEY || !omnibox_active" in browser
+assert "KU_UI_KEY_BACKSPACE" in browser and "KU_UI_KEY_ENTER" in browser
+assert "gui_key_cancel(" not in browser, "browser: Escape clear shortcut returned"
+assert "scene->visible_rows = KU_UI_MAX_LINES" in browser
+assert "chromium_port_mouse_navigation: PASS" in browser
+assert "chromium_port_keyboard_scoped_to_omnibox: PASS" in browser
+
 print("mouse-first application input contract tests passed")

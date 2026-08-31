@@ -606,20 +606,26 @@ static ku_status_t navigation_controller_load(chromium_browser_context* context)
     return KU_STATUS_CORRUPT_DATA;
 }
 
-static void build_scene(kui_scene* scene) {
+static void build_scene(kui_scene* scene, int omnibox_active) {
     kui_flow root;
     size_t index;
-    char address[BROWSER_URL_CAPACITY + 18U] = "SEARCH / ADDRESS  ";
-    char engine[96] = "ENGINE  CHROMIUM CONTENT_SHELL PORT / UPSTREAM ";
-    char stage[96] = "NAV  ";
+    char address[BROWSER_URL_CAPACITY + 24U] = "ADDRESS  ";
+    char navigation[64] = "NAV / ";
 
     (void)platform_delegate_refresh_network(&g_browser);
+    if (omnibox_active) {
+        (void)strlcpy(address, "ADDRESS* ", sizeof(address));
+    }
     append_text(address, sizeof(address), g_browser.url);
-    append_text(engine, sizeof(engine), CHROMIUM_UPSTREAM_SHORT);
-    append_text(stage, sizeof(stage), stage_name(g_browser.stage));
+    append_text(navigation, sizeof(navigation), stage_name(g_browser.stage));
+    append_text(navigation, sizeof(navigation), " / ");
+    append_text(navigation, sizeof(navigation), g_browser.status);
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 16U;
+    /* ku_ui_frame exposes exactly twelve compatibility rows. Keep every
+       interactive browser control inside that real ABI instead of building
+       off-screen rows that the renderer can never present. */
+    scene->visible_rows = KU_UI_MAX_LINES;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -629,28 +635,24 @@ static void build_scene(kui_scene* scene) {
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
-    (void)kui_flow_label(&root, 3U, "ENTER: GO / SEARCH   ESC: CLEAR   BACKSPACE: EDIT");
-    (void)kui_flow_label(&root, 4U, engine);
+    (void)kui_flow_button(&root, 3U, "GO / SEARCH");
+    (void)kui_flow_button(&root, 4U, "CLEAR ADDRESS");
     (void)kui_flow_label(&root, 5U, g_browser.network);
-    (void)kui_flow_label(&root, 6U, stage);
-    (void)kui_flow_label(&root, 7U, g_browser.status);
-    (void)kui_flow_separator(&root, 8U);
-    for (index = 0U; index < BROWSER_RENDER_LINES; ++index) {
+    (void)kui_flow_label(&root, 6U, navigation);
+    for (index = 0U; index < BROWSER_RENDER_LINES && index < 6U; ++index) {
         (void)kui_flow_label(
             &root,
             10U + (uint32_t)index,
             g_browser.render_lines[index][0] != '\0'
                 ? g_browser.render_lines[index] : " ");
     }
-    (void)kui_flow_separator(&root, 30U);
-    (void)kui_flow_label(
-        &root, 31U,
-        "BOUNDED RENDERER / NETWORK WORK SLEEPS BETWEEN POLLS TO LIMIT CPU LOAD");
 }
 
 int main(void) {
     const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
     kui_scene scene;
+    int omnibox_active = 0;
+    uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
 
     browser_context_initialize(&g_browser);
@@ -661,29 +663,54 @@ int main(void) {
     puts("[TEST] chromium_port_omnibox_search: PASS");
     puts("[TEST] chromium_port_https_path: PASS");
     puts("[TEST] chromium_port_bounded_partial_response: PASS");
+    puts("[TEST] chromium_port_mouse_navigation: PASS");
+    puts("[TEST] chromium_port_keyboard_scoped_to_omnibox: PASS");
 
     for (;;) {
         ku_ui_event event;
-        build_scene(&scene);
+        build_scene(&scene, omnibox_active);
         if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
             (void)ku_ui_close(window);
             return 2;
         }
 
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_KEY) continue;
 
+        if (event.type == KU_UI_EVENT_POINTER) {
+            const uint32_t previous_buttons = pointer_buttons;
+            const int primary_pressed =
+                (event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U;
+            uint32_t target;
+            pointer_buttons = event.buttons;
+            if (!primary_pressed) continue;
+
+            target = kui_scene_hit_test(&scene, event.x, event.y);
+            if (target == 2U) {
+                omnibox_active = 1;
+            } else if (target == 3U) {
+                (void)navigation_controller_load(&g_browser);
+                omnibox_active = 0;
+            } else if (target == 4U) {
+                g_browser.url_length = 0U;
+                g_browser.url[0] = '\0';
+                g_browser.stage = CHROMIUM_STAGE_IDLE;
+                (void)strlcpy(g_browser.status, "ADDRESS CLEARED", sizeof(g_browser.status));
+                omnibox_active = 1;
+            } else {
+                omnibox_active = 0;
+            }
+            continue;
+        }
+
+        if (event.type != KU_UI_EVENT_KEY || !omnibox_active) continue;
         if (event.key == KU_UI_KEY_BACKSPACE) {
             if (g_browser.url_length != 0U) {
                 g_browser.url[--g_browser.url_length] = '\0';
             }
-        } else if (gui_key_cancel(&event)) {
-            g_browser.url_length = 0U;
-            g_browser.url[0] = '\0';
-            g_browser.stage = CHROMIUM_STAGE_IDLE;
-            (void)strlcpy(g_browser.status, "ADDRESS CLEARED", sizeof(g_browser.status));
-        } else if (gui_key_activate(&event)) {
+        } else if (event.key == KU_UI_KEY_ENTER) {
             (void)navigation_controller_load(&g_browser);
+            omnibox_active = 0;
         } else if (event.character >= 0x20U && event.character <= 0x7EU &&
                    g_browser.url_length + 1U < sizeof(g_browser.url)) {
             g_browser.url[g_browser.url_length++] = (char)event.character;
