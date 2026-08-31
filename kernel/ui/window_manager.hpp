@@ -106,6 +106,10 @@ Status create_window(
     void* context,
     WindowId* out_id);
 Status close(WindowId id);
+// Process-finalization cleanup: release every window and retained surface
+// owned by one non-zero PID. This is bounded by MAX_WINDOWS and uses the
+// same generation-safe lifecycle destruction path as close().
+Status close_owned_windows(uint64_t owner_pid, size_t* out_closed = nullptr);
 // User-facing dismissal preserves the persistent HOME surface by
 // minimizing it. close() is lifecycle destruction and always releases
 // the slot/surface, including process-exit cleanup for HOME.

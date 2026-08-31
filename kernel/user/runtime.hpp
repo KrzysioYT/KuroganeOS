@@ -48,6 +48,10 @@ Status run(const char* path, uint64_t pid, Result* result);
 void set_process_identity(uint64_t pid);
 uint64_t process_identity();
 bool request_termination(uint64_t pid, int32_t exit_code);
+// Final process-level GUI reap. Normal runtime cleanup may already have
+// closed its primary handle; this additionally catches every owned window
+// after faults, abnormal exits, and future multi-window processes.
+bool reclaim_process_windows(uint64_t pid);
 
 // Called before the kernel panic path. Returns true only for an exception
 // belonging to the active ring-3 image and redirects it to SYS_EXIT.

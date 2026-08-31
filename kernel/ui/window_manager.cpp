@@ -928,6 +928,31 @@ Status close(WindowId id) {
     return Status::Ok;
 }
 
+Status close_owned_windows(uint64_t owner_pid, size_t* out_closed) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (owner_pid == 0U) return Status::InvalidArgument;
+    if (out_closed != nullptr) *out_closed = 0U;
+
+    WindowId owned[MAX_WINDOWS]{};
+    size_t owned_count = 0U;
+    for (const Slot& slot : g_slots) {
+        if (!slot.occupied || slot.info.owner_pid != owner_pid) continue;
+        owned[owned_count++] = slot.info.id;
+    }
+
+    size_t closed = 0U;
+    for (size_t index = 0U; index < owned_count; ++index) {
+        const Status status = close(owned[index]);
+        if (status != Status::Ok) {
+            if (out_closed != nullptr) *out_closed = closed;
+            return status;
+        }
+        ++closed;
+    }
+    if (out_closed != nullptr) *out_closed = closed;
+    return Status::Ok;
+}
+
 Status dismiss(WindowId id) {
     if (!g_initialized) return Status::NotInitialized;
     Slot* slot = find(id);

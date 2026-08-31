@@ -192,6 +192,12 @@ void process_entry(void* context) {
     slot->state = State::Running;
     g_current = slot->pid;
     slot->exit_code = run_image(*slot);
+#ifndef KUROGANE_HOST_TEST
+    // The runtime context currently tracks one primary UI handle, but a
+    // process lifecycle owns all windows created with its PID. Reap them
+    // unconditionally after normal return or isolated Ring-3 fault.
+    static_cast<void>(user::runtime::reclaim_process_windows(slot->pid));
+#endif
     g_current = INVALID_PROCESS_ID;
     slot->state = State::Zombie;
 }

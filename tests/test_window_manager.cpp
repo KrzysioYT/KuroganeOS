@@ -391,5 +391,80 @@ int main() {
             after.retained_bytes != baseline.retained_bytes) return 76;
         if (!render_if_needed()) return 77;
     }
+
+    // P3 process-wide lifecycle reap: multiple windows and retained surfaces
+    // owned by one PID must disappear together without touching another PID.
+    ResourceSnapshot owner_baseline{};
+    if (resource_snapshot(&owner_baseline) != Status::Ok) return 78;
+    WindowId owner_first = INVALID_WINDOW;
+    WindowId owner_second = INVALID_WINDOW;
+    WindowId foreign_window = INVALID_WINDOW;
+    if (create_window("OwnerA-1", UINT64_C(4242), {120, 130, 300, 220},
+                      draw, receive, nullptr, &owner_first) != Status::Ok ||
+        create_window("OwnerA-2", UINT64_C(4242), {180, 170, 320, 240},
+                      draw, receive, nullptr, &owner_second) != Status::Ok ||
+        create_window("OwnerB", UINT64_C(4343), {240, 210, 300, 220},
+                      draw, receive, nullptr, &foreign_window) != Status::Ok) return 79;
+
+    uint8_t owner_payload[64]{};
+    owner_payload[0] = 0x5aU;
+    owner_payload[63] = 0xa5U;
+    if (present_surface(owner_first, 8U, 8U, 8U,
+                        owner_payload, sizeof(owner_payload)) != Status::Ok ||
+        present_surface(owner_second, 8U, 8U, 8U,
+                        owner_payload, sizeof(owner_payload)) != Status::Ok ||
+        present_surface(foreign_window, 8U, 8U, 8U,
+                        owner_payload, sizeof(owner_payload)) != Status::Ok ||
+        focus(owner_second) != Status::Ok) return 80;
+
+    if (chrome_geometry(owner_second, &chrome) != Status::Ok) return 81;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = chrome.resize_grip.x + 1;
+    event.y = chrome.resize_grip.y + 1;
+    if (dispatch(event) != Status::Ok) return 82;
+    InteractionSnapshot owner_interaction{};
+    if (interaction_snapshot(&owner_interaction) != Status::Ok ||
+        owner_interaction.resized != owner_second) return 83;
+
+    ResourceSnapshot owner_peak{};
+    if (resource_snapshot(&owner_peak) != Status::Ok ||
+        owner_peak.windows != owner_baseline.windows + 3U ||
+        owner_peak.retained_surfaces != owner_baseline.retained_surfaces + 3U ||
+        owner_peak.retained_bytes != owner_baseline.retained_bytes +
+            3U * sizeof(owner_payload)) return 84;
+
+    size_t closed_owned = 0U;
+    if (close_owned_windows(UINT64_C(4242), &closed_owned) != Status::Ok ||
+        closed_owned != 2U || query(owner_first, &info) != Status::NotFound ||
+        query(owner_second, &info) != Status::NotFound ||
+        query(foreign_window, &info) != Status::Ok) return 85;
+    SurfaceView owner_surface{};
+    if (read_surface(owner_first, &owner_surface) != Status::NotFound ||
+        read_surface(owner_second, &owner_surface) != Status::NotFound ||
+        read_surface(foreign_window, &owner_surface) != Status::Ok) return 86;
+
+    if (interaction_snapshot(&owner_interaction) != Status::Ok ||
+        owner_interaction.focused == owner_first ||
+        owner_interaction.focused == owner_second ||
+        owner_interaction.dragged != INVALID_WINDOW ||
+        owner_interaction.resized != INVALID_WINDOW) return 87;
+
+    ResourceSnapshot owner_after{};
+    if (resource_snapshot(&owner_after) != Status::Ok ||
+        owner_after.windows != owner_baseline.windows + 1U ||
+        owner_after.retained_surfaces != owner_baseline.retained_surfaces + 1U ||
+        owner_after.retained_bytes != owner_baseline.retained_bytes +
+            sizeof(owner_payload)) return 88;
+    if (close_owned_windows(UINT64_C(9999), &closed_owned) != Status::Ok ||
+        closed_owned != 0U ||
+        close_owned_windows(0U, &closed_owned) != Status::InvalidArgument) return 89;
+    if (close(foreign_window) != Status::Ok) return 90;
+    if (resource_snapshot(&owner_after) != Status::Ok ||
+        owner_after.windows != owner_baseline.windows ||
+        owner_after.retained_surfaces != owner_baseline.retained_surfaces ||
+        owner_after.retained_bytes != owner_baseline.retained_bytes) return 91;
     return 0;
 }

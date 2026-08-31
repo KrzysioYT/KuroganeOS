@@ -1075,4 +1075,13 @@ Status initialize() {
     return Status::Ok;
 }
 
+bool reclaim_process_windows(uint64_t pid) {
+    if (pid == 0U) return false;
+    size_t closed = 0U;
+    const windowing::Status status = windowing::close_owned_windows(pid, &closed);
+    static_cast<void>(closed);
+    return status == windowing::Status::Ok ||
+           status == windowing::Status::NotInitialized;
+}
+
 } // namespace user::runtime
