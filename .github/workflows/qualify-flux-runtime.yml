@@ -10,6 +10,10 @@ on:
       - 'userspace/system/flux-surface-probe/**'
       - 'kernel/ui/window_manager.*'
       - 'kernel/user/runtime_base.inc'
+      - 'kernel/main.cpp'
+      - 'kernel/apps/desktop_session.cpp'
+      - 'kernel/user/console.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
       - '.github/workflows/qualify-flux-runtime.yml'
   workflow_dispatch:
 
@@ -72,6 +76,9 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img \
             --disk \
+            --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
+            --require-marker '[TEST] flux_session_owner: PASS' \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
             --require-marker '[TEST] flux_retained_surface_present: PASS' \
             --require-marker '[TEST] flux_surface_exit_cleanup: PASS' \
             --require-marker '[TEST] flux_gui_crash_isolation: PASS' \
