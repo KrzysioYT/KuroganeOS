@@ -1,0 +1,56 @@
+name: Dev Apply KuroFS Inode Revision Auto
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-kurofs-inode-revision-auto.yml
+      - scripts/dev-apply-kurofs-inode-revision.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Apply guarded inode revision patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-kurofs-inode-revision.py
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+      - name: Build release kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          make CONFIG=release kernel
+      - name: Commit production inode revision split
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kernel/fs/kurofs.hpp kernel/fs/kurofs.cpp tests/test_kurofs_data.cpp
+          git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
+          git commit -m "fix(4.0): separate inode incarnation from revision"
+          git pull --rebase origin gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
