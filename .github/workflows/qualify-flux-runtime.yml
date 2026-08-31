@@ -86,4 +86,4 @@ jobs:
             --require-marker '[TEST] desktop_launcher_ring3: PASS' \
             --timeout 240
 
-# QMP input acknowledgement qualification touch.
+# Active-run thread slot recycling qualification touch.
