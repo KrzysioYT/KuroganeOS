@@ -1,0 +1,80 @@
+name: Dev Apply Flux Control Center
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-control-center.yml
+      - scripts/dev-apply-control-center.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded Control Center migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-control-center.py
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove Control Center launch in OVMF
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] red_flux_home_surface: PASS' 770 265 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] red_flux_tile_launcher: PASS' \
+            --require-marker '[TEST] flux_control_center_live: PASS' \
+            --require-marker '[TEST] desktop_performance_low_damage: PASS'
+
+      - name: Commit and publish Control Center
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            kernel/ui/window_manager.cpp \
+            userspace/gui/launcher/main.c \
+            userspace/gui/performance/main.c \
+            tests/test_mouse_first_apps.py
+          git diff --cached --quiet && { echo "guard produced no Control Center production changes"; exit 1; }
+          git commit -m "feat(gui): evolve Performance into Flux Control Center"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation
