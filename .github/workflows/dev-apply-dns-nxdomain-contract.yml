@@ -1,0 +1,53 @@
+name: Apply typed DNS NXDOMAIN contract
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/dev-apply-dns-nxdomain-contract.yml'
+      - 'scripts/dev-apply-dns-nxdomain-contract.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact staging commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply guarded DNS source patch
+        run: |
+          python3 scripts/dev-apply-dns-nxdomain-contract.py
+          git diff --check
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Exclude one-shot staging machinery
+        run: |
+          git checkout "$GITHUB_SHA" -- \
+            scripts/dev-apply-dns-nxdomain-contract.py \
+            .github/workflows/dev-apply-dns-nxdomain-contract.yml
+          git diff --check
+
+      - name: Commit qualified DNS source patch
+        run: |
+          git config user.name 'KuroganeOS GPT Developer'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'no source changes'; exit 1; }
+          git commit -m 'fix(dns): preserve NXDOMAIN as not found'
+          git push origin HEAD:gpt/road-to-15-consolidation
