@@ -33,7 +33,7 @@ static int is_loopback(const ku_ipv4_endpoint* endpoint) {
 static int qualify_udp_roundtrip(void) {
     static const uint8_t payload[] = {'k', 'u', 'r', 'o', '-', '3', '.', '5'};
     uint8_t received[sizeof(payload)];
-    ku_ipv4_endpoint source;
+    ku_ipv4_endpoint source = {{0U, 0U, 0U, 0U}, 0U, 0U};
     uint32_t ready = KU_SOCKET_READY_NONE;
     ku_result_t result;
     ku_socket_t receiver;
