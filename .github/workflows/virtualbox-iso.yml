@@ -59,8 +59,7 @@ jobs:
 
       - name: Resolve KuroganeOS version
         run: |
-          version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-          test -n "$version"
+          version="$(bash ./scripts/read-version.sh)"
           echo "KUROGANE_VERSION=$version" >> "$GITHUB_ENV"
           echo "KUROGANE_ISO=dist/KuroganeOS-$version-x86_64.iso" >> "$GITHUB_ENV"
           echo "KUROGANE_IMG=dist/KuroganeOS-$version-linux-qemu.img" >> "$GITHUB_ENV"

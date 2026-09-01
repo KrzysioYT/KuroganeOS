@@ -163,8 +163,7 @@ cp build/BOOTX64.EFI iso/EFI/BOOT/BOOTX64.EFI
 cp build/kernel.elf iso/kernel.elf
 cp build/kernel.elf iso/EFI/BOOT/kernel.elf
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-[[ -n "$version" ]] || { echo "cannot read KuroganeOS version" >&2; exit 1; }
+version="$(bash "$root/scripts/read-version.sh")"
 {
     echo "version=$version"
     echo "profile=$configuration"

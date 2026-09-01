@@ -13,7 +13,7 @@ EOF
 }
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' "$root/common/version.h" 2>/dev/null || true)"
+version="$(bash "$root/scripts/read-version.sh" 2>/dev/null || true)"
 [[ -n "$version" ]] || version="DEV"
 
 iso=""

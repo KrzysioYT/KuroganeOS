@@ -15,6 +15,8 @@ echo "[host-tests] C compiler:   $HOST_CC"
 echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"
 
+"$HOST_PYTHON" tests/test_release_version.py
+
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 
 "$HOST_CXX" \

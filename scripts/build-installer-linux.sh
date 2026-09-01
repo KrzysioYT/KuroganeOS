@@ -54,8 +54,7 @@ internal_iso="$images/KuroganeOS-installer.iso"
 [[ -f "$efi" ]] || { echo "missing installer EFI: $efi" >&2; exit 1; }
 [[ -d "$overlay" ]] || { echo "missing userspace overlay: $overlay" >&2; exit 1; }
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-[[ -n "$version" ]] || { echo "cannot read version" >&2; exit 1; }
+version="$(bash "$root/scripts/read-version.sh")"
 release_iso="$root/dist/KuroganeOS-$version-x86_64.iso"
 compatibility_iso="$root/kurogane.iso"
 
