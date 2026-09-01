@@ -132,7 +132,7 @@ bool native_command_valid(
         (command.value > 1U || command.maximum != 1U)) return false;
     if (command.type == KU_UI_NATIVE_TILE) {
         const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
-            ? KU_UI_NATIVE_ICON_COUNT : UINT32_C(8);
+            ? static_cast<uint32_t>(KU_UI_NATIVE_ICON_COUNT) : UINT32_C(8);
         if (command.value >= icon_limit) return false;
     }
     return true;
