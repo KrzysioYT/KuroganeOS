@@ -475,8 +475,8 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] clicked ${click_x[$index]},${click_y[$index]} after marker: $marker"
             fi
         done
+        all_markers_ready=true
         if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
-            all_markers_ready=true
             for index in "${!require_markers[@]}"; do
                 require_marker="${require_markers[$index]}"
                 failure_marker="${failure_markers[$index]}"
@@ -496,7 +496,7 @@ while ((SECONDS < deadline)); do
                     all_markers_ready=false
                 fi
             done
-            if $all_markers_ready; then
+            if $all_markers_ready && ! $require_network; then
                 echo "[uefi-qemu] required runtime markers: PASS"
                 for require_marker in "${require_markers[@]}"; do
                     echo "[uefi-qemu] marker: $require_marker"
@@ -508,7 +508,8 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
             fi
-        elif $require_network; then
+        fi
+        if $require_network; then
             if grep -Fq '[TEST] installer_package_preflight: PASS' "$serial"; then
                 echo "QEMU network qualification received installer/setup media instead of a Foundation/live image." >&2
                 echo "The guest entered INSTALLER MODE before the normal network runtime could start." >&2
@@ -538,7 +539,16 @@ while ((SECONDS < deadline)); do
                 fi
             fi
 
-            if $network_ready && $tls_ready; then
+            if $network_ready && $tls_ready && $all_markers_ready; then
+                if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
+                    echo "[uefi-qemu] required runtime markers: PASS"
+                    for require_marker in "${require_markers[@]}"; do
+                        echo "[uefi-qemu] marker: $require_marker"
+                    done
+                    for index in "${!require_marker_count_markers[@]}"; do
+                        echo "[uefi-qemu] marker count: ${require_marker_count_markers[$index]} >= ${require_marker_count_targets[$index]}"
+                    done
+                fi
                 echo "[uefi-qemu] $media_kind/$nic_model DHCP/gateway network: PASS"
                 if $require_tls; then
                     echo "[uefi-qemu] $media_kind/$nic_model real TLS/HTTPS handshake: PASS"
@@ -552,7 +562,8 @@ while ((SECONDS < deadline)); do
                 tail -n 180 "$serial" >&2 || true
                 exit 1
             fi
-        elif grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
+        elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
+             grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
             echo "[uefi-qemu] $media_kind UEFI boot: PASS"
             echo "[uefi-qemu] firmware CODE: $firmware_code"
             echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
@@ -569,10 +580,17 @@ while ((SECONDS < deadline)); do
 done
 
 if ((${#require_markers[@]} != 0)); then
-    echo "OVMF/QEMU did not observe all required markers within $timeout_seconds seconds:" >&2
+    echo "OVMF/QEMU did not satisfy all requested runtime requirements within $timeout_seconds seconds." >&2
+    echo "Required markers:" >&2
     for require_marker in "${require_markers[@]}"; do
         echo "  $require_marker" >&2
     done
+    if $require_network; then
+        echo "Required network: DHCP lease, gateway ICMP and complete runtime" >&2
+    fi
+    if $require_tls; then
+        echo "Required TLS: real TLS/HTTPS handshake" >&2
+    fi
 elif $require_tls; then
     echo "OVMF/QEMU did not qualify $nic_model TLS/HTTPS within $timeout_seconds seconds" >&2
 elif $require_network; then
