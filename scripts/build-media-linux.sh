@@ -31,7 +31,9 @@ image="$root/dist/KuroganeOS-$version-linux-qemu.img"
 iso="$root/dist/KuroganeOS-$version-x86_64.iso"
 package="$root/build/install.pkg"
 [[ -f "$image" && -f "$iso" && -f "$package" ]] || {
-    echo "media build did not produce IMG/ISO/install.pkg" >&2; exit 1; }
+    echo "media build did not produce IMG/ISO/install.pkg" >&2
+    exit 1
+}
 
 bash "$root/scripts/inject-install-package.sh" "$image" "$package"
 image_hash="$(sha256sum "$image" | awk '{print $1}')"
@@ -42,7 +44,7 @@ printf '%s  %s\n%s  %s\n' \
 printf '%s  %s\n' "$image_hash" "$(basename "$image")" > "$image.sha256"
 
 echo "[media-linux] KuroganeOS $version"
-echo "[media-linux] live/setup IMG: $image"
-echo "[media-linux] live/setup ISO: $iso"
-echo "[media-linux] both media enter Try / Install setup"
+echo "[media-linux] QEMU setup/install IMG: $image"
+echo "[media-linux] install ISO: $iso"
+echo "[media-linux] runtime: PID1 -> Secure Access -> Forged Steel desktop"
 echo "[media-linux] checksums: $root/dist/SHA256SUMS.txt"

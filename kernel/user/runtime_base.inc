@@ -24,6 +24,7 @@
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
 #include "../drivers/framebuffer.hpp"
+#include "../ui/icon_registry.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
 
@@ -71,12 +72,19 @@ struct Allocation {
 
 constexpr size_t kMaximumUiEvents = 16U;
 
+enum class UiPresentation : uint8_t {
+    LegacyFrame = 0,
+    NativeSurface,
+};
+
 struct UiState {
     ku_ui_frame frame;
+    ku_ui_surface surface;
     ku_ui_event events[kMaximumUiEvents];
     windowing::WindowId window;
     uint8_t head;
     uint8_t tail;
+    UiPresentation presentation;
     bool active;
 };
 
@@ -101,6 +109,10 @@ void draw_user_window(
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
     if (context == nullptr || !context->active || !context->ui.active) return;
+    if (context->ui.presentation == UiPresentation::NativeSurface) {
+        ui::native_surface(content, context->ui.surface, focused);
+        return;
+    }
     const ku_ui_frame& frame = context->ui.frame;
     const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
@@ -1012,6 +1024,7 @@ void syscall_handler(
             context->ui.frame.background_rgb = UINT32_C(0x111827);
             context->ui.frame.foreground_rgb = UINT32_C(0xE5E7EB);
             context->ui.frame.accent_rgb = UINT32_C(0xF97316);
+            context->ui.presentation = UiPresentation::LegacyFrame;
             const windowing::Status status = windowing::create_window(
                 title, context->pid,
                 {options->x, options->y, options->width, options->height},
@@ -1029,34 +1042,114 @@ void syscall_handler(
         }
         case KU_SYS_UI_PRESENT: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
-                frame.rdx != sizeof(ku_ui_frame) ||
-                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ui_frame))) {
+                (frame.rdx != sizeof(ku_ui_frame) &&
+                 frame.rdx != sizeof(ku_ui_surface)) ||
+                !validate_user_buffer(
+                    *context, frame.rsi, static_cast<size_t>(frame.rdx))) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            const auto* user_frame = reinterpret_cast<const ku_ui_frame*>(
-                static_cast<uintptr_t>(frame.rsi));
-            if (user_frame->structure_size != sizeof(ku_ui_frame) ||
-                user_frame->line_count > KU_UI_MAX_LINES || user_frame->reserved != 0U) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
-                return;
-            }
-            for (uint32_t line = 0U; line < user_frame->line_count; ++line) {
-                bool terminated = false;
-                for (size_t character = 0U; character < KU_UI_LINE_CAPACITY; ++character) {
-                    if (user_frame->lines[line][character] == '\0') {
-                        terminated = true;
-                        break;
-                    }
-                }
-                if (!terminated) {
+            if (frame.rdx == sizeof(ku_ui_frame)) {
+                const auto* user_frame = reinterpret_cast<const ku_ui_frame*>(
+                    static_cast<uintptr_t>(frame.rsi));
+                if (user_frame->structure_size != sizeof(ku_ui_frame) ||
+                    user_frame->line_count > KU_UI_MAX_LINES ||
+                    user_frame->reserved != 0U) {
                     frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
                     return;
                 }
+                for (uint32_t line = 0U; line < user_frame->line_count; ++line) {
+                    bool terminated = false;
+                    for (size_t character = 0U;
+                         character < KU_UI_LINE_CAPACITY; ++character) {
+                        if (user_frame->lines[line][character] == '\0') {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                    if (!terminated) {
+                        frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                        return;
+                    }
+                }
+                context->ui.frame = *user_frame;
+                context->ui.presentation = UiPresentation::LegacyFrame;
+                system_metrics::record_graphics_work(
+                    UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
+            } else {
+                const auto* user_surface = reinterpret_cast<const ku_ui_surface*>(
+                    static_cast<uintptr_t>(frame.rsi));
+                if (user_surface->structure_size != sizeof(ku_ui_surface) ||
+                    user_surface->abi_version != KU_UI_ABI_VERSION ||
+                    user_surface->widget_count > KU_UI_MAX_WIDGETS ||
+                    user_surface->scroll_offset > user_surface->widget_count ||
+                    user_surface->visible_rows > KU_UI_MAX_WIDGETS ||
+                    user_surface->cursor > KU_UI_CURSOR_NOT_ALLOWED ||
+                    user_surface->reserved[0] != 0U ||
+                    user_surface->reserved[1] != 0U) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                    return;
+                }
+                for (uint32_t index = 0U;
+                     index < user_surface->widget_count; ++index) {
+                    const ku_ui_widget& widget = user_surface->widgets[index];
+                    bool terminated = false;
+                    if (widget.id == 0U ||
+                        widget.type < KU_UI_WIDGET_PANEL ||
+                        widget.type > KU_UI_WIDGET_SEPARATOR ||
+                        (widget.flags & ~(KU_UI_WIDGET_HIDDEN |
+                            KU_UI_WIDGET_SELECTED |
+                            KU_UI_WIDGET_DISABLED)) != 0U ||
+                        widget.reserved != 0U ||
+                        (widget.icon_id != 0U &&
+                         (widget.icon_id > UINT16_MAX ||
+                          !ui::icons::valid(static_cast<ku_icon_id_t>(
+                              widget.icon_id))))) {
+                        frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                        return;
+                    }
+                    for (size_t character = 0U;
+                         character < KU_UI_WIDGET_TEXT_CAPACITY; ++character) {
+                        if (widget.text[character] == '\0') {
+                            terminated = true;
+                            break;
+                        }
+                    }
+                    if (!terminated) {
+                        frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                        return;
+                    }
+                    for (uint32_t previous = 0U; previous < index; ++previous) {
+                        if (user_surface->widgets[previous].id == widget.id) {
+                            frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                            return;
+                        }
+                    }
+                    if (widget.parent_id != 0U) {
+                        bool parent_found = false;
+                        for (uint32_t candidate = 0U;
+                             candidate < user_surface->widget_count; ++candidate) {
+                            if (user_surface->widgets[candidate].id ==
+                                widget.parent_id) {
+                                parent_found = true;
+                                break;
+                            }
+                        }
+                        if (!parent_found || widget.parent_id == widget.id) {
+                            frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                            return;
+                        }
+                    }
+                }
+                context->ui.surface = *user_surface;
+                context->ui.presentation = UiPresentation::NativeSurface;
+                static_cast<void>(windowing::set_content_cursor(
+                    context->ui.window,
+                    static_cast<windowing::CursorHint>(user_surface->cursor)));
+                system_metrics::record_graphics_work(
+                    UINT64_C(1) +
+                    static_cast<uint64_t>(user_surface->widget_count));
             }
-            context->ui.frame = *user_frame;
-            system_metrics::record_graphics_work(
-                UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
             windowing::invalidate();
             frame.rax = KU_STATUS_OK;
             return;

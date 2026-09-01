@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 HOST_CXX="${HOST_CXX:-c++}"
+HOST_CC="${HOST_CC:-cc}"
 HOST_PYTHON="${HOST_PYTHON:-python3}"
 OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
 
@@ -28,6 +29,44 @@ echo "[host-tests] python:   $HOST_PYTHON"
   -o "$OUT_DIR/test_graphics_runtime"
 
 "$OUT_DIR/test_graphics_runtime"
+
+"$HOST_CC" \
+  -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic \
+  -Isdk/include \
+  tests/test_libui_scene.c \
+  sdk/src/libui.c \
+  -o "$OUT_DIR/test_libui_scene"
+
+"$OUT_DIR/test_libui_scene"
+
+"$HOST_PYTHON" scripts/verify-site.py
+
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  tests/test_anvil_sha256.cpp \
+  -o "$OUT_DIR/test_anvil_sha256"
+
+"$OUT_DIR/test_anvil_sha256"
+
+"$HOST_CC" \
+  -std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic \
+  tests/test_anvil_database.c \
+  -o "$OUT_DIR/test_anvil_database"
+
+"$OUT_DIR/test_anvil_database"
+
+# Run the actual host-mode window manager through launch/focus/chrome/task-ribbon
+# lifecycle transitions. The implementation is production code with rendering
+# and process ownership hooks compiled out under KUROGANE_HOST_TEST.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic \
+  -DKUROGANE_HOST_TEST \
+  -Isdk/include \
+  tests/test_window_lifecycle.cpp \
+  kernel/ui/window_manager.cpp \
+  -o "$OUT_DIR/test_window_lifecycle"
+
+"$OUT_DIR/test_window_lifecycle"
 
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \

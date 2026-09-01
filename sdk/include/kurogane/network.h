@@ -12,7 +12,12 @@ extern "C" {
 
 #define KU_NET_HOST_CAPACITY 64U
 #define KU_NET_PATH_CAPACITY 160U
-#define KU_HTTP_RESPONSE_CAPACITY_LIMIT 4096U
+/*
+ * Browser pages and Anvil package payloads share the bounded HTTP transport.
+ * 512 KiB matches the current maximum Ring-3 executable image size and keeps a
+ * hard per-request upper bound at the syscall boundary.
+ */
+#define KU_HTTP_RESPONSE_CAPACITY_LIMIT (512U * 1024U)
 #define KU_HTTP_FLAG_NONE UINT32_C(0)
 
 /* Internal transport tag used only across the current 3.3.3 syscall boundary. */

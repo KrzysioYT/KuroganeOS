@@ -1,144 +1,143 @@
-# KuroganeOS 3.3.1-dev — rozwój na macOS
+# KuroganeOS 3.3.3-dev — development na macOS
 
-KuroganeOS ma natywny workflow macOS dla x86-64 kernela, Ring-3 userspace,
-SDK, Red Flux Desktop oraz media IMG/ISO. Apple Silicon i Intel są hostami;
-target KuroganeOS pozostaje `x86_64`.
+Target KuroganeOS pozostaje `x86_64 + UEFI`. macOS może być hostem Intel albo
+Apple Silicon. Na Apple Silicon x86-64 guest działa przez **QEMU TCG**, więc nie
+używaj tego środowiska jako benchmarku FPS Forged Steel compositora.
 
-> Na Apple Silicon KuroganeOS x86-64 uruchamiaj przez QEMU/TCG. VirtualBox jest
-> referencyjnym targetem dla x86-64 hostów Intel/AMD, nie dla M-series jako
-> x86-64 guest.
-
-## Przygotowanie
+## Setup
 
 ```bash
 chmod +x scripts/*.sh
 bash ./scripts/setup-macos.sh --install
 ```
 
-Środowisko obejmuje m.in. `x86_64-elf-gcc/binutils`, QEMU, mtools,
-dosfstools, gptfdisk, xorriso i Python.
+Setup instaluje/wykrywa m.in. cross GCC/binutils, QEMU, mtools, dosfstools,
+gptfdisk, xorriso i Python.
 
-## Zalecany build 3.3.1 DEV BETA
+## Development build
 
-Główna komenda buduje **oba nośniki** i dodaje `install.pkg` także do QEMU IMG:
+```bash
+bash ./scripts/build-macos.sh --configuration debug --rebuild
+```
+
+Foundation image:
+
+```text
+build/images/KuroganeOS-base.img
+```
+
+To jest właściwy obraz do `/system/init`, loginu i pełnego desktopu.
+
+## Pełne media
 
 ```bash
 bash ./scripts/build-media-macos.sh --configuration release --rebuild
 ```
 
-Do buildów debugowych:
-
-```bash
-bash ./scripts/build-media-macos.sh --configuration debug --rebuild
-```
-
-Wyniki:
+Bieżący macOS media pipeline publikuje:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-3.3.3-dev-macos-qemu.img
+dist/KuroganeOS-3.3.3-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
-IMG i ISO wchodzą do tego samego Red Flux Setup:
+## Interaktywny QEMU
+
+Najprościej:
+
+```bash
+./scripts/run-qemu-macos.sh \
+  --image ./build/images/KuroganeOS-base.img \
+  --windowed \
+  --memory 1024
+```
+
+Albo bez `--image`:
+
+```bash
+./scripts/run-qemu-macos.sh --windowed --memory 1024
+```
+
+Runner szuka kolejno:
+
+1. najnowszego `dist/*-macos-qemu.img`;
+2. `state/KuroganeOS.img`;
+3. `build/images/KuroganeOS-base.img`.
+
+Fullscreen:
+
+```bash
+./scripts/run-qemu-macos.sh --display --memory 1024
+```
+
+## Headless smoke
+
+```bash
+./scripts/run-qemu-macos.sh \
+  --image ./build/images/KuroganeOS-base.img \
+  --timeout 90
+```
+
+Headless runner czeka na markery kernela, PID1, desktop session i graficznego
+loginu. Nie wymaga starego tekstowego promptu użytkownika.
+
+## Konfiguracja QEMU używana przez wrapper
 
 ```text
-Try KuroganeOS
-Install KuroganeOS
+machine:       q35
+accelerator:   tcg
+cpu:           max
+RAM:           1024 MiB domyślnie
+firmware:      EDK2 split CODE/VARS pflash
+storage:       IDE attachment of raw GPT image
+network:       E1000 + QEMU user IPv4 NAT
+audio:         Intel AC97 -> CoreAudio
+display:       Cocoa zoom-to-fit
 ```
 
-Builder ISO 3.3.1 używa 30 MiB FAT16 El Torito EFI image, GPT ESP oraz
-obowiązkowego 20-pass verifiera. Szczegóły: [`VIRTUALBOX.md`](VIRTUALBOX.md).
+Na macOS wrapper celowo używa TCG dla x86-64 guest. KVM/WHPX nie istnieją na tym
+hoście.
 
-## Kernel/userspace-only development
+## Kurogane Web
 
-Niższy poziom nadal można budować bez produkowania pełnego media-setu:
+E1000/NAT jest domyślnie włączone w macOS runnerze. Bieżący Kurogane Web ma
+HTTP oraz HTTPS/TLS i systemowy trust store eksportowany przez macOS build
+pipeline.
 
-```bash
-./scripts/build-macos.sh --configuration debug --rebuild
-```
-
-Po zmianie tylko userspace/SDK i istniejącym kernelu:
-
-```bash
-./scripts/build-macos.sh --configuration debug --stage-only
-```
-
-Do wydawania/testowania pełnego nośnika preferuj `build-media-macos.sh`.
-
-## QEMU — IMG
-
-```bash
-cp "$(brew --prefix qemu)/share/qemu/edk2-i386-vars.fd" /tmp/kurogane-vars.fd
-
-qemu-system-x86_64 \
-  -machine q35,accel=tcg \
-  -cpu max \
-  -m 1024 \
-  -vga std \
-  -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
-  -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_media,format=raw,file="./dist/KuroganeOS-3.3.1-dev-macos-qemu.img",cache=writeback \
-  -device ide-hd,drive=kurogane_media,bus=ide.0,bootindex=1 \
-  -display cocoa \
-  -serial stdio \
-  -net none \
-  -no-reboot \
-  -no-shutdown
-```
-
-## QEMU — test sieci E1000/NAT
-
-Do testowania kernelowego internetu zamiast `-net none` użyj:
-
-```text
--netdev user,id=net0
--device e1000,netdev=net0
-```
-
-Czyli zastąp `-net none` powyższymi dwoma argumentami. KuroganeOS oczekuje
-Intel E1000/82540EM i pobiera konfigurację przez DHCP. Jeżeli DHCP nie jest
-dostępne, 3.3.1 przechodzi do loopback zamiast zatrzymywać desktop.
-
-## QEMU — optical smoke ISO
-
-Możesz sprawdzić, czy niezależny firmware UEFI rzeczywiście bootuje ISO:
+## Optical smoke ISO
 
 ```bash
 bash ./scripts/smoke-uefi-iso-qemu.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
-  --timeout 60
+  ./dist/KuroganeOS-3.3.3-dev-x86_64.iso \
+  --timeout 90
 ```
 
-Helper używa split CODE/VARS pflash firmware z QEMU/Homebrew i czeka na marker
-kernela przez port szeregowy.
-
-## Test instalacji
-
-Do testu `Install KuroganeOS` dodaj **drugi pusty dysk przez AHCI/SATA**. Nośnik
-IMG/ISO jest medium startowym i nie powinien być jednocześnie targetem
-instalacji.
-
-## Własne aplikacje
+## Aplikacje
 
 ```bash
 ./scripts/build-app-macos.sh moja-aplikacja.c -o moja-aplikacja --install
 ./scripts/build-macos.sh --configuration debug --stage-only
 ```
 
-Po wejściu do desktopu aplikację można uruchomić z Flux Terminala.
+Aplikacje są statycznymi ELF64 Ring-3 dla KuroganeOS, nie binariami macOS ani
+Linux.
 
-Dokumentacja aplikacji: [`DEVELOPERS/README.md`](DEVELOPERS/README.md).
+## Diagnostyka
 
-## Makefile
+Logi macOS runnera:
 
-```bash
-make kernel CONFIG=debug
-make verify CONFIG=debug
-make clean
+```text
+build/logs/qemu-macos-serial.log
+build/logs/qemu-macos-stdout.log
+build/logs/qemu-macos-stderr.log
 ```
 
-## Status
+Przy problemie najpierw sprawdź serial:
 
-3.3.1-dev jest DEV BETA. Struktura ISO ma automatyczny verifier i niezależny
-OVMF/QEMU optical smoke. Realny VirtualBox smoke wykonuj na hoście x86-64.
+```bash
+tail -n 160 build/logs/qemu-macos-serial.log
+```
+
+Dalsze informacje: [RUNNING.md](RUNNING.md), [QEMU_TESTING.md](QEMU_TESTING.md)
+i [TESTING.md](TESTING.md).

@@ -32,6 +32,18 @@ int32_t run_image(
 
 int main() {
     assert(process::initialize(run_image) == process::Status::Ok);
+
+    // Boot diagnostics may launch ordinary processes before the real system
+    // init. They must never consume the slot reserved for stable PID 1.
+    process::ProcessId preinit = 0;
+    assert(process::spawn("/apps/first", &preinit) == process::Status::Ok);
+    assert(preinit != 0 && preinit != 1);
+    process::RunResult preinit_result{};
+    assert(process::run_ready(8, &preinit_result) == process::Status::Ok);
+    assert(preinit_result.completed_threads == 1 && preinit_result.zombies == 1);
+    int32_t code = 0;
+    assert(process::wait(preinit, &code) == process::Status::Ok && code == 7);
+
     process::ProcessId init = 0;
     process::ProcessId first = 0;
     process::ProcessId second = 0;
@@ -41,9 +53,8 @@ int main() {
            process::Status::AlreadyInitialized);
     assert(process::spawn("/apps/first", &first) == process::Status::Ok);
     assert(process::spawn("/apps/second", &second) == process::Status::Ok);
-    assert(first != second);
+    assert(first != second && first != 1 && second != 1);
 
-    int32_t code = 0;
     assert(process::wait(first, &code) == process::Status::WouldBlock);
     process::RunResult result{};
     assert(process::run_ready(16, &result) == process::Status::Ok);

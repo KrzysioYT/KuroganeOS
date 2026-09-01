@@ -1,64 +1,162 @@
-# Testing and QEMU validation
+# Testing and qualification
 
-Hosted tests cover deterministic logic; QEMU proves CPU privilege, timer
-preemption, hardware/DMA paths, persistence, networking, GUI input and install.
-A marker counts only with a successful runner exit and no `[TEST] ...: FAIL`.
+Hosted tests validate deterministic subsystems. QEMU validates real privilege
+transitions, timer preemption, storage, networking, input, graphical session
+startup and installer paths. A marker is evidence only when the runner exits
+successfully and the serial log contains no `[TEST] ...: FAIL`.
 
-## Hosted tests
+## 1. Host tests
 
-```powershell
-wsl.exe bash -lc "cd /mnt/e/KuroganeOS && bash scripts/test.sh"
-```
-
-`build/logs/host-tests.log` covers memory/page permissions, Process/Thread and
-context switching, scheduler, ELF/ABI, RAMFS/VFS/FAT32, GPT/Partition/AHCI,
-input/WindowManager/USB HID, network protocols, installer layout/package and
-runnable SDK project generation.
-
-## QEMU matrix and logs
-
-Use unique `-LogName` values. Each run writes separate `-serial`, `-stdout` and
-`-stderr` logs under `build/logs`.
-
-| Scenario | Runner | Required evidence |
-|---|---|---|
-| boot | `run-qemu.ps1 -UseDiskImage -Headless` | prompt, no panic |
-| userspace | add `-ShellTest` | PID1/shell/apps/external ELF |
-| multitasking | `-ShellTest` | kernel + Ring3 preemption |
-| filesystem/network | `-ShellTest` on base image | FAT mount + E1000/DHCP/ICMP |
-| persistence | `test-persistence.ps1` | prepare and verify boots |
-| desktop | `-DesktopMode -ShellTest` | five apps + PS/2 drag/close |
-| safe mode | `-SafeMode` | emergency Ring 0 prompt, minimal drivers |
-| USB | `-UsbTest` | xHCI enumeration + injected HID key |
-| installer | `test-installer.ps1` | deploy + two HDD-only boots |
-| full system | `validate-2.0.ps1` | clean build/tests/images/QEMU/installer |
+Windows + WSL2:
 
 ```powershell
-.\scripts\run-qemu.ps1 -UseDiskImage `
-  -DiskImagePath .\build\images\KuroganeOS-base.img `
-  -Headless -ShellTest -TimeoutSeconds 180 -LogName qemu-userspace
-
-.\scripts\run-qemu.ps1 -UseDiskImage `
-  -DiskImagePath .\build\images\KuroganeOS-base.img `
-  -Headless -DesktopMode -ShellTest -TimeoutSeconds 180 `
-  -LogName qemu-desktop
+wsl.exe --exec bash -lc "cd /mnt/e/KuroganeOS && bash ./scripts/test.sh"
 ```
 
-The QEMU monitor injects real emulated keyboard/mouse packets; the runner does
-not write expected text into serial logs. Key markers include
-`ALL_REQUIRED_TESTS_PASSED`, `ring3_fault_isolation`, both preemption proofs,
-FAT persistence, `network_gateway_icmp`, `external_sdk_application`, all
-desktop apps, `window_drag_input` and `installer_complete`.
-The desktop scenario also requires `window_close_input`; the full validator
-includes separate safe-mode and USB runs plus a 120-second stability run by
-default.
+Adjust `/mnt/e/KuroganeOS` to the actual repository path.
 
-Persistence and installer targets are purpose-built files in
-`build/test-disks`. Installer automation requires a blank 512 MiB disk, exact
-`INSTALL`, detaches the ISO, then boots the same disk twice. Never attach a
-physical disk.
+The suite covers allocator/paging, Process/Thread, scheduler, ELF/ABI,
+RAMFS/VFS/FAT32/GPT/AHCI, input, WindowManager, USB HID, network protocols,
+installer package/layout, SDK ABI and GUI contracts.
 
-For stability observation use a long unique-log QEMU run, exercise processes,
-filesystem, network and several GUI apps, and inspect for faults, FAIL markers,
-deadlock/starvation and cleanup failures. External DNS/HTTP/ICMP probes can
-depend on host connectivity; E1000/DHCP/UDP/gateway are required.
+## 2. Focused Foundation test
+
+Before running the full verifier, use the exact image that contains
+`Kurogane Root`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\run-qemu.ps1 `
+  -UseDiskImage `
+  -DiskImagePath .\build\images\KuroganeOS-base.img `
+  -ShellTest `
+  -TimeoutSeconds 90 `
+  -MemoryMiB 1024 `
+  -LogName focused-foundation
+```
+
+The current graphical Foundation path is:
+
+```text
+PID1 -> /gui/login -> secure access -> Blade Launcher session root
+```
+
+The compatibility switch is still named `-ShellTest`, but the runner now knows
+how to qualify both the graphical session and Safe Mode console.
+
+## 3. Full verifier
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\verify.ps1 `
+  -TimeoutSeconds 90 `
+  -KeepLogs
+```
+
+`verify.ps1` stops at the first failure and writes a status log plus per-stage
+logs under `build/logs`.
+
+Main stages:
+
+1. WSL2/toolchain preflight;
+2. clean debug build;
+3. host tests;
+4. legacy FAT read-only validation;
+5. Foundation GPT/FAT validation;
+6. Foundation QEMU integration;
+7. Safe Mode integration;
+8. clean `test` profile build;
+9. AHCI/GPT writable scratch test;
+10. release build;
+11. release ISO construction;
+12. QEMU ISO qualification;
+13. optional VirtualBox qualification.
+
+VirtualBox is opt-in in `verify.ps1` unless a release/media pipeline explicitly
+requires it.
+
+## 4. Why legacy `kurogane.img` is not the userspace test disk
+
+`kurogane.img` is a 64 MiB FAT/EFI artifact. It does not provide the persistent
+GPT `Kurogane Root` partition required by `/system/init` and the current Ring-3
+desktop. The verifier still checks its filesystem integrity, but normal PID1
+qualification uses:
+
+```text
+build/images/KuroganeOS-base.img
+```
+
+## 5. GUI performance tests
+
+Do not measure GUI FPS with the deterministic TCG test runner.
+
+Windows interactive performance path:
+
+```powershell
+.\scripts\run-qemu-fast.ps1 `
+  -Accelerator auto `
+  -MemoryMiB 1024 `
+  -LogName perf-check
+```
+
+Record whether the runner prints:
+
+```text
+[active] accelerator=whpx
+```
+
+TCG is intentionally supported as fallback but is much slower for the current
+software compositor.
+
+When testing responsiveness, exercise at least:
+
+```text
+login Enter/click
+mouse movement
+Blade open/focus
+Kurosh launch
+Vault launch
+Forge Control launch
+window focus/move/resize/close
+dock activation
+```
+
+## 6. Logs
+
+Every QEMU run should use a unique `-LogName`:
+
+```text
+build/logs/<LogName>-serial.log
+build/logs/<LogName>-stdout.log
+build/logs/<LogName>-stderr.log
+```
+
+For verifier failures also inspect:
+
+```text
+build/logs/verify-*-status.log
+build/logs/verify-*-<stage>.log
+```
+
+## 7. Installer safety
+
+Installer tests use disposable files under `build/test-disks`. Do not point
+installer automation at a physical disk. Writable QEMU attachments always
+require an explicit file path.
+
+## 8. What counts as failure
+
+Treat these as immediate failures:
+
+```text
+[TEST] ...: FAIL
+KERNEL PANIC
+KERNEL EXCEPTION
+fatal:
+QEMU exits before required markers
+timeout with required markers missing
+```
+
+External DNS/HTTPS can depend on host connectivity, but E1000 link, DHCP, UDP
+and gateway transport are part of the Foundation qualification when the
+network test is enabled.

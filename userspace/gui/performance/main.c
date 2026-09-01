@@ -1,30 +1,24 @@
 #include "../common.h"
 #include "../../../common/version.h"
 
-static void append_text(char* destination, size_t capacity, const char* source) {
-    const size_t used = strlen(destination);
-    if (used >= capacity) return;
-    (void)strlcpy(destination + used, source, capacity - used);
-}
-
 static void append_percent(char* line, size_t capacity, uint32_t value) {
     char number[24];
     gui_u64(number, sizeof(number), value > 100U ? 100U : value);
-    append_text(line, capacity, number);
-    append_text(line, capacity, "%");
+    gui_append_text(line, capacity, number);
+    gui_append_text(line, capacity, "%");
 }
 
 static void append_mib(char* line, size_t capacity, uint64_t bytes) {
     char number[24];
     gui_u64(number, sizeof(number), bytes / UINT64_C(1048576));
-    append_text(line, capacity, number);
-    append_text(line, capacity, " MiB");
+    gui_append_text(line, capacity, number);
+    gui_append_text(line, capacity, " MiB");
 }
 
 static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
     kui_flow root;
     char cpu[64] = "CPU            ";
-    char gpu[64] = "GPU / GFX      ";
+    char gpu[64] = "GRAPHICS       ";
     char ram[64] = "RAM            ";
     char disk[64] = "DISK ACTIVITY  ";
     char memory[64] = "MEMORY         ";
@@ -38,41 +32,42 @@ static void build_scene(kui_scene* scene, const ku_system_snapshot* snapshot) {
 
     append_mib(memory, sizeof(memory),
                snapshot->memory_total_bytes - snapshot->memory_free_bytes);
-    append_text(memory, sizeof(memory), " / ");
+    gui_append_text(memory, sizeof(memory), " / ");
     append_mib(memory, sizeof(memory), snapshot->memory_total_bytes);
 
     gui_u64(value, sizeof(value), ku_system_uptime_seconds(snapshot));
-    append_text(uptime, sizeof(uptime), value);
-    append_text(uptime, sizeof(uptime), " s");
+    gui_append_text(uptime, sizeof(uptime), value);
+    gui_append_text(uptime, sizeof(uptime), " s");
 
     kui_scene_initialize(scene);
     scene->visible_rows = 11U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    gui_apply_obsidian_theme(scene, 0);
 
     kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "PERFORMANCE / LIVE");
-    (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / SYSTEM ACTIVITY");
+    (void)kui_flow_panel_icon(
+        &root, 1U, "PERFORMANCE / LIVE", KU_ICON_SPECIAL_CPU);
+    (void)kui_flow_label_icon(
+        &root, 2U, KUROGANE_PRODUCT_STRING " / SYSTEM ACTIVITY",
+        KU_ICON_APPLICATION_SYSTEM_MONITOR);
     (void)kui_flow_separator(&root, 3U);
-    (void)kui_flow_label(&root, 4U, cpu);
-    (void)kui_flow_label(&root, 5U, gpu);
-    (void)kui_flow_label(&root, 6U, ram);
-    (void)kui_flow_label(&root, 7U, disk);
+    (void)kui_flow_label_icon(&root, 4U, cpu, KU_ICON_SPECIAL_CPU);
+    (void)kui_flow_label_icon(&root, 5U, gpu, KU_ICON_SPECIAL_GPU);
+    (void)kui_flow_label_icon(&root, 6U, ram, KU_ICON_SPECIAL_MEMORY);
+    (void)kui_flow_label_icon(&root, 7U, disk, KU_ICON_SPECIAL_STORAGE);
     (void)kui_flow_separator(&root, 8U);
-    (void)kui_flow_label(&root, 9U, memory);
-    (void)kui_flow_label(&root, 10U, uptime);
-    (void)kui_flow_label(&root, 11U, "GPU = GOP/COMPOSITOR ACTIVITY, NOT GPU CORE LOAD");
+    (void)kui_flow_label_icon(&root, 9U, memory, KU_ICON_SPECIAL_MEMORY);
+    (void)kui_flow_label_icon(&root, 10U, uptime, KU_ICON_STATUS_ONLINE);
+    (void)kui_flow_label_icon(
+        &root, 11U, "GRAPHICS = GOP/COMPOSITOR ACTIVITY", KU_ICON_SPECIAL_GPU);
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("PERFORMANCE", 620, 190, 360, 310);
+    const ku_window_t window = gui_open("PERFORMANCE", 610, 170, 420, 350);
     if (window == KU_INVALID_WINDOW) return 1;
 
     puts("[TEST] desktop_performance_live: PASS");
     puts("[TEST] desktop_performance_low_damage: PASS");
+    puts("[TEST] kurogane5_obsidian_performance: PASS");
 
     for (;;) {
         ku_system_snapshot snapshot;
@@ -93,7 +88,6 @@ int main(void) {
             return 3;
         }
 
-        /* One sample/present per second. Do not wake 100 times per second. */
         const int available = kui_next_event(window, &event);
         if (available < 0 ||
             (available > 0 && event.type == KU_UI_EVENT_CLOSE)) {

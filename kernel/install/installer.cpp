@@ -161,7 +161,7 @@ void draw_footer(const char* text) {
 }
 
 void draw_setup_title(const char* title, const char* subtitle) {
-    draw_brand_header("RED FLUX SETUP");
+    draw_brand_header("FORGED STEEL SETUP");
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t panel_x = width / 2 - 300;
     graphics::fill_rect(panel_x, 100, 600, 390, kPanel);

@@ -1,9 +1,14 @@
 # Instalacja KuroganeOS 3.3.3-dev — DEV BETA
 
-Ta dokumentacja opisuje bieżący kontrakt Red Flux Setup dla KuroganeOS
-3.3.3-dev. Dla VirtualBox używaj również [`VIRTUALBOX.md`](VIRTUALBOX.md).
+Ta instrukcja opisuje bieżący installer KuroganeOS. Bieżąca gałąź rozwija
+Forged Steel/KuroganeOS 5, ale publiczny numer pozostaje `3.3.3-dev`.
 
-## Canonical media
+> Installer jest destrukcyjny dla wybranego targetu. Używaj pustego wirtualnego
+> dysku/test image. Nie kieruj DEV BETA na dysk z ważnymi danymi.
+
+## Media
+
+Windows canonical media:
 
 ```text
 VirtualBox:
@@ -13,51 +18,60 @@ QEMU:
   dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
 ```
 
-`.iso` jest nośnikiem optycznym x86-64 UEFI dla Oracle VirtualBox. `.img` jest
-raw image przeznaczonym dla QEMU. Nie zamieniaj tych mediów między
-hypervisorami.
+VirtualBox używa ISO jako DVD. QEMU używa raw IMG. Nie zamieniaj ich rolami.
 
-## Try i Install
+## Try / Install
 
-Red Flux Setup udostępnia dwa tryby:
+Setup udostępnia:
 
 ```text
-Try KuroganeOS
-  -> read-only live package root
-  -> bez destrukcyjnego zapisu na HDD
+TRY KUROGANEOS
+  -> live/read-only system root
+  -> Secure Access
+  -> Forged Steel desktop
+  -> bez formatowania target HDD
 
-Install KuroganeOS
-  -> konfiguracja użytkownika
-  -> wybór dysku
+INSTALL KUROGANEOS
+  -> locale/profile
+  -> wybór targetu
   -> jawne potwierdzenie INSTALL
-  -> destrukcyjny deployment na wybrany dysk
+  -> GPT + ESP + Kurogane Root
+  -> install.pkg deployment
 ```
 
-## Bezpieczeństwo przed wymazaniem dysku
+## install.pkg preflight
 
-`install.pkg` jest weryfikowany **przed** wyborem destrukcyjnej ścieżki. Runtime
-sprawdza:
+Pakiet jest sprawdzany przed destrukcyjnym zapisem. Weryfikacja obejmuje m.in.:
 
-- magic/version/layout paczki;
+- magic/version/layout;
 - manifest CRC;
-- zakres każdego pliku;
-- CRC każdego pliku;
-- destination `ESP` lub `ROOT`;
-- brak duplikatów;
-- ten sam bounded FAT 8.3 path contract co build-time package generator.
+- bounds plików;
+- CRC plików;
+- destination `ESP`/`ROOT`;
+- duplikaty;
+- FAT 8.3-safe package paths.
 
-Poprawny preflight emituje:
+Poprawny preflight:
 
 ```text
 [TEST] installer_package_preflight: PASS
 ```
 
-Pakiet z nazwą, której natywny writer FAT32 nie potrafi utworzyć, ma zostać
-odrzucony przed pierwszym zapisem GPT.
+### FAT 8.3 contract
 
-## Potwierdzenie destrukcyjnej instalacji
+Ścieżki package payload muszą spełniać kontrakt writer-a installera. Dlatego
+Anvil config używa:
 
-Installer akceptuje m.in.:
+```text
+/etc/anvil.cfg
+```
+
+Stare `/etc/anvil.repo` jest niedozwolone, bo `.repo` ma czteroznakowe
+rozszerzenie.
+
+## Potwierdzenie destrukcyjnej operacji
+
+Installer akceptuje case-insensitive:
 
 ```text
 install
@@ -65,164 +79,122 @@ Install
 INSTALL
 ```
 
-Wpis jest normalizowany do wielkich liter. Błędny tekst pozostawia formularz
-aktywny. `Esc` wraca do wyboru dysku.
+Błędny tekst nie zapisuje GPT i pozwala spróbować ponownie. `Esc` wraca do
+wyboru dysku.
 
-Dopiero prawidłowe potwierdzenie emituje:
+Po poprawnym potwierdzeniu:
 
 ```text
 [TEST] installer_confirmation: PASS
 ```
 
-i zezwala na zmianę zawartości wybranego dysku.
-
-## Pipeline instalacji 1/9 → 9/9
-
-Bieżący installer używa transakcyjnej kolejności inspirowanej ogólnymi
-praktykami dojrzałych installerów systemowych. Implementacja jest własna i nie
-kopiuje kodu Linux/GNU.
+## Pipeline 1/9 -> 9/9
 
 ```text
 1/9  PARTITIONING TARGET DISK
      protective MBR + primary/backup GPT
 
 2/9  VALIDATING PARTITION TABLE
-     ponowny parse GPT + bounded partition devices
+     ponowny parse GPT + bounded partition views
 
 3/9  FORMATTING ESP AND ROOT
      ESP FAT32 + Kurogane Root FAT32
 
 4/9  MOUNTING NEW FILESYSTEMS
-     świeży mount obu filesystemów
+     mount świeżych filesystemów
 
 5/9  COPYING ROOT SYSTEM PAYLOAD
-     ROOT files + dynamiczne tworzenie katalogów nadrzędnych + sync ROOT
+     rootfs + dynamiczne parent directories + sync ROOT
 
 6/9  WRITING USER AND FIRST-BOOT STATE
      locale.cfg + user.cfg + first.run + sync ROOT
 
 7/9  ACTIVATING UEFI BOOT PAYLOAD
-     ESP files, w tym BOOTX64.EFI, dopiero po trwałym ROOT + sync ESP
+     BOOTX64.EFI i ESP dopiero po trwałym ROOT
 
 8/9  VERIFYING INSTALLED PAYLOAD
-     byte-for-byte readback wszystkich plików ROOT i ESP + final sync
+     byte-for-byte readback ROOT/ESP + sync
 
 9/9  INSTALLATION COMPLETE
-     markery PASS + ekran zakończenia
+     final PASS markers
 ```
 
-Najważniejsza właściwość tej kolejności: system nie publikuje bootowalnego
-`BOOTX64.EFI` przed skopiowaniem i zsynchronizowaniem root payloadu.
+Najważniejsza własność: bootloader na ESP jest aktywowany **po** zapisaniu i
+zsynchronizowaniu system root.
 
-## Drzewo katalogów install.pkg
+## Parent directories
 
-Installer **nie używa już ręcznej, zamkniętej listy katalogów**. Dla każdego
-pliku tworzy wszystkie brakujące katalogi nadrzędne w kolejności od root.
-
-Przykład:
+Installer tworzy katalogi nadrzędne dynamicznie na podstawie manifestu. Jest to
+konieczne dla ścieżek typu:
 
 ```text
 /etc/ssl/certs.pem
 ```
 
-powoduje automatyczne przygotowanie:
+Brak ręcznie wpisanego `/etc/ssl` nie może już powodować `PACKAGE COPY FAILED`.
+
+## Profil użytkownika
+
+Installer zapisuje lokalne dane m.in. do:
 
 ```text
-/etc
-/etc/ssl
+/etc/locale.cfg
+/etc/user.cfg
 ```
 
-przed `create()` pliku `certs.pem`.
-
-To naprawia błąd starszego flow 3.3.3-dev, w którym `/etc` istniało, ale
-`/etc/ssl` nie było tworzone i kopiowanie kończyło się ogólnym:
+Po pierwszym boot:
 
 ```text
-PACKAGE COPY FAILED
+UEFI
+ -> kernel
+ -> persistent Kurogane Root
+ -> /system/init PID 1
+ -> KUROGANE // SECURE ACCESS
+ -> profil lokalny
+ -> Blade Launcher / Forged Steel desktop
 ```
 
-## Diagnostyka kopiowania
+Bieżący DEV credential hash nie jest produkcyjnym KDF. Nie używaj ważnego
+hasła.
 
-Błąd kopiowania nie powinien już kończyć się wyłącznie ogólnym komunikatem.
-Serial log podaje indeks pliku, destination, ścieżkę, operację i status FAT32,
-np.:
+## VirtualBox
+
+Target VDI musi być podpięty przez:
 
 ```text
-[INSTALL][COPY] file=17 destination=ROOT path=/etc/ssl/certs.pem operation=mkdir-parent status=...
+SATA / Intel AHCI
 ```
 
-Możliwe operacje obejmują:
+Referencyjny profil sieci VirtualBox to obecnie:
 
 ```text
-mkdir-parent
-remove-stale
-create
-write
-verify-read
-verify-stat
+PCnet-FAST III (Am79C973) + NAT
 ```
 
-Ekran setup może nadal pokazać krótszy komunikat, ale szczegółowa przyczyna ma
-być dostępna w COM1/QEMU serial logu.
+Pełny profil: [VIRTUALBOX.md](VIRTUALBOX.md).
 
-## Retry po nieudanej instalacji
+## QEMU installer test
 
-Po zaakceptowaniu `INSTALL` wybrany dysk jest jawnie przeznaczony do skasowania.
-Dlatego właściwy installer używa `prepare_install_target()` i może odtworzyć
-GPT również na dysku zawierającym ślady poprzedniej, niedokończonej instalacji.
+Automatyczny installer używa wyłącznie disposable image pod
+`build/test-disks/`.
 
-Oznacza to, że po błędzie w stage 2-8 można:
+Przykładowy target należy najpierw utworzyć odpowiednim helperem testowym, a
+następnie uruchomić canonical runner z `-InstallerTest`. Nie podawaj fizycznego
+dysku.
 
-1. zrestartować VM;
-2. ponownie wybrać ten sam VDI;
-3. ponownie wpisać `INSTALL`;
-4. installer odtworzy layout i filesystemy od początku.
-
-Nie trzeba usuwać i tworzyć VDI ponownie tylko dlatego, że poprzednia próba
-zdążyła zapisać GPT.
-
-Konserwatywne `disk_layout::prepare_empty_disk()` nadal istnieje dla testów i
-narzędzi wymagających absolutnie pustego LBA0, ale nie jest używane przez
-potwierdzoną ścieżkę Red Flux Setup.
-
-## VirtualBox — wymagany storage
-
-```text
-Firmware:       EFI64 / UEFI
-Secure Boot:    OFF
-I/O APIC:       ON
-RAM:            2048 MiB
-CPU:            1-2
-HDD controller: SATA / Intel AHCI
-SATA ports:     1 dla pojedynczego VDI
-HDD:            VDI >= 2 GiB, SATA 0:0
-DVD controller: IDE / PIIX4
-DVD:            canonical VirtualBox ISO
-Boot order:     DVD -> Disk
-Network:        NAT
-NIC:            Intel PRO/1000 MT Desktop (82540EM)
-Audio:          Intel AC'97
-Input:          PS/2
-```
-
-Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
-przez IDE nie jest wspieranym targetem instalacji.
-
-## Oczekiwane markery pełnej instalacji
-
-Na nowym buildzie spodziewaj się m.in.:
+## Oczekiwane markery
 
 ```text
 [TEST] installer_package_preflight: PASS
 [TEST] installer_confirmation: PASS
-installer stage 1/9: target confirmed and GPT written
-installer stage 2/9: GPT validated and partition views ready
-installer stage 3/9: filesystems formatted
-installer stage 4/9: fresh filesystems mounted
-installer stage 5/9: root payload copied and synced
-installer stage 6/9: profile and first-boot state committed
-installer stage 7/9: UEFI payload activated and synced
-installer stage 8/9: installed payload verified
+installer stage 1/9: ...
+installer stage 2/9: ...
+installer stage 3/9: ...
+installer stage 4/9: ...
+installer stage 5/9: ...
+installer stage 6/9: ...
+installer stage 7/9: ...
+installer stage 8/9: ...
 [TEST] installer_gpt: PASS
 [TEST] installer_filesystems: PASS
 [TEST] installer_root_payload: PASS
@@ -233,147 +205,70 @@ installer stage 8/9: installed payload verified
 installer stage 9/9: installation complete
 ```
 
-## Co zostaje zainstalowane
+## Retry po nieudanej instalacji
 
-Pakiet zawiera m.in.:
+Bieżący flow może ponownie przygotować ten sam wybrany **testowy** VDI po
+kolejnym świadomym `INSTALL`. Nie jest to mechanizm odzyskiwania danych — target
+jest traktowany jako przeznaczony do ponownego deploymentu.
 
-```text
-ESP:
-  /EFI/BOOT/BOOTX64.EFI
-  /kernel.elf
-  /EFI/BOOT/kernel.elf
-
-ROOT:
-  /boot/kernel.elf
-  /system/init
-  /apps/*
-  /gui/*
-  /etc/system.cfg
-  /etc/ssl/certs.pem
-  /etc/boot.cfg
-```
-
-Installer generuje dodatkowo:
-
-```text
-/etc/locale.cfg
-/etc/user.cfg
-/etc/first.run
-```
-
-W DEV BETA credential verifier nadal używa `FNV1A64-DEV`; nie jest to
-produkcyjny password KDF.
-
-## Budowanie Windows + WSL
-
-Po zmianach w kernelu/installerze wymagany jest pełny rebuild:
-
-```powershell
-.\scripts\build-media.ps1 -Configuration release -Rebuild
-```
-
-Canonical VirtualBox ISO:
-
-```text
-dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
-```
-
-## Realny Oracle VirtualBox qualification
+## Realny VirtualBox install smoke
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -TimeoutSeconds 180
+  -Iso .\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso `
+  -TimeoutSeconds 180
 ```
 
-Smoke tworzy tymczasową prawdziwą VM z EFI64, jednoportowym IntelAHCI, VDI,
-IDE DVD, E1000 NAT i COM1 serial logiem.
-
-Bieżąca kwalifikacja **nie kończy się już na `kernel entry` ani na samym zapisie
-GPT**. PASS wymaga:
+Finalny PASS powinien obejmować:
 
 ```text
-[TEST] installer_complete: PASS
+optical UEFI boot
+AHCI target
+installer_complete
+poweroff/reboot
+boot z VDI bez ISO
+persistent Kurogane Root
+/system/init PID 1
+Secure Access
+canonical VirtualBox network path
 ```
 
-Dzięki temu regresje formatowania, nested directory creation, package copy,
-UEFI activation lub verification mają oblać release build.
+Sam marker `kernel entry` albo samo istnienie ISO nie jest wystarczające.
 
-## Po udanej instalacji
+## Diagnostyka
 
-1. Wyłącz VM.
-2. Odłącz ISO albo ustaw HDD przed DVD w kolejności bootowania.
-3. Uruchom system z VDI.
-4. Sprawdź first-boot/Login i trwałość `/etc`.
+### `no PCI AHCI controller`
 
-Jeżeli po instalacji ponownie uruchamia się Setup, VM nadal bootuje z DVD.
+VM wystartowała, ale target nie jest na SATA/AHCI.
 
-## Post-install boot contract
+### `path is outside the installer's FAT 8.3 contract`
 
-Zainstalowany system bootuje z własnego ESP i ROOT. Podczas pierwszego startu
-kernel montuje `Kurogane Root`, obsługuje `/etc/first.run`, a następnie próbuje
-uruchomić `/system/init` jako PID 1.
+Payload zawiera niedozwoloną nazwę. Popraw nazwę w source/rootfs/build scripts;
+nie osłabiaj walidatora tylko po to, żeby paczka przeszła.
 
-Nie wszystkie markery `[TEST] ...` są fatalnym mechanizmem sterowania. Testy
-first-boot/persistence mogą oznaczyć zbiorczy stan jako zdegradowany, podczas
-gdy kernel nadal ma wystarczający stan do uruchomienia userspace. Historyczny
-bug 3.3.3-dev powodował, że warstwa terminala traktowała sam tekst:
+### `PACKAGE COPY FAILED`
+
+Sprawdź serial lines `[INSTALL][COPY]` — zawierają destination, path, operation i
+status.
+
+### Verify zatrzymuje się na pliku
+
+Szukaj:
 
 ```text
-[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL
+[INSTALL][VERIFY] file=... destination=... path=... bytes=...
+[INSTALL][VERIFY] PASS path=...
 ```
 
-jak bezwarunkowy rozkaz `halt()`. To mogło zatrzymać poprawnie zainstalowany
-system zanim doszedł do `/system/init`, mimo że `main.cpp` celowo oznaczył
-problem jako recoverable.
+## Po instalacji
 
-Bieżący kontrakt rozdziela te przypadki:
-
-```text
-recoverable aggregate failure
-  -> marker pozostaje w COM1
-  -> chwilowy ekran BOOT CHECK DEGRADED
-  -> kernel kontynuuje
-  -> po userspace_init_spawn: PASS wraca graficzny boot Red Flux
-
-true boot_failure()
-  -> marker FAIL
-  -> caller wykonuje fatal halt
-  -> system pozostaje w service console
-```
-
-Po poprawnym starcie zainstalowanego systemu oczekiwane są m.in.:
+Po odłączeniu ISO system powinien bootować z VDI/HDD do Secure Access. Jeżeli
+zatrzymuje się przed loginem, sprawdź serial pod kątem:
 
 ```text
-[INFO][VFS] persistent FAT32 root mounted read-write
+persistent FAT32 root mounted read-write
 [TEST] userspace_init_spawn: PASS
-[INFO][INIT] spawned /system/init as PID 1
 /system/init: PID 1 online
+[TEST] userspace_init_pid1: PASS
+[TEST] kurogane5_obsidian_login: PASS
 ```
-
-### Diagnostyka po instalacji w VirtualBox
-
-Referencyjne helpery mogą skierować COM1 do pliku. Przykład:
-
-```powershell
-.\scripts\repair-virtualbox-boot.ps1 `
-    -Name "KuroganeOS-VB-Test" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -SerialLog ".\state\runlogs\virtualbox-manual.log"
-```
-
-Podgląd końcówki logu:
-
-```powershell
-Get-Content .\state\runlogs\virtualbox-manual.log -Tail 120
-```
-
-Podgląd na żywo:
-
-```powershell
-Get-Content .\state\runlogs\virtualbox-manual.log -Wait
-```
-
-Jeżeli boot nadal zatrzyma się po poprawce terminala, ostatnia linia
-`[FATAL][MODULE] ...` w COM1 jest właściwą przyczyną i należy diagnozować ten
-moduł, a nie sam zbiorczy marker `ALL_REQUIRED_TESTS_PASSED: FAIL`.

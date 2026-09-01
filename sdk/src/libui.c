@@ -234,6 +234,22 @@ ku_status_t kui_scene_set_value(
     return KU_STATUS_OK;
 }
 
+ku_status_t kui_scene_set_icon(
+    kui_scene* scene, uint32_t id, ku_icon_id_t icon_id) {
+    kui_view* view = find_view(scene, id);
+    if (view == (kui_view*)0) return KU_STATUS_NOT_FOUND;
+    view->icon_id = (uint32_t)icon_id;
+    return KU_STATUS_OK;
+}
+
+ku_status_t kui_scene_set_cursor(kui_scene* scene, uint32_t cursor) {
+    if (scene == (kui_scene*)0 || cursor > KU_UI_CURSOR_NOT_ALLOWED) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    scene->cursor = cursor;
+    return KU_STATUS_OK;
+}
+
 ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     uint32_t count;
     uint32_t rows;
@@ -241,7 +257,7 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     int64_t next;
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     count = visible_view_count(scene);
-    rows = scene->visible_rows == 0U ? KU_UI_MAX_LINES : scene->visible_rows;
+    rows = scene->visible_rows == 0U ? KUI_MAX_VIEWS : scene->visible_rows;
     maximum = count > rows ? count - rows : 0U;
     next = (int64_t)scene->scroll_offset + (int64_t)delta;
     if (next < 0) next = 0;
@@ -252,6 +268,11 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
 
 ku_status_t kui_scene_select(kui_scene* scene, uint32_t id) {
     uint32_t index;
+    uint32_t visible_index = 0U;
+    uint32_t selected_position = 0U;
+    uint32_t visible_count;
+    uint32_t rows;
+    uint32_t maximum;
     kui_view* target;
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     target = find_view(scene, id);
@@ -261,6 +282,24 @@ ku_status_t kui_scene_select(kui_scene* scene, uint32_t id) {
     }
     target->flags |= KUI_VIEW_SELECTED;
     scene->selected_id = id;
+
+    /* Keep keyboard/pointer selection inside the transported viewport. */
+    for (index = 0U; index < scene->view_count; ++index) {
+        const kui_view* view = &scene->views[index];
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (view->id == id) selected_position = visible_index;
+        ++visible_index;
+    }
+    visible_count = visible_index;
+    rows = scene->visible_rows == 0U ? KUI_MAX_VIEWS : scene->visible_rows;
+    if (rows == 0U) rows = 1U;
+    maximum = visible_count > rows ? visible_count - rows : 0U;
+    if (scene->scroll_offset > maximum) scene->scroll_offset = maximum;
+    if (selected_position < scene->scroll_offset) {
+        scene->scroll_offset = selected_position;
+    } else if (selected_position >= scene->scroll_offset + rows) {
+        scene->scroll_offset = selected_position - rows + 1U;
+    }
     return KU_STATUS_OK;
 }
 
@@ -293,7 +332,8 @@ uint32_t kui_scene_selected(const kui_scene* scene) {
     return scene == (const kui_scene*)0 ? 0U : scene->selected_id;
 }
 
-ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
+static ku_status_t present_legacy_scene(
+    ku_window_t window, const kui_scene* scene) {
     ku_ui_frame frame;
     uint32_t index;
     uint32_t visible_index = 0U;
@@ -322,6 +362,46 @@ ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
         }
     }
     return kui_present(window, &frame);
+}
+
+ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
+    ku_ui_surface surface;
+    uint32_t index;
+    ku_status_t status;
+    if (scene == (const kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
+
+    memset(&surface, 0, sizeof(surface));
+    surface.structure_size = sizeof(surface);
+    surface.abi_version = KU_UI_ABI_VERSION;
+    surface.background_rgb = scene->background_rgb;
+    surface.foreground_rgb = scene->foreground_rgb;
+    surface.accent_rgb = scene->accent_rgb;
+    surface.widget_count = scene->view_count;
+    surface.scroll_offset = scene->scroll_offset;
+    surface.visible_rows = scene->visible_rows;
+    surface.selected_id = scene->selected_id;
+    surface.cursor = scene->cursor;
+
+    for (index = 0U; index < scene->view_count; ++index) {
+        const kui_view* source = &scene->views[index];
+        ku_ui_widget* destination = &surface.widgets[index];
+        destination->id = source->id;
+        destination->parent_id = source->parent_id;
+        destination->type = source->type;
+        destination->flags = source->flags;
+        destination->value = source->value;
+        destination->maximum = source->maximum;
+        destination->icon_id = source->icon_id;
+        (void)strlcpy(
+            destination->text, source->text, sizeof(destination->text));
+    }
+
+    status = ku_ui_present_surface(window, &surface);
+    if (status == KU_STATUS_NOT_SUPPORTED ||
+        status == KU_STATUS_VERSION_MISMATCH) {
+        return present_legacy_scene(window, scene);
+    }
+    return status;
 }
 
 void kui_flow_begin(kui_flow* flow, kui_scene* scene, uint32_t parent_id) {
@@ -377,4 +457,53 @@ ku_status_t kui_flow_separator(kui_flow* flow, uint32_t id) {
         ? KU_STATUS_INVALID_ARGUMENT
         : kui_scene_add(flow->scene, id, flow->parent_id,
             KUI_VIEW_SEPARATOR, "");
+}
+
+static ku_status_t flow_icon(
+    kui_flow* flow,
+    uint32_t id,
+    uint32_t type,
+    const char* text,
+    ku_icon_id_t icon_id) {
+    ku_status_t status;
+    if (flow == (kui_flow*)0) return KU_STATUS_INVALID_ARGUMENT;
+    status = kui_scene_add(flow->scene, id, flow->parent_id, type, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_icon(flow->scene, id, icon_id);
+}
+
+ku_status_t kui_flow_panel_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id) {
+    return flow_icon(flow, id, KUI_VIEW_PANEL, text, icon_id);
+}
+
+ku_status_t kui_flow_label_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id) {
+    return flow_icon(flow, id, KUI_VIEW_LABEL, text, icon_id);
+}
+
+ku_status_t kui_flow_button_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id) {
+    return flow_icon(flow, id, KUI_VIEW_BUTTON, text, icon_id);
+}
+
+ku_status_t kui_flow_input_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id) {
+    return flow_icon(flow, id, KUI_VIEW_INPUT, text, icon_id);
+}
+
+ku_status_t kui_flow_list_item_icon(
+    kui_flow* flow, uint32_t id, const char* text, ku_icon_id_t icon_id) {
+    return flow_icon(flow, id, KUI_VIEW_LIST_ITEM, text, icon_id);
+}
+
+ku_status_t kui_flow_progress_icon(
+    kui_flow* flow, uint32_t id, const char* text,
+    uint32_t value, uint32_t maximum, ku_icon_id_t icon_id) {
+    ku_status_t status;
+    if (flow == (kui_flow*)0) return KU_STATUS_INVALID_ARGUMENT;
+    status = kui_scene_add_progress(
+        flow->scene, id, flow->parent_id, text, value, maximum);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_icon(flow->scene, id, icon_id);
 }

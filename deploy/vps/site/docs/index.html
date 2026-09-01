@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080b0e">
+  <meta name="description" content="Dokumentacja techniczna KuroganeOS.">
+  <title>KuroganeOS Docs</title>
+  <link rel="stylesheet" href="https://kuroganeos.dev/assets/site.css">
+</head>
+<body class="docs-page">
+  <div class="noise" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="https://kuroganeos.dev/">
+      <span class="brand-mark">K</span>
+      <span><strong>KUROGANEOS DOCS</strong><small>BUILT IN STEEL. REFINED IN <em>FIRE.</em></small></span>
+    </a>
+    <nav aria-label="Dokumentacja">
+      <a href="#start">Start</a>
+      <a href="#architektura">Architektura</a>
+      <a href="#uruchamianie">Uruchamianie</a>
+      <a href="https://github.com/KrzysioYT/KuroganeOS">Kod</a>
+    </nav>
+    <span class="online"><i></i> DOCS ONLINE</span>
+  </header>
+
+  <main class="docs-shell" id="start">
+    <aside class="docs-nav">
+      <p class="eyebrow">DOCUMENTATION 5.0</p>
+      <a href="#start">Wprowadzenie</a>
+      <a href="#architektura">Architektura</a>
+      <a href="#sieć">Sieć i TLS</a>
+      <a href="#anvil">Anvil</a>
+      <a href="#kwalifikacja">Kwalifikacja</a>
+      <a href="#uruchamianie">QEMU / UEFI</a>
+      <a href="/source/BUILD.md">BUILD.md</a>
+      <a href="/source/NETWORKING.md">NETWORKING.md</a>
+      <a href="/source/TESTING.md">TESTING.md</a>
+    </aside>
+
+    <article class="docs-content">
+      <p class="eyebrow">OFFICIAL DEVELOPMENT DOCUMENTATION</p>
+      <h1>KuroganeOS 5.0</h1>
+      <p class="docs-lead">Niezależny system x86-64 uruchamiany przez UEFI. Własny kernel, procesy Ring-3, pulpit Forged Steel, storage, sieć i natywne aplikacje.</p>
+
+      <section class="doc-callout"><b>Status:</b> dokumentacja opisuje faktycznie zaimplementowany runtime. Funkcje rozwojowe są oznaczane wprost i nie są prezentowane jako gotowe.</section>
+
+      <section id="architektura">
+        <h2>Architektura</h2>
+        <div class="docs-grid">
+          <div><b>Firmware</b><span>UEFI + BOOTX64.EFI</span></div>
+          <div><b>Kernel</b><span>x86-64, VMM, scheduler, syscalle</span></div>
+          <div><b>Userspace</b><span>ELF64, Ring-3, IPC, VFS</span></div>
+          <div><b>Desktop</b><span>Forged Surface + WindowManager</span></div>
+        </div>
+        <p>System nie jest dystrybucją innego systemu operacyjnego. Obraz startuje własny kernel i własne aplikacje bez warstwy Linux/Windows/macOS w środku.</p>
+      </section>
+
+      <section id="sieć">
+        <h2>Sieć i TLS</h2>
+        <p>Stos obejmuje sterowniki E1000, PCnet i VirtIO-net oraz ARP, IPv4, ICMP, UDP, DHCP, DNS, TCP, HTTP i TLS 1.2. Walidacja certyfikatu, nazwy hosta i czasu RTC pozostaje fail-closed.</p>
+        <p>Oficjalny build używa przypiętego w repozytorium zestawu Mozilla CA. Nie importuje zaufania z systemu kompilującego.</p>
+      </section>
+
+      <section id="anvil">
+        <h2>Anvil Package Manager</h2>
+        <p>Repozytorium <code>https://repo.kuroganeos.dev/index.kuro</code> publikuje katalog pakietów. Anvil pobiera metadane, rozwiązuje zależności, weryfikuje SHA-256 i zapisuje pakiety przez VFS.</p>
+      </section>
+
+      <section id="kwalifikacja">
+        <h2>Kwalifikacja obrazu</h2>
+        <p>Pipeline wydania buduje ISO i IMG od zera, sprawdza strukturę nośników, uruchamia obraz przez OVMF oraz kwalifikuje osobne ścieżki E1000, PCnet i VirtIO-net. Testy runtime obejmują start kernela, PID 1, Ring-3, pulpit, VFS i sieć.</p>
+        <div class="docs-grid">
+          <div><b>ISO</b><span>20 kontroli struktury</span></div>
+          <div><b>OVMF</b><span>boot + framebuffer</span></div>
+          <div><b>Network</b><span>DHCP, DNS, TCP, HTTP</span></div>
+          <div><b>Trust</b><span>Mozilla CA, fail-closed TLS</span></div>
+        </div>
+        <p>Publiczne HTTPS dla domen KuroganeOS wymaga aktywnych rekordów DNS. Brak DNS jest raportowany jako błąd połączenia; aplikacje nie zastępują go fałszywym wynikiem.</p>
+      </section>
+
+      <section id="uruchamianie">
+        <h2>Uruchamianie obrazu</h2>
+        <ol class="docs-steps">
+          <li><span>01</span><div><b>Pobierz ISO lub IMG</b><p>Użyj oficjalnego katalogu i sprawdź SHA-256.</p></div></li>
+          <li><span>02</span><div><b>Włącz UEFI/OVMF</b><p>Dla QEMU użyj maszyny q35. Secure Boot pozostaje wyłączony.</p></div></li>
+          <li><span>03</span><div><b>Uruchom na pustym dysku testowym</b><p>To wydanie rozwojowe; nie kieruj instalatora na dysk z ważnymi danymi.</p></div></li>
+        </ol>
+        <div class="code-block"><code>qemu-system-x86_64 -machine q35 -m 2048 \
+  -drive if=pflash,format=raw,readonly=on,file=OVMF_CODE.fd \
+  -drive format=raw,file=KuroganeOS-3.3.3-dev-linux-qemu.img</code></div>
+      </section>
+    </article>
+  </main>
+
+  <footer>
+    <p>KuroganeOS Development Documentation</p>
+    <div><a href="https://kuroganeos.dev/">Portal</a><a href="https://downloads.kuroganeos.dev/">ISO</a><a href="https://github.com/KrzysioYT/KuroganeOS">GitHub</a></div>
+  </footer>
+</body>
+</html>

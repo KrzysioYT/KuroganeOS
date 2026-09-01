@@ -6,8 +6,8 @@ param(
     [switch]$Headless,
     [ValidateRange(1024, 65535)]
     [int]$GdbPort = 1234,
-    [ValidateRange(64, 4096)]
-    [int]$MemoryMiB = 256,
+    [ValidateRange(128, 4096)]
+    [int]$MemoryMiB = 1024,
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
     [string]$LogName = 'qemu-debug'
 )
@@ -40,14 +40,10 @@ $runnerParameters = @{
     MemoryMiB = $MemoryMiB
     LogName = $LogName
 }
-if ($Writable) {
-    $runnerParameters.WritableDiskImage = $true
-}
+if ($Writable) { $runnerParameters.WritableDiskImage = $true }
 if (-not [string]::IsNullOrWhiteSpace($ScratchDiskPath)) {
     $runnerParameters.WritableScratchDiskPath = $ScratchDiskPath
 }
-if ($Headless) {
-    $runnerParameters.Headless = $true
-}
+if ($Headless) { $runnerParameters.Headless = $true }
 
 & $Runner @runnerParameters

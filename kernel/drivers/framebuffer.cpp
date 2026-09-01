@@ -8,13 +8,18 @@ namespace {
 KuroganeFramebuffer g_framebuffer{};
 bool g_available = false;
 
-// Kurogane 3.1 software compositor surface. 1600x1200 covers the current QEMU
+// Kurogane 5 software compositor surface. 1600x1200 covers the current QEMU
 // development GOP modes while avoiding dependence on the small kernel heap.
 constexpr uint32_t kBackbufferWidth = 1600U;
 constexpr uint32_t kBackbufferHeight = 1200U;
 constexpr size_t kBackbufferPixels =
     static_cast<size_t>(kBackbufferWidth) * kBackbufferHeight;
 alignas(64) static uint32_t g_backbuffer[kBackbufferPixels];
+// Last frame that was actually presented to GOP. Comparing backbuffer against
+// this RAM shadow avoids reading emulated GOP/VRAM for every pixel on every
+// frame, which is especially expensive under QEMU TCG.
+alignas(64) static uint32_t g_front_shadow[kBackbufferPixels];
+bool g_front_shadow_valid = false;
 bool g_frame_active = false;
 
 struct ClipState {
@@ -60,6 +65,32 @@ constexpr Glyph kGlyphs[] = {
     {'X', {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11}},
     {'Y', {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04}},
     {'Z', {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F}},
+    {'a', {0x00, 0x0E, 0x01, 0x0F, 0x11, 0x13, 0x0D}},
+    {'b', {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x1E}},
+    {'c', {0x00, 0x0E, 0x10, 0x10, 0x10, 0x11, 0x0E}},
+    {'d', {0x01, 0x01, 0x0F, 0x11, 0x11, 0x11, 0x0F}},
+    {'e', {0x00, 0x0E, 0x11, 0x1F, 0x10, 0x11, 0x0E}},
+    {'f', {0x06, 0x08, 0x1E, 0x08, 0x08, 0x08, 0x08}},
+    {'g', {0x00, 0x0F, 0x11, 0x0F, 0x01, 0x11, 0x0E}},
+    {'h', {0x10, 0x10, 0x1E, 0x11, 0x11, 0x11, 0x11}},
+    {'i', {0x04, 0x00, 0x0C, 0x04, 0x04, 0x04, 0x0E}},
+    {'j', {0x02, 0x00, 0x06, 0x02, 0x02, 0x12, 0x0C}},
+    {'k', {0x10, 0x10, 0x12, 0x14, 0x18, 0x14, 0x12}},
+    {'l', {0x0C, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E}},
+    {'m', {0x00, 0x1A, 0x15, 0x15, 0x15, 0x15, 0x15}},
+    {'n', {0x00, 0x1E, 0x11, 0x11, 0x11, 0x11, 0x11}},
+    {'o', {0x00, 0x0E, 0x11, 0x11, 0x11, 0x11, 0x0E}},
+    {'p', {0x00, 0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10}},
+    {'q', {0x00, 0x0F, 0x11, 0x11, 0x0F, 0x01, 0x01}},
+    {'r', {0x00, 0x16, 0x19, 0x10, 0x10, 0x10, 0x10}},
+    {'s', {0x00, 0x0F, 0x10, 0x0E, 0x01, 0x01, 0x1E}},
+    {'t', {0x08, 0x08, 0x1E, 0x08, 0x08, 0x09, 0x06}},
+    {'u', {0x00, 0x11, 0x11, 0x11, 0x11, 0x13, 0x0D}},
+    {'v', {0x00, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04}},
+    {'w', {0x00, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A}},
+    {'x', {0x00, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x00}},
+    {'y', {0x00, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E}},
+    {'z', {0x00, 0x1F, 0x02, 0x04, 0x08, 0x10, 0x1F}},
     {'0', {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}},
     {'1', {0x04, 0x0C, 0x14, 0x04, 0x04, 0x04, 0x1F}},
     {'2', {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F}},
@@ -101,6 +132,15 @@ constexpr Glyph kGlyphs[] = {
     {'~', {0x00, 0x00, 0x09, 0x16, 0x00, 0x00, 0x00}},
 };
 
+constexpr Color kForgedObsidian = UINT32_C(0x090E0E);
+constexpr Color kForgedLegacyObsidian = UINT32_C(0x090A0C);
+constexpr Color kForgedSteel = UINT32_C(0x171C22);
+constexpr Color kForgedSteelEdge = UINT32_C(0x343B43);
+constexpr Color kForgedAsh = UINT32_C(0xA8AFB8);
+constexpr Color kForgedText = UINT32_C(0xE9EDF1);
+constexpr Color kForgedCrimson = UINT32_C(0xE62932);
+constexpr Color kForgedHotEdge = UINT32_C(0xFF4A45);
+
 uint32_t native_color(Color color) {
     if (g_framebuffer.pixel_format == KUROGANE_PIXEL_RGBX8) {
         return ((color & 0x0000FFu) << 16) |
@@ -110,10 +150,16 @@ uint32_t native_color(Color color) {
     return color;
 }
 
-const uint8_t* glyph_rows(char character) {
-    if (character >= 'a' && character <= 'z') {
-        character = static_cast<char>(character - ('a' - 'A'));
+Color logical_color(uint32_t color) {
+    if (g_framebuffer.pixel_format == KUROGANE_PIXEL_RGBX8) {
+        return ((color & UINT32_C(0x0000FF)) << 16U) |
+               (color & UINT32_C(0x00FF00)) |
+               ((color & UINT32_C(0xFF0000)) >> 16U);
     }
+    return color & UINT32_C(0x00FFFFFF);
+}
+
+const uint8_t* glyph_rows(char character) {
     for (const auto& glyph : kGlyphs) {
         if (glyph.character == character) return glyph.rows;
     }
@@ -160,11 +206,151 @@ void clip_edges(
         if (bottom > g_clip.bottom) bottom = g_clip.bottom;
     }
 }
+
+bool text_starts_with(const char* text, const char* prefix) {
+    if (text == nullptr || prefix == nullptr) return false;
+    while (*prefix != '\0') {
+        if (*text++ != *prefix++) return false;
+    }
+    return true;
+}
+
+bool forged_header(const char* text) {
+    return text_starts_with(text, "VAULT") ||
+        text_starts_with(text, "ANVIL") ||
+        text_starts_with(text, "FORGE") ||
+        text_starts_with(text, "KUROSH") ||
+        text_starts_with(text, "PULSE") ||
+        text_starts_with(text, "PERFORMANCE") ||
+        text_starts_with(text, "SYSTEM MONITOR") ||
+        text_starts_with(text, "KUROGANEOS") ||
+        text_starts_with(text, "ABOUT") ||
+        text_starts_with(text, "BLADE");
+}
+
+bool forged_background(Color background) {
+    const Color value = background & UINT32_C(0xFFFFFF);
+    return value == kForgedObsidian || value == kForgedLegacyObsidian;
+}
+
+int32_t forged_available_width(int32_t x) {
+    int32_t right = g_clip.enabled
+        ? g_clip.right
+        : static_cast<int32_t>(g_framebuffer.width);
+    if (right <= x + 16) return 0;
+    int32_t width = right - x - 8;
+    if (width > 680) width = 680;
+    return width;
+}
+
+void fill_chamfered(
+    int32_t x, int32_t y, int32_t width, int32_t height,
+    int32_t cut, Color color) {
+    if (width <= 0 || height <= 0) return;
+    if (cut < 0) cut = 0;
+    if (cut * 2 > height) cut = height / 2;
+    for (int32_t row = 0; row < height; ++row) {
+        int32_t inset = 0;
+        if (row < cut) inset = cut - row;
+        else if (row >= height - cut) inset = row - (height - cut - 1);
+        if (inset * 2 >= width) continue;
+        fill_rect(x + inset, y + row, width - inset * 2, 1, color);
+    }
+}
+
+void draw_text_plain(
+    int32_t x, int32_t y, const char* text, Color foreground,
+    Color background, uint32_t scale, bool transparent) {
+    if (!text || scale == 0U) return;
+    int64_t cursor_x = x;
+    int64_t cursor_y = y;
+    const int64_t line_advance = static_cast<uint64_t>(scale) * 8u;
+    const int64_t column_advance = static_cast<uint64_t>(scale) * 6u;
+    while (*text) {
+        if (*text == '\n') {
+            cursor_x = x;
+            cursor_y = cursor_y > INT64_MAX - line_advance
+                ? INT64_MAX : cursor_y + line_advance;
+        } else {
+            draw_char(saturate_i32(cursor_x), saturate_i32(cursor_y),
+                      *text, foreground, background, scale, transparent);
+            cursor_x = cursor_x > INT64_MAX - column_advance
+                ? INT64_MAX : cursor_x + column_advance;
+        }
+        ++text;
+    }
+}
+
+bool draw_forged_application_line(
+    int32_t x, int32_t y, const char* text, Color foreground,
+    Color background, uint32_t requested_scale, bool transparent) {
+    if (!text || !transparent || requested_scale < 2U ||
+        !forged_background(background) || !g_clip.enabled) {
+        return false;
+    }
+
+    const int32_t width = forged_available_width(x);
+    if (width < 96) return false;
+
+    const bool selected = text[0] == '>' && text[1] == ' ';
+    const bool nested = text[0] == ' ' && text[1] == ' ';
+    const bool separator = text_starts_with(text, "-----");
+    const bool header = forged_header(text);
+
+    if (separator) {
+        fill_rect(x + 2, y + 7, width - 4, 1, kForgedSteelEdge);
+        fill_rect(x + 2, y + 7, width > 86 ? 84 : width - 4, 1, kForgedCrimson);
+        return true;
+    }
+
+    if (header) {
+        const int32_t box_y = y - 4;
+        fill_chamfered(x, box_y, width, 20, 5, kForgedSteelEdge);
+        fill_chamfered(x + 1, box_y + 1, width - 2, 18, 4, kForgedSteel);
+        fill_rect(x + 8, box_y + 1, width > 112 ? 104 : width - 16, 1,
+                  kForgedHotEdge);
+        fill_rect(x + 5, box_y + 5, 2, 10, kForgedCrimson);
+        draw_text_plain(x + 14, y + 2, text, kForgedText,
+                        kForgedSteel, 1U, true);
+        return true;
+    }
+
+    if (selected || nested) {
+        const char* label = text + 2;
+        const int32_t card_x = x + (nested ? 7 : 2);
+        const int32_t card_width = width - (nested ? 12 : 4);
+        const int32_t box_y = y - 2;
+        const Color edge = selected ? kForgedHotEdge : kForgedSteelEdge;
+        const Color fill = selected ? UINT32_C(0x20262D) : kForgedSteel;
+        fill_chamfered(card_x, box_y, card_width, 19, 4, edge);
+        fill_chamfered(card_x + 1, box_y + 1, card_width - 2, 17, 3, fill);
+        if (selected) {
+            fill_rect(card_x + 4, box_y + 4, 3, 11, kForgedHotEdge);
+            fill_rect(card_x + 7, box_y + 6, 1, 7, kForgedCrimson);
+        } else {
+            fill_rect(card_x + 4, box_y + 6, 1, 7, kForgedCrimson);
+        }
+        draw_text_plain(card_x + 13, y + 3, label,
+                        selected ? kForgedText : kForgedAsh,
+                        fill, 1U, true);
+        return true;
+    }
+
+    // Root labels become compact steel typography instead of double-sized
+    // 5x7 text. This is deliberately scoped to Forged Steel application
+    // surfaces so browser/page rendering keeps its own typography choices.
+    draw_text_plain(x + 3, y + 3, text,
+                    (foreground & UINT32_C(0xFFFFFF)) == kForgedCrimson
+                        ? kForgedHotEdge : kForgedAsh,
+                    background, 1U, true);
+    return true;
+}
 } // namespace
 
 bool init(const KuroganeFramebuffer& framebuffer) {
     g_available = false;
     g_frame_active = false;
+    g_front_shadow_valid = false;
     g_clip = {};
     g_text_scale_limit = UINT32_MAX;
     if (!framebuffer.base || framebuffer.width == 0 ||
@@ -204,41 +390,54 @@ bool begin_frame() {
 void end_frame() {
     if (!g_available || !g_frame_active) return;
 
-    // Present only changed spans instead of copying the complete GOP frame on
-    // every userspace UI update. Animated widgets such as System Monitor's
-    // heartbeat used to force a full-screen row-by-row scanout once per
-    // sample, which is visibly expensive under QEMU/TCG and can look like a
-    // desktop flash. The compositor still renders a complete frame into the
-    // software backbuffer, but GOP receives only pixels that actually differ.
+    // Never compare against GOP/VRAM directly. Emulated framebuffer reads are
+    // disproportionately expensive under QEMU/TCG. The first compositor frame
+    // establishes a RAM shadow; later frames compare RAM-to-RAM and only write
+    // changed horizontal spans to GOP.
     auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
     const uint32_t frame_width = g_framebuffer.width;
+    const size_t row_bytes =
+        static_cast<size_t>(frame_width) * sizeof(uint32_t);
     for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
         auto* destination_row = reinterpret_cast<uint32_t*>(
             framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
         const auto* source_row = g_backbuffer +
             static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+        auto* shadow_row = g_front_shadow +
+            static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+
+        if (!g_front_shadow_valid) {
+            memcpy(destination_row, source_row, row_bytes);
+            memcpy(shadow_row, source_row, row_bytes);
+            continue;
+        }
 
         uint32_t first_changed = 0U;
         while (first_changed < frame_width &&
-               destination_row[first_changed] == source_row[first_changed]) {
+               shadow_row[first_changed] == source_row[first_changed]) {
             ++first_changed;
         }
         if (first_changed == frame_width) continue;
 
         uint32_t last_changed = frame_width;
         while (last_changed > first_changed &&
-               destination_row[last_changed - 1U] ==
-                   source_row[last_changed - 1U]) {
+               shadow_row[last_changed - 1U] == source_row[last_changed - 1U]) {
             --last_changed;
         }
 
         const size_t changed_pixels = static_cast<size_t>(
             last_changed - first_changed);
+        const size_t changed_bytes = changed_pixels * sizeof(uint32_t);
         memcpy(
             destination_row + first_changed,
             source_row + first_changed,
-            changed_pixels * sizeof(uint32_t));
+            changed_bytes);
+        memcpy(
+            shadow_row + first_changed,
+            source_row + first_changed,
+            changed_bytes);
     }
+    g_front_shadow_valid = true;
     g_frame_active = false;
     reset_clip();
     reset_text_scale_limit();
@@ -284,6 +483,32 @@ void put_pixel(int32_t x, int32_t y, Color color) {
     auto* row = reinterpret_cast<uint32_t*>(
         draw_base() + static_cast<size_t>(y) * draw_pitch());
     row[x] = native_color(color);
+}
+
+Color get_pixel(int32_t x, int32_t y) {
+    if (!g_available || x < 0 || y < 0 ||
+        x >= static_cast<int32_t>(g_framebuffer.width) ||
+        y >= static_cast<int32_t>(g_framebuffer.height)) return 0U;
+    const auto* row = reinterpret_cast<const uint32_t*>(
+        draw_base() + static_cast<size_t>(y) * draw_pitch());
+    return logical_color(row[x]);
+}
+
+void blend_pixel(int32_t x, int32_t y, Color color, uint8_t alpha) {
+    if (alpha == 0U) return;
+    if (alpha == UINT8_MAX) {
+        put_pixel(x, y, color);
+        return;
+    }
+    const Color background = get_pixel(x, y);
+    const uint32_t inverse = UINT32_C(255) - alpha;
+    const uint32_t red = (((color >> 16U) & UINT32_C(0xFF)) * alpha +
+                          ((background >> 16U) & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    const uint32_t green = (((color >> 8U) & UINT32_C(0xFF)) * alpha +
+                            ((background >> 8U) & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    const uint32_t blue = ((color & UINT32_C(0xFF)) * alpha +
+                           (background & UINT32_C(0xFF)) * inverse + 127U) / 255U;
+    put_pixel(x, y, (red << 16U) | (green << 8U) | blue);
 }
 
 void clear(Color color) {
@@ -370,25 +595,14 @@ void draw_char(int32_t x, int32_t y, char character, Color foreground,
 void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
                Color background, uint32_t scale, bool transparent) {
     if (!text) return;
+    const uint32_t requested_scale = scale;
     scale = effective_scale(scale);
     if (scale == 0U) return;
-    int64_t cursor_x = x;
-    int64_t cursor_y = y;
-    const int64_t line_advance = static_cast<uint64_t>(scale) * 8u;
-    const int64_t column_advance = static_cast<uint64_t>(scale) * 6u;
-    while (*text) {
-        if (*text == '\n') {
-            cursor_x = x;
-            cursor_y = cursor_y > INT64_MAX - line_advance
-                ? INT64_MAX : cursor_y + line_advance;
-        } else {
-            draw_char(saturate_i32(cursor_x), saturate_i32(cursor_y),
-                      *text, foreground, background, scale, transparent);
-            cursor_x = cursor_x > INT64_MAX - column_advance
-                ? INT64_MAX : cursor_x + column_advance;
-        }
-        ++text;
+    if (draw_forged_application_line(
+            x, y, text, foreground, background, requested_scale, transparent)) {
+        return;
     }
+    draw_text_plain(x, y, text, foreground, background, scale, transparent);
 }
 
 void scroll_up(uint32_t pixels, Color fill) {

@@ -43,8 +43,39 @@ int main() {
     if (!input::try_read(&event) || event.type != input::EventType::MouseWheel ||
         event.wheel != 1 || input::try_read(&event)) return 9;
 
+    /*
+     * Pointer motion is intentionally a latest-position stream. Consecutive
+     * motion packets must collapse to one event so a busy software desktop
+     * never spends frames replaying stale cursor positions. A button event is
+     * a semantic boundary and must prevent coalescing across the click.
+     */
+    if (!input::initialize(100U, 80U)) return 10;
+    const drivers::mouse::Sample move_a = {3, 2, 0, 0U, 0U};
+    const drivers::mouse::Sample move_b = {4, -1, 0, 0U, 0U};
+    if (!input::submit_mouse(move_a) || !input::submit_mouse(move_b) ||
+        input::pointer_x() != 56 || input::pointer_y() != 40 ||
+        input::pending_events() != 1U) return 11;
+    if (!input::try_read(&event) || event.type != input::EventType::MouseMove ||
+        event.x != 56 || event.y != 40 || event.delta_x != 4 ||
+        event.delta_y != -1 || input::try_read(&event)) return 12;
+
+    const drivers::mouse::Sample press = {
+        0, 0, 0, drivers::mouse::Left, drivers::mouse::Left
+    };
+    const drivers::mouse::Sample drag = {
+        2, 0, 0, drivers::mouse::Left, 0U
+    };
+    if (!input::submit_mouse(press) || !input::submit_mouse(drag) ||
+        input::pending_events() != 2U) return 13;
+    if (!input::try_read(&event) ||
+        event.type != input::EventType::MouseButtonDown ||
+        event.button != drivers::mouse::Left) return 14;
+    if (!input::try_read(&event) || event.type != input::EventType::MouseMove ||
+        event.x != 58 || event.y != 40 ||
+        event.buttons != drivers::mouse::Left || input::try_read(&event)) return 15;
+
     drivers::mouse::initialize_decoder(&decoder, false);
     if (drivers::mouse::decode_byte(&decoder, 0x00U, &sample) ||
-        decoder.position != 0U) return 10;
+        decoder.position != 0U) return 16;
     return 0;
 }

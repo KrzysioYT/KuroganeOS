@@ -10,7 +10,7 @@ headless=0
 shell_test=0
 safe_mode=0
 desktop_mode=0
-timeout=30
+timeout=90
 
 usage() {
     cat <<'EOF'
@@ -18,10 +18,10 @@ usage: run-qemu-img.sh [options] [IMAGE]
   --writable          attach the explicitly named IMAGE without a snapshot
   --scratch PATH      attach an existing separate writable SATA data disk
   --headless          disable the QEMU display
-  --shell-test        run the keyboard/shell integration scenario
+  --shell-test        run the current console/graphical integration scenario
   --safe              request safe mode
-  --desktop           request the experimental desktop mode
-  --timeout SECONDS   prompt/test timeout (default: 30)
+  --desktop           request desktop boot mode
+  --timeout SECONDS   integration timeout (default: 90)
 EOF
 }
 
@@ -30,39 +30,26 @@ while (($#)); do
         --writable) writable=1 ;;
         --scratch)
             (($# >= 2)) || { echo "--scratch requires a path" >&2; exit 2; }
-            scratch="$2"
-            shift
-            ;;
+            scratch="$2"; shift ;;
         --headless) headless=1 ;;
         --shell-test) shell_test=1 ;;
         --safe) safe_mode=1 ;;
         --desktop) desktop_mode=1 ;;
         --timeout)
             (($# >= 2)) || { echo "--timeout requires a value" >&2; exit 2; }
-            timeout="$2"
-            shift
-            ;;
+            timeout="$2"; shift ;;
         -h|--help) usage; exit 0 ;;
         --) shift; break ;;
         -*) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
         *)
-            ((image_explicit == 0)) || {
-                echo "only one system IMAGE may be selected" >&2
-                exit 2
-            }
-            image="$1"
-            image_explicit=1
-            ;;
+            ((image_explicit == 0)) || { echo "only one system IMAGE may be selected" >&2; exit 2; }
+            image="$1"; image_explicit=1 ;;
     esac
     shift
 done
 if (($#)); then
-    ((image_explicit == 0 && $# == 1)) || {
-        echo "only one system IMAGE may be selected" >&2
-        exit 2
-    }
-    image="$1"
-    image_explicit=1
+    ((image_explicit == 0 && $# == 1)) || { echo "only one system IMAGE may be selected" >&2; exit 2; }
+    image="$1"; image_explicit=1
 fi
 
 if [[ -z "$image" ]]; then
@@ -90,10 +77,7 @@ args=(-ImagePath "$(wslpath -w "$image")" -TimeoutSeconds "$timeout")
 ((safe_mode)) && args+=(-SafeMode)
 ((desktop_mode)) && args+=(-DesktopMode)
 if [[ -n "$scratch" ]]; then
-    [[ -f "$scratch" ]] || {
-        echo "scratch image not found: $scratch" >&2
-        exit 3
-    }
+    [[ -f "$scratch" ]] || { echo "scratch image not found: $scratch" >&2; exit 3; }
     scratch="$(realpath -e -- "$scratch")"
     args+=(-ScratchDiskPath "$(wslpath -w "$scratch")")
 fi

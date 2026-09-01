@@ -13,6 +13,8 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'assets/**'
+      - 'KuroganeOS_5.0_Icon_Pack_v2.zip'
       - '.gitmodules'
       - 'Makefile'
       - 'linker.ld'
@@ -29,6 +31,8 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - 'third_party/**'
+      - 'assets/**'
+      - 'KuroganeOS_5.0_Icon_Pack_v2.zip'
       - '.gitmodules'
       - 'Makefile'
       - 'linker.ld'
@@ -38,13 +42,14 @@ on:
 jobs:
   iso-qualification:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          lfs: true
 
       - name: Install build and UEFI test dependencies
         run: |
@@ -150,3 +155,54 @@ jobs:
             ${{ env.KUROGANE_ISO }}
             ${{ env.KUROGANE_IMG }}
             dist/SHA256SUMS.txt
+
+  runtime-screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Install build and screenshot dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf imagemagick \
+            mtools dosfstools gdisk xorriso
+
+      - name: Resolve KuroganeOS version
+        run: |
+          version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
+          test -n "$version"
+          echo "KUROGANE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "KUROGANE_LIVE_IMG=build/images/KuroganeOS-linux.img" >> "$GITHUB_ENV"
+
+      - name: Build real release runtime image
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s "$KUROGANE_LIVE_IMG"
+
+      - name: Capture real framebuffer states from QEMU
+        run: |
+          chmod +x scripts/capture-qemu-screenshots.sh
+          bash ./scripts/capture-qemu-screenshots.sh \
+            "$KUROGANE_LIVE_IMG" \
+            build/screenshots
+
+      - name: Publish real QEMU runtime screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuroganeos-${{ env.KUROGANE_VERSION }}-real-qemu-screenshots
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/screenshots/*.png
+            build/screenshots/serial.log
+            build/screenshots/qemu.log

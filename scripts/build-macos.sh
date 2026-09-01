@@ -67,6 +67,8 @@ for tool in "$cc" "$cxx" "$ld" "$ar" "$objcopy" "$readelf" python3 make; do
     }
 done
 
+python3 scripts/generate-gui-assets.py --check
+
 verify_x86_64_toolchain() {
     local probe_dir probe_src probe_obj
     probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-x86_64-probe.XXXXXX")"
@@ -170,12 +172,12 @@ KUROGANE_AR="$ar" \
 KUROGANE_READELF="$readelf" \
     bash "$root/scripts/build-sdk.sh"
 
-# The live IMG and the installer package must boot with the same Web PKI trust
-# set. Export only Apple's immutable SystemRootCertificates keychain into the
-# userspace overlay. build-foundation-image-macos.sh overlays it onto the live
-# root filesystem, while build-installer-macos.sh packages that exact overlay
-# into install.pkg when --iso is requested.
-bash "$root/scripts/export-macos-trust-store.sh" \
+# The live IMG and installer must be reproducible on every host. Use the
+# reviewed repository bundle rather than importing the macOS trust store.
+python3 "$root/scripts/verify-trust-store.py" \
+    "$root/rootfs/etc/ssl/certs.pem"
+mkdir -p "$root/build/userspace/rootfs/etc/ssl"
+cp "$root/rootfs/etc/ssl/certs.pem" \
     "$root/build/userspace/rootfs/etc/ssl/certs.pem"
 
 # User-built applications installed with build-app-macos.sh live in state/ so

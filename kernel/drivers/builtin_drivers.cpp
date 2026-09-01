@@ -95,19 +95,31 @@ KStatus display_attach(
     if (info.vendor_id != device.vendor_id || info.device_id != device.device_id) {
         return KStatus::NotSupported;
     }
-    log::write(
-        log::Level::Info,
-        "DISPLAY",
-        info.gop_scanout
-            ? "PCI display adapter + UEFI GOP scanout / software compositor ready"
-            : "PCI display adapter detected without active GOP scanout");
+    if (info.native_2d && info.virtio_gpu) {
+        log::write(
+            log::Level::Info,
+            "DISPLAY",
+            "VirtIO-GPU native control queue + display discovery ready");
+        log::write(
+            log::Level::Info,
+            "DISPLAY",
+            "UEFI GOP remains scanout while native 2D resource ownership is staged");
+    } else {
+        log::write(
+            log::Level::Info,
+            "DISPLAY",
+            info.gop_scanout
+                ? "PCI display adapter + UEFI GOP scanout / software compositor ready"
+                : "PCI display adapter detected without active GOP scanout");
+    }
     if (!info.accelerated_3d) {
         log::write(
             log::Level::Info,
             "DISPLAY",
-            "hardware 3D command submission is not enabled in 3.3.3-dev");
+            "hardware 3D command submission is not enabled yet");
     }
-    return info.gop_scanout ? KStatus::Ok : KStatus::NotSupported;
+    return info.gop_scanout || info.native_2d
+        ? KStatus::Ok : KStatus::NotSupported;
 }
 
 } // namespace

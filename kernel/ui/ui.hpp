@@ -2,6 +2,8 @@
 
 #include "../drivers/framebuffer.hpp"
 
+#include <kurogane/ui.h>
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,9 +37,13 @@ enum class DockIcon : uint8_t {
     Home = 0,
     Terminal,
     Files,
-    Monitor,
+    Performance,
+    Web,
+    SystemMonitor,
     Settings,
     About,
+    Anvil,
+    Pulse,
 };
 
 const Theme& default_theme();
@@ -50,6 +56,13 @@ void window(const Rect& bounds, const char* title);
 void flux_window(const Rect& bounds, const char* title, bool focused);
 void flux_control(const Rect& bounds, FluxControl control, bool active = false);
 void signal_spine(const Rect& bounds, size_t window_count, size_t focused_position);
+void blade_bar(const Rect& bounds);
+void blade_item(
+    const Rect& bounds,
+    DockIcon icon,
+    const char* label,
+    bool running,
+    bool focused);
 void dock_bar(const Rect& bounds, size_t running_count);
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused);
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized);
@@ -64,6 +77,8 @@ void label(const Rect& bounds, const char* text,
 void button(const Rect& bounds, const char* text, bool selected = false);
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum);
 void separator(int32_t x, int32_t y, int32_t width);
+void native_surface(
+    const Rect& bounds, const ku_ui_surface& surface, bool focused);
 
 // Legacy helper retained for old diagnostic surfaces.
 void taskbar(const char* status);

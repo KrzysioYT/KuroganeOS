@@ -28,6 +28,20 @@ enum class WindowState : uint8_t {
     Maximized,
 };
 
+enum class CursorHint : uint8_t {
+    Auto = 0,
+    Default,
+    Pointer,
+    Hand,
+    Text,
+    Working,
+    Busy,
+    Move,
+    Resize,
+    Help,
+    NotAllowed,
+};
+
 struct WindowInfo {
     WindowId id;
     ui::Rect bounds;
@@ -84,7 +98,9 @@ Status list(ListCallback callback, void* context);
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
+Status blade_item_geometry(size_t position, ui::Rect* out_bounds);
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds);
+Status set_content_cursor(WindowId id, CursorHint cursor);
 
 // Public syscall bridge for session-local desktop shortcuts. `action` uses the
 // KU_DESKTOP_PIN_* values from the SDK. Home is intentionally immutable and

@@ -7,10 +7,9 @@
  * Stable, desktop-neutral frontend API for KuroganeOS terminal applications.
  *
  * shell_core.h predates the userspace/desktop split and still carries legacy
- * flux_shell_* implementation identifiers internally.  Frontends must not
- * depend on those identifiers.  This boundary keeps the terminal/shell ABI
- * independent from Red Flux so the implementation can be renamed or replaced
- * without touching console and graphical terminal applications again.
+ * flux_shell_* implementation identifiers internally. Frontends must not
+ * depend on those identifiers. This boundary also adds the normal KuroganeOS
+ * /apps command lookup used by Anvil-installed utilities.
  */
 typedef flux_shell_emit_fn ku_shell_emit_fn;
 typedef flux_shell_io ku_shell_io;
@@ -47,10 +46,60 @@ static inline int ku_shell_history_next(
     return flux_shell_history_next(state, output, capacity);
 }
 
+static inline int ku_shell_reserved_command(const char* command) {
+    static const char* const reserved[] = {
+        "help", "clear", "version", "uname", "pid", "whoami", "status",
+        "history", "jobs", "wait", "pwd", "cd", "cat", "read", "which",
+        "apps", "run", "open", "hello", "external", "files", "monitor",
+        "about", "echo", "calc", "sleep", "yield", "true", "false", "exit",
+        "net", "ip", "ifconfig", "route", "arp", "ping", "nslookup",
+        "date", "uptime", "ls", "stat", "touch", "mkdir", "rmdir", "write",
+        "cp", "mv", "rm", "reboot", "poweroff", "shutdown", "mem", "free",
+        "tasks", "pci", "device", "driver", "diskinfo"
+    };
+    size_t index;
+    for (index = 0U; index < sizeof(reserved) / sizeof(reserved[0]); ++index) {
+        if (flux_shell_streq(command, reserved[index])) return 1;
+    }
+    return 0;
+}
+
+static inline int ku_shell_try_installed_app(
+    ku_shell_state* state,
+    const ku_shell_io* io,
+    const char* input_line) {
+    char command[FLUX_SHELL_LINE_CAPACITY];
+    char path[FLUX_SHELL_PATH_CAPACITY];
+    size_t length = 0U;
+
+    if (state == (ku_shell_state*)0 || input_line == (const char*)0) return 0;
+    while (input_line[length] == ' ' || input_line[length] == '\t') ++length;
+    input_line += length;
+    length = 0U;
+    while (input_line[length] != '\0' &&
+           input_line[length] != ' ' && input_line[length] != '\t') {
+        if (length + 1U >= sizeof(command)) return 0;
+        command[length] = input_line[length];
+        ++length;
+    }
+    command[length] = '\0';
+    if (length == 0U || input_line[length] != '\0' || command[0] == '/' ||
+        ku_shell_reserved_command(command)) return 0;
+    if (!flux_shell_root_path("/apps/", command, path, sizeof(path)) ||
+        !flux_shell_file_exists(path)) return 0;
+
+    flux_shell_remember_history(state, input_line);
+    (void)flux_shell_run_wait(state, io, path);
+    return 1;
+}
+
 static inline ku_shell_action ku_shell_execute(
     ku_shell_state* state,
     const ku_shell_io* io,
     const char* input_line) {
+    if (ku_shell_try_installed_app(state, io, input_line)) {
+        return KU_SHELL_ACTION_NONE;
+    }
     return flux_shell_execute(state, io, input_line);
 }
 

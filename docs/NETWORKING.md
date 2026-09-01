@@ -178,7 +178,14 @@ Trust store jest ładowany z:
 /etc/ssl/certs.pem
 ```
 
-Repozytorium zawiera rooty GTS używane przez pierwszy profil Web PKI.
+Repozytorium zawiera wersjonowany bundle Mozilla Web PKI. Linux, macOS i
+Windows używają dokładnie tego samego pliku; build nie importuje certyfikatów
+ani trust store hosta. Walidacja certyfikatu, nazwy hosta oraz czasu RTC
+pozostaje obowiązkowa i fail-closed.
+
+Pochodzenie i procedura aktualizacji są zapisane w
+`third_party/ca-bundle/README.md`. Build sprawdza składnię, rozmiar i liczbę
+rootów przez `scripts/verify-trust-store.py`.
 
 ### `x509_crt_parse error=...D9D2`
 

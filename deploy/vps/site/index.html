@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080b0e">
+  <meta name="description" content="KuroganeOS — niezależny system operacyjny x86-64, zbudowany od zera.">
+  <title>KuroganeOS — Built in Steel. Refined in Fire.</title>
+  <link rel="stylesheet" href="/assets/site.css">
+  <script defer src="/assets/site.js"></script>
+</head>
+<body>
+  <div class="noise" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="#top" aria-label="KuroganeOS — strona główna">
+      <span class="brand-mark">K</span>
+      <span><strong>KUROGANEOS</strong><small>BUILT IN STEEL. REFINED IN <em>FIRE.</em></small></span>
+    </a>
+    <nav aria-label="Główna nawigacja">
+      <a href="#system">System</a>
+      <a href="#galeria">Wygląd</a>
+      <a href="#pobierz">ISO</a>
+      <a href="https://docs.kuroganeos.dev/">Dokumentacja</a>
+    </nav>
+    <span class="online"><i></i> DEVELOPMENT ONLINE</span>
+  </header>
+
+  <main id="top">
+    <section class="hero shell-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">NATIVE X86-64 / UEFI / RING-3 USERSPACE</p>
+        <h1>System wykuty<br><span>od zera.</span></h1>
+        <p class="lead">KuroganeOS nie jest dystrybucją Linuksa. To własny kernel, bootloader UEFI, środowisko użytkownika, pulpit Forged Steel, sieć, przeglądarka i menedżer pakietów Anvil.</p>
+        <div class="actions">
+          <a class="button primary" href="#pobierz">Pobierz obraz systemu</a>
+          <a class="button" href="https://github.com/KrzysioYT/KuroganeOS">Zobacz kod źródłowy</a>
+        </div>
+        <ul class="hero-facts" aria-label="Najważniejsze informacje">
+          <li><b>UEFI</b><span>boot x86-64</span></li>
+          <li><b>ELF64</b><span>izolowane aplikacje</span></li>
+          <li><b>TLS</b><span>własny stos sieciowy</span></li>
+        </ul>
+      </div>
+      <figure class="hero-screen cut-corners">
+        <div class="screen-bar"><span>K SECURE ACCESS</span><span class="screen-state">RUNTIME CAPTURE</span></div>
+        <img src="/assets/screenshots/secure-access.png" alt="Ekran Secure Access uruchomionego KuroganeOS">
+        <figcaption>Rzeczywisty framebuffer z QEMU/OVMF, nie render strony.</figcaption>
+      </figure>
+    </section>
+
+    <section id="system" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">PLATFORM / CURRENT IMPLEMENTATION</p>
+        <h2>Pełny pion systemu</h2>
+        <p>Kod przechodzi od firmware do aplikacji bez pośrednictwa hostowego systemu operacyjnego.</p>
+      </div>
+      <div class="capability-grid">
+        <article><span>01</span><h3>Boot i kernel</h3><p>BOOTX64.EFI, pamięć wirtualna, przerwania, scheduler, procesy i syscalle.</p></article>
+        <article><span>02</span><h3>Forged Steel</h3><p>WindowManager, pulpit, focus, minimalizacja, dock, ikony i wejście PS/2.</p></article>
+        <article><span>03</span><h3>Storage</h3><p>AHCI, GPT, trwały FAT32/VFS, instalator oraz read/write/sync.</p></article>
+        <article><span>04</span><h3>Internet</h3><p>E1000, PCnet, VirtIO-net, DHCP, DNS, TCP, HTTP i rygorystyczny TLS 1.2.</p></article>
+        <article><span>05</span><h3>Anvil</h3><p>Katalog, zależności, SHA-256, instalacja i aktualizacja aplikacji w systemie.</p></article>
+        <article><span>06</span><h3>Grafika</h3><p>GOP, compositor programowy i kwalifikowana inicjalizacja VirtIO-GPU.</p></article>
+      </div>
+      <div class="qualification" aria-label="Zakres automatycznej kwalifikacji">
+        <div><i></i><b>OVMF</b><span>boot obrazu</span></div>
+        <div><i></i><b>ISO / IMG</b><span>struktura nośnika</span></div>
+        <div><i></i><b>E1000</b><span>DHCP · DNS · TCP</span></div>
+        <div><i></i><b>PCnet</b><span>ścieżka sieciowa</span></div>
+        <div><i></i><b>VirtIO-net</b><span>ścieżka sieciowa</span></div>
+      </div>
+      <div class="truth-note"><b>Uczciwy status:</b> kompletna zgodność Direct3D 9–12, Chromium/Blink, Wi-Fi, Bluetooth i szeroka kwalifikacja fizycznego sprzętu pozostają pracą rozwojową. Interfejs nie udaje backendów, których jeszcze nie ma.</div>
+    </section>
+
+    <section id="galeria" class="section gallery-section">
+      <div class="section-heading">
+        <p class="eyebrow">FORGED STEEL / REAL QEMU FRAMES</p>
+        <h2>Działający pulpit</h2>
+        <p>Poniższe kadry pochodzą z automatycznego uruchomienia bieżącej gałęzi w QEMU.</p>
+      </div>
+      <div class="gallery">
+        <figure class="gallery-wide"><img src="/assets/screenshots/blade-launcher.png" alt="Blade Launcher w KuroganeOS" loading="lazy"><figcaption><b>Blade Launcher</b><span>Uruchamianie i przypinanie aplikacji</span></figcaption></figure>
+        <figure><img src="/assets/screenshots/kurosh.png" alt="Terminal Kurosh" loading="lazy"><figcaption><b>Kurosh</b><span>Terminal Ring-3</span></figcaption></figure>
+        <figure><img src="/assets/screenshots/anvil.png" alt="Menedżer pakietów Anvil" loading="lazy"><figcaption><b>Anvil</b><span>Pakiety i zależności</span></figcaption></figure>
+        <figure><img src="/assets/screenshots/kurogane-web.png" alt="Przeglądarka Kurogane Web" loading="lazy"><figcaption><b>Kurogane Web</b><span>Natywne HTTP/HTTPS</span></figcaption></figure>
+        <figure><img src="/assets/screenshots/performance.png" alt="Monitor wydajności KuroganeOS" loading="lazy"><figcaption><b>Performance</b><span>Metryki systemu na żywo</span></figcaption></figure>
+      </div>
+    </section>
+
+    <section class="section design-reference">
+      <div class="section-heading">
+        <p class="eyebrow">DESIGN DIRECTION / TARGET</p>
+        <h2>Kierunek interfejsu 5.0</h2>
+        <p>Referencja definiuje stalową geometrię, czerń, grafit i czerwone akcenty. Funkcje trafiają do runtime dopiero razem z prawdziwym backendem.</p>
+      </div>
+      <figure class="reference-frame cut-corners"><img src="/assets/kuroganeos-design-reference.png" alt="Plansza referencyjna interfejsu KuroganeOS 5.0" loading="lazy"></figure>
+    </section>
+
+    <section id="pobierz" class="section download-section">
+      <div class="download-copy">
+        <p class="eyebrow">OFFICIAL DEVELOPMENT MEDIA</p>
+        <h2>Pobierz KuroganeOS</h2>
+        <p>Obrazy są publikowane z sumami SHA-256. Uruchamiaj je w UEFI/OVMF na pustym dysku testowym. Secure Boot pozostaje wyłączony.</p>
+      </div>
+      <div class="download-panel cut-corners" data-download-panel>
+        <div class="download-status"><i></i><span data-release-status>Sprawdzanie najnowszego obrazu…</span></div>
+        <h3 data-release-name>KuroganeOS Development Preview</h3>
+        <p data-release-meta>QEMU IMG + instalacyjne ISO x86-64</p>
+        <div class="download-actions" data-release-links>
+          <a class="button primary" href="https://downloads.kuroganeos.dev/">Otwórz katalog pobierania</a>
+          <a class="button" href="https://github.com/KrzysioYT/KuroganeOS/actions">Artefakty CI</a>
+        </div>
+        <code data-release-sha>SHA-256 publikowany wraz z każdym artefaktem</code>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand footer-brand"><span class="brand-mark">K</span><span><strong>KUROGANEOS</strong><small>INDEPENDENT SYSTEM SOFTWARE</small></span></div>
+    <p>Development preview · x86-64 · UEFI</p>
+    <div><a href="https://docs.kuroganeos.dev/">Docs</a><a href="https://repo.kuroganeos.dev/">Anvil repo</a><a href="https://github.com/KrzysioYT/KuroganeOS">GitHub</a></div>
+  </footer>
+</body>
+</html>

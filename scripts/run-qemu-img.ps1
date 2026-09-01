@@ -8,9 +8,9 @@ param(
     [switch]$SafeMode,
     [switch]$DesktopMode,
     [ValidateRange(1, 120)]
-    [int]$TimeoutSeconds = 30,
-    [ValidateRange(64, 4096)]
-    [int]$MemoryMiB = 256,
+    [int]$TimeoutSeconds = 45,
+    [ValidateRange(128, 4096)]
+    [int]$MemoryMiB = 1024,
     [ValidateRange(1024, 65535)]
     [int]$MonitorPort = 45454,
     [ValidatePattern('^[A-Za-z0-9._-]+$')]
@@ -47,29 +47,20 @@ $runnerParameters = @{
     MonitorPort = $MonitorPort
     LogName = $LogName
 }
-if ($Writable) {
-    $runnerParameters.WritableDiskImage = $true
-}
+if ($Writable) { $runnerParameters.WritableDiskImage = $true }
 if (-not [string]::IsNullOrWhiteSpace($ScratchDiskPath)) {
     $runnerParameters.WritableScratchDiskPath = $ScratchDiskPath
 }
-if ($Headless) {
-    $runnerParameters.Headless = $true
-}
-if ($ShellTest) {
-    $runnerParameters.ShellTest = $true
-}
-if ($SafeMode) {
-    $runnerParameters.SafeMode = $true
-}
-if ($DesktopMode) {
-    $runnerParameters.DesktopMode = $true
-}
+if ($Headless) { $runnerParameters.Headless = $true }
+if ($ShellTest) { $runnerParameters.ShellTest = $true }
+if ($SafeMode) { $runnerParameters.SafeMode = $true }
+if ($DesktopMode) { $runnerParameters.DesktopMode = $true }
 
-# A visible manual launch remains alive after reaching the prompt. Headless and
-# ShellTest invocations are bounded checks and stop automatically.
+# Visible manual runs are interactive sessions. Bounded headless/ShellTest runs
+# are owned by the caller and terminate after their verification condition.
 if (-not $Headless -and -not $ShellTest) {
     $runnerParameters.KeepRunning = $true
+    $runnerParameters.Display = $true
 }
 
 & $Runner @runnerParameters

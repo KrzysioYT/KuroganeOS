@@ -14,6 +14,7 @@
 
 #include "elf_loader.hpp"
 #include "console.hpp"
+#include "ui_window_adapter.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
 #include "../core/system_metrics.hpp"
@@ -30,11 +31,16 @@
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
 #include "../drivers/framebuffer.hpp"
+#include "../ui/forged_surface.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
 
 #define initialize legacy_initialize
+#define create_window create_ring3_window
+#define native_surface forged_surface
 #include "runtime_base.inc"
+#undef native_surface
+#undef create_window
 #undef initialize
 
 namespace user::runtime {

@@ -12,8 +12,10 @@ $ObjectDir = Join-Path $BuildDir 'obj'
 $LibraryDir = Join-Path $Sysroot 'usr\lib'
 $IncludeDir = Join-Path $Sysroot 'usr\include'
 $ExampleDir = Join-Path $BuildDir 'examples'
-$OverlayApps = Join-Path $RootDir 'build\userspace\rootfs\apps'
-$OverlayGui = Join-Path $RootDir 'build\userspace\rootfs\gui'
+$OverlayRoot = Join-Path $RootDir 'build\userspace\rootfs'
+$OverlayApps = Join-Path $OverlayRoot 'apps'
+$OverlayGui = Join-Path $OverlayRoot 'gui'
+$OverlayEtc = Join-Path $OverlayRoot 'etc'
 $CC = Join-Path $ToolDir 'x86_64-elf-gcc.exe'
 $CXX = Join-Path $ToolDir 'x86_64-elf-g++.exe'
 $AR = Join-Path $ToolDir 'x86_64-elf-ar.exe'
@@ -35,13 +37,18 @@ foreach ($tool in @($CC, $CXX, $AR, $READELF)) {
 if (Test-Path -LiteralPath $Sysroot) {
     Remove-Item -LiteralPath $Sysroot -Recurse -Force
 }
-foreach ($directory in @($IncludeDir, $LibraryDir, $ObjectDir, $ExampleDir)) {
+foreach ($directory in @($IncludeDir, $LibraryDir, $ObjectDir, $ExampleDir, $OverlayApps, $OverlayGui, $OverlayEtc)) {
     [System.IO.Directory]::CreateDirectory($directory) | Out-Null
 }
 Copy-Item -Path (Join-Path $RootDir 'sdk\include\*') `
     -Destination $IncludeDir -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $RootDir 'userspace\linker.ld') `
     -Destination (Join-Path $LibraryDir 'kurogane-user.ld') -Force
+
+$AnvilRepoHost = if ($env:ANVIL_REPO_HOST) { $env:ANVIL_REPO_HOST } else { 'repo.kuroganeos.dev' }
+$AnvilRepoBase = if ($null -ne $env:ANVIL_REPO_BASE) { $env:ANVIL_REPO_BASE } else { '' }
+@("HOST=$AnvilRepoHost", "BASE=$AnvilRepoBase") | Set-Content `
+    -LiteralPath (Join-Path $OverlayEtc 'anvil.cfg') -Encoding ascii
 
 $common = @(
     '-ffreestanding', '-fno-stack-protector', '-m64', '-mno-red-zone',
@@ -92,23 +99,21 @@ if (($header -join "`n") -notmatch 'Type:\s+EXEC' -or
     ($symbols -join "`n") -match '(?m)^\s*[1-9][0-9]*:\s+.*\bUND\b') {
     throw 'External SDK ELF failed ABI, W^X, or undefined-symbol validation.'
 }
-[System.IO.Directory]::CreateDirectory($OverlayApps) | Out-Null
 Copy-Item -LiteralPath $exampleElf -Destination (Join-Path $OverlayApps 'external') -Force
 
-# InstallName stays FAT 8.3 compatible because install.pkg still uses the
-# intentionally small short-name filesystem contract.
 $desktopApplications = @(
     @{ Name = 'login'; InstallName = 'login'; Source = 'userspace\gui\login\main.c' },
     @{ Name = 'launcher'; InstallName = 'launcher'; Source = 'userspace\gui\launcher\main.c' },
     @{ Name = 'terminal'; InstallName = 'terminal'; Source = 'userspace\gui\terminal\main.c' },
     @{ Name = 'files'; InstallName = 'files'; Source = 'userspace\gui\files\main.c' },
+    @{ Name = 'anvil'; InstallName = 'anvil'; Source = 'userspace\gui\anvil\main.c' },
+    @{ Name = 'pulse'; InstallName = 'pulse'; Source = 'userspace\gui\pulse\main.c' },
     @{ Name = 'sysmon'; InstallName = 'sysmon'; Source = 'userspace\gui\sysmon\main.c' },
     @{ Name = 'performance'; InstallName = 'perf'; Source = 'userspace\gui\performance\main.c' },
     @{ Name = 'browser'; InstallName = 'browser'; Source = 'userspace\gui\browser\main.c' },
     @{ Name = 'about'; InstallName = 'about'; Source = 'userspace\gui\about\main.c' },
     @{ Name = 'settings'; InstallName = 'settings'; Source = 'userspace\gui\settings\main.c' }
 )
-[System.IO.Directory]::CreateDirectory($OverlayGui) | Out-Null
 foreach ($application in $desktopApplications) {
     $name = [string]$application.Name
     $installName = [string]$application.InstallName
@@ -136,6 +141,7 @@ foreach ($application in $desktopApplications) {
     }
     Write-Host "[sdk] /gui/$installName"
 }
+Write-Host "[sdk] Anvil repo: https://$AnvilRepoHost$AnvilRepoBase/index.kuro"
 Write-Host "[sdk] sysroot: $Sysroot"
 Write-Host "[sdk] external ELF: $exampleElf"
 Write-Host '[sdk] crt0 + libc + libkurogane + libui + desktop apps: PASS'

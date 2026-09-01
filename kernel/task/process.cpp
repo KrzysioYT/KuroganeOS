@@ -273,7 +273,10 @@ Status spawn(const char* executable, ProcessId* pid) {
     }
     reap_orphan_zombies();
     size_t index = MAX_PROCESSES;
-    for (size_t candidate = 0U; candidate < MAX_PROCESSES; ++candidate) {
+    // Slot zero is permanently reserved for /system/init and the stable PID 1
+    // identity. Ordinary processes always allocate from slots 1..N, including
+    // boot probes that intentionally run before the real init process exists.
+    for (size_t candidate = 1U; candidate < MAX_PROCESSES; ++candidate) {
         if (g_slots[candidate].state == State::Empty) {
             index = candidate;
             break;

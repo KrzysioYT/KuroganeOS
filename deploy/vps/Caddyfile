@@ -1,0 +1,101 @@
+{
+    admin off
+}
+
+(common_headers) {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+}
+
+{$PORTAL_HOST} {
+    import common_headers
+
+    handle /healthz {
+        respond "kuroganeos portal ok\n" 200
+    }
+
+    handle /assets/kuroganeos-design-reference.png {
+        root * /srv/repository
+        rewrite * /Forged_Steel_GUI_Reference.png
+        file_server
+    }
+
+    handle {
+        root * /srv/site
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}
+
+{$WWW_HOST} {
+    import common_headers
+    redir https://{$PORTAL_HOST}{uri} permanent
+}
+
+{$DOCS_HOST} {
+    import common_headers
+
+    handle /healthz {
+        respond "kuroganeos docs ok\n" 200
+    }
+
+    handle_path /source/* {
+        root * /srv/source-docs
+        file_server
+    }
+
+    handle {
+        root * /srv/site/docs
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}
+
+{$PACKAGES_HOST} {
+    import common_headers
+    header Access-Control-Allow-Origin "*"
+    header Cache-Control "public, max-age=60"
+
+    handle /healthz {
+        respond "kuroganeos packages ok\n" 200
+    }
+
+    @gitmeta path /.git* /.github/*
+    handle @gitmeta {
+        respond 404
+    }
+
+    # Compatibility with older Anvil builds which still include the GitHub path.
+    handle_path /KrzysioYT/KuroganeOS-Packages/main/* {
+        root * /srv/packages
+        file_server
+    }
+
+    # Native Anvil mirror layout.
+    handle {
+        root * /srv/packages
+        file_server
+    }
+}
+
+{$DOWNLOADS_HOST} {
+    import common_headers
+    header Access-Control-Allow-Origin "*"
+    header Cache-Control "public, max-age=300"
+
+    handle /healthz {
+        respond "kuroganeos downloads ok\n" 200
+    }
+
+    @media path *.iso *.img *.zip
+    header @media Content-Disposition "attachment"
+
+    handle {
+        root * /srv/downloads
+        file_server browse
+    }
+}

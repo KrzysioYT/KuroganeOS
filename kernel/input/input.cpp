@@ -24,7 +24,28 @@ bool g_initialized = false;
 
 bool push(const Event& event) {
     if (!g_initialized) return false;
+
+    /*
+     * PS/2 mice can generate motion packets much faster than the software
+     * desktop needs to consume them. Keeping every intermediate MouseMove in
+     * the ring makes the visible cursor lag behind the physical device under
+     * QEMU because the compositor has to replay stale coordinates first.
+     *
+     * Consecutive motion events are safe to collapse: window dragging,
+     * resizing and the Ring-3 UI ABI all use the absolute x/y position. Never
+     * coalesce across a button/key/wheel event so ordering semantics stay
+     * intact.
+     */
     const uint16_t head = g_head;
+    if (event.type == EventType::MouseMove && head != g_tail) {
+        Event& previous = g_events[static_cast<uint16_t>(head - 1U) & QUEUE_MASK];
+        if (previous.type == EventType::MouseMove &&
+            previous.buttons == event.buttons) {
+            previous = event;
+            return true;
+        }
+    }
+
     if (static_cast<uint16_t>(head - g_tail) >= EVENT_QUEUE_CAPACITY) {
         ++g_dropped;
         return false;
