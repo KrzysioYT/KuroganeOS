@@ -390,7 +390,10 @@ int main(void) {
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (!profile.password_required) continue;
+        if (!profile.password_required) {
+            if (gui_key_activate(&event)) return start_session(window, &profile);
+            continue;
+        }
 
         if (event.key == KU_UI_KEY_BACKSPACE) {
             if (password_length != 0U) password[--password_length] = '\0';

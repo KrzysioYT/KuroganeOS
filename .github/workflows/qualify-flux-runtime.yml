@@ -5,6 +5,7 @@ on:
     branches:
       - gpt/road-to-15-consolidation
     paths:
+      - 'userspace/gui/login/**'
       - 'userspace/system/flux-surface-worker/**'
       - 'userspace/system/flux-crash-worker/**'
       - 'userspace/system/flux-surface-probe/**'

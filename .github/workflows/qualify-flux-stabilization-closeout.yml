@@ -6,6 +6,7 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - '.github/workflows/qualify-flux-stabilization-closeout.yml'
+      - 'userspace/gui/login/**'
   workflow_dispatch:
 
 permissions:
