@@ -2,13 +2,14 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
 media=""
 media_kind="iso"
 persistent_disk=false
+accel_model="tcg"
 timeout_seconds=60
 nic_model="none"
 audio_model="none"
@@ -32,6 +33,7 @@ while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
         --persistent-disk) persistent_disk=true; shift ;;
+        --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
@@ -82,6 +84,17 @@ fi
 case "$nic_model" in
     none|e1000|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
+esac
+case "$accel_model" in
+    tcg) cpu_model="max" ;;
+    kvm)
+        [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] || {
+            echo "--accel kvm requires read/write access to /dev/kvm" >&2
+            exit 1
+        }
+        cpu_model="host"
+        ;;
+    *) echo "invalid accelerator: $accel_model" >&2; usage ;;
 esac
 case "$audio_model" in
     none|ac97) ;;
@@ -403,8 +416,8 @@ else
 fi
 
 qemu-system-x86_64 \
-    -machine q35,accel=tcg \
-    -cpu max \
+    -machine "q35,accel=$accel_model" \
+    -cpu "$cpu_model" \
     -m 1024 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$firmware_code" \
     -drive if=pflash,format=raw,unit=1,file="$firmware_vars" \

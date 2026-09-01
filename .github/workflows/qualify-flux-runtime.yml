@@ -76,6 +76,7 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img \
             --disk \
+            --accel kvm \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
             --require-marker '[TEST] flux_session_owner: PASS' \
             --require-marker '[TEST] red_flux_login_to_desktop: PASS' \

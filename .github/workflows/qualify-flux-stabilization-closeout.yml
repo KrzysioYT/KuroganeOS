@@ -57,6 +57,7 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img \
             --disk \
+            --accel kvm \
             --require-marker '[TEST] flux_session_owner: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
             --timeout 240

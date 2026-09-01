@@ -40,6 +40,7 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img \
             --disk \
+            --accel kvm \
             --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
             --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 meta_l \
             --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 l \
