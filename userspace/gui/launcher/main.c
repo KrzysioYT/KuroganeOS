@@ -337,7 +337,7 @@ static void build_scene(kui_scene* scene) {
     }
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 15U;
+    scene->visible_rows = 16U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),

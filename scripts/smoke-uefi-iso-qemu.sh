@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -26,6 +26,11 @@ click_markers=()
 click_x=()
 click_y=()
 click_sent=()
+click_count_markers=()
+click_count_targets=()
+click_count_x=()
+click_count_y=()
+click_count_sent=()
 require_markers=()
 require_marker_count_markers=()
 require_marker_count_targets=()
@@ -61,6 +66,15 @@ while (($#)); do
             click_y+=("$4")
             click_sent+=(false)
             shift 4
+            ;;
+        --click-after-marker-count)
+            [[ $# -ge 5 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ && "$4" =~ ^[0-9]+$ && "$5" =~ ^[0-9]+$ ]] || usage
+            click_count_markers+=("$2")
+            click_count_targets+=("$3")
+            click_count_x+=("$4")
+            click_count_y+=("$5")
+            click_count_sent+=(false)
+            shift 5
             ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         --require-marker-count)
@@ -113,6 +127,12 @@ done
 for index in "${!click_markers[@]}"; do
     if (( click_x[index] > 4095 || click_y[index] > 4095 )); then
         echo "invalid QEMU click coordinate: ${click_x[$index]},${click_y[$index]}" >&2
+        exit 2
+    fi
+done
+for index in "${!click_count_markers[@]}"; do
+    if (( click_count_x[index] > 4095 || click_count_y[index] > 4095 )); then
+        echo "invalid QEMU click coordinate: ${click_count_x[$index]},${click_count_y[$index]}" >&2
         exit 2
     fi
 done
@@ -473,6 +493,18 @@ while ((SECONDS < deadline)); do
                 send_qemu_click "${click_x[$index]}" "${click_y[$index]}"
                 click_sent[$index]=true
                 echo "[uefi-qemu] clicked ${click_x[$index]},${click_y[$index]} after marker: $marker"
+            fi
+        done
+        for index in "${!click_count_markers[@]}"; do
+            if [[ "${click_count_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${click_count_markers[$index]}"
+            target="${click_count_targets[$index]}"
+            if (( $(marker_occurrences "$marker") >= target )); then
+                send_qemu_click "${click_count_x[$index]}" "${click_count_y[$index]}"
+                click_count_sent[$index]=true
+                echo "[uefi-qemu] clicked ${click_count_x[$index]},${click_count_y[$index]} after marker occurrence $target: $marker"
             fi
         done
         all_markers_ready=true

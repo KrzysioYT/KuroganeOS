@@ -71,6 +71,7 @@ assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
 assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
 assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
 assert "red_flux_tile_launcher: PASS" in launcher
+assert "scene->visible_rows = 16U" in launcher, "launcher: LOG OUT action is clipped"
 assert "kui_flow_metric" in launcher, "launcher: System Pulse metric cards missing"
 assert "ku_system_get_snapshot" in launcher, "launcher: live CPU/RAM/disk source missing"
 assert "ku_network_get_status" in launcher, "launcher: live network source missing"

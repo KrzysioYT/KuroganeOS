@@ -42,11 +42,9 @@ jobs:
             --disk \
             --accel kvm \
             --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
-            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 meta_l \
-            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 1 l \
+            --click-after-marker-count '[TEST] red_flux_home_surface: PASS' 1 282 554 \
             --send-key-after-marker-count '[TEST] live_login_profile: PASS' 2 ret \
-            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 2 meta_l \
-            --send-key-after-marker-count '[TEST] desktop_launcher_ring3: PASS' 2 l \
+            --click-after-marker-count '[TEST] red_flux_home_surface: PASS' 2 282 554 \
             --require-marker '[TEST] flux_session_owner: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
             --require-marker-count '[TEST] live_login_profile: PASS' 3 \
