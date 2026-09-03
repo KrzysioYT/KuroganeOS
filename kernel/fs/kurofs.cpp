@@ -12,6 +12,8 @@ constexpr size_t kInodeChecksumOffset = INODE_SIZE - sizeof(uint32_t);
 constexpr uint8_t kMagic[8] = {'K', 'U', 'R', 'O', 'F', 'S', '1', 0U};
 constexpr uint64_t kMinimumDataBlocks = 16U;
 constexpr uint64_t kBitsPerBitmapBlock = static_cast<uint64_t>(kSectorSize) * 8U;
+constexpr uint32_t kFreeInodeType = 0U;
+constexpr uint32_t kInodeTombstoneFlag = UINT32_C(1) << 31U;
 
 uint32_t load_u32(const uint8_t* bytes) {
     return static_cast<uint32_t>(bytes[0]) |
@@ -42,6 +44,14 @@ void store_u64(uint8_t* bytes, uint64_t value) {
 
 void clear_bytes(uint8_t* bytes, size_t size) {
     for (size_t index = 0U; index < size; ++index) bytes[index] = 0U;
+}
+
+bool all_zero(const uint8_t* bytes, size_t size) {
+    if (bytes == nullptr) return false;
+    for (size_t index = 0U; index < size; ++index) {
+        if (bytes[index] != 0U) return false;
+    }
+    return true;
 }
 
 uint32_t crc32(const uint8_t* bytes, size_t size) {
@@ -236,8 +246,41 @@ void encode_inode(const Inode& inode, uint8_t* bytes) {
     store_u32(bytes + kInodeChecksumOffset, crc32(bytes, kInodeChecksumOffset));
 }
 
+void encode_free_inode(uint64_t inode_id, uint32_t generation, uint8_t* bytes) {
+    clear_bytes(bytes, INODE_SIZE);
+    store_u64(bytes + 0U, inode_id);
+    store_u32(bytes + 8U, kFreeInodeType);
+    store_u32(bytes + 12U, kInodeTombstoneFlag);
+    store_u32(bytes + 44U, generation);
+    store_u32(bytes + kInodeChecksumOffset, crc32(bytes, kInodeChecksumOffset));
+}
+
+bool decode_free_inode(
+    const uint8_t* bytes, uint64_t expected_id, uint32_t* out_generation) {
+    if (bytes == nullptr || out_generation == nullptr) return false;
+    if (all_zero(bytes, INODE_SIZE)) {
+        *out_generation = 1U;
+        return true;
+    }
+    if (load_u32(bytes + kInodeChecksumOffset) !=
+        crc32(bytes, kInodeChecksumOffset)) return false;
+    const uint32_t generation = load_u32(bytes + 44U);
+    if (load_u64(bytes + 0U) != expected_id ||
+        load_u32(bytes + 8U) != kFreeInodeType ||
+        load_u32(bytes + 12U) != kInodeTombstoneFlag ||
+        load_u64(bytes + 16U) != 0U || load_u64(bytes + 24U) != 0U ||
+        load_u64(bytes + 32U) != 0U || load_u32(bytes + 40U) != 0U ||
+        generation == 0U || load_u32(bytes + 48U) != 0U) return false;
+    *out_generation = generation;
+    return true;
+}
+
 Status decode_inode(const uint8_t* bytes, uint64_t expected_id, Inode* output) {
     if (bytes == nullptr || output == nullptr) return Status::InvalidArgument;
+    uint32_t free_generation = 0U;
+    if (decode_free_inode(bytes, expected_id, &free_generation)) {
+        return Status::NotFound;
+    }
     if (load_u32(bytes + kInodeChecksumOffset) != crc32(bytes, kInodeChecksumOffset)) {
         return Status::InvalidRootInode;
     }
@@ -333,14 +376,6 @@ Status read_superblock_copy(
     const Status read_status = read_one(device, block, sector);
     if (read_status != Status::Ok) return read_status;
     return decode_superblock(sector, device, output);
-}
-
-bool all_zero(const uint8_t* bytes, size_t size) {
-    if (bytes == nullptr) return false;
-    for (size_t index = 0U; index < size; ++index) {
-        if (bytes[index] != 0U) return false;
-    }
-    return true;
 }
 
 Status find_free_extent(
@@ -699,6 +734,34 @@ Status require_current_snapshot(
     return Status::Ok;
 }
 
+Status retire_inode(FileSystem* filesystem, const Inode& snapshot) {
+    Inode current{};
+    Status status = require_current_snapshot(filesystem, &snapshot, &current);
+    if (status != Status::Ok) return status;
+    if (current.id == ROOT_INODE || current.link_count != 1U) {
+        return Status::InvalidArgument;
+    }
+    if (current.type == InodeType::Directory && current.size != 0U) {
+        return Status::DirectoryNotEmpty;
+    }
+    if (current.generation == UINT32_MAX) return Status::ArithmeticOverflow;
+
+    uint64_t table_block = 0U;
+    size_t offset = 0U;
+    status = locate_inode(filesystem, current.id, &table_block, &offset);
+    if (status != Status::Ok) return status;
+    uint8_t sector[kSectorSize]{};
+    status = read_one(filesystem->device, table_block, sector);
+    if (status != Status::Ok) return status;
+    encode_free_inode(current.id, current.generation + 1U, sector + offset);
+    status = write_one(filesystem->device, table_block, sector);
+    if (status != Status::Ok) return status;
+    status = block_status(storage::block::flush(filesystem->device));
+    if (status != Status::Ok || current.extent_blocks == 0U) return status;
+    return release_extent(
+        filesystem, current.extent_start, current.extent_blocks);
+}
+
 void encode_directory_entry(
     const char* name, size_t name_length, const Inode& child, uint8_t* record) {
     clear_bytes(record, DIRECTORY_ENTRY_SIZE);
@@ -905,7 +968,9 @@ Status allocate_inode(
                 (relative_block * kSectorSize + offset) / INODE_SIZE + 1U;
             if (inode_id == ROOT_INODE) continue;
             if (inode_id > filesystem->geometry.inode_count) return Status::NoSpace;
-            if (!all_zero(sector + offset, INODE_SIZE)) continue;
+            uint32_t generation = 0U;
+            if (!decode_free_inode(
+                    sector + offset, inode_id, &generation)) continue;
             Inode inode{};
             inode.id = inode_id;
             inode.type = type;
@@ -914,7 +979,7 @@ Status allocate_inode(
             inode.extent_start = 0U;
             inode.extent_blocks = 0U;
             inode.link_count = 1U;
-            inode.generation = 1U;
+            inode.generation = generation;
             inode.revision = 1U;
             encode_inode(inode, sector + offset);
             status = write_one(filesystem->device, table_block, sector);
@@ -1326,6 +1391,98 @@ Status directory_append(
     return Status::Ok;
 }
 
+Status directory_remove(
+    FileSystem* filesystem, Inode* directory, const char* name) {
+    if (filesystem == nullptr || directory == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    size_t name_length = 0U;
+    Status status = parse_directory_name(name, &name_length);
+    if (status != Status::Ok) return status;
+
+    Inode current{};
+    status = require_current_snapshot(filesystem, directory, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Directory) return Status::NotDirectory;
+    if ((current.size % DIRECTORY_ENTRY_SIZE) != 0U) {
+        return Status::CorruptDirectory;
+    }
+
+    const uint64_t entry_count = current.size / DIRECTORY_ENTRY_SIZE;
+    uint64_t removed_index = UINT64_MAX;
+    DirectoryEntry removed_entry{};
+    for (uint64_t index = 0U; index < entry_count; ++index) {
+        DirectoryEntry entry{};
+        status = directory_entry_at(filesystem, &current, index, &entry);
+        if (status != Status::Ok) return status;
+        if (same_name(entry, name, name_length)) {
+            removed_index = index;
+            removed_entry = entry;
+            break;
+        }
+    }
+    if (removed_index == UINT64_MAX) return Status::NotFound;
+
+    Inode child{};
+    status = read_inode(filesystem, removed_entry.inode_id, &child);
+    if (status != Status::Ok || child.generation != removed_entry.inode_generation ||
+        child.type != removed_entry.type) return Status::CorruptDirectory;
+    if (child.type == InodeType::Directory && child.size != 0U) {
+        return Status::DirectoryNotEmpty;
+    }
+
+    const uint64_t new_size = current.size - DIRECTORY_ENTRY_SIZE;
+    const uint64_t new_blocks = divide_round_up(new_size, kSectorSize);
+    uint64_t new_extent = 0U;
+    if (new_blocks != 0U) {
+        status = allocate_blocks(filesystem, new_blocks, &new_extent);
+        if (status != Status::Ok) return status;
+        uint64_t output_index = 0U;
+        for (uint64_t index = 0U; index < entry_count; ++index) {
+            if (index == removed_index) continue;
+            DirectoryEntry verified{};
+            status = directory_entry_at(filesystem, &current, index, &verified);
+            if (status != Status::Ok) return status;
+            static_cast<void>(verified);
+
+            uint64_t source_offset = 0U;
+            uint64_t destination_offset = 0U;
+            if (!multiply_u64(index, DIRECTORY_ENTRY_SIZE, &source_offset) ||
+                !multiply_u64(
+                    output_index, DIRECTORY_ENTRY_SIZE, &destination_offset)) {
+                return Status::ArithmeticOverflow;
+            }
+            uint8_t record[DIRECTORY_ENTRY_SIZE]{};
+            size_t read = 0U;
+            status = read_inode_data(
+                filesystem, &current, source_offset,
+                record, sizeof(record), &read);
+            if (status != Status::Ok) return status;
+            if (read != sizeof(record)) return Status::CorruptDirectory;
+            status = write_extent_data(
+                filesystem, new_extent, new_blocks, destination_offset,
+                record, sizeof(record));
+            if (status != Status::Ok) return status;
+            ++output_index;
+        }
+    }
+
+    Inode candidate = current;
+    candidate.size = new_size;
+    candidate.extent_start = new_extent;
+    candidate.extent_blocks = new_blocks;
+    status = update_inode(filesystem, &candidate);
+    if (status != Status::Ok) return status;
+    *directory = candidate;
+
+    status = retire_inode(filesystem, child);
+    if (status != Status::Ok) return status;
+    if (current.extent_blocks == 0U) return Status::Ok;
+    return release_extent(
+        filesystem, current.extent_start, current.extent_blocks);
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
@@ -1343,6 +1500,7 @@ const char* status_message(Status status) {
         case Status::NotFound: return "KuroFS entry not found";
         case Status::AlreadyExists: return "KuroFS entry already exists";
         case Status::NotDirectory: return "KuroFS inode is not a directory";
+        case Status::DirectoryNotEmpty: return "KuroFS directory is not empty";
         case Status::NameTooLong: return "KuroFS name too long";
         case Status::CorruptDirectory: return "corrupt KuroFS directory";
         case Status::NoSpace: return "no free KuroFS space";

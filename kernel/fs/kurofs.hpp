@@ -32,6 +32,7 @@ enum class Status : uint8_t {
     NotFound,
     AlreadyExists,
     NotDirectory,
+    DirectoryNotEmpty,
     NameTooLong,
     CorruptDirectory,
     NoSpace,
@@ -161,6 +162,11 @@ Status directory_lookup(
 Status directory_append(
     FileSystem* filesystem, Inode* directory,
     const char* name, uint64_t child_inode_id);
+// Remove one name and retire its single-link inode. Directory contents are
+// replaced copy-on-write before the child tombstone is published. Non-empty
+// directories are refused until recursive removal is explicitly implemented.
+Status directory_remove(
+    FileSystem* filesystem, Inode* directory, const char* name);
 
 const char* status_message(Status status);
 

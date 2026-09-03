@@ -22,6 +22,7 @@ vfs::Status map_status(kurofs::Status status) {
         case kurofs::Status::NotFound: return vfs::Status::NotFound;
         case kurofs::Status::AlreadyExists: return vfs::Status::AlreadyExists;
         case kurofs::Status::NotDirectory: return vfs::Status::NotDirectory;
+        case kurofs::Status::DirectoryNotEmpty: return vfs::Status::DirectoryNotEmpty;
         case kurofs::Status::NameTooLong: return vfs::Status::NameTooLong;
         case kurofs::Status::NoSpace: return vfs::Status::NoSpace;
         case kurofs::Status::BlockDeviceError: return vfs::Status::IoError;

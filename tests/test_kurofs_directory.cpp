@@ -112,6 +112,62 @@ int main() {
                 ordinal.inode_id == children[index], "ordinal readdir record")) return 1;
     }
 
+    Inode stale_remove_root = root2;
+    Inode removed_child{};
+    if (!ok(read_inode(&remounted, children[4], &removed_child) == Status::Ok,
+            "read child before unlink")) return 1;
+    const uint32_t removed_generation = removed_child.generation;
+    if (!ok(directory_remove(&remounted, &root2, "entry4") == Status::Ok &&
+            root2.size == 6U * DIRECTORY_ENTRY_SIZE,
+            "copy-on-write unlink")) return 1;
+    if (!ok(directory_lookup(&remounted, &root2, "entry4", &found) == Status::NotFound,
+            "removed name no longer resolves")) return 1;
+    DirectoryEntry shifted{};
+    if (!ok(directory_entry_at(&remounted, &root2, 4U, &shifted) == Status::Ok &&
+            std::strcmp(shifted.name, "entry5") == 0,
+            "unlink compacts following records")) return 1;
+    Inode retired{};
+    if (!ok(read_inode(&remounted, children[4], &retired) == Status::NotFound,
+            "unlinked inode is retired")) return 1;
+    if (!ok(directory_remove(&remounted, &stale_remove_root, "entry0") == Status::StaleInode,
+            "stale directory snapshot cannot unlink")) return 1;
+    if (!ok(directory_remove(&remounted, &root2, "missing") == Status::NotFound,
+            "missing unlink is non-mutating")) return 1;
+
+    uint64_t reused_inode_id = 0U;
+    if (!ok(allocate_inode(&remounted, InodeType::Regular, &reused_inode_id) == Status::Ok &&
+            reused_inode_id == children[4],
+            "allocator reuses retired inode slot")) return 1;
+    Inode reused_inode{};
+    if (!ok(read_inode(&remounted, reused_inode_id, &reused_inode) == Status::Ok &&
+            reused_inode.generation == removed_generation + 1U,
+            "reused inode advances incarnation generation")) return 1;
+    uint64_t reclaimed_unlink_extents = 0U;
+    if (!ok(allocate_blocks(&remounted, 3U, &reclaimed_unlink_extents) == Status::Ok &&
+            reclaimed_unlink_extents == remounted.geometry.data_start,
+            "unlink reclaims child and superseded directory extents")) return 1;
+
+    Inode nonempty{};
+    if (!ok(read_inode(&remounted, children[1], &nonempty) == Status::Ok,
+            "read directory child")) return 1;
+    uint64_t grandchild = 0U;
+    if (!ok(allocate_inode(&remounted, InodeType::Regular, &grandchild) == Status::Ok &&
+            directory_append(&remounted, &nonempty, "nested", grandchild) == Status::Ok,
+            "create non-empty directory fixture")) return 1;
+    const uint32_t root_revision_before_refusal = root2.revision;
+    if (!ok(directory_remove(&remounted, &root2, "entry1") ==
+                Status::DirectoryNotEmpty &&
+            root2.revision == root_revision_before_refusal,
+            "refuse unlink of non-empty directory")) return 1;
+
+    FileSystem removed_mount{};
+    Inode removed_root{};
+    if (!ok(mount(&removed_mount, &device) == Status::Ok &&
+            read_inode(&removed_mount, ROOT_INODE, &removed_root) == Status::Ok &&
+            directory_lookup(&removed_mount, &removed_root, "entry4", &found) ==
+                Status::NotFound,
+            "unlink and compaction survive remount")) return 1;
+
     const uint64_t corrupt_offset = root2.extent_start * S + 20U;
     bytes[corrupt_offset] ^= 0x01U;
     DirectoryEntry corrupt{};
