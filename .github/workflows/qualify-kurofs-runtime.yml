@@ -1,0 +1,133 @@
+name: Qualify 4.0 KuroFS Runtime
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-kurofs-runtime.yml'
+      - 'kernel/fs/kurofs.cpp'
+      - 'kernel/fs/kurofs.hpp'
+      - 'kernel/fs/kurofs_vfs.cpp'
+      - 'kernel/fs/kurofs_vfs.hpp'
+      - 'kernel/fs/kurofs_volume.cpp'
+      - 'kernel/fs/kurofs_volume.hpp'
+      - 'kernel/fs/root_volume.cpp'
+      - 'kernel/fs/root_volume.hpp'
+      - 'kernel/main.cpp'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/qualify-kurofs-runtime.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tools/kurofs-image.cpp'
+      - 'userspace/system/kurofs-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'sdk/include/kurogane/filesystem.h'
+      - 'tests/test_kurofs*.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-two-boot:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact tested SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify native qualification host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run full host regression suite
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Inject qualification-only Ring-3 launch
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] userspace_init_pid1: PASS\\n");\n'
+          launch = anchor + (
+              '\n'
+              '    const ku_result_t kurofs_probe_pid = u_spawn("/system/kfsprb");\n'
+              '    if (kurofs_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] kurofs_runtime: FAIL code=90\\n");\n'
+              '        ku_exit(43);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'KuroFS init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, launch, 1))
+
+      - name: Validate probe and qualification patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'userspace/system/kurofs-probe/main.c|system/kfsprb|c' scripts/build-linux.sh
+          grep -F 'u_spawn("/system/kfsprb")' userspace/system/init/main.c
+          grep -F 'ku_file_mkdir(' userspace/system/kurofs-probe/main.c
+          grep -F 'ku_file_rename(' userspace/system/kurofs-probe/main.c
+          grep -F 'ku_file_sync()' userspace/system/kurofs-probe/main.c
+          grep -F '[TEST] kurofs_runtime_first_boot: PASS' userspace/system/kurofs-probe/main.c
+          grep -F '[TEST] kurofs_runtime_second_boot: PASS' userspace/system/kurofs-probe/main.c
+          bash -n scripts/qualify-kurofs-runtime.sh
+
+      - name: Build clean release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/userspace/rootfs/system/kfsprb
+          test -s build/install.pkg
+          test -s dist/SHA256SUMS.txt
+          readelf -hW build/userspace/rootfs/system/kfsprb | grep -Eq 'Type:[[:space:]]+EXEC'
+
+      - name: Create explicit raw KuroFS qualification disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/qualification
+          g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tools/kurofs-image.cpp kernel/fs/kurofs.cpp \
+            -o build/qualification/kurofs-image
+          truncate -s 32M build/qualification/kurofs-runtime.img
+          build/qualification/kurofs-image build/qualification/kurofs-runtime.img
+          test "$(stat -c %s build/qualification/kurofs-runtime.img)" -eq 33554432
+          sha256sum build/qualification/kurofs-runtime.img
+
+      - name: Qualify native KuroFS persistence across two VM boots
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash ./scripts/qualify-kurofs-runtime.sh \
+            build/images/KuroganeOS-linux.img \
+            build/qualification/kurofs-runtime.img
+
+      - name: Upload KuroFS runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kurofs-native-two-boot-${{ github.sha }}
+          path: build/kurofs-runtime-evidence
+          if-no-files-found: warn
