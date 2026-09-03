@@ -142,6 +142,16 @@ Status read_inode_data(
     size_t capacity,
     size_t* out_read);
 
+// Publication-atomic regular-file write. The complete resulting file is
+// prepared in a replacement extent and made visible by one revision-checked
+// inode publication; the previous extent is reclaimed only afterwards.
+Status write_inode_data(
+    FileSystem* filesystem,
+    Inode* inode,
+    uint64_t offset,
+    const void* source,
+    size_t size);
+
 // Resize a regular file while preserving its current contents. Growth exposes
 // zero-filled bytes and first tries to extend the contiguous extent in place.
 // Shrink publishes the smaller inode before releasing trailing bitmap blocks,

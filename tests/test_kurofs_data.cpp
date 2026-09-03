@@ -262,6 +262,71 @@ int main() {
     if (!expect(read_inode_data(&remounted, &stale_read, 0U, output, sizeof(output), &read) == Status::StaleInode,
                 "reject stale read snapshot")) return 1;
 
+    if (!expect(format(&device, 16U) == Status::Ok,
+                "reformat copy-on-write write fixture")) return 1;
+    FileSystem write_fs{};
+    if (!expect(mount(&write_fs, &device) == Status::Ok,
+                "mount copy-on-write write fixture")) return 1;
+    uint64_t write_inode_id = 0U;
+    if (!expect(allocate_inode(
+                    &write_fs, InodeType::Regular, &write_inode_id) == Status::Ok,
+                "allocate copy-on-write file")) return 1;
+    Inode write_inode{};
+    if (!expect(read_inode(&write_fs, write_inode_id, &write_inode) == Status::Ok,
+                "read copy-on-write file")) return 1;
+    static const uint8_t sparse_payload[] = {'A', 'B', 'C'};
+    if (!expect(write_inode_data(
+                    &write_fs, &write_inode, 100U,
+                    sparse_payload, sizeof(sparse_payload)) == Status::Ok &&
+                write_inode.size == 103U && write_inode.extent_blocks == 1U,
+                "publish sparse copy-on-write write")) return 1;
+    uint8_t sparse_output[103]{};
+    read = 0U;
+    if (!expect(read_inode_data(
+                    &write_fs, &write_inode, 0U,
+                    sparse_output, sizeof(sparse_output), &read) == Status::Ok &&
+                read == sizeof(sparse_output) &&
+                std::memcmp(sparse_output + 100U, sparse_payload,
+                            sizeof(sparse_payload)) == 0,
+                "read sparse copy-on-write result")) return 1;
+    for (size_t index = 0U; index < 100U; ++index) {
+        if (!expect(sparse_output[index] == 0U,
+                    "sparse gap must be zero-filled")) return 1;
+    }
+
+    const uint64_t first_write_extent = write_inode.extent_start;
+    Inode stale_write = write_inode;
+    static const uint8_t replacement = 'z';
+    if (!expect(write_inode_data(
+                    &write_fs, &write_inode, 101U,
+                    &replacement, sizeof(replacement)) == Status::Ok &&
+                write_inode.extent_start != first_write_extent &&
+                write_inode.size == sizeof(sparse_output),
+                "copy-on-write overwrite relocates before publication")) return 1;
+    if (!expect(write_inode_data(
+                    &write_fs, &stale_write, 0U,
+                    &replacement, sizeof(replacement)) == Status::StaleInode,
+                "reject stale copy-on-write writer")) return 1;
+    uint64_t reclaimed_write_extent = 0U;
+    if (!expect(allocate_blocks(&write_fs, 1U, &reclaimed_write_extent) == Status::Ok &&
+                reclaimed_write_extent == first_write_extent,
+                "copy-on-write write reclaims prior extent")) return 1;
+    FileSystem write_remount{};
+    Inode persisted_write{};
+    std::memset(sparse_output, 0, sizeof(sparse_output));
+    if (!expect(mount(&write_remount, &device) == Status::Ok &&
+                read_inode(&write_remount, write_inode_id, &persisted_write) == Status::Ok &&
+                persisted_write.size == sizeof(sparse_output),
+                "copy-on-write write survives remount")) return 1;
+    read = 0U;
+    if (!expect(read_inode_data(
+                    &write_remount, &persisted_write, 0U,
+                    sparse_output, sizeof(sparse_output), &read) == Status::Ok &&
+                read == sizeof(sparse_output) &&
+                sparse_output[100] == 'A' && sparse_output[101] == 'z' &&
+                sparse_output[102] == 'C',
+                "overwritten payload survives remount")) return 1;
+
     std::puts("KuroFS inode/data persistence tests passed");
     return 0;
 }

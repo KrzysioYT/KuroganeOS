@@ -1127,6 +1127,83 @@ Status read_inode_data(
     return Status::Ok;
 }
 
+Status write_inode_data(
+    FileSystem* filesystem,
+    Inode* inode,
+    uint64_t offset,
+    const void* source,
+    size_t size) {
+    if (filesystem == nullptr || inode == nullptr ||
+        (source == nullptr && size != 0U)) return Status::InvalidArgument;
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    Inode current{};
+    Status status = require_current_snapshot(filesystem, inode, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Regular) return Status::InvalidArgument;
+    status = validate_inode_extent(filesystem, current);
+    if (status != Status::Ok || size == 0U) return status;
+
+    uint64_t end = 0U;
+    if (!add_u64(offset, static_cast<uint64_t>(size), &end)) {
+        return Status::ArithmeticOverflow;
+    }
+    const uint64_t resulting_size = end > current.size ? end : current.size;
+    const uint64_t replacement_blocks =
+        divide_round_up(resulting_size, kSectorSize);
+    const uint64_t available_blocks = filesystem->geometry.total_blocks -
+        filesystem->geometry.data_start;
+    if (replacement_blocks == 0U || replacement_blocks > available_blocks) {
+        return Status::NoSpace;
+    }
+
+    uint64_t replacement_extent = 0U;
+    status = allocate_blocks(
+        filesystem, replacement_blocks, &replacement_extent);
+    if (status != Status::Ok) return status;
+
+    const auto abandon_replacement = [&](Status failure) {
+        const Status cleanup = release_extent(
+            filesystem, replacement_extent, replacement_blocks);
+        return cleanup == Status::Ok ? failure : cleanup;
+    };
+
+    uint64_t copied = 0U;
+    while (copied < current.size) {
+        uint8_t chunk[kSectorSize]{};
+        const uint64_t remaining = current.size - copied;
+        const size_t wanted = remaining < kSectorSize
+            ? static_cast<size_t>(remaining) : kSectorSize;
+        size_t read = 0U;
+        status = read_inode_data(
+            filesystem, &current, copied, chunk, wanted, &read);
+        if (status != Status::Ok) return abandon_replacement(status);
+        if (read != wanted) {
+            return abandon_replacement(Status::InvalidExtent);
+        }
+        status = write_extent_data(
+            filesystem, replacement_extent, replacement_blocks,
+            copied, chunk, read);
+        if (status != Status::Ok) return abandon_replacement(status);
+        copied += static_cast<uint64_t>(read);
+    }
+    status = write_extent_data(
+        filesystem, replacement_extent, replacement_blocks,
+        offset, source, size);
+    if (status != Status::Ok) return abandon_replacement(status);
+
+    Inode candidate = current;
+    candidate.size = resulting_size;
+    candidate.extent_start = replacement_extent;
+    candidate.extent_blocks = replacement_blocks;
+    status = update_inode(filesystem, &candidate);
+    if (status != Status::Ok) return abandon_replacement(status);
+    *inode = candidate;
+    if (current.extent_blocks == 0U) return Status::Ok;
+    return release_extent(
+        filesystem, current.extent_start, current.extent_blocks);
+}
+
 Status resize_inode(
     FileSystem* filesystem, Inode* inode, uint64_t new_size) {
     if (filesystem == nullptr || inode == nullptr) return Status::InvalidArgument;
