@@ -10,6 +10,13 @@ import shutil
 import struct
 import tempfile
 
+QUALIFICATION_ONLY_OUTPUTS = {
+    "system/audprb",
+    "system/audxcli",
+    "system/audownx",
+    "system/apprgprb",
+}
+
 
 def load_builder(root: pathlib.Path):
     module_path = root / "scripts" / "build-install-package.py"
@@ -45,7 +52,11 @@ def production_outputs(root: pathlib.Path) -> list[str]:
     pattern = re.compile(
         r'^\s*"[^|]+\|[^|]+\|([^|]+)\|(?:asm|c)"\s*$', re.MULTILINE
     )
-    outputs = [match.group(1) for match in pattern.finditer(build[start:end])]
+    outputs = [
+        match.group(1)
+        for match in pattern.finditer(build[start:end])
+        if match.group(1) not in QUALIFICATION_ONLY_OUTPUTS
+    ]
     sdk = (root / "scripts" / "build-sdk.sh").read_text(encoding="utf-8")
     sdk_start = sdk.find("declare -a gui_specs=(")
     sdk_end = sdk.find("\n)\n", sdk_start)
@@ -176,8 +187,8 @@ def main() -> int:
             "long.mnf",
         ):
             (qualification_root / "apps" / "appman" / name).write_bytes(b"fixture")
-        for name in ("audprb", "audxcli", "audownx", "apprgprb"):
-            (overlay / "system" / name).write_bytes(b"ELF")
+        for output in sorted(QUALIFICATION_ONLY_OUTPUTS):
+            (overlay / output).write_bytes(b"ELF")
         records, replacements = builder.collect_install_records(
             b"EFI", b"KERNEL", qualification_root, overlay
         )
