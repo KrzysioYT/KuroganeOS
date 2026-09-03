@@ -214,17 +214,55 @@ int main() {
                 "create nested file through VFS")) return 1;
     if (!expect(vfs::rename(
                     &state, &context, "/kuro/new", "/kuro/live/new") ==
-                    vfs::Status::Unsupported,
-                "cross-directory KuroFS rename remains explicit")) return 1;
-    if (!expect(vfs::rename(
-                    &state, &context, "/kuro/new", "/kuro/forged") ==
                     vfs::Status::Ok,
-                "same-directory rename through VFS")) return 1;
+                "cross-directory KuroFS file move")) return 1;
+    if (!expect(vfs::stat(&state, &context, "/kuro/new", &info) ==
+                    vfs::Status::NotFound &&
+                vfs::stat(&state, &context, "/kuro/live/new", &info) ==
+                    vfs::Status::Ok && info.size == sizeof(sparse),
+                "moved file has one live owner")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context, "/kuro/live/new", "/kuro/forged") ==
+                    vfs::Status::Ok,
+                "cross-directory move back through VFS")) return 1;
     if (!expect(vfs::stat(&state, &context, "/kuro/new", &info) ==
                     vfs::Status::NotFound &&
                 vfs::stat(&state, &context, "/kuro/forged", &info) ==
                     vfs::Status::Ok && info.size == sizeof(sparse),
                 "renamed file has durable size")) return 1;
+    if (!expect(vfs::mkdir(&state, &context, "/kuro/moving") == vfs::Status::Ok &&
+                vfs::mkdir(&state, &context, "/kuro/moving/leaf") == vfs::Status::Ok &&
+                vfs::rename(
+                    &state, &context, "/kuro/moving", "/kuro/live/moved") ==
+                    vfs::Status::Ok,
+                "move non-empty directory through VFS")) return 1;
+    if (!expect(vfs::stat(
+                    &state, &context, "/kuro/live/moved/leaf", &info) ==
+                    vfs::Status::Ok && info.type == vfs::NodeType::Directory,
+                "moved directory preserves descendants")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context,
+                    "/kuro/live", "/kuro/live/moved/loop") ==
+                    vfs::Status::InvalidArgument,
+                "reject directory move below itself")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context,
+                    "/kuro/live/moved", "/kuro/moving") == vfs::Status::Ok &&
+                vfs::rmdir(&state, &context, "/kuro/moving/leaf") ==
+                    vfs::Status::Ok &&
+                vfs::rmdir(&state, &context, "/kuro/moving") ==
+                    vfs::Status::Ok,
+                "move directory back and remove it")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context, "/kuro/live/item", "/kuro/forged") ==
+                    vfs::Status::AlreadyExists &&
+                vfs::rename(
+                    &state, &context, "/kuro/live/item", "/kuro/missing/item") ==
+                    vfs::Status::NotFound &&
+                vfs::rename(
+                    &state, &context, "/kuro/live/item", "/kuro/forged/item") ==
+                    vfs::Status::NotDirectory,
+                "cross-directory move validates destination")) return 1;
     if (!expect(vfs::unlink(&state, &context, "/kuro/live") ==
                     vfs::Status::IsDirectory,
                 "unlink rejects a directory")) return 1;

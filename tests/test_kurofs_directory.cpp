@@ -191,6 +191,55 @@ int main() {
                 Status::StaleInode,
             "stale directory snapshot cannot rename")) return 1;
 
+    Inode move_destination{};
+    if (!ok(read_inode(&remounted, children[3], &move_destination) == Status::Ok,
+            "read cross-directory move destination")) return 1;
+    Inode stale_move_source = root2;
+    Inode stale_move_destination = move_destination;
+    const uint32_t source_revision_before_move = root2.revision;
+    const uint32_t destination_revision_before_move = move_destination.revision;
+    if (!ok(directory_move(
+                &remounted, &root2, "entry1",
+                &move_destination, "branch") == Status::Ok &&
+            root2.revision == source_revision_before_move + 1U &&
+            move_destination.revision == destination_revision_before_move + 1U,
+            "transactional cross-directory move")) return 1;
+    DirectoryEntry moved_branch{};
+    if (!ok(directory_lookup(&remounted, &root2, "entry1", &found) ==
+                Status::NotFound &&
+            directory_lookup(
+                &remounted, &move_destination,
+                "branch", &moved_branch) == Status::Ok &&
+            moved_branch.inode_id == children[1] &&
+            moved_branch.inode_generation == nonempty.generation,
+            "cross-directory move preserves one child identity")) return 1;
+    if (!ok(directory_move(
+                &remounted, &root2, "entry0",
+                &move_destination, "branch") == Status::AlreadyExists,
+            "cross-directory move rejects collision")) return 1;
+    if (!ok(directory_move(
+                &remounted, &root2, "missing",
+                &move_destination, "unused") == Status::NotFound,
+            "cross-directory move rejects missing source")) return 1;
+    if (!ok(directory_move(
+                &remounted, &stale_move_source, "entry0",
+                &move_destination, "unused") == Status::StaleInode,
+            "cross-directory move rejects stale source")) return 1;
+    if (!ok(directory_move(
+                &remounted, &root2, "entry0",
+                &stale_move_destination, "unused") == Status::StaleInode,
+            "cross-directory move rejects stale destination")) return 1;
+    Inode moved_directory{};
+    if (!ok(read_inode(&remounted, children[1], &moved_directory) == Status::Ok &&
+            directory_move(
+                &remounted, &root2, "entry3",
+                &moved_directory, "loop") == Status::WouldCreateCycle,
+            "cross-directory move rejects descendant cycle")) return 1;
+    if (!ok(directory_move(
+                &remounted, &move_destination, "branch",
+                &move_destination, "branch") == Status::Ok,
+            "same-path directory move is a non-mutating success")) return 1;
+
     FileSystem removed_mount{};
     Inode removed_root{};
     if (!ok(mount(&removed_mount, &device) == Status::Ok &&
@@ -200,8 +249,18 @@ int main() {
             directory_lookup(&removed_mount, &removed_root, "entry5", &found) ==
                 Status::NotFound &&
             directory_lookup(&removed_mount, &removed_root, "renamed", &renamed) ==
-                Status::Ok,
-            "unlink and rename survive remount")) return 1;
+                Status::Ok &&
+            directory_lookup(&removed_mount, &removed_root, "entry1", &found) ==
+                Status::NotFound,
+            "unlink, rename and move survive remount")) return 1;
+    Inode remounted_destination{};
+    if (!ok(read_inode(&removed_mount, children[3], &remounted_destination) ==
+                Status::Ok &&
+            directory_lookup(
+                &removed_mount, &remounted_destination,
+                "branch", &moved_branch) == Status::Ok &&
+            moved_branch.inode_id == children[1],
+            "cross-directory destination survives remount")) return 1;
 
     const uint64_t corrupt_offset = root2.extent_start * S + 20U;
     bytes[corrupt_offset] ^= 0x01U;

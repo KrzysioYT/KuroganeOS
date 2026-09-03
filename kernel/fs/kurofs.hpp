@@ -13,6 +13,7 @@ constexpr uint32_t INODE_SIZE = 128U;
 constexpr uint64_t ROOT_INODE = 1U;
 constexpr uint32_t DEFAULT_INODE_COUNT = 1024U;
 constexpr uint64_t FEATURE_NONE = 0U;
+constexpr uint64_t FEATURE_MOVE_INTENT = UINT64_C(1) << 0U;
 constexpr uint32_t DIRECTORY_ENTRY_SIZE = 128U;
 constexpr size_t MAX_DIRECTORY_NAME = 63U;
 
@@ -33,6 +34,7 @@ enum class Status : uint8_t {
     AlreadyExists,
     NotDirectory,
     DirectoryNotEmpty,
+    WouldCreateCycle,
     NameTooLong,
     CorruptDirectory,
     NoSpace,
@@ -193,6 +195,17 @@ Status directory_rename(
     Inode* directory,
     const char* old_name,
     const char* new_name);
+// Move one entry between distinct parents. Replacement directory images are
+// durable before a redundant superblock intent is published. Mount either
+// aborts an unpublished intent or completes a partially published move, so an
+// interrupted operation never exposes a mounted namespace with zero or two
+// owners for the child. Both caller snapshots advance on committed success.
+Status directory_move(
+    FileSystem* filesystem,
+    Inode* source_directory,
+    const char* source_name,
+    Inode* destination_directory,
+    const char* destination_name);
 
 const char* status_message(Status status);
 

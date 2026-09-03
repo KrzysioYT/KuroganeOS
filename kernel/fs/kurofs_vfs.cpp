@@ -23,6 +23,7 @@ vfs::Status map_status(kurofs::Status status) {
         case kurofs::Status::AlreadyExists: return vfs::Status::AlreadyExists;
         case kurofs::Status::NotDirectory: return vfs::Status::NotDirectory;
         case kurofs::Status::DirectoryNotEmpty: return vfs::Status::DirectoryNotEmpty;
+        case kurofs::Status::WouldCreateCycle: return vfs::Status::InvalidArgument;
         case kurofs::Status::NameTooLong: return vfs::Status::NameTooLong;
         case kurofs::Status::NoSpace: return vfs::Status::NoSpace;
         case kurofs::Status::BlockDeviceError: return vfs::Status::IoError;
@@ -407,13 +408,10 @@ vfs::Status rename_node(
     ParentTarget destination{};
     status = resolve_parent(adapter, destination_path, &destination);
     if (status != vfs::Status::Ok) return status;
-    if (source.parent.id != destination.parent.id ||
-        source.parent.generation != destination.parent.generation) {
-        return vfs::Status::Unsupported;
-    }
-    return map_status(kurofs::directory_rename(
-        adapter->filesystem, &source.parent,
-        source.name, destination.name));
+    return map_status(kurofs::directory_move(
+        adapter->filesystem,
+        &source.parent, source.name,
+        &destination.parent, destination.name));
 }
 
 vfs::Status sync_filesystem(void* context) {
