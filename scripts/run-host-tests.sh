@@ -108,6 +108,15 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_consistency"
 
+# Persist and normalize explicit pending/live/orphan/tombstoned inode states.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_ownership.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_ownership"
+
+"$OUT_DIR/test_kurofs_ownership"
+
 # Bind an explicitly formatted raw KuroFS disk through the production adapter
 # without ever formatting unknown media implicitly.
 "$HOST_CXX" \

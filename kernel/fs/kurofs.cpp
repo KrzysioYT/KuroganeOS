@@ -14,6 +14,8 @@ constexpr uint64_t kMinimumDataBlocks = 16U;
 constexpr uint64_t kBitsPerBitmapBlock = static_cast<uint64_t>(kSectorSize) * 8U;
 constexpr uint32_t kFreeInodeType = 0U;
 constexpr uint32_t kInodeTombstoneFlag = UINT32_C(1) << 31U;
+constexpr uint64_t kSupportedFeatures =
+    FEATURE_MOVE_INTENT | FEATURE_INODE_OWNERSHIP;
 constexpr size_t kMoveIntentOffset = 96U;
 constexpr uint32_t kMoveIntentVersion = 1U;
 constexpr uint32_t kMoveIntentSize = 160U;
@@ -83,6 +85,11 @@ bool all_zero(const uint8_t* bytes, size_t size) {
         if (bytes[index] != 0U) return false;
     }
     return true;
+}
+
+bool valid_inode_ownership_flags(uint32_t flags) {
+    return flags == 0U || flags == INODE_FLAG_PENDING ||
+        flags == INODE_FLAG_ORPHAN;
 }
 
 uint32_t crc32(const uint8_t* bytes, size_t size) {
@@ -194,7 +201,7 @@ Status calculate_geometry(
     output->allocation_bitmap_blocks = bitmap_blocks;
     output->data_start = data_start;
     output->root_inode = ROOT_INODE;
-    output->feature_flags = FEATURE_MOVE_INTENT;
+    output->feature_flags = kSupportedFeatures;
     return Status::Ok;
 }
 
@@ -266,7 +273,7 @@ Status validate_geometry(const Geometry& geometry, const storage::block::Device*
         geometry.inode_count == 0U || geometry.inode_size != INODE_SIZE ||
         geometry.inode_table_start != kInodeTableStart ||
         geometry.root_inode != ROOT_INODE || geometry.generation == 0U ||
-        (geometry.feature_flags & ~FEATURE_MOVE_INTENT) != 0U) {
+        (geometry.feature_flags & ~kSupportedFeatures) != 0U) {
         return Status::InvalidGeometry;
     }
     uint64_t inode_bytes = 0U;
@@ -1164,6 +1171,39 @@ Status find_unique_parent(
     return Status::Ok;
 }
 
+Status inode_reaches_root(
+    FileSystem* filesystem,
+    uint64_t inode_id,
+    bool* output) {
+    if (filesystem == nullptr || output == nullptr || inode_id == 0U ||
+        inode_id > static_cast<uint64_t>(filesystem->geometry.inode_count)) {
+        return Status::InvalidArgument;
+    }
+    if (inode_id == ROOT_INODE) {
+        *output = true;
+        return Status::Ok;
+    }
+
+    uint64_t current = inode_id;
+    for (uint64_t depth = 0U;
+         depth < static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++depth) {
+        uint64_t parent = 0U;
+        const Status status = find_unique_parent(filesystem, current, &parent);
+        if (status == Status::NotFound) {
+            *output = false;
+            return Status::Ok;
+        }
+        if (status != Status::Ok) return status;
+        if (parent == ROOT_INODE) {
+            *output = true;
+            return Status::Ok;
+        }
+        current = parent;
+    }
+    return Status::CorruptDirectory;
+}
+
 Status destination_creates_cycle(
     FileSystem* filesystem,
     uint64_t moved_directory_id,
@@ -1223,8 +1263,12 @@ Status write_superblock_pair(
     return block_status(storage::block::flush(filesystem->device));
 }
 
-Status ensure_move_intent_feature(FileSystem* filesystem) {
-    if ((filesystem->geometry.feature_flags & FEATURE_MOVE_INTENT) != 0U) {
+Status ensure_feature(FileSystem* filesystem, uint64_t feature) {
+    if (filesystem == nullptr || feature == 0U ||
+        (feature & ~kSupportedFeatures) != 0U) {
+        return Status::InvalidArgument;
+    }
+    if ((filesystem->geometry.feature_flags & feature) == feature) {
         return Status::Ok;
     }
     if (filesystem->geometry.generation == UINT64_MAX) {
@@ -1232,13 +1276,50 @@ Status ensure_move_intent_feature(FileSystem* filesystem) {
     }
     Geometry upgraded = filesystem->geometry;
     ++upgraded.generation;
-    upgraded.feature_flags |= FEATURE_MOVE_INTENT;
+    upgraded.feature_flags |= feature;
     const Status status = write_superblock_pair(filesystem, upgraded, nullptr);
     if (status != Status::Ok) {
         filesystem->mounted = false;
         return status;
     }
     filesystem->geometry = upgraded;
+    return Status::Ok;
+}
+
+Status ensure_move_intent_feature(FileSystem* filesystem) {
+    return ensure_feature(filesystem, FEATURE_MOVE_INTENT);
+}
+
+Status normalize_inode_ownership(FileSystem* filesystem) {
+    Status status = ensure_feature(filesystem, FEATURE_INODE_OWNERSHIP);
+    if (status != Status::Ok) return status;
+
+    for (uint64_t inode_id = ROOT_INODE;
+         inode_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++inode_id) {
+        Inode inode{};
+        status = read_inode(filesystem, inode_id, &inode);
+        if (status == Status::NotFound) continue;
+        if (status != Status::Ok) return status;
+        if (!valid_inode_ownership_flags(inode.flags)) {
+            return Status::InvalidInodeMetadata;
+        }
+        if (inode_id == ROOT_INODE) {
+            if (inode.flags != 0U) return Status::InvalidInodeMetadata;
+            continue;
+        }
+
+        uint64_t parent = 0U;
+        status = find_unique_parent(filesystem, inode_id, &parent);
+        const bool attached = status == Status::Ok;
+        if (!attached && status != Status::NotFound) return status;
+        const uint32_t normalized_flags =
+            attached ? 0U : INODE_FLAG_ORPHAN;
+        if (inode.flags == normalized_flags) continue;
+        inode.flags = normalized_flags;
+        status = update_inode(filesystem, &inode);
+        if (status != Status::Ok) return status;
+    }
     return Status::Ok;
 }
 
@@ -1418,6 +1499,8 @@ Status mount(FileSystem* output, const storage::block::Device* device) {
         const Status recovery = recover_move_intent(&candidate, selected_move);
         if (recovery != Status::Ok) return recovery;
     }
+    const Status ownership_status = normalize_inode_ownership(&candidate);
+    if (ownership_status != Status::Ok) return ownership_status;
     Inode root{};
     const Status root_status = read_inode(&candidate, selected.root_inode, &root);
     if (root_status != Status::Ok || root.type != InodeType::Directory) {
@@ -1470,6 +1553,94 @@ Status read_inode(FileSystem* filesystem, uint64_t inode_id, Inode* output) {
     return decode_inode(sector + offset_in_block, inode_id, output);
 }
 
+Status inode_ownership(
+    FileSystem* filesystem,
+    uint64_t inode_id,
+    InodeOwnership* output) {
+    if (filesystem == nullptr || output == nullptr || inode_id == 0U ||
+        inode_id > static_cast<uint64_t>(filesystem->geometry.inode_count)) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    uint64_t table_block = 0U;
+    size_t offset = 0U;
+    Status status = locate_inode(
+        filesystem, inode_id, &table_block, &offset);
+    if (status != Status::Ok) return status;
+    uint8_t sector[kSectorSize]{};
+    status = read_one(filesystem->device, table_block, sector);
+    if (status != Status::Ok) return status;
+    const uint8_t* const encoded = sector + offset;
+    if (all_zero(encoded, INODE_SIZE)) {
+        *output = InodeOwnership::Free;
+        return Status::Ok;
+    }
+    uint32_t generation = 0U;
+    if (decode_free_inode(encoded, inode_id, &generation)) {
+        static_cast<void>(generation);
+        *output = InodeOwnership::Tombstoned;
+        return Status::Ok;
+    }
+
+    Inode inode{};
+    status = decode_inode(encoded, inode_id, &inode);
+    if (status != Status::Ok) return status;
+    if (!valid_inode_ownership_flags(inode.flags)) {
+        return Status::InvalidInodeMetadata;
+    }
+    if (inode_id == ROOT_INODE) {
+        if (inode.flags != 0U) return Status::InvalidInodeMetadata;
+        *output = InodeOwnership::Live;
+        return Status::Ok;
+    }
+    if (inode.flags == INODE_FLAG_PENDING) {
+        *output = InodeOwnership::Pending;
+        return Status::Ok;
+    }
+    if (inode.flags == INODE_FLAG_ORPHAN) {
+        *output = InodeOwnership::Orphan;
+        return Status::Ok;
+    }
+
+    uint64_t parent = 0U;
+    status = find_unique_parent(filesystem, inode_id, &parent);
+    if (status == Status::NotFound) {
+        *output = InodeOwnership::Orphan;
+        return Status::Ok;
+    }
+    if (status != Status::Ok) return status;
+    *output = InodeOwnership::Live;
+    return Status::Ok;
+}
+
+Status scan_inode_ownership(
+    FileSystem* filesystem,
+    InodeOwnershipSummary* output) {
+    if (filesystem == nullptr || output == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    InodeOwnershipSummary summary{};
+    for (uint64_t inode_id = ROOT_INODE;
+         inode_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++inode_id) {
+        InodeOwnership ownership = InodeOwnership::Free;
+        const Status status = inode_ownership(
+            filesystem, inode_id, &ownership);
+        if (status != Status::Ok) return status;
+        switch (ownership) {
+            case InodeOwnership::Free: ++summary.free; break;
+            case InodeOwnership::Pending: ++summary.pending; break;
+            case InodeOwnership::Live: ++summary.live; break;
+            case InodeOwnership::Tombstoned: ++summary.tombstoned; break;
+            case InodeOwnership::Orphan: ++summary.orphan; break;
+        }
+    }
+    *output = summary;
+    return Status::Ok;
+}
+
 Status allocate_blocks(
     FileSystem* filesystem, uint64_t block_count, uint64_t* out_first_block) {
     if (filesystem == nullptr || out_first_block == nullptr || block_count == 0U) {
@@ -1501,6 +1672,9 @@ Status allocate_inode(
         return Status::InvalidArgument;
     }
     if (!is_mounted(filesystem)) return Status::NotMounted;
+    const Status feature_status = ensure_feature(
+        filesystem, FEATURE_INODE_OWNERSHIP);
+    if (feature_status != Status::Ok) return feature_status;
     for (uint64_t relative_block = 0U;
          relative_block < filesystem->geometry.inode_table_blocks;
          ++relative_block) {
@@ -1521,7 +1695,7 @@ Status allocate_inode(
             Inode inode{};
             inode.id = inode_id;
             inode.type = type;
-            inode.flags = 0U;
+            inode.flags = INODE_FLAG_PENDING;
             inode.size = 0U;
             inode.extent_start = 0U;
             inode.extent_blocks = 0U;
@@ -1543,6 +1717,11 @@ Status allocate_inode(
 Status update_inode(FileSystem* filesystem, Inode* inode) {
     if (filesystem == nullptr || inode == nullptr) return Status::InvalidArgument;
     if (!is_mounted(filesystem)) return Status::NotMounted;
+    if (!valid_inode_ownership_flags(inode->flags) ||
+        (inode->flags != 0U &&
+         (filesystem->geometry.feature_flags & FEATURE_INODE_OWNERSHIP) == 0U)) {
+        return Status::InvalidInodeMetadata;
+    }
 
     Inode current{};
     Status status = read_inode(filesystem, inode->id, &current);
@@ -1932,8 +2111,10 @@ Status directory_append(
         return Status::InvalidArgument;
     }
     if (!is_mounted(filesystem)) return Status::NotMounted;
+    Status status = ensure_feature(filesystem, FEATURE_INODE_OWNERSHIP);
+    if (status != Status::Ok) return status;
     size_t name_length = 0U;
-    Status status = parse_directory_name(name, &name_length);
+    status = parse_directory_name(name, &name_length);
     if (status != Status::Ok) return status;
     Inode current{};
     status = require_current_snapshot(filesystem, directory, &current);
@@ -1955,6 +2136,14 @@ Status directory_append(
     Inode child{};
     status = read_inode(filesystem, child_inode_id, &child);
     if (status != Status::Ok) return status;
+    if (child.id == ROOT_INODE ||
+        !valid_inode_ownership_flags(child.flags)) {
+        return Status::InvalidInodeMetadata;
+    }
+    uint64_t existing_parent = 0U;
+    status = find_unique_parent(filesystem, child.id, &existing_parent);
+    if (status == Status::Ok) return Status::AlreadyExists;
+    if (status != Status::NotFound) return status;
     uint8_t record[DIRECTORY_ENTRY_SIZE]{};
     encode_directory_entry(name, name_length, child, record);
 
@@ -2007,6 +2196,11 @@ Status directory_append(
     status = update_inode(filesystem, &candidate);
     if (status != Status::Ok) return status;
     *directory = candidate;
+    if (child.flags != 0U) {
+        child.flags = 0U;
+        status = update_inode(filesystem, &child);
+        if (status != Status::Ok) return status;
+    }
     if (candidate.extent_start != current.extent_start &&
         current.extent_blocks != 0U) {
         return release_extent(
@@ -2045,14 +2239,18 @@ Status directory_create(
 
     status = directory_append(filesystem, directory, name, inode_id);
     if (status == Status::Ok) {
-        *out_child = child;
-        return Status::Ok;
+        return read_inode(filesystem, inode_id, out_child);
     }
     // directory_append updates the caller snapshot immediately after durable
     // namespace publication and can then report only reclamation failure. In
     // that case creation is already committed and must not retire its child.
     if (directory->revision != parent.revision) {
-        *out_child = child;
+        Inode committed_child{};
+        if (read_inode(filesystem, inode_id, &committed_child) == Status::Ok) {
+            *out_child = committed_child;
+        } else {
+            *out_child = child;
+        }
         return Status::Ok;
     }
     const Status retirement = retire_inode(filesystem, child);
@@ -2416,7 +2614,9 @@ Status validate_consistency(FileSystem* filesystem) {
         if (status != Status::Ok) return status;
         status = validate_inode_extent(filesystem, inode);
         if (status != Status::Ok) return status;
-        if (inode.flags != 0U || inode.link_count != 1U) {
+        if (!valid_inode_ownership_flags(inode.flags) ||
+            inode.link_count != 1U ||
+            (inode.id == ROOT_INODE && inode.flags != 0U)) {
             return Status::InvalidInodeMetadata;
         }
         if (inode.type == InodeType::Directory) {
@@ -2470,30 +2670,19 @@ Status validate_consistency(FileSystem* filesystem) {
         if (status != Status::Ok) return status;
         uint64_t parent = 0U;
         status = find_unique_parent(filesystem, inode.id, &parent);
-        if (status == Status::NotFound) continue;
-        if (status != Status::Ok) return status;
-        if (inode.type != InodeType::Directory) continue;
-
-        uint64_t current = parent;
-        bool terminated = false;
-        for (uint64_t depth = 0U;
-             depth <= static_cast<uint64_t>(filesystem->geometry.inode_count);
-             ++depth) {
-            if (current == inode.id) return Status::CorruptDirectory;
-            if (current == ROOT_INODE) {
-                terminated = true;
-                break;
-            }
-            uint64_t next = 0U;
-            status = find_unique_parent(filesystem, current, &next);
-            if (status == Status::NotFound) {
-                terminated = true;
-                break;
-            }
-            if (status != Status::Ok) return status;
-            current = next;
+        const bool attached = status == Status::Ok;
+        if (!attached && status != Status::NotFound) return status;
+        if ((attached && inode.flags != 0U) ||
+            (!attached && inode.flags != INODE_FLAG_ORPHAN)) {
+            return Status::InvalidInodeMetadata;
         }
-        if (!terminated) return Status::CorruptDirectory;
+        if (inode.type == InodeType::Directory) {
+            bool reaches_root = false;
+            status = inode_reaches_root(
+                filesystem, inode.id, &reaches_root);
+            if (status != Status::Ok) return status;
+            static_cast<void>(reaches_root);
+        }
     }
     return Status::Ok;
 }

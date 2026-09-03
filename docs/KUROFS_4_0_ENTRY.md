@@ -9,7 +9,9 @@ The 4.0 Pre-Steel storage work begins only after the persistent allocator slice 
 - The move intent records both parent snapshots and replacement extents. Destination publication precedes source removal; recovery aborts a wholly unpublished intent or completes a partial publication before mount succeeds.
 - Clearing the intent precedes reclamation of superseded extents. An interrupted cleanup may leak bounded space, but cannot transfer a live block to a second inode.
 - Mount validates every live inode extent, rejects overlapping live ownership, validates all directory record CRC/generation/type bindings, rejects duplicate names or child IDs and rejects cross-parent aliases or directory ancestry cycles.
-- Low-level unattached inode/block reservations remain legal. Automatic orphan reclamation is a later recovery-policy slice and is not implied by the current validator.
+- `FEATURE_INODE_OWNERSHIP` gives allocated inode slots explicit `PENDING` and `ORPHAN` states. A normal namespace publication transitions its child to `LIVE`; mount completes an interrupted attach or converts an unattached pending inode into an orphan.
+- `FREE` zero slots and generation-carrying `TOMBSTONED` slots remain distinguishable. An orphan directory is the unattached root of a detached subtree; its descendants retain their unique local parent ownership.
+- Low-level unattached block reservations remain legal and are not yet attributed to an inode owner. Automatic orphan reclamation is a later recovery-policy slice and is not implied by the current classifier.
 
 Host coverage injects one failure at every persistent write and flush in both file and non-empty-directory moves, remounts the resulting image and requires exactly one old-or-new namespace owner with non-overlapping live extents.
 

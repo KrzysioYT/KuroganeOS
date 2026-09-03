@@ -87,6 +87,8 @@ int main() {
     kurofs::Inode sub{};
     if (!expect(kurofs::read_inode(&kfs, sub_id, &sub) == kurofs::Status::Ok, "read subdir")) return 1;
     if (!expect(kurofs::directory_append(&kfs, &root, "sub", sub_id) == kurofs::Status::Ok, "attach subdir")) return 1;
+    if (!expect(kurofs::read_inode(&kfs, sub_id, &sub) == kurofs::Status::Ok,
+                "refresh attached subdir ownership")) return 1;
     static const uint8_t nested[] = "nested payload";
     if (!expect(create_regular(&kfs, &sub, "nested", nested, sizeof(nested) - 1U, nullptr), "create nested fixture")) return 1;
 

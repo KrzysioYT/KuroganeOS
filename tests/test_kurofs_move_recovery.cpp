@@ -355,8 +355,8 @@ bool qualify_legacy_feature_upgrade() {
     storage::block::Device device = make_device(&memory);
     FileSystem before{};
     if (mount(&before, &device) != Status::Ok ||
-        before.geometry.feature_flags != FEATURE_NONE ||
-        before.geometry.generation != 1U) {
+        before.geometry.feature_flags != FEATURE_INODE_OWNERSHIP ||
+        before.geometry.generation != 2U) {
         return false;
     }
     Status move_status = Status::InvalidArgument;
@@ -367,7 +367,8 @@ bool qualify_legacy_feature_upgrade() {
     FileSystem after{};
     return mount(&after, &device) == Status::Ok &&
         (after.geometry.feature_flags & FEATURE_MOVE_INTENT) != 0U &&
-        after.geometry.generation == 2U;
+        (after.geometry.feature_flags & FEATURE_INODE_OWNERSHIP) != 0U &&
+        after.geometry.generation == 3U;
 }
 
 } // namespace

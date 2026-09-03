@@ -87,28 +87,49 @@ struct Fixture {
 bool reset_fixture(Fixture* output) {
     using namespace fs::kurofs;
     std::memset(disk, 0x5A, sizeof(disk));
-    if (format(&device, 16U) != Status::Ok) return false;
+    Status status = format(&device, 16U);
+    if (status != Status::Ok) {
+        std::fprintf(stderr, "FAIL: consistency fixture format: %s\n",
+                     status_message(status));
+        return false;
+    }
     FileSystem filesystem{};
     Fixture fixture{};
-    if (mount(&filesystem, &device) != Status::Ok ||
-        get_geometry(&filesystem, &fixture.geometry) != Status::Ok ||
-        read_inode(&filesystem, ROOT_INODE, &fixture.root) != Status::Ok ||
-        directory_create(
+    status = mount(&filesystem, &device);
+    if (status == Status::Ok) {
+        status = get_geometry(&filesystem, &fixture.geometry);
+    }
+    if (status == Status::Ok) {
+        status = read_inode(&filesystem, ROOT_INODE, &fixture.root);
+    }
+    if (status == Status::Ok) {
+        status = directory_create(
             &filesystem, &fixture.root, "first", InodeType::Regular,
-            &fixture.first) != Status::Ok ||
-        directory_create(
+            &fixture.first);
+    }
+    if (status == Status::Ok) {
+        status = directory_create(
             &filesystem, &fixture.root, "second", InodeType::Regular,
-            &fixture.second) != Status::Ok) {
+            &fixture.second);
+    }
+    if (status != Status::Ok) {
+        std::fprintf(stderr, "FAIL: consistency fixture namespace: %s\n",
+                     status_message(status));
         return false;
     }
     static const uint8_t first_payload[] = {'a', 'b', 'c'};
     static const uint8_t second_payload[] = {'x', 'y', 'z'};
-    if (write_inode_data(
+    status = write_inode_data(
             &filesystem, &fixture.first, 0U,
-            first_payload, sizeof(first_payload)) != Status::Ok ||
-        write_inode_data(
+            first_payload, sizeof(first_payload));
+    if (status == Status::Ok) {
+        status = write_inode_data(
             &filesystem, &fixture.second, 0U,
-            second_payload, sizeof(second_payload)) != Status::Ok) {
+            second_payload, sizeof(second_payload));
+    }
+    if (status != Status::Ok) {
+        std::fprintf(stderr, "FAIL: consistency fixture data: %s\n",
+                     status_message(status));
         return false;
     }
     *output = fixture;
@@ -160,7 +181,7 @@ int main() {
 
     if (!reset_fixture(&fixture)) return 1;
     uint8_t* inode = raw_inode(fixture, fixture.first.id);
-    store_u32(inode + 12U, 1U);
+    store_u32(inode + 12U, UINT32_C(1) << 8U);
     update_inode_crc(inode);
     if (!expect_mount(
             Status::InvalidInodeMetadata,
@@ -237,10 +258,10 @@ int main() {
             &alias_directory) != Status::Ok ||
         directory_append(
             &alias_filesystem, &alias_directory,
-            "duplicate", fixture.first.id) != Status::Ok ||
+            "duplicate", fixture.first.id) != Status::AlreadyExists ||
         !expect_mount(
-            Status::CorruptDirectory,
-            "cross-parent child aliases are rejected")) {
+            Status::Ok,
+            "cross-parent child aliases are rejected before publication")) {
         return 1;
     }
 

@@ -125,7 +125,9 @@ int main() {
                 "read persisted inode")) return 1;
     if (!expect(persisted.extent_start == extent && persisted.extent_blocks == 2U &&
                 persisted.size == sizeof(payload) && persisted.generation == inode.generation &&
-                persisted.revision == inode.revision, "persisted inode fields")) return 1;
+                persisted.revision == inode.revision + 1U &&
+                persisted.flags == INODE_FLAG_ORPHAN,
+                "persisted orphan inode fields")) return 1;
 
     uint8_t output[800]{};
     size_t read = 0U;

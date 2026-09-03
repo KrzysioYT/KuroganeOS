@@ -14,6 +14,9 @@ constexpr uint64_t ROOT_INODE = 1U;
 constexpr uint32_t DEFAULT_INODE_COUNT = 1024U;
 constexpr uint64_t FEATURE_NONE = 0U;
 constexpr uint64_t FEATURE_MOVE_INTENT = UINT64_C(1) << 0U;
+constexpr uint64_t FEATURE_INODE_OWNERSHIP = UINT64_C(1) << 1U;
+constexpr uint32_t INODE_FLAG_PENDING = UINT32_C(1) << 0U;
+constexpr uint32_t INODE_FLAG_ORPHAN = UINT32_C(1) << 1U;
 constexpr uint32_t DIRECTORY_ENTRY_SIZE = 128U;
 constexpr size_t MAX_DIRECTORY_NAME = 63U;
 
@@ -48,6 +51,14 @@ enum class InodeType : uint32_t {
     Directory = 2U,
 };
 
+enum class InodeOwnership : uint8_t {
+    Free = 0,
+    Pending,
+    Live,
+    Tombstoned,
+    Orphan,
+};
+
 struct Geometry {
     uint32_t sector_size;
     uint64_t total_blocks;
@@ -75,6 +86,14 @@ struct Inode {
     uint32_t generation;
     // Optimistic metadata revision; every successful update_inode advances it.
     uint32_t revision;
+};
+
+struct InodeOwnershipSummary {
+    uint64_t free;
+    uint64_t pending;
+    uint64_t live;
+    uint64_t tombstoned;
+    uint64_t orphan;
 };
 
 struct FileSystem {
@@ -209,9 +228,18 @@ Status directory_move(
     Inode* destination_directory,
     const char* destination_name);
 
-// Validate all live inode metadata, extent ownership and directory records.
-// Unattached low-level reservations remain legal, but no two live inodes may
-// own the same block and every published directory record must be unique and
+// Report durable inode ownership without reclaiming anything. Pending inodes
+// are allocated but not yet attached. Live inodes have exactly one namespace
+// parent; an orphan is the unattached root of a detached inode or subtree.
+// Free and tombstoned slots remain distinct so generation history is visible.
+Status inode_ownership(
+    FileSystem* filesystem, uint64_t inode_id, InodeOwnership* output);
+Status scan_inode_ownership(
+    FileSystem* filesystem, InodeOwnershipSummary* output);
+
+// Validate all allocated inode metadata, extent ownership and directory
+// records. Unattached low-level reservations remain legal, but no two
+// allocated inodes may own the same block and every published record must be
 // generation-correct. mount() runs this check before exposing a filesystem.
 Status validate_consistency(FileSystem* filesystem);
 
