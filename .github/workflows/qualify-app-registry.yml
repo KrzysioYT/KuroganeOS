@@ -16,6 +16,9 @@ on:
       - 'scripts/build-install-package.py'
       - 'scripts/build-linux.sh'
       - 'scripts/build-media-linux.sh'
+      - 'tests/test_install_package.cpp'
+      - 'tests/test_install_package_builder.py'
+      - 'tests/test_install_package_paths.py'
       - 'rootfs/apps/appman/**'
   workflow_dispatch:
 
