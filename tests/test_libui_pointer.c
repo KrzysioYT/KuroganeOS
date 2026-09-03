@@ -91,7 +91,7 @@ int main(void) {
             kui_flow_tile(&flow, 24U, "SETTINGS\nSYSTEM", KU_UI_NATIVE_ICON_SETTINGS) != KU_STATUS_OK) return 7;
         if (kui_scene_set_flags(&tiles, 22U, KUI_VIEW_PINNED | KUI_VIEW_RUNNING) != KU_STATUS_OK ||
             kui_scene_build_native(&tiles, &tile_frame) != KU_STATUS_OK ||
-            tile_frame.version != KU_UI_NATIVE_VERSION_3 ||
+            tile_frame.version != KU_UI_NATIVE_VERSION_4 ||
             tile_frame.commands[1].type != KU_UI_NATIVE_TILE ||
             tile_frame.commands[1].y != tile_frame.commands[2].y ||
             tile_frame.commands[2].y != tile_frame.commands[3].y ||
@@ -125,7 +125,7 @@ int main(void) {
             kui_flow_metric(&flow, 45U, "AUDIO\n64%", 64U, 100U) != KU_STATUS_OK ||
             kui_flow_tile(&flow, 46U, "FILES\nROOT", KU_UI_NATIVE_ICON_FILES) != KU_STATUS_OK) return 9;
         if (kui_scene_build_native(&metrics, &metric_frame) != KU_STATUS_OK ||
-            metric_frame.version != KU_UI_NATIVE_VERSION_3 ||
+            metric_frame.version != KU_UI_NATIVE_VERSION_4 ||
             metric_frame.command_count != 7U ||
             metric_frame.commands[1].type != KU_UI_NATIVE_METRIC ||
             metric_frame.commands[5].type != KU_UI_NATIVE_METRIC ||
@@ -184,6 +184,27 @@ int main(void) {
                 &toggles, 24, center_y(&toggle_frame, 1U)), 71U, "toggle on hit") ||
             !expect(kui_scene_hit_test(
                 &toggles, 24, center_y(&toggle_frame, 2U)), 72U, "toggle off hit")) return 14;
+    }
+
+    {
+        kui_scene actions;
+        kui_flow flow;
+        ku_ui_native_frame action_frame;
+        kui_scene_initialize(&actions);
+        actions.visible_rows = 3U;
+        kui_flow_begin(&flow, &actions, 0U);
+        if (kui_flow_panel(&flow, 80U, "RECOVERY") != KU_STATUS_OK ||
+            kui_flow_button(&flow, 81U, "RESET SETTINGS") != KU_STATUS_OK ||
+            kui_flow_label(&flow, 82U, "SAFE MODE") != KU_STATUS_OK ||
+            kui_scene_set_flags(&actions, 81U, KUI_VIEW_DESTRUCTIVE) != KU_STATUS_OK ||
+            kui_scene_set_flags(&actions, 82U, KUI_VIEW_DESTRUCTIVE) !=
+                KU_STATUS_INVALID_ARGUMENT ||
+            kui_scene_build_native(&actions, &action_frame) != KU_STATUS_OK ||
+            action_frame.version != KU_UI_NATIVE_VERSION_4 ||
+            (action_frame.commands[1].flags & KU_UI_NATIVE_DESTRUCTIVE) == 0U ||
+            !expect(kui_scene_hit_test(
+                &actions, 24, center_y(&action_frame, 1U)), 81U,
+                "destructive button hit")) return 16;
     }
 
     puts("libui native packet + mouse hit-test tests passed");

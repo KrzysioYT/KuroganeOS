@@ -112,6 +112,9 @@ bool native_command_valid(
     if (version >= KU_UI_NATIVE_VERSION_2) {
         allowed_flags |= KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING;
     }
+    if (version >= KU_UI_NATIVE_VERSION_4) {
+        allowed_flags |= KU_UI_NATIVE_DESTRUCTIVE;
+    }
     if (command.type < KU_UI_NATIVE_PANEL || command.type > maximum_type ||
         (command.flags & ~allowed_flags) != 0U || command.reserved != 0U ||
         !native_text_terminated(command.text)) {
@@ -130,6 +133,8 @@ bool native_command_valid(
         (command.value < 1U || command.value > 4U || command.maximum != 4U)) return false;
     if (command.type == KU_UI_NATIVE_TOGGLE &&
         (command.value > 1U || command.maximum != 1U)) return false;
+    if ((command.flags & KU_UI_NATIVE_DESTRUCTIVE) != 0U &&
+        command.type != KU_UI_NATIVE_BUTTON) return false;
     if (command.type == KU_UI_NATIVE_TILE) {
         const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
             ? static_cast<uint32_t>(KU_UI_NATIVE_ICON_COUNT) : UINT32_C(8);
@@ -143,7 +148,8 @@ bool native_frame_valid(const ku_ui_native_frame& frame) {
         frame.magic != KU_UI_NATIVE_MAGIC ||
         (frame.version != KU_UI_NATIVE_VERSION_1 &&
          frame.version != KU_UI_NATIVE_VERSION_2 &&
-         frame.version != KU_UI_NATIVE_VERSION_3) ||
+         frame.version != KU_UI_NATIVE_VERSION_3 &&
+         frame.version != KU_UI_NATIVE_VERSION_4) ||
         frame.command_count > KU_UI_NATIVE_MAX_COMMANDS || frame.reserved != 0U) {
         return false;
     }
@@ -221,6 +227,8 @@ void draw_native_frame(
         const ui::Rect bounds = native_bounds(content, command);
         const bool selected = (command.flags & KU_UI_NATIVE_SELECTED) != 0U;
         const bool disabled = (command.flags & KU_UI_NATIVE_DISABLED) != 0U;
+        const bool destructive =
+            (command.flags & KU_UI_NATIVE_DESTRUCTIVE) != 0U;
         const bool interactive = !disabled &&
             (command.type == KU_UI_NATIVE_BUTTON ||
              command.type == KU_UI_NATIVE_INPUT ||
@@ -242,7 +250,8 @@ void draw_native_frame(
                                     background, 1U, true);
                 break;
             case KU_UI_NATIVE_BUTTON:
-                ui::button(bounds, command.text, selected, hovered, pressed);
+                ui::button(
+                    bounds, command.text, selected, hovered, pressed, destructive);
                 break;
             case KU_UI_NATIVE_INPUT:
                 ui::input_field(bounds, command.text, selected, hovered, pressed);

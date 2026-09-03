@@ -30,7 +30,8 @@ enum kui_view_flags {
     KUI_VIEW_SELECTED = UINT32_C(1) << 1,
     KUI_VIEW_DISABLED = UINT32_C(1) << 2,
     KUI_VIEW_PINNED = UINT32_C(1) << 3,
-    KUI_VIEW_RUNNING = UINT32_C(1) << 4
+    KUI_VIEW_RUNNING = UINT32_C(1) << 4,
+    KUI_VIEW_DESTRUCTIVE = UINT32_C(1) << 5
 };
 
 typedef struct kui_view {

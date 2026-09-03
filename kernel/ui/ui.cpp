@@ -560,21 +560,25 @@ void label(const Rect& bounds, const char* text,
 }
 
 void button(
-    const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed) {
+    const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed,
+    bool destructive) {
     const auto background = pressed
-        ? graphics::rgb(66, 18, 28)
+        ? KU_FLUX_COLOR_SURFACE_PRESSED
         : (selected ? graphics::rgb(55, 20, 26)
-                    : (hovered ? graphics::rgb(34, 30, 35) : kTheme.panel_alt));
-    const auto signal = pressed ? kTheme.danger
-        : (selected ? kRedBright : (hovered ? kRedMuted : kTheme.border));
+                    : (hovered ? KU_FLUX_COLOR_SURFACE_HOVER : kTheme.panel_alt));
+    const auto signal = destructive
+        ? (pressed ? KU_FLUX_COLOR_DANGER : KU_FLUX_COLOR_ACCENT)
+        : (pressed ? kTheme.danger
+                   : (selected ? kRedBright
+                               : (hovered ? kRedMuted : kTheme.border)));
     graphics::fill_rect(bounds.x + 2, bounds.y + 2,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
     graphics::fill_rect(bounds.x + 3, bounds.y, bounds.width - 3, 1, signal);
-    if (pressed && bounds.width > 20) {
+    if ((pressed || destructive) && bounds.width > 20) {
         graphics::fill_rect(bounds.x + 8, bounds.y + bounds.height - 3,
-                            bounds.width - 16, 2, kRedBright);
+                            bounds.width - 16, 2, signal);
     }
 
     const char* rendered = text;

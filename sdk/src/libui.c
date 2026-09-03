@@ -216,9 +216,11 @@ ku_status_t kui_scene_set_flags(
     kui_scene* scene, uint32_t id, uint32_t flags) {
     kui_view* view = find_view(scene, id);
     if (view == (kui_view*)0) return KU_STATUS_NOT_FOUND;
+    if ((flags & KUI_VIEW_DESTRUCTIVE) != 0U &&
+        view->type != KUI_VIEW_BUTTON) return KU_STATUS_INVALID_ARGUMENT;
     view->flags = flags &
         (KUI_VIEW_HIDDEN | KUI_VIEW_SELECTED | KUI_VIEW_DISABLED |
-         KUI_VIEW_PINNED | KUI_VIEW_RUNNING);
+         KUI_VIEW_PINNED | KUI_VIEW_RUNNING | KUI_VIEW_DESTRUCTIVE);
     if ((view->flags & KUI_VIEW_SELECTED) != 0U) scene->selected_id = id;
     else if (scene->selected_id == id) scene->selected_id = 0U;
     return KU_STATUS_OK;
@@ -469,6 +471,9 @@ ku_status_t kui_scene_build_native(
         if ((view->flags & KUI_VIEW_DISABLED) != 0U) command->flags |= KU_UI_NATIVE_DISABLED;
         if ((view->flags & KUI_VIEW_PINNED) != 0U) command->flags |= KU_UI_NATIVE_PINNED;
         if ((view->flags & KUI_VIEW_RUNNING) != 0U) command->flags |= KU_UI_NATIVE_RUNNING;
+        if ((view->flags & KUI_VIEW_DESTRUCTIVE) != 0U) {
+            command->flags |= KU_UI_NATIVE_DESTRUCTIVE;
+        }
         command->x = geometry.x;
         command->y = geometry.y;
         command->width = geometry.width;

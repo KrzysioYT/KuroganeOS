@@ -77,7 +77,7 @@ void label(const Rect& bounds, const char* text,
            graphics::Color color = 0, uint32_t scale = 1);
 void button(
     const Rect& bounds, const char* text, bool selected = false,
-    bool hovered = false, bool pressed = false);
+    bool hovered = false, bool pressed = false, bool destructive = false);
 void input_field(
     const Rect& bounds, const char* text, bool focused = false,
     bool hovered = false, bool pressed = false);
