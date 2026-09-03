@@ -96,6 +96,12 @@ struct InodeOwnershipSummary {
     uint64_t orphan;
 };
 
+struct OrphanReclaimSummary {
+    uint64_t candidates;
+    uint64_t reclaimed;
+    uint64_t deferred_nonempty_directories;
+};
+
 struct FileSystem {
     const storage::block::Device* device;
     Geometry geometry;
@@ -236,6 +242,15 @@ Status inode_ownership(
     FileSystem* filesystem, uint64_t inode_id, InodeOwnership* output);
 Status scan_inode_ownership(
     FileSystem* filesystem, InodeOwnershipSummary* output);
+
+// Reclaim only explicitly orphaned regular files and empty directories.
+// Non-empty orphan directories are reported but deferred until recursive
+// reclamation has its own durable intent. Inode tombstones are flushed before
+// owned extents are released; interruption can leak space but cannot reassign
+// a block that is still owned by an allocated inode. Raw block reservations
+// without an inode owner are intentionally outside this operation's scope.
+Status reclaim_orphans(
+    FileSystem* filesystem, OrphanReclaimSummary* output);
 
 // Validate all allocated inode metadata, extent ownership and directory
 // records. Unattached low-level reservations remain legal, but no two

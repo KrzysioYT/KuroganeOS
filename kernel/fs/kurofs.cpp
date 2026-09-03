@@ -1641,6 +1641,47 @@ Status scan_inode_ownership(
     return Status::Ok;
 }
 
+Status reclaim_orphans(
+    FileSystem* filesystem,
+    OrphanReclaimSummary* output) {
+    if (filesystem == nullptr || output == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    OrphanReclaimSummary summary{};
+    for (uint64_t inode_id = ROOT_INODE;
+         inode_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++inode_id) {
+        InodeOwnership ownership = InodeOwnership::Free;
+        Status status = inode_ownership(filesystem, inode_id, &ownership);
+        if (status != Status::Ok) return status;
+        if (ownership != InodeOwnership::Orphan) continue;
+
+        Inode inode{};
+        status = read_inode(filesystem, inode_id, &inode);
+        if (status != Status::Ok) return status;
+        if (inode.flags != INODE_FLAG_ORPHAN) {
+            return Status::InvalidInodeMetadata;
+        }
+        uint64_t parent = 0U;
+        status = find_unique_parent(filesystem, inode.id, &parent);
+        if (status == Status::Ok) return Status::InvalidInodeMetadata;
+        if (status != Status::NotFound) return status;
+
+        ++summary.candidates;
+        if (inode.type == InodeType::Directory && inode.size != 0U) {
+            ++summary.deferred_nonempty_directories;
+            continue;
+        }
+        status = retire_inode(filesystem, inode);
+        if (status != Status::Ok) return status;
+        ++summary.reclaimed;
+    }
+    *output = summary;
+    return Status::Ok;
+}
+
 Status allocate_blocks(
     FileSystem* filesystem, uint64_t block_count, uint64_t* out_first_block) {
     if (filesystem == nullptr || out_first_block == nullptr || block_count == 0U) {

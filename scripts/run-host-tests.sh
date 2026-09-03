@@ -117,6 +117,16 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_ownership"
 
+# Tombstone only explicit reclaimable orphans before releasing their extents,
+# and remount every interrupted write/flush outcome to prove safe recovery.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_orphan_recovery.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_orphan_recovery"
+
+"$OUT_DIR/test_kurofs_orphan_recovery"
+
 # Bind an explicitly formatted raw KuroFS disk through the production adapter
 # without ever formatting unknown media implicitly.
 "$HOST_CXX" \

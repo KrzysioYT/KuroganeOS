@@ -11,7 +11,8 @@ The 4.0 Pre-Steel storage work begins only after the persistent allocator slice 
 - Mount validates every live inode extent, rejects overlapping live ownership, validates all directory record CRC/generation/type bindings, rejects duplicate names or child IDs and rejects cross-parent aliases or directory ancestry cycles.
 - `FEATURE_INODE_OWNERSHIP` gives allocated inode slots explicit `PENDING` and `ORPHAN` states. A normal namespace publication transitions its child to `LIVE`; mount completes an interrupted attach or converts an unattached pending inode into an orphan.
 - `FREE` zero slots and generation-carrying `TOMBSTONED` slots remain distinguishable. An orphan directory is the unattached root of a detached subtree; its descendants retain their unique local parent ownership.
-- Low-level unattached block reservations remain legal and are not yet attributed to an inode owner. Automatic orphan reclamation is a later recovery-policy slice and is not implied by the current classifier.
+- Explicit bounded reclamation tombstones regular-file and empty-directory orphans before releasing their owned extents. Every interrupted write/flush phase remounts to either the original orphan or its generation-carrying tombstone; a post-tombstone interruption may conservatively leak blocks but cannot create duplicate ownership.
+- Non-empty orphan directory trees are reported and deferred until recursive reclamation has its own durable intent. Low-level unattached block reservations remain legal, are not attributed to an inode owner and are never consumed by orphan reclamation.
 
 Host coverage injects one failure at every persistent write and flush in both file and non-empty-directory moves, remounts the resulting image and requires exactly one old-or-new namespace owner with non-overlapping live extents.
 
