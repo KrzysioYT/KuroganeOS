@@ -1,11 +1,13 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <unordered_map>
 
 #include "../kernel/fs/fat32.hpp"
 #include "../kernel/install/disk_layout.hpp"
+#include "../kernel/install/fat32_reliable_file.hpp"
 #include "../kernel/storage/gpt.hpp"
 #include "../kernel/storage/partition_device.hpp"
 
@@ -47,6 +49,62 @@ storage::block::Status write_blocks(
 storage::block::Status flush(void* context) {
     ++static_cast<SparseDisk*>(context)->flushes;
     return storage::block::Status::Ok;
+}
+
+void qualify_reliable_state_replace(storage::partition::Device* root) {
+    fs::fat32::FileSystem filesystem{};
+    assert(fs::fat32::mount(
+        &filesystem, storage::partition::as_block_device(root)) ==
+        fs::fat32::Status::Ok);
+    assert(fs::fat32::mkdir(&filesystem, "/etc") == fs::fat32::Status::Ok);
+
+    constexpr char old_profile[] =
+        "USERNAME=old\nPASSWORD_REQUIRED=0\nPASSWORD_HASH=0000000000000000\n";
+    assert(fs::fat32::create(&filesystem, "/etc/user.cfg") ==
+           fs::fat32::Status::Ok);
+    assert(fs::fat32::write(
+        &filesystem,
+        "/etc/user.cfg",
+        0U,
+        old_profile,
+        sizeof(old_profile) - 1U) == fs::fat32::Status::Ok);
+    assert(fs::fat32::sync(&filesystem) == fs::fat32::Status::Ok);
+
+    constexpr char new_profile[] =
+        "USERNAME=tester\nPASSWORD_REQUIRED=1\nPASSWORD_HASH=0123456789ABCDEF\n"
+        "HASH_SCHEME=FNV1A64-DEV\n";
+    const install::reliable_file::Paths paths{
+        "/etc/user.cfg",
+        "/etc/user.new",
+        "/etc/user.bak",
+        "/etc/user.old",
+    };
+    assert(install::fat32_reliable_file::replace(
+        &filesystem,
+        paths,
+        new_profile,
+        sizeof(new_profile) - 1U) == install::reliable_file::Status::Ok);
+
+    char readback[192]{};
+    size_t bytes_read = 0U;
+    assert(fs::fat32::read(
+        &filesystem,
+        "/etc/user.cfg",
+        0U,
+        readback,
+        sizeof(readback) - 1U,
+        &bytes_read) == fs::fat32::Status::Ok);
+    assert(bytes_read == sizeof(new_profile) - 1U);
+    assert(std::memcmp(readback, new_profile, bytes_read) == 0);
+
+    fs::fat32::Stat info{};
+    assert(fs::fat32::stat(&filesystem, "/etc/user.new", &info) ==
+           fs::fat32::Status::NotFound);
+    assert(fs::fat32::stat(&filesystem, "/etc/user.bak", &info) ==
+           fs::fat32::Status::NotFound);
+    assert(fs::fat32::stat(&filesystem, "/etc/user.old", &info) ==
+           fs::fat32::Status::NotFound);
+    assert(fs::fat32::sync(&filesystem) == fs::fat32::Status::Ok);
 }
 } // namespace
 
@@ -92,6 +150,8 @@ int main() {
         std::cerr << "root format: " << fs::fat32::status_message(root_format) << '\n';
     }
     assert(root_format == fs::fat32::Status::Ok);
+
+    qualify_reliable_state_replace(&root);
 
     // The conservative API remains useful for tooling that requires a blank
     // target and must refuse an existing partition table.

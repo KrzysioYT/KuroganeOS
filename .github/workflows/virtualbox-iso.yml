@@ -63,6 +63,30 @@ jobs:
           echo "KUROGANE_IMG=dist/KuroganeOS-$version-linux-qemu.img" >> "$GITHUB_ENV"
           echo "KUROGANE_LIVE_IMG=build/images/KuroganeOS-linux.img" >> "$GITHUB_ENV"
 
+      - name: Parse PowerShell qualification scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in @(
+            'scripts/smoke-virtualbox-iso.ps1',
+            'scripts/smoke-virtualbox-try.ps1',
+            'scripts/qualify-virtualbox-3.3.4.ps1'
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -ne 0) {
+              Write-Error "PowerShell parse errors in $file"
+              $errors | ForEach-Object { Write-Error $_.Message }
+              $failed = $true
+            }
+          }
+          if ($failed) { throw 'PowerShell qualification script syntax validation failed.' }
+
       - name: Compile kernel test configuration
         run: |
           make CONFIG=test kernel

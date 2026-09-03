@@ -42,9 +42,13 @@ run_test acpi "$root/tests/test_acpi.cpp" \
 run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
+run_test reliable-file "$root/tests/test_reliable_file.cpp" \
+    "$root/kernel/install/reliable_file.cpp"
 run_test install-disk-layout "$root/tests/test_install_disk_layout.cpp" \
     "$metrics_stub" \
     "$root/kernel/install/disk_layout.cpp" \
+    "$root/kernel/install/fat32_reliable_file.cpp" \
+    "$root/kernel/install/reliable_file.cpp" \
     "$root/kernel/storage/gpt.cpp" \
     "$root/kernel/storage/partition_device.cpp" \
     "$root/kernel/fs/fat32.cpp" \

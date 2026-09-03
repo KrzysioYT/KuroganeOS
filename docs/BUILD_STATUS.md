@@ -1,170 +1,171 @@
 # Build status
 
-Data: 17 sierpnia 2026 r.
+Data: 29 sierpnia 2026 r.
+Formal release candidate: `662eae4fc1f2af85c8c74322e4b8863236a202b1`
 
 ## Current stage
 
-KuroganeOS **3.3.1-dev — DEV BETA VirtualBox Qualification & Enablement** jest
-aktualną linią rozwojową. 3.3.1 wzmacnia nośnik UEFI/ISO, dodaje referencyjny
-profil VirtualBox, kernelowy backend Intel ICH AC'97, stabilniejszy fallback
-sieciowy oraz beginner/developer documentation.
+KuroganeOS **3.3.3-dev — DEV BETA** pozostaje bieżącym numerem wersji w kodzie.
+Następny release, **3.3.4-dev**, pozostaje w fazie `QUALIFICATION` wyłącznie
+z powodu wymaganego realnego Oracle VirtualBox acceptance. Kod nie został
+sztucznie podbity do 3.3.4-dev i nie istnieje release tag `v3.3.4-dev`.
 
-## Working foundation
+Niezależna praca 3.3.5–3.3.8 jest prowadzona na stacked branches. Nie oznacza
+to zamknięcia ani przeskoczenia release gate 3.3.4.
 
-- UEFI `BOOTX64.EFI`, boot protocol v3;
-- VMM, GDT/TSS/IST, IDT;
-- Ring 3, `int 0x80`, ELF64, PID/TID;
-- process spawn/wait/exit i PIT preemption;
-- `/system/init` jako PID 1;
-- AHCI, GPT, writable FAT32/VFS, persistent root;
-- PS/2 keyboard/mouse, PCI, ACPI/APIC;
-- WindowManager + Red Flux Dock;
-- software backbuffer, clipping i damage-style GOP scanout;
-- Ring-3 `libui` scene/view runtime;
-- wspólny `FluxShellCore`;
-- rzeczywisty kernelowy installer GPT/FAT32;
-- read-only package-backed VFS dla live media;
-- Intel E1000/82540EM `8086:100E`;
-- Intel ICH AC'97 `8086:2415` kernel PCM backend.
+## Status vocabulary
 
-## 3.3.1 DEV BETA changes
+Dokument rozróżnia:
 
-- wersja `3.3.1-dev`, kanał `DEV BETA`;
-- beginner-first `docs/START_HERE.md`;
-- osobna kompletna instrukcja `docs/VIRTUALBOX.md`;
-- developer documentation w `docs/DEVELOPERS/`;
-- referencyjny profil VirtualBox: EFI64, SATA/AHCI, E1000 82540EM, NAT, AC'97;
-- helpery tworzące referencyjną VM na Windows i Unix-like hostach;
-- naprawa nośnika El Torito: historyczny obraz 64 MiB został zastąpiony
-  obrazem FAT16 30 MiB / 61440 sektorów po 512 B;
-- El Torito platform EFI + removable-media path `EFI/BOOT/BOOTX64.EFI`;
-- ten sam EFI boot image jest wystawiany w GPT jako EFI System Partition;
-- builder ISO ma mandatory publication gate — 20 niezależnych passów;
-- osobny OVMF/QEMU optical smoke boot do rzeczywistego markera kernela;
-- Windows media build może wymusić realny Oracle VirtualBox boot przez
-  `-VirtualBoxSmoke`;
-- E1000 pozostaje referencyjnym NIC dla VirtualBox NAT;
-- brak DHCP/linku nie zatrzymuje już całego desktop boot — kernel publikuje
-  loopback fallback i zachowuje stan błędu fizycznego interfejsu;
-- dodano Intel ICH AC'97 kernel driver: PCM S16LE stereo 48 kHz, bus-master DMA32;
-- AC'97 rejestruje się przez centralny driver manager;
-- publiczny network/audio Ring-3 ABI nie został zamrożony jako blocking syscall;
-  docelowy model pozostaje asynchronicznym handle/event service;
-- dokumentacja grafiki opisuje prawdziwą ścieżkę do przyszłej zgodności D3D,
-  bez fałszywego oznaczania DirectX 11/12 jako gotowego.
+- `IMPLEMENTED` — istnieje prawdziwa implementacja/backend;
+- `TESTED` — istnieje test i został wykonany;
+- `QUALIFIED` — wymagany release/środowiskowy gate przeszedł;
+- `EXPERIMENTAL` — działa tylko w ograniczonym lub wczesnym zakresie;
+- `PENDING` — implementacja może istnieć, ale wymagany gate nie został wykonany;
+- `UNSUPPORTED` — brak wspieranej implementacji.
 
-## Automated qualification — latest code revision
+Samo skompilowanie kodu nie oznacza `QUALIFIED`.
 
-Automatyczny workflow x86-64/Linux dla rewizji zawierającej aktualny kod
-ISO/network/audio zakończył się sukcesem.
+## Current working foundation
+
+- x86-64 UEFI `BOOTX64.EFI` / boot protocol v3 — `IMPLEMENTED / TESTED`;
+- VMM, GDT/TSS/IST, IDT — `IMPLEMENTED / TESTED`;
+- Ring 3, ELF64, PID/TID, spawn/wait/exit, `/system/init` PID 1 — `IMPLEMENTED / TESTED`;
+- AHCI, GPT, writable FAT32/VFS persistent root — `IMPLEMENTED / TESTED`;
+- Try/Install media — `IMPLEMENTED / TESTED`;
+- Red Flux Login/Desktop Ring-3 path — `IMPLEMENTED / TESTED`;
+- software framebuffer/backbuffer + GOP presentation — `IMPLEMENTED / TESTED`;
+- E1000, PCnet, VirtIO-net paths used by current VM qualification — `IMPLEMENTED / TESTED` in QEMU;
+- AC'97 bounded PCM backend — `IMPLEMENTED / TESTED` at current foundation level;
+- build tooling Windows/WSL, macOS, Linux x86-64 — `IMPLEMENTED`;
+- ISO El Torito EFI + GPT ESP structural verifier — `IMPLEMENTED / TESTED`.
+
+## 3.3.4 VirtualBox qualification
+
+Real Oracle VirtualBox tooling is complete:
 
 ```text
-full Linux media build:                         PASS
-installer ESP size: 30 MiB / 61440 sectors:   PASS
-mandatory builder ISO verification:            20/20 PASS
-workflow second ISO verification:              20/20 PASS
-OVMF/QEMU optical UEFI boot -> kernel marker: PASS
-qualification artifact upload:                 PASS
+ISO -> EFI64
+ISO -> Try -> Login -> Red Flux Desktop
+ISO -> Install
+SATA / IntelAHCI VDI
+install
+power off
+ISO detach
+installed-disk boot
+persistent FAT32 root
+PID 1
+network boot markers
 ```
 
-Oznacza to **40 pełnych strukturalnych inspekcji tego samego modelu ISO w jednym
-workflow plus rzeczywisty boot optyczny przez niezależny firmware OVMF/QEMU**.
-
-To jest mocny dowód poprawności nośnika UEFI, ale nie jest zastępowane
-marketingowym stwierdzeniem „100% na każdej konfiguracji VirtualBox”.
-
-## Oracle VirtualBox qualification
-
-Realny smoke test Oracle VirtualBox jest gotowy i stanowi ostatni host-specific
-gate dla deklaracji `VirtualBox runtime PASS`:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild `
-  -VirtualBoxSmoke
-```
-
-Oczekiwane markery:
+Status:
 
 ```text
-[virtualbox-smoke] EFI optical boot: PASS
-[virtualbox-smoke] BOOTX64.EFI -> kernel serial marker: PASS
-[virtualbox-smoke] VIRTUALBOX REAL BOOT VERIFIED
+VirtualBox qualification tooling: IMPLEMENTED
+Try -> Login -> Desktop harness: IMPLEMENTED
+Install -> VDI -> reboot harness: IMPLEMENTED
+Automated candidate qualification: PASS
+Real Oracle VirtualBox host execution: PENDING
+Release closure: PENDING
 ```
 
-Dopóki ten test nie zostanie wykonany na hoście x86-64 z Oracle VirtualBox,
-status brzmi:
+GitHub Actions run `33216094295` / qualification run `509` passed on candidate
+`662eae4f`, including:
+
+- kernel test build;
+- ABI/SDK regression;
+- full host regression suite;
+- IMG/ISO media build;
+- production FAT32/VFS validation;
+- 20-pass ISO verifier;
+- OVMF/QEMU boot;
+- QEMU E1000 NAT;
+- QEMU PCnet NAT;
+- QEMU VirtIO-net NAT.
+
+This is not a substitute for the required Oracle VirtualBox real-host run.
+
+## Installer reliability — stacked 3.3.5 work
+
+- recoverable state-file transactions for profile/locale/first-run state — `IMPLEMENTED / TESTED`;
+- production FAT32 fault/recovery integration — `TESTED`;
+- shared installer/Login `FNV1A64-DEV` verifier — `IMPLEMENTED / TESTED`;
+- fail-closed installed profile parsing — `IMPLEMENTED / TESTED`;
+- good-password acceptance / bad-password rejection — `TESTED`;
+- EN/PL profile persistence through sync + reopen/remount-style path — `TESTED`;
+- secure password KDF — `UNSUPPORTED` in this generation; `FNV1A64-DEV` remains explicitly development-only.
+
+## Network stabilization — stacked 3.3.6 work
+
+- TCP graceful close no longer reports success after a failed FIN transmission — `IMPLEMENTED / TESTED`;
+- bounded graceful teardown / CLOSE-WAIT handling — `IMPLEMENTED / TESTED`;
+- explicit reset/abort fallback — `IMPLEMENTED / TESTED`;
+- existing TCP regression suite after the fix — `PASS`.
+
+## TLS foundation — stacked 3.3.7 work
+
+- production DNS -> TCP/443 -> Mbed TLS path — `IMPLEMENTED / TESTED`;
+- entropy/CTR_DRBG — `IMPLEMENTED / TESTED` in the qualified positive path;
+- CA PEM parsing — `IMPLEMENTED / OBSERVED IN GUEST`;
+- SNI and required certificate verification — `IMPLEMENTED / TESTED` in the qualified positive path;
+- explicit certificate validity interval check against KuroganeOS wall time — `IMPLEMENTED / TESTED`;
+- real HTTPS guest qualification on QEMU/OVMF E1000 — `QUALIFIED`.
+
+The TLS gate intentionally failed while security prerequisites were incomplete.
+Those failures exposed two real issues instead of being suppressed:
+
+1. transient CMOS snapshot instability during certificate-time validation;
+2. Mbed TLS peer certificate retention was disabled while KuroganeOS required
+   `mbedtls_ssl_get_peer_cert()` for a post-handshake validity check.
+
+RTC snapshot handling was hardened and transient raw CMOS failures can be bridged
+only from a previously verified hardware RTC snapshot using monotonic PIT time
+inside a bounded window. Certificate expiry checks were not bypassed.
+
+Commit `626a1fb3eb34fedbbfe21d7c11e32570c763fab6` enables
+`MBEDTLS_SSL_KEEP_PEER_CERTIFICATE` so the already-verified peer certificate is
+available to the explicit post-handshake check.
+
+Workflow run `33219821941` completed successfully on that commit. Runtime evidence:
 
 ```text
-UEFI ISO automated qualification: PASS
-Oracle VirtualBox real smoke: AVAILABLE / NOT YET RECORDED
+[uefi-qemu] disk/e1000 DHCP/gateway network: PASS
+[uefi-qemu] disk/e1000 real TLS/HTTPS handshake: PASS
 ```
 
-## Zalecane build commands
+Scope matters: this qualifies the current QEMU/OVMF E1000 positive HTTPS path.
+Oracle VirtualBox, real hardware, negative certificate cases and broader TLS
+stress remain `PENDING`.
 
-### Windows + WSL
+## Userspace I/O ownership — stacked 3.3.8 work
 
-Wymagane dodatkowe pliki:
-
-https://drive.google.com/file/d/1sHfNdDOOVeJh3Q0FOtUlqPbHZIZ-ykEk/view?usp=sharing
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File .\scripts\build-media.ps1 `
-  -Configuration release `
-  -Rebuild
-```
-
-### macOS
-
-```bash
-bash ./scripts/setup-macos.sh --install
-bash ./scripts/build-media-macos.sh --configuration release --rebuild
-```
-
-### Linux x86-64
-
-```bash
-bash ./scripts/setup-linux.sh --install
-bash ./scripts/build-media-linux.sh --configuration release --rebuild
-```
-
-## Expected artifacts
-
-```text
-dist/KuroganeOS-3.3.1-dev-windows-qemu.img
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
-dist/SHA256SUMS.txt
-```
-
-Jeden host tworzy swój host-specific IMG oraz wspólny ISO.
-
-## Runtime acceptance still open
-
-1. Oracle VirtualBox x86-64: ISO optical boot -> kernel marker;
-2. VirtualBox: ISO -> Try -> Login -> Home;
-3. VirtualBox: Install -> target SATA VDI -> reboot without ISO -> Login;
-4. VirtualBox NAT + 82540EM -> DHCP/gateway/DNS online path;
-5. VirtualBox AC'97 -> audible PCM smoke;
-6. live root pozostaje read-only;
-7. EN install bez hasła -> reboot -> Login -> Home;
-8. PL install z hasłem -> błędne hasło odrzucone, poprawne zaakceptowane;
-9. brak zapisu na target przed poprawnym `INSTALL`;
-10. System Monitor pozostaje bez full-screen flickera.
+- `process::Stat.handle_count` is backed by the real runtime file-handle table — `IMPLEMENTED / TESTED`;
+- open/close operations synchronize ownership count — `IMPLEMENTED / TESTED`;
+- runtime cleanup closes active file handles, clears slots, then publishes final count — `IMPLEMENTED / TESTED`;
+- repeatable process/handle regression + full test-kernel compile — `PASS` in run `33219449804`;
+- close-before-accounting cleanup-order regression + full kernel compile — `PASS` in run `33219888365`;
+- complete fault/forced-termination end-to-end resource-lifetime qualification — `PENDING`.
 
 ## Known gaps / DEV warnings
 
-- `FNV1A64-DEV` nie jest bezpiecznym password KDF;
-- brak pełnej account service/credential store/lock screen;
-- publiczne userspace sockets/DNS/ping są nadal planowanym async API;
-- AC'97 ma realny kernel backend, ale stabilne publiczne Ring-3 audio stream API
-  nadal jest planowane;
-- pełny Direct3D/DirectX 9/10/11/12 nie jest jeszcze zaimplementowany;
-- brak pełnego native graphics runtime/GPU acceleration;
-- compatibility `ku_ui_frame` pozostaje transportem części aplikacji;
-- brak kompletnego publicznego Ring-3 file capability API;
-- real-hardware qualification pozostaje węższa niż VM qualification.
+- `FNV1A64-DEV` is not a secure password KDF;
+- no final users/groups/ACL/capability security model;
+- no qualified SMP/SMP-aware scheduler;
+- NVMe is not a production-qualified storage backend;
+- USB/xHCI is not yet release-qualified;
+- Intel HDA is not the qualified primary audio backend;
+- userspace networking is not yet the target async service/socket architecture;
+- TLS QEMU/E1000 positive HTTPS path is qualified, but TLS 1.3, broad CA coverage, negative-certificate matrix, VirtualBox and real-hardware TLS remain incomplete;
+- no Direct3D 9/10/11/12 compatibility layer and no qualified hardware GPU acceleration;
+- real-hardware qualification is incomplete;
+- no final recovery environment or transactional system updater.
+
+## Source of truth
+
+Release checkpoint: `docs/roadmap/CURRENT_RELEASE.md`
+
+Roadmap to 15.0.0: `docs/roadmap/MASTER_ROADMAP_15.md`
+
+Limitations: `docs/CURRENT_LIMITATIONS.md`
+
+Baseline audit: `docs/audits/HEAD_AUDIT_2026-08-28.md`
