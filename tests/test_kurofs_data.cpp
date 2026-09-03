@@ -138,6 +138,109 @@ int main() {
     if (!expect(write_extent_data(&remounted, extent, 2U, 1000U, patch, sizeof(patch)) == Status::NoSpace,
                 "reject extent overflow")) return 1;
 
+    uint8_t hidden_tail[64];
+    std::memset(hidden_tail, 0xE7, sizeof(hidden_tail));
+    if (!expect(write_extent_data(
+                    &remounted, extent, 2U, 850U,
+                    hidden_tail, sizeof(hidden_tail)) == Status::Ok,
+                "stage bytes beyond logical EOF")) return 1;
+    Inode stale_resize = persisted;
+    const uint32_t before_growth_revision = persisted.revision;
+    if (!expect(resize_inode(&remounted, &persisted, 1300U) == Status::Ok &&
+                persisted.extent_start == extent && persisted.extent_blocks == 3U &&
+                persisted.size == 1300U &&
+                persisted.revision == before_growth_revision + 1U,
+                "grow regular file in place")) return 1;
+    std::memset(output, 0xFF, sizeof(output));
+    read = 0U;
+    if (!expect(read_inode_data(
+                    &remounted, &persisted, 0U, output, sizeof(output), &read) == Status::Ok &&
+                read == sizeof(output) &&
+                std::memcmp(output, payload, sizeof(payload)) == 0,
+                "growth preserves published contents")) return 1;
+    uint8_t grown_tail[600]{};
+    read = 0U;
+    if (!expect(read_inode_data(
+                    &remounted, &persisted, sizeof(payload), grown_tail,
+                    sizeof(grown_tail), &read) == Status::Ok &&
+                read == sizeof(grown_tail),
+                "read zero-filled growth")) return 1;
+    for (size_t index = 0U; index < sizeof(grown_tail); ++index) {
+        if (!expect(grown_tail[index] == 0U,
+                    "growth must not expose staged tail bytes")) return 1;
+    }
+    if (!expect(resize_inode(&remounted, &stale_resize, 900U) == Status::StaleInode,
+                "reject stale resize snapshot")) return 1;
+
+    const uint32_t before_shrink_revision = persisted.revision;
+    if (!expect(resize_inode(&remounted, &persisted, 100U) == Status::Ok &&
+                persisted.extent_start == extent && persisted.extent_blocks == 1U &&
+                persisted.size == 100U &&
+                persisted.revision == before_shrink_revision + 1U,
+                "shrink file and publish smaller extent")) return 1;
+    uint64_t reclaimed = 0U;
+    if (!expect(allocate_blocks(&remounted, 2U, &reclaimed) == Status::Ok &&
+                reclaimed == extent + 1U,
+                "trailing blocks reclaimed for allocator")) return 1;
+
+    const uint32_t before_relocation_revision = persisted.revision;
+    if (!expect(resize_inode(&remounted, &persisted, 700U) == Status::Ok &&
+                persisted.extent_start != extent && persisted.extent_blocks == 2U &&
+                persisted.size == 700U &&
+                persisted.revision == before_relocation_revision + 1U,
+                "relocate growth when adjacent blocks are occupied")) return 1;
+    std::memset(output, 0xFF, sizeof(output));
+    read = 0U;
+    if (!expect(read_inode_data(
+                    &remounted, &persisted, 0U, output, sizeof(output), &read) == Status::Ok &&
+                read == 700U && std::memcmp(output, payload, 100U) == 0,
+                "relocated growth preserves retained prefix")) return 1;
+    for (size_t index = 100U; index < read; ++index) {
+        if (!expect(output[index] == 0U,
+                    "relocated growth zero-fills new range")) return 1;
+    }
+    uint64_t recycled_original = 0U;
+    if (!expect(allocate_blocks(&remounted, 1U, &recycled_original) == Status::Ok &&
+                recycled_original == extent,
+                "relocation releases original extent")) return 1;
+    const Inode before_no_space = persisted;
+    if (!expect(resize_inode(&remounted, &persisted, UINT64_MAX) == Status::NoSpace &&
+                persisted.extent_start == before_no_space.extent_start &&
+                persisted.extent_blocks == before_no_space.extent_blocks &&
+                persisted.size == before_no_space.size &&
+                persisted.revision == before_no_space.revision,
+                "no-space growth leaves inode unchanged")) return 1;
+
+    FileSystem resized_mount{};
+    if (!expect(mount(&resized_mount, &device) == Status::Ok,
+                "remount resized filesystem")) return 1;
+    Inode resized_inode{};
+    if (!expect(read_inode(&resized_mount, inode_id, &resized_inode) == Status::Ok &&
+                resized_inode.extent_start == persisted.extent_start &&
+                resized_inode.extent_blocks == persisted.extent_blocks &&
+                resized_inode.size == persisted.size &&
+                resized_inode.revision == persisted.revision,
+                "resized inode survives remount")) return 1;
+    const uint64_t released_file_extent = resized_inode.extent_start;
+    const uint32_t before_zero_revision = resized_inode.revision;
+    if (!expect(resize_inode(&resized_mount, &resized_inode, 0U) == Status::Ok &&
+                resized_inode.extent_start == 0U && resized_inode.extent_blocks == 0U &&
+                resized_inode.size == 0U &&
+                resized_inode.revision == before_zero_revision + 1U,
+                "truncate file to an empty inode")) return 1;
+    uint64_t reclaimed_file_extent = 0U;
+    if (!expect(allocate_blocks(&resized_mount, 2U, &reclaimed_file_extent) == Status::Ok &&
+                reclaimed_file_extent == released_file_extent,
+                "truncate-to-zero reclaims the complete file extent")) return 1;
+    FileSystem empty_mount{};
+    Inode empty_inode{};
+    if (!expect(mount(&empty_mount, &device) == Status::Ok &&
+                read_inode(&empty_mount, inode_id, &empty_inode) == Status::Ok &&
+                empty_inode.size == 0U && empty_inode.extent_start == 0U &&
+                empty_inode.extent_blocks == 0U &&
+                empty_inode.revision == resized_inode.revision,
+                "empty truncation survives remount")) return 1;
+
     // Simulate an older KuroFS v1 inode whose formerly reserved revision
     // field is zero while preserving a valid inode checksum.
     const uint64_t root_byte = remounted.geometry.inode_table_start * SECTOR_SIZE;

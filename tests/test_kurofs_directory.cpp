@@ -64,6 +64,8 @@ int main() {
     uint64_t child_extent = 0U;
     if (!ok(allocate_blocks(&fs, 1U, &child_extent) == Status::Ok,
             "allocate child extent")) return 1;
+    if (!ok(child_extent == fs.geometry.data_start,
+            "directory relocation reclaims its original extent")) return 1;
     changed_child.extent_start = child_extent;
     changed_child.extent_blocks = 1U;
     changed_child.size = 0U;

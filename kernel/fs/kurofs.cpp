@@ -422,6 +422,40 @@ Status publish_extent_allocation(
     return block_status(storage::block::flush(filesystem->device));
 }
 
+Status extent_is_free(
+    FileSystem* filesystem, uint64_t first_block, uint64_t block_count) {
+    if (filesystem == nullptr || block_count == 0U) return Status::InvalidArgument;
+    uint64_t end_block = 0U;
+    if (!add_u64(first_block, block_count, &end_block) ||
+        first_block < filesystem->geometry.data_start ||
+        end_block > filesystem->geometry.total_blocks) {
+        return Status::NoSpace;
+    }
+
+    uint8_t bitmap[kSectorSize]{};
+    uint64_t loaded_bitmap = UINT64_MAX;
+    for (uint64_t block = first_block; block < end_block; ++block) {
+        const uint64_t bitmap_index = block / kBitsPerBitmapBlock;
+        if (bitmap_index >= filesystem->geometry.allocation_bitmap_blocks) {
+            return Status::InvalidGeometry;
+        }
+        if (bitmap_index != loaded_bitmap) {
+            const Status status = read_one(
+                filesystem->device,
+                filesystem->geometry.allocation_bitmap_start + bitmap_index,
+                bitmap);
+            if (status != Status::Ok) return status;
+            loaded_bitmap = bitmap_index;
+        }
+        const uint64_t bit = block % kBitsPerBitmapBlock;
+        const size_t byte_index = static_cast<size_t>(bit / 8U);
+        const uint8_t mask = static_cast<uint8_t>(
+            UINT8_C(1) << static_cast<uint8_t>(bit % 8U));
+        if ((bitmap[byte_index] & mask) != 0U) return Status::NoSpace;
+    }
+    return Status::Ok;
+}
+
 Status locate_inode(
     const FileSystem* filesystem,
     uint64_t inode_id,
@@ -502,6 +536,45 @@ Status validate_allocated_extent(
     return Status::Ok;
 }
 
+Status release_extent(
+    FileSystem* filesystem, uint64_t first_block, uint64_t block_count) {
+    if (filesystem == nullptr || block_count == 0U) return Status::InvalidArgument;
+    uint64_t capacity = 0U;
+    Status status = validate_allocated_extent(
+        filesystem, first_block, block_count, &capacity);
+    if (status != Status::Ok) return status;
+    static_cast<void>(capacity);
+
+    uint64_t end_block = 0U;
+    if (!add_u64(first_block, block_count, &end_block)) {
+        return Status::ArithmeticOverflow;
+    }
+    uint64_t current = first_block;
+    while (current < end_block) {
+        const uint64_t bitmap_index = current / kBitsPerBitmapBlock;
+        uint8_t bitmap[kSectorSize]{};
+        const uint64_t bitmap_block =
+            filesystem->geometry.allocation_bitmap_start + bitmap_index;
+        status = read_one(filesystem->device, bitmap_block, bitmap);
+        if (status != Status::Ok) return status;
+        const uint64_t represented_end =
+            (bitmap_index + 1U) * kBitsPerBitmapBlock;
+        const uint64_t segment_end =
+            end_block < represented_end ? end_block : represented_end;
+        for (uint64_t block = current; block < segment_end; ++block) {
+            const uint64_t bit = block % kBitsPerBitmapBlock;
+            const size_t byte_index = static_cast<size_t>(bit / 8U);
+            const uint8_t mask = static_cast<uint8_t>(
+                UINT8_C(1) << static_cast<uint8_t>(bit % 8U));
+            bitmap[byte_index] = static_cast<uint8_t>(bitmap[byte_index] & ~mask);
+        }
+        status = write_one(filesystem->device, bitmap_block, bitmap);
+        if (status != Status::Ok) return status;
+        current = segment_end;
+    }
+    return block_status(storage::block::flush(filesystem->device));
+}
+
 Status validate_inode_extent(FileSystem* filesystem, const Inode& inode) {
     if (inode.id == 0U ||
         inode.id > static_cast<uint64_t>(filesystem->geometry.inode_count) ||
@@ -532,6 +605,47 @@ Status zero_extent(FileSystem* filesystem, uint64_t first_block, uint64_t block_
         if (!add_u64(first_block, index, &block)) return Status::ArithmeticOverflow;
         const Status status = write_one(filesystem->device, block, zero);
         if (status != Status::Ok) return status;
+    }
+    return block_status(storage::block::flush(filesystem->device));
+}
+
+Status zero_extent_range(
+    FileSystem* filesystem,
+    uint64_t first_block,
+    uint64_t block_count,
+    uint64_t offset,
+    uint64_t length) {
+    uint64_t capacity = 0U;
+    Status status = validate_allocated_extent(
+        filesystem, first_block, block_count, &capacity);
+    if (status != Status::Ok) return status;
+    uint64_t end = 0U;
+    if (!add_u64(offset, length, &end)) return Status::ArithmeticOverflow;
+    if (end > capacity) return Status::InvalidExtent;
+    if (length == 0U) return Status::Ok;
+
+    uint64_t done = 0U;
+    while (done < length) {
+        const uint64_t absolute = offset + done;
+        const uint64_t relative_block = absolute / kSectorSize;
+        const size_t in_sector = static_cast<size_t>(absolute % kSectorSize);
+        uint64_t disk_block = 0U;
+        if (!add_u64(first_block, relative_block, &disk_block)) {
+            return Status::ArithmeticOverflow;
+        }
+        const uint64_t remaining = length - done;
+        const size_t available = kSectorSize - in_sector;
+        const size_t chunk = remaining < static_cast<uint64_t>(available)
+            ? static_cast<size_t>(remaining) : available;
+        uint8_t sector[kSectorSize]{};
+        if (in_sector != 0U || chunk != kSectorSize) {
+            status = read_one(filesystem->device, disk_block, sector);
+            if (status != Status::Ok) return status;
+        }
+        clear_bytes(sector + in_sector, chunk);
+        status = write_one(filesystem->device, disk_block, sector);
+        if (status != Status::Ok) return status;
+        done += static_cast<uint64_t>(chunk);
     }
     return block_status(storage::block::flush(filesystem->device));
 }
@@ -948,6 +1062,118 @@ Status read_inode_data(
     return Status::Ok;
 }
 
+Status resize_inode(
+    FileSystem* filesystem, Inode* inode, uint64_t new_size) {
+    if (filesystem == nullptr || inode == nullptr) return Status::InvalidArgument;
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    Inode current{};
+    Status status = require_current_snapshot(filesystem, inode, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Regular) return Status::InvalidArgument;
+    status = validate_inode_extent(filesystem, current);
+    if (status != Status::Ok) return status;
+    if (new_size == current.size) return Status::Ok;
+
+    const uint64_t required_blocks = divide_round_up(new_size, kSectorSize);
+    const uint64_t available_blocks = filesystem->geometry.total_blocks -
+        filesystem->geometry.data_start;
+    if (required_blocks > available_blocks) return Status::NoSpace;
+
+    if (required_blocks == current.extent_blocks) {
+        if (new_size > current.size) {
+            status = zero_extent_range(
+                filesystem, current.extent_start, current.extent_blocks,
+                current.size, new_size - current.size);
+        }
+        if (status != Status::Ok) return status;
+        Inode candidate = current;
+        candidate.size = new_size;
+        status = update_inode(filesystem, &candidate);
+        if (status == Status::Ok) *inode = candidate;
+        return status;
+    }
+
+    if (required_blocks < current.extent_blocks) {
+        Inode candidate = current;
+        candidate.size = new_size;
+        candidate.extent_blocks = required_blocks;
+        if (required_blocks == 0U) candidate.extent_start = 0U;
+        status = update_inode(filesystem, &candidate);
+        if (status != Status::Ok) return status;
+        *inode = candidate;
+
+        uint64_t released_start = 0U;
+        if (!add_u64(current.extent_start, required_blocks, &released_start)) {
+            return Status::ArithmeticOverflow;
+        }
+        return release_extent(
+            filesystem, released_start,
+            current.extent_blocks - required_blocks);
+    }
+
+    if (current.extent_blocks != 0U) {
+        uint64_t suffix_start = 0U;
+        if (!add_u64(
+                current.extent_start, current.extent_blocks, &suffix_start)) {
+            return Status::ArithmeticOverflow;
+        }
+        const uint64_t suffix_blocks = required_blocks - current.extent_blocks;
+        status = extent_is_free(filesystem, suffix_start, suffix_blocks);
+        if (status == Status::Ok) {
+            status = publish_extent_allocation(
+                filesystem, suffix_start, suffix_blocks);
+            if (status != Status::Ok) return status;
+            status = zero_extent(filesystem, suffix_start, suffix_blocks);
+            if (status != Status::Ok) return status;
+            status = zero_extent_range(
+                filesystem, current.extent_start, required_blocks,
+                current.size, new_size - current.size);
+            if (status != Status::Ok) return status;
+
+            Inode candidate = current;
+            candidate.size = new_size;
+            candidate.extent_blocks = required_blocks;
+            status = update_inode(filesystem, &candidate);
+            if (status == Status::Ok) *inode = candidate;
+            return status;
+        }
+        if (status != Status::NoSpace) return status;
+    }
+
+    uint64_t new_extent = 0U;
+    status = allocate_blocks(filesystem, required_blocks, &new_extent);
+    if (status != Status::Ok) return status;
+
+    uint64_t copied = 0U;
+    while (copied < current.size) {
+        uint8_t chunk[kSectorSize]{};
+        const uint64_t remaining = current.size - copied;
+        const size_t wanted = remaining < kSectorSize
+            ? static_cast<size_t>(remaining) : kSectorSize;
+        size_t read = 0U;
+        status = read_inode_data(
+            filesystem, &current, copied, chunk, wanted, &read);
+        if (status != Status::Ok) return status;
+        if (read != wanted) return Status::InvalidExtent;
+        status = write_extent_data(
+            filesystem, new_extent, required_blocks, copied, chunk, read);
+        if (status != Status::Ok) return status;
+        copied += static_cast<uint64_t>(read);
+    }
+
+    Inode candidate = current;
+    candidate.size = new_size;
+    candidate.extent_start = new_extent;
+    candidate.extent_blocks = required_blocks;
+    status = update_inode(filesystem, &candidate);
+    if (status != Status::Ok) return status;
+    *inode = candidate;
+    if (current.extent_blocks == 0U) return Status::Ok;
+    return release_extent(
+        filesystem, current.extent_start, current.extent_blocks);
+}
+
 Status directory_entry_at(
     FileSystem* filesystem,
     const Inode* directory,
@@ -1092,6 +1318,11 @@ Status directory_append(
     status = update_inode(filesystem, &candidate);
     if (status != Status::Ok) return status;
     *directory = candidate;
+    if (candidate.extent_start != current.extent_start &&
+        current.extent_blocks != 0U) {
+        return release_extent(
+            filesystem, current.extent_start, current.extent_blocks);
+    }
     return Status::Ok;
 }
 

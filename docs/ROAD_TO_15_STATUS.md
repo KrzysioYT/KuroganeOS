@@ -17,4 +17,4 @@ Authoritative evidence:
 
 Status: **ACTIVE**.
 
-Active work starts with persistent KuroFS allocation primitives on top of the production `storage::block::Device` contract. The first slice is limited to safe persistent allocation of contiguous data extents and inode records with remount persistence, metadata protection, bounded scanning and explicit no-space behavior. File/directory mutation and reclamation follow only after allocator durability is proven.
+Active work is built on persistent KuroFS allocation primitives over the production `storage::block::Device` contract. The current unqualified engineering slice now includes revision-checked regular-file growth, zero-filled expansion, truncate-to-zero, contiguous in-place extension, copy-on-grow relocation and post-publication extent reclamation. Directory copy-on-grow also returns its superseded extent to the allocator. Remount, stale-writer, no-space and reclaimed-range reuse tests pass locally; formal 4.0 same-SHA qualification remains pending.

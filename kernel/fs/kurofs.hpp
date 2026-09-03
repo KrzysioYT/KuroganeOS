@@ -141,8 +141,16 @@ Status read_inode_data(
     size_t capacity,
     size_t* out_read);
 
+// Resize a regular file while preserving its current contents. Growth exposes
+// zero-filled bytes and first tries to extend the contiguous extent in place.
+// Shrink publishes the smaller inode before releasing trailing bitmap blocks,
+// so interruption can leak space but cannot create duplicate ownership.
+Status resize_inode(
+    FileSystem* filesystem, Inode* inode, uint64_t new_size);
+
 // Directory records are fixed-size, CRC-protected and append-only until
-// transactional unlink/reclamation is introduced. Child inode generation
+// transactional unlink is introduced. Copy-on-grow releases the previous
+// extent only after publishing the replacement inode. Child inode generation
 // is bound into each record so stale aliases become corruption, not access.
 Status directory_entry_at(
     FileSystem* filesystem, const Inode* directory,
