@@ -855,7 +855,7 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
         system_table,
         (const CHAR16*)L"Red Flux desktop starts automatically. "
                         L"Press S or F8 for Safe Mode, X for diagnostics, "
-                        L"D to continue now...\r\n");
+                        L"C for Console, D to continue now...\r\n");
     for (attempt = 0; attempt < 150; ++attempt) {
         EFI_INPUT_KEY key;
         EFI_STATUS status;
@@ -876,6 +876,12 @@ static UINT64 request_boot_flags(EFI_SYSTEM_TABLE* system_table) {
                     system_table,
                     (const CHAR16*)L"Red Flux desktop requested\r\n");
                 return KUROGANE_BOOT_FLAG_FORCE_DESKTOP;
+            }
+            if (key.UnicodeChar == 'c' || key.UnicodeChar == 'C') {
+                console_write(
+                    system_table,
+                    (const CHAR16*)L"Console requested\r\n");
+                return 0;
             }
             if (key.UnicodeChar == 'x' || key.UnicodeChar == 'X') {
                 console_write(

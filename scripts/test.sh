@@ -11,6 +11,7 @@ exec > >(tee "$log") 2>&1
 cxx="${CXX:-g++}"
 flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic)
 metrics_stub="$root/tests/host_system_metrics_stub.cpp"
+log_stub="$root/tests/host_log_stub.cpp"
 
 run_test() {
     local name="$1"
@@ -126,6 +127,7 @@ echo "[build] kernel-thread"
     "$root/kernel/arch/x86_64/context_switch.asm" \
     -o "$out/context-switch.o"
 "$cxx" "$out/test-thread.o" "$out/thread.o" "$out/context-switch.o" \
+    "$log_stub" \
     -o "$out/kernel-thread"
 echo "[run] kernel-thread"
 "$out/kernel-thread"
@@ -136,7 +138,7 @@ echo "[build] process-core"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/process.cpp" -o "$out/process.o"
 "$cxx" "$out/test-process.o" "$out/process.o" \
-    "$out/thread.o" "$out/context-switch.o" -o "$out/process-core"
+    "$out/thread.o" "$out/context-switch.o" "$log_stub" -o "$out/process-core"
 echo "[run] process-core"
 "$out/process-core"
 echo "[pass] process-core"

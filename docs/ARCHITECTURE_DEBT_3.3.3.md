@@ -127,9 +127,10 @@ The current installer already creates the canonical root layout including
 layout fix is expected to be stale-media behavior, not evidence that `/var`
 needs another package placeholder.
 
-If the failure reproduces on freshly rebuilt media, instrument the persistence
-probe to report the exact failing operation and status: create, open, write,
-close, sync, reopen, readback or comparison.
+The persistence probe now reports the exact failing operation and VFS status:
+create, open, write, close, sync, readback or comparison (including the
+comparison offset). A fresh-media runtime run is still required to determine
+whether the remaining failure is in the FAT32/AHCI path or in stale media.
 
 ## 9. TLS/TCP failures need typed diagnostics before timeout tuning
 

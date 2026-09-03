@@ -676,40 +676,62 @@ bool run_fat32_persistence_probe() {
     constexpr char path[] = "/var/persist.dat";
     constexpr char payload[] =
         "KuroganeOS persistent FAT32 through VFS and AHCI v1\n";
+    const auto report_failure = [](const char* stage, fs::vfs::Status status) {
+        log::write(log::Level::Error, "PERSIST", stage);
+        log::write(log::Level::Error, "PERSIST", fs::vfs::status_message(status));
+    };
     fs::vfs::FileStat info{};
     const fs::vfs::Status stat_status = fs::root_volume::stat(path, &info);
     if (stat_status == fs::vfs::Status::NotFound) {
-        if (fs::root_volume::create(path) != fs::vfs::Status::Ok) {
+        const fs::vfs::Status create_status = fs::root_volume::create(path);
+        if (create_status != fs::vfs::Status::Ok) {
+            report_failure("create", create_status);
             return false;
         }
         fs::vfs::OpenFileHandle handle{};
-        if (fs::root_volume::open(
-                path, fs::vfs::OpenFlags::Write, &handle) !=
-            fs::vfs::Status::Ok) {
+        const fs::vfs::Status open_status = fs::root_volume::open(
+            path, fs::vfs::OpenFlags::Write, &handle);
+        if (open_status != fs::vfs::Status::Ok) {
+            report_failure("open", open_status);
             return false;
         }
         size_t bytes_written = 0U;
         const fs::vfs::Status write_status = fs::root_volume::write(
             handle, payload, sizeof(payload) - 1U, &bytes_written);
         const fs::vfs::Status close_status = fs::root_volume::close(handle);
-        if (write_status != fs::vfs::Status::Ok ||
-            close_status != fs::vfs::Status::Ok ||
-            bytes_written != sizeof(payload) - 1U ||
-            fs::root_volume::sync() != fs::vfs::Status::Ok) {
+        const fs::vfs::Status sync_status = fs::root_volume::sync();
+        if (write_status != fs::vfs::Status::Ok) {
+            report_failure("write", write_status);
+            return false;
+        }
+        if (close_status != fs::vfs::Status::Ok) {
+            report_failure("close", close_status);
+            return false;
+        }
+        if (bytes_written != sizeof(payload) - 1U) {
+            report_failure("write byte count", fs::vfs::Status::IoError);
+            return false;
+        }
+        if (sync_status != fs::vfs::Status::Ok) {
+            report_failure("sync", sync_status);
             return false;
         }
         char restored[sizeof(payload)]{};
         size_t bytes_read = 0U;
-        if (fs::root_volume::read_file(
-                path,
-                restored,
-                sizeof(restored),
-                &bytes_read) != fs::vfs::Status::Ok ||
-            bytes_read != sizeof(payload) - 1U) {
+        const fs::vfs::Status read_status = fs::root_volume::read_file(
+            path, restored, sizeof(restored), &bytes_read);
+        if (read_status != fs::vfs::Status::Ok) {
+            report_failure("readback", read_status);
+            return false;
+        }
+        if (bytes_read != sizeof(payload) - 1U) {
+            report_failure("readback byte count", fs::vfs::Status::IoError);
             return false;
         }
         for (size_t index = 0U; index < bytes_read; ++index) {
             if (restored[index] != payload[index]) {
+                log::write_u64(log::Level::Error, "PERSIST", "comparison index=", index);
+                report_failure("readback comparison", fs::vfs::Status::IoError);
                 return false;
             }
         }
@@ -719,20 +741,26 @@ bool run_fat32_persistence_probe() {
     if (stat_status != fs::vfs::Status::Ok ||
         info.type != fs::vfs::NodeType::Regular ||
         info.size != sizeof(payload) - 1U) {
+        report_failure("verify stat", stat_status == fs::vfs::Status::Ok
+            ? fs::vfs::Status::IoError : stat_status);
         return false;
     }
     char restored[sizeof(payload)]{};
     size_t bytes_read = 0U;
-    if (fs::root_volume::read_file(
-            path,
-            restored,
-            sizeof(restored),
-            &bytes_read) != fs::vfs::Status::Ok ||
-        bytes_read != sizeof(payload) - 1U) {
+    const fs::vfs::Status read_status = fs::root_volume::read_file(
+        path, restored, sizeof(restored), &bytes_read);
+    if (read_status != fs::vfs::Status::Ok) {
+        report_failure("verify readback", read_status);
+        return false;
+    }
+    if (bytes_read != sizeof(payload) - 1U) {
+        report_failure("verify readback byte count", fs::vfs::Status::IoError);
         return false;
     }
     for (size_t index = 0U; index < bytes_read; ++index) {
         if (restored[index] != payload[index]) {
+            log::write_u64(log::Level::Error, "PERSIST", "verify comparison index=", index);
+            report_failure("verify readback comparison", fs::vfs::Status::IoError);
             return false;
         }
     }

@@ -8,6 +8,7 @@ param(
     [switch]$Display,
     [switch]$Headless,
     [switch]$ShellTest,
+    [switch]$SocketTest,
     [switch]$UsbTest,
     [switch]$InstallerTest,
     [string]$InstallerDiskPath,
@@ -196,12 +197,34 @@ function Invoke-MonitorText {
     finally { $client.Dispose() }
 }
 
+function Invoke-MonitorKey {
+    param(
+        [Parameter(Mandatory = $true)][int]$Port,
+        [Parameter(Mandatory = $true)][string]$Key
+    )
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+        $client.Connect('127.0.0.1', $Port)
+        $writer = [System.IO.StreamWriter]::new(
+            $client.GetStream(), [System.Text.Encoding]::ASCII, 256, $true)
+        try {
+            $writer.AutoFlush = $true
+            $writer.WriteLine("sendkey $Key 1")
+            Start-Sleep -Milliseconds 50
+            $writer.WriteLine('sendkey ret 1')
+        }
+        finally { $writer.Dispose() }
+    }
+    finally { $client.Dispose() }
+}
+
 function Invoke-ShellKeyboardTest {
     param(
         [Parameter(Mandatory = $true)]
         [int]$Port,
         [bool]$Safe,
-        [bool]$Desktop
+        [bool]$Desktop,
+        [bool]$Socket
     )
 
     $client = [System.Net.Sockets.TcpClient]::new()
@@ -250,7 +273,10 @@ function Invoke-ShellKeyboardTest {
                 $writer.WriteLine('sendkey alt-f4 1')
                 Start-Sleep -Milliseconds 300
             }
-            $commands = if ($Desktop) {
+            $commands = if ($Socket) {
+                @('run /system/sockprb')
+            }
+            elseif ($Desktop) {
                 @()
             }
             elseif ($Safe) {
@@ -323,6 +349,7 @@ function Test-ShellOutput {
         [string]$Serial,
         [bool]$Safe,
         [bool]$Desktop,
+        [bool]$Socket,
         [bool]$Scratch,
         [bool]$FoundationRoot
     )
@@ -331,7 +358,17 @@ function Test-ShellOutput {
         return $false
     }
 
-    $patterns = if ($Safe) {
+    $patterns = if ($Socket) {
+        @(
+            '\[TEST\] socket_udp_roundtrip: PASS',
+            '\[TEST\] socket_readiness: PASS',
+            '\[TEST\] socket_handle_generation: PASS',
+            '\[TEST\] socket_exit_cleanup: PASS',
+            '\[TEST\] tcp_progression: PASS',
+            '\[TEST\] tcp_cleanup: PASS'
+        )
+    }
+    elseif ($Safe) {
         @(
             'Safe mode requested',
             'SAFE MODE: minimal drivers and diagnostic shell',
@@ -429,7 +466,7 @@ function Test-ShellOutput {
 function Invoke-BootModeKey {
     param(
         [int]$Port,
-        [ValidateSet('s', 'd')]
+        [ValidateSet('s', 'c', 'd')]
         [string]$Key
     )
 
@@ -504,7 +541,7 @@ if ($diskMode -and $UseIso) {
     throw 'UseDiskImage and UseIso are mutually exclusive.'
 }
 if ($InstallerTest -and
-    ($diskMode -or $UseIso -or $UsbTest -or $ShellTest -or
+    ($diskMode -or $UseIso -or $UsbTest -or $ShellTest -or $SocketTest -or
      $SafeMode -or $DesktopMode)) {
     throw 'InstallerTest is a dedicated writable-disk scenario.'
 }
@@ -520,6 +557,10 @@ if ($SafeMode -and $DesktopMode) {
 if ($UsbTest -and ($ShellTest -or $SafeMode -or $DesktopMode)) {
     throw 'UsbTest is a dedicated hardware scenario and cannot be combined with ShellTest, SafeMode, or DesktopMode.'
 }
+if ($SocketTest -and ($SafeMode -or $DesktopMode -or $UsbTest)) {
+    throw 'SocketTest cannot be combined with SafeMode, DesktopMode, or UsbTest.'
+}
+if ($SocketTest) { $ShellTest = $true }
 if ($Headless -and $Display) {
     throw 'Headless and Display are mutually exclusive.'
 }
@@ -745,6 +786,10 @@ $commandsSent = $false
 $bootModeKeySent = $false
 $installerIndexSent = $false
 $installerConfirmationSent = $false
+$installerModeSent = $false
+$installerLanguageSent = $false
+$installerUsernameSent = $false
+$installerPasswordModeSent = $false
 $startedAt = [DateTime]::UtcNow
 try {
     $windowStyle = if ($Headless) { 'Hidden' } else { 'Normal' }
@@ -774,9 +819,29 @@ try {
         if (Test-Path -LiteralPath $SerialLog) {
             $serial = Get-Content -LiteralPath $SerialLog -Raw -ErrorAction SilentlyContinue
             if ($InstallerTest) {
+                if (-not $installerModeSent -and
+                    $serial -match 'installer: select setup mode:') {
+                    Invoke-MonitorKey -Port $MonitorPort -Key 'down'
+                    $installerModeSent = $true
+                }
+                if (-not $installerLanguageSent -and
+                    $serial -match 'installer: select language:') {
+                    Invoke-MonitorKey -Port $MonitorPort -Key 'ret'
+                    $installerLanguageSent = $true
+                }
+                if (-not $installerUsernameSent -and
+                    $serial -match 'installer: enter username:') {
+                    Invoke-MonitorKey -Port $MonitorPort -Key 'ret'
+                    $installerUsernameSent = $true
+                }
+                if (-not $installerPasswordModeSent -and
+                    $serial -match 'installer: select password mode:') {
+                    Invoke-MonitorKey -Port $MonitorPort -Key 'ret'
+                    $installerPasswordModeSent = $true
+                }
                 if (-not $installerIndexSent -and
                     $serial -match 'installer: select target disk index:') {
-                    Invoke-MonitorText -Port $MonitorPort -Text '0'
+                    Invoke-MonitorKey -Port $MonitorPort -Key 'ret'
                     $installerIndexSent = $true
                 }
                 if (-not $installerConfirmationSent -and
@@ -797,12 +862,12 @@ try {
                 Start-Sleep -Milliseconds 100
                 continue
             }
-            if (($SafeMode -or $DesktopMode) -and
+            if (($SafeMode -or $DesktopMode -or $SocketTest) -and
                 -not $bootModeKeySent -and
-                $serial -match 'Default boot=console\. Press D') {
+                $serial -match 'Press S or F8 for Safe Mode.*(C for Console, )?D to continue now') {
                 Invoke-BootModeKey `
                     -Port $MonitorPort `
-                    -Key $(if ($SafeMode) { 's' } else { 'd' })
+                    -Key $(if ($SafeMode) { 's' } elseif ($SocketTest) { 'c' } else { 'd' })
                 $bootModeKeySent = $true
             }
             if ($DesktopMode -and
@@ -813,7 +878,17 @@ try {
                 $serial -match '(?m)^boot=desktop\r?$') {
                 break
             }
-            $promptPattern = if ($SafeMode) {
+            if ($DesktopMode -and
+                $serial -match '\[TEST\] userspace_desktop_session: PASS') {
+                if (([DateTime]::UtcNow - $startedAt).TotalSeconds -ge
+                    $MinimumRuntimeSeconds) {
+                    $success = $true
+                    break
+                }
+            }
+            $promptPattern = if ($SocketTest) {
+                '(?m)^KRG:[^\r\n]* > '
+            } elseif ($SafeMode) {
                 'kurogane:/ \$'
             } else {
                 'kurogane:user\$ '
@@ -853,13 +928,15 @@ try {
                     Invoke-ShellKeyboardTest `
                         -Port $MonitorPort `
                         -Safe $SafeMode.IsPresent `
-                        -Desktop $DesktopMode.IsPresent
+                        -Desktop $DesktopMode.IsPresent `
+                        -Socket $SocketTest.IsPresent
                     $commandsSent = $true
                 }
                 if (Test-ShellOutput `
                         -Serial $serial `
                         -Safe $SafeMode.IsPresent `
                         -Desktop $DesktopMode.IsPresent `
+                        -Socket $SocketTest.IsPresent `
                         -Scratch ($null -ne $ScratchDiskImage) `
                         -FoundationRoot $expectFoundationRoot) {
                     if (([DateTime]::UtcNow - $startedAt).TotalSeconds -ge
@@ -906,6 +983,9 @@ if (-not $success) {
         throw "KuroganeOS xHCI/USB HID hardware test did not pass within $TimeoutSeconds seconds."
     }
     if ($ShellTest) {
+        if ($SocketTest) {
+            throw "KuroganeOS Ring-3 socket probe did not pass within $TimeoutSeconds seconds."
+        }
         throw "KuroganeOS shell integration test did not pass within $TimeoutSeconds seconds."
     }
     throw "KuroganeOS did not reach the shell prompt within $TimeoutSeconds seconds."
@@ -916,6 +996,10 @@ if ($InstallerTest) {
 } elseif ($UsbTest) {
     Write-Host '[pass] KuroganeOS xHCI and USB HID hardware test passed.'
 } elseif ($ShellTest) {
+    if ($SocketTest) {
+        Write-Host '[pass] KuroganeOS Ring-3 socket probe passed.'
+        return
+    }
     Write-Host '[pass] KuroganeOS keyboard and shell integration test passed.'
 } else {
     Write-Host '[pass] KuroganeOS reached the interactive shell prompt.'

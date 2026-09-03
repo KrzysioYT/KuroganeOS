@@ -679,6 +679,7 @@ size_t choose_disk() {
         graphics::draw_text(x + 24, 306, index_line,
                             kAccentBright, kPanelRaised, 1U, true);
         draw_footer("UP/DOWN: CHANGE DISK   ENTER: SELECT");
+        terminal::println("installer: select target disk index:");
         const auto event = wait_key();
         if (event.key == drivers::keyboard::KeyCode::ArrowUp) {
             selected = selected == 0U ? count - 1U : selected - 1U;
@@ -701,6 +702,7 @@ bool confirm_erase() {
             "CONFIRM INSTALLATION",
             "TYPE INSTALL TO ERASE THE SELECTED DISK",
             confirmation, false, error);
+        terminal::println("installer: type INSTALL to confirm:");
         const auto event = wait_key();
         error = nullptr;
         if (event.key == drivers::keyboard::KeyCode::Escape) return false;
@@ -762,6 +764,7 @@ void run_interactive(
     terminal::write_u64(payload.file_count);
     terminal::println();
     terminal::println("[TEST] installer_package_preflight: PASS");
+    terminal::println("installer: select setup mode:");
 
     const size_t mode = choose_two(
         "WELCOME TO KUROGANEOS",
@@ -783,6 +786,7 @@ void run_interactive(
     }
 
     InstallProfile profile{};
+    terminal::println("installer: select language:");
     const size_t language = choose_two(
         "CHOOSE LANGUAGE / WYBIERZ JEZYK",
         "INSTALLER AND LOGIN PROFILE",
@@ -791,6 +795,7 @@ void run_interactive(
     profile.language = language == 1U ? Language::Polish : Language::English;
 
     copy_text(profile.username, sizeof(profile.username), "user");
+    terminal::println("installer: enter username:");
     if (!read_input(
             profile.language == Language::Polish
                 ? "NAZWA UZYTKOWNIKA" : "USER NAME",
@@ -800,6 +805,7 @@ void run_interactive(
         fail("ACCOUNT SETUP CANCELLED");
     }
 
+    terminal::println("installer: select password mode:");
     const size_t password_mode = choose_two(
         profile.language == Language::Polish
             ? "ZABEZPIECZENIE KONTA" : "ACCOUNT SECURITY",
@@ -822,6 +828,7 @@ void run_interactive(
 
     const storage::block::Device* target = nullptr;
     for (;;) {
+        terminal::println("installer: select target disk index:");
         const size_t target_index = choose_disk();
         target = storage::ahci::device_at(target_index);
         if (target == nullptr) fail("SELECTED DISK DISAPPEARED");

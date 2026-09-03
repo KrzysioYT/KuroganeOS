@@ -212,6 +212,9 @@ int main() {
     };
     CHECK(initialize(backend) == Status::Ok);
     CHECK(initialize(backend) == Status::AlreadyInitialized);
+    uint32_t invalid_ready = ReadyNone;
+    CHECK(readiness(0U, INVALID_HANDLE, ReadyRead, &invalid_ready) ==
+        Status::StaleHandle);
 
     constexpr ProcessId owner = 100U;
     constexpr ProcessId other = 200U;
@@ -284,6 +287,9 @@ int main() {
     uint32_t tcp_ready = ReadyNone;
     CHECK(readiness(owner, tcp, ReadyWrite | ReadyConnected, &tcp_ready) == Status::Ok);
     CHECK(tcp_ready == ReadyNone);
+    CHECK(readiness(owner, tcp, ReadyNone, &tcp_ready) == Status::InvalidArgument);
+    CHECK(readiness(owner, tcp, ReadyWrite | UINT32_C(1) << 31U, &tcp_ready) ==
+        Status::InvalidArgument);
     transport.tcp_establish = true;
     CHECK(readiness(owner, tcp, ReadyWrite | ReadyConnected, &tcp_ready) == Status::Ok);
     CHECK((tcp_ready & (ReadyWrite | ReadyConnected)) ==
@@ -326,6 +332,8 @@ int main() {
     CHECK(readiness(owner, reset, ReadyError, &tcp_ready) == Status::Ok);
     CHECK((tcp_ready & ReadyError) != 0U);
     CHECK(send(owner, reset, request, sizeof(request) - 1U) == Status::ConnectionReset);
+    CHECK(readiness(owner, reset, ReadyWrite, &tcp_ready) == Status::Ok);
+    CHECK((tcp_ready & ReadyWrite) == 0U);
     transport.tcp_reset = false;
     CHECK(close(owner, reset) == Status::Ok);
 

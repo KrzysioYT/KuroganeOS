@@ -131,6 +131,54 @@ vfs::Status resolve_path(Adapter* adapter, const char* path, kurofs::Inode* outp
     return vfs::Status::Ok;
 }
 
+struct ParentTarget {
+    kurofs::Inode parent;
+    char name[kurofs::MAX_DIRECTORY_NAME + 1U];
+};
+
+vfs::Status resolve_parent(
+    Adapter* adapter, const char* path, ParentTarget* output) {
+    if (adapter == nullptr || path == nullptr || output == nullptr) {
+        return vfs::Status::InvalidArgument;
+    }
+    size_t length = 0U;
+    vfs::Status status = bounded_path_length(path, &length);
+    if (status != vfs::Status::Ok) return status;
+    if (length <= 1U || path[0] != '/' || path[length - 1U] == '/') {
+        return vfs::Status::InvalidPath;
+    }
+
+    size_t name_begin = length;
+    while (name_begin > 0U && path[name_begin - 1U] != '/') --name_begin;
+    const size_t name_length = length - name_begin;
+    if (name_begin == 0U || name_length == 0U) {
+        return vfs::Status::InvalidPath;
+    }
+    if (name_length > kurofs::MAX_DIRECTORY_NAME) {
+        return vfs::Status::NameTooLong;
+    }
+
+    char parent_path[vfs::MAX_PATH_LENGTH + 1U]{};
+    const size_t parent_length = name_begin == 1U ? 1U : name_begin - 1U;
+    for (size_t index = 0U; index < parent_length; ++index) {
+        parent_path[index] = path[index];
+    }
+    parent_path[parent_length] = '\0';
+
+    ParentTarget candidate{};
+    status = resolve_path(adapter, parent_path, &candidate.parent);
+    if (status != vfs::Status::Ok) return status;
+    if (candidate.parent.type != kurofs::InodeType::Directory) {
+        return vfs::Status::NotDirectory;
+    }
+    for (size_t index = 0U; index < name_length; ++index) {
+        candidate.name[index] = path[name_begin + index];
+    }
+    candidate.name[name_length] = '\0';
+    *output = candidate;
+    return vfs::Status::Ok;
+}
+
 OpenSlot* resolve_slot(Adapter* adapter, const vfs::BackendFile* file) {
     if (adapter == nullptr || file == nullptr || file->words[0] == 0U) return nullptr;
     const uintptr_t encoded = file->words[0] - 1U;
@@ -147,6 +195,7 @@ vfs::Status refresh_slot(Adapter* adapter, OpenSlot* slot) {
     kurofs::Inode current{};
     const kurofs::Status status = kurofs::read_inode(
         adapter->filesystem, slot->inode.id, &current);
+    if (status == kurofs::Status::NotFound) return vfs::Status::StaleHandle;
     if (status != kurofs::Status::Ok) return map_status(status);
     if (current.generation != slot->inode.generation) return vfs::Status::StaleHandle;
     if (current.type != slot->inode.type) return vfs::Status::CorruptFilesystem;
@@ -220,6 +269,30 @@ vfs::Status read_file(
         adapter->filesystem, &slot->inode, offset, buffer, size, bytes_read));
 }
 
+vfs::Status write_file(
+    void* context,
+    const vfs::BackendFile* file,
+    uint64_t offset,
+    const void* buffer,
+    size_t size,
+    size_t* bytes_written) {
+    Adapter* const adapter = require_adapter(context);
+    OpenSlot* const slot = resolve_slot(adapter, file);
+    if (adapter == nullptr || slot == nullptr) return vfs::Status::InvalidHandle;
+    if (bytes_written == nullptr) return vfs::Status::InvalidArgument;
+    *bytes_written = 0U;
+    vfs::Status status = refresh_slot(adapter, slot);
+    if (status != vfs::Status::Ok) return status;
+    if (slot->inode.type == kurofs::InodeType::Directory) {
+        return vfs::Status::IsDirectory;
+    }
+    const kurofs::Status write_status = kurofs::write_inode_data(
+        adapter->filesystem, &slot->inode, offset, buffer, size);
+    if (write_status != kurofs::Status::Ok) return map_status(write_status);
+    *bytes_written = size;
+    return vfs::Status::Ok;
+}
+
 vfs::Status stat_open(
     void* context,
     const vfs::BackendFile* file,
@@ -277,6 +350,72 @@ vfs::Status read_directory(
     return vfs::Status::Ok;
 }
 
+vfs::Status create_node(
+    void* context, const char* path, kurofs::InodeType type) {
+    Adapter* const adapter = require_adapter(context);
+    if (adapter == nullptr) return vfs::Status::InvalidArgument;
+    ParentTarget target{};
+    vfs::Status status = resolve_parent(adapter, path, &target);
+    if (status != vfs::Status::Ok) return status;
+    kurofs::Inode child{};
+    return map_status(kurofs::directory_create(
+        adapter->filesystem, &target.parent, target.name, type, &child));
+}
+
+vfs::Status create_file(void* context, const char* path) {
+    return create_node(context, path, kurofs::InodeType::Regular);
+}
+
+vfs::Status make_directory(void* context, const char* path) {
+    return create_node(context, path, kurofs::InodeType::Directory);
+}
+
+vfs::Status remove_node(void* context, const char* path, bool directory) {
+    Adapter* const adapter = require_adapter(context);
+    if (adapter == nullptr) return vfs::Status::InvalidArgument;
+    kurofs::Inode target_inode{};
+    vfs::Status status = resolve_path(adapter, path, &target_inode);
+    if (status != vfs::Status::Ok) return status;
+    if (directory && target_inode.type != kurofs::InodeType::Directory) {
+        return vfs::Status::NotDirectory;
+    }
+    if (!directory && target_inode.type == kurofs::InodeType::Directory) {
+        return vfs::Status::IsDirectory;
+    }
+    ParentTarget target{};
+    status = resolve_parent(adapter, path, &target);
+    if (status != vfs::Status::Ok) return status;
+    return map_status(kurofs::directory_remove(
+        adapter->filesystem, &target.parent, target.name));
+}
+
+vfs::Status unlink_file(void* context, const char* path) {
+    return remove_node(context, path, false);
+}
+
+vfs::Status remove_directory(void* context, const char* path) {
+    return remove_node(context, path, true);
+}
+
+vfs::Status rename_node(
+    void* context, const char* source_path, const char* destination_path) {
+    Adapter* const adapter = require_adapter(context);
+    if (adapter == nullptr) return vfs::Status::InvalidArgument;
+    ParentTarget source{};
+    vfs::Status status = resolve_parent(adapter, source_path, &source);
+    if (status != vfs::Status::Ok) return status;
+    ParentTarget destination{};
+    status = resolve_parent(adapter, destination_path, &destination);
+    if (status != vfs::Status::Ok) return status;
+    if (source.parent.id != destination.parent.id ||
+        source.parent.generation != destination.parent.generation) {
+        return vfs::Status::Unsupported;
+    }
+    return map_status(kurofs::directory_rename(
+        adapter->filesystem, &source.parent,
+        source.name, destination.name));
+}
+
 vfs::Status sync_filesystem(void* context) {
     Adapter* const adapter = require_adapter(context);
     if (adapter == nullptr || adapter->filesystem->device == nullptr) {
@@ -306,12 +445,18 @@ vfs::Status initialize(
     operations.open = open_file;
     operations.close = close_file;
     operations.read = read_file;
+    operations.write = write_file;
     operations.stat_open = stat_open;
     operations.readdir = read_directory;
+    operations.create = create_file;
+    operations.unlink = unlink_file;
+    operations.rename = rename_node;
+    operations.mkdir = make_directory;
+    operations.rmdir = remove_directory;
     operations.sync = sync_filesystem;
 
     *adapter = candidate;
-    *output_filesystem = vfs::FileSystem{adapter, operations, true};
+    *output_filesystem = vfs::FileSystem{adapter, operations, false};
     return vfs::Status::Ok;
 }
 

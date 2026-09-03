@@ -319,6 +319,7 @@ static int qualify_tcp_progression(void) {
 
     if (!wait_network_ready()) return 0;
 
+    (void)u_puts("[TEST] tcp_stage: echo\n");
     endpoint = qemu_host_endpoint(TCP_HOST_PORT);
     result = ku_socket_create(KU_SOCKET_STREAM, KU_SOCKET_PROTOCOL_TCP);
     if (result <= 0) return 0;
@@ -331,6 +332,7 @@ static int qualify_tcp_progression(void) {
         return 0;
     }
 
+    (void)u_puts("[TEST] tcp_stage: local-close\n");
     endpoint = qemu_host_endpoint(TCP_LOCAL_CLOSE_PORT);
     result = ku_socket_create(KU_SOCKET_STREAM, KU_SOCKET_PROTOCOL_TCP);
     if (result <= 0) return 0;
@@ -340,6 +342,7 @@ static int qualify_tcp_progression(void) {
         return 0;
     }
 
+    (void)u_puts("[TEST] tcp_stage: refused\n");
     endpoint = qemu_host_endpoint(TCP_REFUSED_PORT);
     result = ku_socket_create(KU_SOCKET_STREAM, KU_SOCKET_PROTOCOL_TCP);
     if (result <= 0) return 0;
@@ -359,6 +362,7 @@ static int qualify_tcp_progression(void) {
     }
     if (ku_socket_close(socket) != KU_STATUS_OK) return 0;
 
+    (void)u_puts("[TEST] tcp_stage: timeout\n");
     endpoint = qemu_host_endpoint(TCP_TIMEOUT_PORT);
     result = ku_socket_create(KU_SOCKET_STREAM, KU_SOCKET_PROTOCOL_TCP);
     if (result <= 0) return 0;
@@ -375,6 +379,7 @@ static int qualify_tcp_progression(void) {
         return 0;
     }
 
+    (void)u_puts("[TEST] tcp_stage: reset\n");
     endpoint = qemu_host_endpoint(TCP_RESET_PORT);
     result = ku_socket_create(KU_SOCKET_STREAM, KU_SOCKET_PROTOCOL_TCP);
     if (result <= 0) return 0;

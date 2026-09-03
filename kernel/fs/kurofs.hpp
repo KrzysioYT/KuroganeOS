@@ -172,6 +172,15 @@ Status directory_lookup(
 Status directory_append(
     FileSystem* filesystem, Inode* directory,
     const char* name, uint64_t child_inode_id);
+// Allocate an empty inode and attach it to one directory. If namespace
+// publication fails before the parent revision advances, the new inode is
+// retired before the original failure is returned.
+Status directory_create(
+    FileSystem* filesystem,
+    Inode* directory,
+    const char* name,
+    InodeType type,
+    Inode* out_child);
 // Remove one name and retire its single-link inode. Directory contents are
 // replaced copy-on-write before the child tombstone is published. Non-empty
 // directories are refused until recursive removal is explicitly implemented.

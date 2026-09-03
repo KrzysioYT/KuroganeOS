@@ -92,8 +92,8 @@ int main() {
 
     kurofs_vfs::Adapter adapter{};
     vfs::FileSystem kfs_backend{};
-    if (!expect(kurofs_vfs::initialize(&adapter, &kfs, &kfs_backend) == vfs::Status::Ok && kfs_backend.read_only,
-                "initialize read-only KuroFS VFS adapter")) return 1;
+    if (!expect(kurofs_vfs::initialize(&adapter, &kfs, &kfs_backend) == vfs::Status::Ok && !kfs_backend.read_only,
+                "initialize writable KuroFS VFS adapter")) return 1;
 
     vfs::Operations host_ops{};
     host_ops.stat_path = host_stat;
@@ -118,9 +118,6 @@ int main() {
     if (!expect(vfs::read(&state, file, buffer, sizeof(buffer), &bytes_read) == vfs::Status::Ok &&
                 bytes_read == sizeof(hello) - 1U && std::memcmp(buffer, hello, bytes_read) == 0,
                 "read KuroFS file through VFS")) return 1;
-    vfs::OpenFileHandle write_attempt{};
-    if (!expect(vfs::open(&state, &context, "/kuro/hello", vfs::OpenFlags::Write, &write_attempt) == vfs::Status::ReadOnly,
-                "VFS enforces read-only KuroFS mount")) return 1;
 
     // Metadata revision can advance while an open handle keeps the same inode
     // incarnation. stat_open/seek must refresh the revision rather than fail.
@@ -155,6 +152,113 @@ int main() {
                 "open directory blocks unmount")) return 1;
     if (!expect(vfs::close(&state, directory) == vfs::Status::Ok, "close directory")) return 1;
 
+    if (!expect(vfs::create(&state, &context, "/kuro/new") == vfs::Status::Ok,
+                "create regular file through VFS")) return 1;
+    if (!expect(vfs::create(&state, &context, "/kuro/new") == vfs::Status::AlreadyExists,
+                "reject duplicate VFS create")) return 1;
+    vfs::OpenFileHandle writable{};
+    if (!expect(vfs::open(
+                    &state, &context, "/kuro/new",
+                    vfs::OpenFlags::Read | vfs::OpenFlags::Write,
+                    &writable) == vfs::Status::Ok,
+                "open created file for read and write")) return 1;
+    uint64_t position = 0U;
+    if (!expect(vfs::seek(
+                    &state, writable, 4, vfs::SeekOrigin::Begin,
+                    &position) == vfs::Status::Ok && position == 4U,
+                "seek beyond empty file")) return 1;
+    static const uint8_t steel[] = {'s', 't', 'e', 'e', 'l'};
+    size_t bytes_written = 0U;
+    if (!expect(vfs::write(
+                    &state, writable, steel, sizeof(steel),
+                    &bytes_written) == vfs::Status::Ok &&
+                bytes_written == sizeof(steel),
+                "sparse write through VFS")) return 1;
+    if (!expect(vfs::seek(
+                    &state, writable, 0, vfs::SeekOrigin::Begin,
+                    &position) == vfs::Status::Ok && position == 0U,
+                "rewind written file")) return 1;
+    uint8_t sparse[10]{};
+    bytes_read = 0U;
+    if (!expect(vfs::read(
+                    &state, writable, sparse, sizeof(sparse),
+                    &bytes_read) == vfs::Status::Ok && bytes_read == 9U &&
+                sparse[0] == 0U && sparse[1] == 0U &&
+                sparse[2] == 0U && sparse[3] == 0U &&
+                std::memcmp(sparse + 4U, steel, sizeof(steel)) == 0,
+                "read zero-filled sparse write through VFS")) return 1;
+    if (!expect(vfs::close(&state, writable) == vfs::Status::Ok,
+                "close written file")) return 1;
+
+    vfs::OpenFileHandle append{};
+    if (!expect(vfs::open(
+                    &state, &context, "/kuro/new",
+                    vfs::OpenFlags::Write | vfs::OpenFlags::Append,
+                    &append) == vfs::Status::Ok,
+                "open created file for append")) return 1;
+    static const uint8_t suffix = '!';
+    bytes_written = 0U;
+    if (!expect(vfs::write(
+                    &state, append, &suffix, sizeof(suffix),
+                    &bytes_written) == vfs::Status::Ok &&
+                bytes_written == sizeof(suffix),
+                "append through VFS")) return 1;
+    if (!expect(vfs::close(&state, append) == vfs::Status::Ok,
+                "close append handle")) return 1;
+
+    if (!expect(vfs::mkdir(&state, &context, "/kuro/live") == vfs::Status::Ok,
+                "create directory through VFS")) return 1;
+    if (!expect(vfs::mkdir(&state, &context, "/kuro/live") == vfs::Status::AlreadyExists,
+                "reject duplicate VFS directory create")) return 1;
+    if (!expect(vfs::create(&state, &context, "/kuro/live/item") == vfs::Status::Ok,
+                "create nested file through VFS")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context, "/kuro/new", "/kuro/live/new") ==
+                    vfs::Status::Unsupported,
+                "cross-directory KuroFS rename remains explicit")) return 1;
+    if (!expect(vfs::rename(
+                    &state, &context, "/kuro/new", "/kuro/forged") ==
+                    vfs::Status::Ok,
+                "same-directory rename through VFS")) return 1;
+    if (!expect(vfs::stat(&state, &context, "/kuro/new", &info) ==
+                    vfs::Status::NotFound &&
+                vfs::stat(&state, &context, "/kuro/forged", &info) ==
+                    vfs::Status::Ok && info.size == sizeof(sparse),
+                "renamed file has durable size")) return 1;
+    if (!expect(vfs::unlink(&state, &context, "/kuro/live") ==
+                    vfs::Status::IsDirectory,
+                "unlink rejects a directory")) return 1;
+    if (!expect(vfs::rmdir(&state, &context, "/kuro/live/item") ==
+                    vfs::Status::NotDirectory,
+                "rmdir rejects a regular file")) return 1;
+    if (!expect(vfs::rmdir(&state, &context, "/kuro/live") ==
+                    vfs::Status::DirectoryNotEmpty,
+                "rmdir rejects a non-empty directory")) return 1;
+    if (!expect(vfs::stat(&state, &context, "/kuro/live", &info) ==
+                    vfs::Status::Ok && info.type == vfs::NodeType::Directory,
+                "failed rmdir preserves non-empty directory")) return 1;
+    if (!expect(vfs::unlink(&state, &context, "/kuro/live/item") ==
+                    vfs::Status::Ok &&
+                vfs::rmdir(&state, &context, "/kuro/live") == vfs::Status::Ok,
+                "remove nested file and empty directory")) return 1;
+
+    if (!expect(vfs::create(&state, &context, "/kuro/victim") == vfs::Status::Ok,
+                "create stale-handle victim")) return 1;
+    vfs::OpenFileHandle victim{};
+    if (!expect(vfs::open(
+                    &state, &context, "/kuro/victim",
+                    vfs::OpenFlags::Read, &victim) == vfs::Status::Ok,
+                "open stale-handle victim")) return 1;
+    if (!expect(vfs::unlink(&state, &context, "/kuro/victim") == vfs::Status::Ok,
+                "unlink open file through VFS")) return 1;
+    bytes_read = 0U;
+    if (!expect(vfs::read(
+                    &state, victim, buffer, sizeof(buffer), &bytes_read) ==
+                    vfs::Status::StaleHandle,
+                "unlinked inode invalidates open backend handle")) return 1;
+    if (!expect(vfs::close(&state, victim) == vfs::Status::Ok,
+                "close invalidated backend handle")) return 1;
+
     if (!expect(vfs::chdir(&state, &context, "/kuro/sub") == vfs::Status::Ok, "chdir into KuroFS")) return 1;
     vfs::OpenFileHandle nested_file{};
     if (!expect(vfs::open(&state, &context, "nested", vfs::OpenFlags::Read, &nested_file) == vfs::Status::Ok,
@@ -170,6 +274,42 @@ int main() {
     if (!expect(vfs::stat(&state, &context, "/kuro/hello", &info) == vfs::Status::NotFound,
                 "path no longer routed after unmount")) return 1;
 
-    std::puts("KuroFS read-only VFS integration tests passed");
+    kurofs::FileSystem durable_kfs{};
+    if (!expect(kurofs::mount(&durable_kfs, &device) == kurofs::Status::Ok,
+                "remount mutated KuroFS")) return 1;
+    kurofs_vfs::Adapter durable_adapter{};
+    vfs::FileSystem durable_backend{};
+    if (!expect(kurofs_vfs::initialize(
+                    &durable_adapter, &durable_kfs, &durable_backend) ==
+                    vfs::Status::Ok &&
+                vfs::mount(
+                    &state, &context, "/kuro", &durable_backend, &mount) ==
+                    vfs::Status::Ok,
+                "remount writable adapter through VFS")) return 1;
+    vfs::OpenFileHandle durable{};
+    if (!expect(vfs::open(
+                    &state, &context, "/kuro/forged",
+                    vfs::OpenFlags::Read, &durable) == vfs::Status::Ok,
+                "open renamed file after remount")) return 1;
+    std::memset(sparse, 0xFF, sizeof(sparse));
+    bytes_read = 0U;
+    if (!expect(vfs::read(
+                    &state, durable, sparse, sizeof(sparse), &bytes_read) ==
+                    vfs::Status::Ok && bytes_read == sizeof(sparse) &&
+                sparse[0] == 0U && sparse[3] == 0U &&
+                std::memcmp(sparse + 4U, steel, sizeof(steel)) == 0 &&
+                sparse[9] == suffix,
+                "VFS mutation payload survives remount")) return 1;
+    if (!expect(vfs::close(&state, durable) == vfs::Status::Ok,
+                "close remounted file")) return 1;
+    if (!expect(vfs::stat(&state, &context, "/kuro/live", &info) ==
+                    vfs::Status::NotFound &&
+                vfs::stat(&state, &context, "/kuro/victim", &info) ==
+                    vfs::Status::NotFound,
+                "removed nodes stay absent after remount")) return 1;
+    if (!expect(vfs::unmount(&state, mount) == vfs::Status::Ok,
+                "unmount remounted KuroFS")) return 1;
+
+    std::puts("KuroFS writable VFS integration tests passed");
     return 0;
 }

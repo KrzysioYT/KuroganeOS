@@ -1468,6 +1468,50 @@ Status directory_append(
     return Status::Ok;
 }
 
+Status directory_create(
+    FileSystem* filesystem,
+    Inode* directory,
+    const char* name,
+    InodeType type,
+    Inode* out_child) {
+    if (filesystem == nullptr || directory == nullptr || out_child == nullptr ||
+        (type != InodeType::Regular && type != InodeType::Directory)) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    Inode parent{};
+    Status status = require_current_snapshot(filesystem, directory, &parent);
+    if (status != Status::Ok) return status;
+    if (parent.type != InodeType::Directory) return Status::NotDirectory;
+    DirectoryEntry existing{};
+    status = directory_lookup(filesystem, &parent, name, &existing);
+    if (status == Status::Ok) return Status::AlreadyExists;
+    if (status != Status::NotFound) return status;
+
+    uint64_t inode_id = 0U;
+    status = allocate_inode(filesystem, type, &inode_id);
+    if (status != Status::Ok) return status;
+    Inode child{};
+    status = read_inode(filesystem, inode_id, &child);
+    if (status != Status::Ok) return status;
+
+    status = directory_append(filesystem, directory, name, inode_id);
+    if (status == Status::Ok) {
+        *out_child = child;
+        return Status::Ok;
+    }
+    // directory_append updates the caller snapshot immediately after durable
+    // namespace publication and can then report only reclamation failure. In
+    // that case creation is already committed and must not retire its child.
+    if (directory->revision != parent.revision) {
+        *out_child = child;
+        return Status::Ok;
+    }
+    const Status retirement = retire_inode(filesystem, child);
+    return retirement == Status::Ok ? status : retirement;
+}
+
 Status directory_remove(
     FileSystem* filesystem, Inode* directory, const char* name) {
     if (filesystem == nullptr || directory == nullptr) {

@@ -20,6 +20,20 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 - Damage-region regressions: bounded region capacity/fallback-to-full, clipping/overflow edges, overlap merge, per-window UI_PRESENT invalidation, minimized-window silence, full redraw on geometry/z-order changes, partial GOP span presentation and cursor interaction.
 
 ## 4.0 Pre-Steel / Device Model 2.0
+
+Host regression coverage now exercises generation-safe stale handles, resource
+bounds, derived capabilities, hot-remove, parent unlinking, slot reuse,
+lifecycle generation changes for status/claim/release, attach-failure
+isolation, fallback binding, runtime failure cleanup and rebind. Socket host
+coverage also checks invalid readiness handles/masks and readiness after TCP
+reset; Ring-3 blocking wait still needs a runtime qualification.
+Runtime qualification and the remaining lifecycle/driver-manager cases remain
+deferred.
+
+The Ring-3 `/system/sockprb` probe and its wake/cleanup workers are now included
+in Linux/WSL media. Controlled TCP qualification remains pending until QEMU is
+run with echo, close, refused, timeout and reset endpoint services.
+
 - Device Model 2.0 regressions: generation-safe handle stale rejection, slot reuse, active/high-water accounting, hot-remove policy, parent unlinking, child/claimed removal rejection, capability derivation, resource query bounds, lifecycle generation on state/claim/release.
 
 - Ring-3 Device API regressions: active-index enumeration, stale generation handle query, ABI version/size validation, parent handle, capability/state/lifecycle snapshots, resource bounds, no writable MMIO/PIO/DMA mapping side effects.

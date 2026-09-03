@@ -11,11 +11,12 @@ samo skompilowanie pliku nie oznacza ukończenia funkcji.
 
 - PR #4 został scalony do `main` po dużym stabilization/audit pass.
 - QEMU kwalifikuje E1000, PCnet i VirtIO-net przez rzeczywisty user-NAT runtime.
-- Oracle VirtualBox potrafi uruchomić ISO, przejść instalator, zapisać VDI i
-  ponownie uruchomić z dysku do persistent ROOT, PID 1, DHCP, gateway i DNS.
-- Pełny release-smoke VirtualBox nie jest jeszcze zielony: pozostaje
-  `[TEST] fat32_persistence: FAIL` oraz trzeba domknąć deterministyczne
-  raportowanie post-install smoke.
+- QEMU kwalifikuje ISO -> instalacja na pustym dysku -> pierwszy boot -> drugi
+  persistent boot z ROOT, PID 1, DHCP, gateway i DNS.
+- Świeżo zbudowany obraz przechodzi dwubootowy QEMU FAT32 persistence gate;
+  diagnostyka probe raportuje etap i status przy ewentualnym błędzie.
+- Pełny release-smoke VirtualBox pozostaje zewnętrzną kwalifikacją i nie jest
+  przenoszony automatycznie na podstawie wyniku QEMU.
 - Mbed TLS 3.6.7, X.509, entropy, SNI, RTC/trust validation i systemowy bundle
   CA są podłączone do ścieżki HTTPS. Aktualny runtime dochodzi do handshake,
   ale kończy się błędem TCP/BIO send (`net::Status::InterfaceError`).
@@ -46,9 +47,12 @@ samo skompilowanie pliku nie oznacza ukończenia funkcji.
 - [x] ✅ Linux IMG + UEFI ISO, El Torito EFI + GPT ESP verifier 20/20.
 - [x] ✅ OVMF/QEMU optical boot smoke.
 - [x] ✅ QEMU user-NAT qualification: E1000 + PCnet + VirtIO-net, DHCP + gateway + DNS.
-- [x] ✅ Oracle VirtualBox x86-64: realny UEFI ISO boot do kernela.
-- [ ] 🟡 VirtualBox Install -> SATA VDI -> reboot bez ISO działa do persistent ROOT,
-  PID 1 i sieci, ale release-smoke blokuje `fat32_persistence: FAIL`.
+- [x] ✅ QEMU x86-64: realny UEFI ISO boot, instalacja na blank disk i dwa bootu
+  z zainstalowanego systemu.
+- [x] ✅ QEMU świeży obraz: pierwszy boot create/write/flush, drugi boot readback
+  persistent FAT32 przechodzą.
+- [ ] 🔒 VirtualBox Install -> SATA VDI -> reboot bez ISO wymaga osobnej
+  kwalifikacji na hoście z VirtualBox.
 - [x] ✅ VirtualBox NAT/PCnet: DHCP + gateway + DNS po bootowaniu z zainstalowanego VDI.
 - [ ] 🔒 VirtualBox: osobny manualny Try -> Login -> Home qualification.
 - [ ] 🔒 VirtualBox VirtIO-net: DHCP + gateway + DNS runtime smoke.
@@ -81,7 +85,8 @@ samo skompilowanie pliku nie oznacza ukończenia funkcji.
   `/tmp`, `/var`, `/var/log`.
 - [x] ✅ ABI v1 świadomie nie implementuje symlinków/hard linków na FAT32;
   polityka jest zapisana w `docs/DEVELOPERS/FILESYSTEM_POLICY.md`.
-- [ ] 🟡 Domknąć test trwałości pierwszego bootu: obecnie `fat32_persistence: FAIL`.
+- [x] ✅ Domknięty QEMU test trwałości pierwszego i drugiego bootu; diagnostyka
+  błędów persistence obejmuje operację, status i offset porównania.
 - [ ] ⬜ File-backed mmap po ukończeniu VM mapping API.
 - [ ] ⬜ Model owner/group/permissions/ACL.
 - [ ] ⬜ Settings/profile service zapisujący trwałe ustawienia aplikacji i profilu.

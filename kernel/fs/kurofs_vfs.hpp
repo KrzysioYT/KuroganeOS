@@ -21,8 +21,8 @@ struct Adapter {
 };
 
 // Expose an already mounted KuroFS instance through the common VFS contract.
-// This first adapter slice is intentionally read-only; mutating callbacks stay
-// absent until create/write durability is qualified through VFS itself.
+// Regular-file writes and same-directory namespace mutations are backed by
+// KuroFS revision-checked publication primitives.
 vfs::Status initialize(
     Adapter* adapter,
     kurofs::FileSystem* filesystem,
