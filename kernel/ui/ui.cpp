@@ -1,31 +1,32 @@
 #include "ui.hpp"
 
 #include "../../common/version.h"
+#include <kurogane/design.h>
 
 namespace ui {
 
 namespace {
 constexpr Theme kTheme = {
-    graphics::rgb(4, 5, 7),       // desktop
-    graphics::rgb(18, 19, 22),    // panel
-    graphics::rgb(10, 11, 14),    // panel_alt
-    graphics::rgb(55, 58, 64),    // border
-    graphics::rgb(238, 239, 242), // text
-    graphics::rgb(145, 149, 156), // text_muted
-    graphics::rgb(220, 22, 40),   // accent
-    graphics::rgb(255, 54, 66),   // danger
+    KU_FLUX_COLOR_VOID_BLACK,       // desktop
+    KU_FLUX_COLOR_SURFACE,          // panel
+    KU_FLUX_COLOR_BACKGROUND,       // panel_alt
+    KU_FLUX_COLOR_BORDER,           // border
+    KU_FLUX_COLOR_TEXT_PRIMARY,     // text
+    KU_FLUX_COLOR_TEXT_SECONDARY,   // text_muted
+    KU_FLUX_COLOR_ACCENT,           // accent
+    KU_FLUX_COLOR_DANGER,           // danger
 };
 
-constexpr graphics::Color kRedBright = graphics::rgb(255, 34, 48);
-constexpr graphics::Color kRedHot = graphics::rgb(239, 20, 36);
-constexpr graphics::Color kRedDeep = graphics::rgb(83, 10, 20);
-constexpr graphics::Color kRedMuted = graphics::rgb(139, 24, 36);
-constexpr graphics::Color kGraphite = graphics::rgb(25, 27, 31);
-constexpr graphics::Color kGraphiteRaised = graphics::rgb(31, 33, 38);
+constexpr graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
+constexpr graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
+constexpr graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
+constexpr graphics::Color kRedMuted = KU_FLUX_COLOR_ACCENT_MUTED;
+constexpr graphics::Color kGraphite = KU_FLUX_COLOR_SURFACE_ELEVATED;
+constexpr graphics::Color kGraphiteRaised = KU_FLUX_COLOR_SURFACE_ELEVATED;
 constexpr graphics::Color kGraphiteFocused = graphics::rgb(38, 35, 40);
-constexpr graphics::Color kSteel = graphics::rgb(85, 89, 96);
-constexpr graphics::Color kInactiveSignal = graphics::rgb(43, 45, 50);
-constexpr graphics::Color kSurfaceShadow = graphics::rgb(1, 2, 3);
+constexpr graphics::Color kSteel = KU_FLUX_COLOR_STEEL;
+constexpr graphics::Color kInactiveSignal = KU_FLUX_COLOR_INACTIVE;
+constexpr graphics::Color kSurfaceShadow = KU_FLUX_COLOR_SHADOW;
 constexpr graphics::Color kHeaderBand = graphics::rgb(12, 13, 16);
 constexpr graphics::Color kDockSurface = graphics::rgb(14, 15, 18);
 constexpr graphics::Color kDockRaised = graphics::rgb(27, 28, 33);

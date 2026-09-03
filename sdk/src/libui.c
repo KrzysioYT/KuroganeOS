@@ -55,9 +55,9 @@ void kui_frame_initialize(ku_ui_frame* frame) {
     if (frame == (ku_ui_frame*)0) return;
     memset(frame, 0, sizeof(*frame));
     frame->structure_size = sizeof(*frame);
-    frame->background_rgb = UINT32_C(0x090A0C);
-    frame->foreground_rgb = UINT32_C(0xECEEF1);
-    frame->accent_rgb = UINT32_C(0xDE192D);
+    frame->background_rgb = KU_FLUX_COLOR_BACKGROUND;
+    frame->foreground_rgb = KU_FLUX_COLOR_TEXT_PRIMARY;
+    frame->accent_rgb = KU_FLUX_COLOR_ACCENT;
 }
 
 ku_status_t kui_frame_set_line(
@@ -83,10 +83,15 @@ int kui_next_event(ku_window_t window, ku_ui_event* event) {
 void kui_scene_initialize(kui_scene* scene) {
     if (scene == (kui_scene*)0) return;
     memset(scene, 0, sizeof(*scene));
-    scene->background_rgb = UINT32_C(0x090A0C);
-    scene->foreground_rgb = UINT32_C(0xECEEF1);
-    scene->accent_rgb = UINT32_C(0xDE192D);
+    kui_scene_apply_flux_theme(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
+}
+
+void kui_scene_apply_flux_theme(kui_scene* scene) {
+    if (scene == (kui_scene*)0) return;
+    scene->background_rgb = KU_FLUX_COLOR_BACKGROUND;
+    scene->foreground_rgb = KU_FLUX_COLOR_TEXT_PRIMARY;
+    scene->accent_rgb = KU_FLUX_COLOR_ACCENT;
 }
 
 void kui_scene_set_palette(
@@ -306,25 +311,25 @@ typedef struct kui_native_layout_state {
 } kui_native_layout_state;
 
 #define KUI_TILE_COLUMNS 3U
-#define KUI_TILE_WIDTH 184
-#define KUI_TILE_HEIGHT 68
-#define KUI_TILE_GAP_X 12
-#define KUI_TILE_GAP_Y 8
+#define KUI_TILE_WIDTH KU_FLUX_TILE_WIDTH
+#define KUI_TILE_HEIGHT KU_FLUX_TILE_HEIGHT
+#define KUI_TILE_GAP_X KU_FLUX_SPACE_3
+#define KUI_TILE_GAP_Y KU_FLUX_SPACE_2
 #define KUI_METRIC_COLUMNS 5U
-#define KUI_METRIC_WIDTH 112
-#define KUI_METRIC_HEIGHT 58
-#define KUI_METRIC_GAP_X 8
-#define KUI_METRIC_GAP_Y 8
+#define KUI_METRIC_WIDTH KU_FLUX_METRIC_WIDTH
+#define KUI_METRIC_HEIGHT KU_FLUX_METRIC_HEIGHT
+#define KUI_METRIC_GAP_X KU_FLUX_SPACE_2
+#define KUI_METRIC_GAP_Y KU_FLUX_SPACE_2
 
 static int32_t native_view_height(uint32_t type) {
     switch (type) {
-        case KUI_VIEW_PANEL: return 38;
-        case KUI_VIEW_LABEL: return 22;
-        case KUI_VIEW_BUTTON: return 34;
-        case KUI_VIEW_INPUT: return 36;
-        case KUI_VIEW_LIST_ITEM: return 36;
-        case KUI_VIEW_PROGRESS: return 44;
-        case KUI_VIEW_SEPARATOR: return 10;
+        case KUI_VIEW_PANEL: return KU_FLUX_PANEL_HEIGHT;
+        case KUI_VIEW_LABEL: return KU_FLUX_LABEL_HEIGHT;
+        case KUI_VIEW_BUTTON: return KU_FLUX_BUTTON_HEIGHT;
+        case KUI_VIEW_INPUT: return KU_FLUX_INPUT_HEIGHT;
+        case KUI_VIEW_LIST_ITEM: return KU_FLUX_LIST_ROW_HEIGHT;
+        case KUI_VIEW_PROGRESS: return KU_FLUX_PROGRESS_HEIGHT;
+        case KUI_VIEW_SEPARATOR: return KU_FLUX_SEPARATOR_HEIGHT;
         case KUI_VIEW_TILE: return KUI_TILE_HEIGHT;
         case KUI_VIEW_METRIC: return KUI_METRIC_HEIGHT;
         case KUI_VIEW_NOTICE: return 72;
@@ -334,7 +339,7 @@ static int32_t native_view_height(uint32_t type) {
 }
 
 static void native_layout_initialize(kui_native_layout_state* state) {
-    state->cursor_y = 16;
+    state->cursor_y = KU_FLUX_PANEL_PADDING;
     state->tile_column = 0U;
     state->metric_column = 0U;
 }
@@ -361,7 +366,7 @@ static void native_layout_view(
     if (view->type == KUI_VIEW_METRIC) {
         native_flush_tiles(state);
         if (state->metric_column >= KUI_METRIC_COLUMNS) native_flush_metrics(state);
-        output->x = 16 + indent +
+        output->x = KU_FLUX_PANEL_PADDING + indent +
             (int32_t)state->metric_column * (KUI_METRIC_WIDTH + KUI_METRIC_GAP_X);
         output->y = state->cursor_y;
         output->width = KUI_METRIC_WIDTH;
@@ -373,7 +378,7 @@ static void native_layout_view(
     if (view->type == KUI_VIEW_TILE) {
         native_flush_metrics(state);
         if (state->tile_column >= KUI_TILE_COLUMNS) native_flush_tiles(state);
-        output->x = 16 + indent +
+        output->x = KU_FLUX_PANEL_PADDING + indent +
             (int32_t)state->tile_column * (KUI_TILE_WIDTH + KUI_TILE_GAP_X);
         output->y = state->cursor_y;
         output->width = KUI_TILE_WIDTH;
@@ -385,7 +390,7 @@ static void native_layout_view(
 
     native_flush_metrics(state);
     native_flush_tiles(state);
-    output->x = 16 + indent;
+    output->x = KU_FLUX_PANEL_PADDING + indent;
     output->y = state->cursor_y;
     output->width = 0;
     output->height = native_view_height(view->type);

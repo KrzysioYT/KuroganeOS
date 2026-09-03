@@ -30,6 +30,13 @@ int main(void) {
     kui_flow root;
     ku_ui_native_frame native;
     kui_scene_initialize(&scene);
+    if (scene.background_rgb != KU_FLUX_COLOR_BACKGROUND ||
+        scene.foreground_rgb != KU_FLUX_COLOR_TEXT_PRIMARY ||
+        scene.accent_rgb != KU_FLUX_COLOR_ACCENT ||
+        KU_FLUX_SPACE_1 != 4 || KU_FLUX_SPACE_2 != 8 ||
+        KU_FLUX_SPACE_3 != 12 || KU_FLUX_SPACE_4 != 16 ||
+        KU_FLUX_SPACE_6 != 24 ||
+        KU_FLUX_TITLEBAR_HEIGHT < KU_FLUX_MINIMUM_TARGET) return 15;
     scene.visible_rows = 4U;
     kui_flow_begin(&root, &scene, 0U);
     if (kui_flow_panel(&root, 1U, "PANEL") != KU_STATUS_OK ||

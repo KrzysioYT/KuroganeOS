@@ -1,6 +1,7 @@
 #ifndef KUROGANE_LIBUI_H
 #define KUROGANE_LIBUI_H
 
+#include <kurogane/design.h>
 #include <kurogane/ui.h>
 
 #ifdef __cplusplus
@@ -66,6 +67,7 @@ ku_status_t kui_present(ku_window_t window, const ku_ui_frame* frame);
 int kui_next_event(ku_window_t window, ku_ui_event* event);
 
 void kui_scene_initialize(kui_scene* scene);
+void kui_scene_apply_flux_theme(kui_scene* scene);
 void kui_scene_set_palette(
     kui_scene* scene,
     uint32_t background_rgb,
