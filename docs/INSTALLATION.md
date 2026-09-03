@@ -46,6 +46,11 @@ sprawdza:
 - brak duplikatów;
 - ten sam bounded FAT 8.3 path contract co build-time package generator.
 
+Format zachowuje wspólny, testowany limit 128 plików po stronie generatora i
+parsera kernela oraz niezależny limit 16 MiB dla całej paczki. Produkcyjny
+payload i dodatkowy payload kwalifikacyjny muszą przejść te same kontrole;
+workflow nie omija kontraktu instalatora.
+
 Poprawny preflight emituje:
 
 ```text

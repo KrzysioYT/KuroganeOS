@@ -179,6 +179,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 # Verify that every application manifest has a deterministic, unique physical
 # installer path that satisfies the kernel installer's FAT 8.3 contract.
 "$HOST_PYTHON" tests/test_install_package_paths.py --root "$ROOT_DIR"
+"$HOST_PYTHON" tests/test_install_package_builder.py
 
 # Keep the pinned TLS client source set freestanding and host-libc independent.
 # This is compile-only by design; runtime HTTPS qualification happens after the

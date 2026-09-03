@@ -32,6 +32,19 @@ def production_userspace_outputs(root: pathlib.Path) -> list[str]:
     pattern = re.compile(r'^\s*"[^|]+\|[^|]+\|([^|]+)\|(?:asm|c)"\s*$', re.MULTILINE)
     for match in pattern.finditer(table):
         outputs.append(match.group(1))
+    sdk = (root / "scripts" / "build-sdk.sh").read_text(encoding="utf-8")
+    sdk_start = sdk.find("declare -a gui_specs=(")
+    sdk_end = sdk.find("\n)\n", sdk_start)
+    if sdk_start < 0 or sdk_end < 0:
+        raise AssertionError("build-sdk.sh GUI applications table is missing")
+    outputs.append("apps/external")
+    gui_pattern = re.compile(
+        r"^\s*[a-z0-9_-]+:([a-z0-9_-]+)\s*$", re.MULTILINE
+    )
+    outputs.extend(
+        "gui/" + match.group(1)
+        for match in gui_pattern.finditer(sdk[sdk_start:sdk_end])
+    )
     if not outputs:
         raise AssertionError("build-linux.sh applications table yielded no outputs")
     return outputs
