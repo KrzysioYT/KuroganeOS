@@ -112,6 +112,7 @@ applications=(
     "appregistryd|userspace/system/app-registryd/main.c|system/appregd|c"
     "audiod|userspace/system/audiod/main.c|system/audiod|c"
     "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
+    "kurofsprobe|userspace/system/kurofs-probe/main.c|system/kfsprb|c"
     "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"
     "socketwake|userspace/system/socket-wake-worker/main.c|system/sockwake|c"
     "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"

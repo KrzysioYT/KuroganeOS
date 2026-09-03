@@ -22,7 +22,7 @@ static void require_directory(const char* path, size_t size, uint32_t code) {
     }
 }
 
-static void first_boot(void) {
+__attribute__((noreturn)) static void first_boot(void) {
     const char payload[] = PAYLOAD;
     ku_result_t opened;
     ku_file_t file;
@@ -63,7 +63,7 @@ static void first_boot(void) {
     ku_exit(0);
 }
 
-static void second_boot(void) {
+__attribute__((noreturn)) static void second_boot(void) {
     const char payload[] = PAYLOAD;
     char received[sizeof(payload)] = {0};
     ku_result_t opened = ku_file_open(
