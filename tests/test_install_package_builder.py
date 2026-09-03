@@ -16,6 +16,14 @@ QUALIFICATION_ONLY_OUTPUTS = {
     "system/audownx",
     "system/apprgprb",
 }
+QUALIFICATION_ONLY_MANIFESTS = {
+    "probe.mnf",
+    "dup1.mnf",
+    "dup2.mnf",
+    "bad.mnf",
+    "miss.mnf",
+    "long.mnf",
+}
 
 
 def load_builder(root: pathlib.Path):
@@ -168,8 +176,14 @@ def main() -> int:
             target = overlay / output
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"ELF")
+        production_root = temporary_root / "production-root"
+        shutil.copytree(
+            root / "rootfs",
+            production_root,
+            ignore=shutil.ignore_patterns(*QUALIFICATION_ONLY_MANIFESTS),
+        )
         records, replacements = builder.collect_install_records(
-            b"EFI", b"KERNEL", root / "rootfs", overlay
+            b"EFI", b"KERNEL", production_root, overlay
         )
         assert replacements == 0
         production, production_count = builder.serialize_package(records)
@@ -177,15 +191,8 @@ def main() -> int:
         verify_serialized_layout(builder, production, production_count)
 
         qualification_root = temporary_root / "qualification-root"
-        shutil.copytree(root / "rootfs", qualification_root)
-        for name in (
-            "probe.mnf",
-            "dup1.mnf",
-            "dup2.mnf",
-            "bad.mnf",
-            "miss.mnf",
-            "long.mnf",
-        ):
+        shutil.copytree(production_root, qualification_root)
+        for name in sorted(QUALIFICATION_ONLY_MANIFESTS):
             (qualification_root / "apps" / "appman" / name).write_bytes(b"fixture")
         for output in sorted(QUALIFICATION_ONLY_OUTPUTS):
             (overlay / output).write_bytes(b"ELF")
