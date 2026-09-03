@@ -1,5 +1,6 @@
 #include "../kernel/fs/kurofs.hpp"
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
