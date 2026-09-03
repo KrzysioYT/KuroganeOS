@@ -1,1 +1,2 @@
-4.0 Pre-Steel / KuroFS active after 3.6 closeout qualification.
+4.0 Pre-Steel / KuroFS 1.0 — ACTIVE
+Previous milestone: 3.6 Flux Stabilization — QUALIFIED at 0caf8cc42f872b11b44f874029eb41aeae152abc

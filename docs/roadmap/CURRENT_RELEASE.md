@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-08-31
+Last updated: 2026-09-03
 
 ## COMPILED / RUNTIME VERSION
 
@@ -64,34 +64,42 @@ No known 3.5 blocker remains.
 
 ---
 
+### 3.6.0-dev — Flux Stabilization
+
+Status: **QUALIFIED**
+
+Flux Stabilization is closed from fresh same-SHA evidence at source SHA `0caf8cc42f872b11b44f874029eb41aeae152abc`.
+
+Qualified scope includes bounded retained per-window surfaces, damage-region composition with deterministic fallback, normalized pointer/hover/pressed interaction, process-owned window and surface cleanup, crash isolation, focus/capture repair, and repeated Login → Home → Logout → Login recovery on OVMF/q35/KVM.
+
+Authoritative same-SHA evidence:
+- Flux Runtime Core: Actions run `33530401377` — PASS;
+- Flux Session Recovery: Actions run `33530403709` — PASS;
+- 3.4 System Services regression sweep: Actions run `33530406070` — PASS;
+- 3.5 Connected Userspace closeout: Actions run `33530408164` — PASS;
+- Flux Stabilization closeout: Actions run `33530392489` — **PASS**.
+
+The closeout host-release job `99931777453` ran the full host suite, rebuilt release IMG/ISO from scratch and required clean production OVMF/KVM boot markers. Same-SHA gate job `99931776975` dispatched and verified all dependent regressions before final closeout job `99934730066` recorded success.
+
+No known 3.6 blocker remains. GPU acceleration remains outside this milestone; Forge Graphics is still a later formal gate.
+
+---
+
 ## ACTIVE DEVELOPMENT
 
-**3.6.0-dev — Flux Stabilization**
+**4.0.0-dev — Pre-Steel**
 
-Status: **IN DEVELOPMENT**
+Status: **ACTIVE**
 
-The existing Red Flux Window Core already provides generation-checked window IDs, focus/z-order, drag, interactive resize, minimize/maximize/restore/close, Alt+Tab/Alt+F4, clipping, a software pointer, session ownership and a full-frame software backbuffer.
-
-### CURRENT TASK
-
-Move the desktop from compatibility full-frame presentation toward a bounded native surface/compositor model without rewriting the working Window Core:
-
-1. add bounded per-window surface ownership and generation-safe surface state;
-2. add bounded damage regions and clipping with deterministic full-frame fallback;
-3. integrate damage with present/move/resize/focus/close paths;
-4. guarantee process/window/surface cleanup when an app exits or crashes;
-5. then harden focus/input/drag/resize and Login → Home → Login supervision;
-6. finish with repeated window/session churn and long-runtime OVMF/KVM qualification.
-
-GPU acceleration is not part of this milestone; Forge Graphics remains a later formal gate.
+The first active slice is KuroFS allocator and inode-data durability on the production block-device contract, followed by file growth, truncate/delete reclamation, directory hierarchy and rename. Device Model 2.0 work proceeds with capability-scoped ownership and deterministic cleanup; unrestricted PCI/MMIO/I/O-port/DMA access is not exposed to arbitrary Ring-3 applications.
 
 ### Road to 15 status
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**
 - `3.5.0-dev` — Connected Userspace — **QUALIFIED**
-- `3.6.0-dev` — Flux Stabilization — **ACTIVE**
-- `4.0.0-dev` — Pre-Steel — pending
+- `3.6.0-dev` — Flux Stabilization — **QUALIFIED**
+- `4.0.0-dev` — Pre-Steel — **ACTIVE**
 - `5.0.0-dev` — Steel / Hardware — pending
 - `6.0.0-dev` — Core Steel — pending
 - `7.0.0-dev` — Iron Shield — pending

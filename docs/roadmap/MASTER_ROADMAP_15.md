@@ -20,8 +20,8 @@ The compiled runtime version may remain `3.3.3-dev` while later engineering mile
 | `3.3.3-dev` | Red Flux | QUALIFIED |
 | `3.4.0-dev` | System Services | QUALIFIED |
 | `3.5.0-dev` | Connected Userspace | QUALIFIED |
-| `3.6.0-dev` | Flux Stabilization | ACTIVE |
-| `4.0.0-dev` | Pre-Steel | PENDING |
+| `3.6.0-dev` | Flux Stabilization | QUALIFIED |
+| `4.0.0-dev` | Pre-Steel | ACTIVE |
 | `5.0.0-dev` | Steel / Hardware | PENDING |
 | `6.0.0-dev` | Core Steel | PENDING |
 | `7.0.0-dev` | Iron Shield | PENDING |
@@ -117,7 +117,7 @@ No known 3.5 blocker remains after the same-SHA component gates and clean KVM pr
 
 ## 3.6.0-dev — Flux Stabilization
 
-Status: **ACTIVE**.
+Status: **QUALIFIED**.
 
 Preserve the already-working Red Flux Window Core: generation-checked window IDs, focus/z-order, header drag, interactive resize, minimize/maximize/restore/close, Alt+Tab/Alt+F4, software pointer, session ownership and the existing full-frame software backbuffer.
 
@@ -133,7 +133,20 @@ Preserve the already-working Red Flux Window Core: generation-checked window IDs
 
 3.6 does not claim GPU acceleration; Forge Graphics remains a later formal milestone.
 
+### 3.6 authoritative evidence
+
+Flux Stabilization was qualified at exact source SHA `0caf8cc42f872b11b44f874029eb41aeae152abc`:
+- Flux Runtime Core: Actions run `33530401377` — PASS;
+- Flux Session Recovery: Actions run `33530403709` — PASS;
+- 3.4 regression sweep: Actions run `33530406070` — PASS;
+- 3.5 Connected Userspace closeout: Actions run `33530408164` — PASS;
+- authoritative Flux Stabilization closeout: Actions run `33530392489` — **PASS**.
+
+The closeout's host-release, same-SHA dispatch and final evidence jobs all passed. No known 3.6 blocker remains.
+
 ## 4.0.0-dev — Pre-Steel
+
+Status: **ACTIVE**.
 
 Device Model 2.0, Driver Manager 2.0, kernel/driver boundaries, userspace/device boundaries, unified error/status model, capability foundation, process resource ownership, driver failure isolation and structured boot diagnostics.
 
