@@ -1,4 +1,4 @@
-name: Dev Qualify Control Center AC97
+name: 4.0 Qualify Forge Control
 
 on:
   push:
@@ -6,10 +6,22 @@ on:
       - gpt/road-to-15-consolidation
     paths:
       - .github/workflows/dev-qualify-control-center-audio.yml
-      - scripts/dev-apply-qemu-ac97.py
+      - kernel/ui/ui.cpp
+      - kernel/ui/ui.hpp
+      - kernel/ui/window_manager.cpp
+      - kernel/user/runtime_base.inc
+      - sdk/include/kurogane/design.h
+      - sdk/include/kurogane/libui.h
+      - sdk/include/kurogane/ui.h
+      - sdk/src/libui.c
+      - scripts/build-linux.sh
+      - scripts/build-media-linux.sh
+      - scripts/smoke-uefi-iso-qemu.sh
+      - userspace/gui/launcher/main.c
+      - userspace/gui/performance/main.c
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   qualify:
@@ -30,13 +42,6 @@ jobs:
           command -v qemu-system-x86_64
           test -r /dev/kvm && test -w /dev/kvm
 
-      - name: Apply guarded AC97 smoke profile
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 ./scripts/dev-apply-qemu-ac97.py
-          bash -n ./scripts/smoke-uefi-iso-qemu.sh
-
       - name: Run full host regressions
         shell: bash
         run: |
@@ -49,30 +54,18 @@ jobs:
           set -euo pipefail
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
 
-      - name: Prove real AC97 Control Center action
+      - name: Prove real Forge Control navigation and AC97 action
         shell: bash
         run: |
           set -euo pipefail
           bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --audio ac97 --timeout 240 \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
-            --click-after-marker '[TEST] red_flux_home_surface: PASS' 770 265 \
-            --click-after-marker '[TEST] flux_control_center_audio_status: PASS' 523 533 \
+            --click-after-marker '[TEST] red_flux_home_surface: PASS' 770 300 \
+            --click-after-marker '[TEST] flux_control_center_audio_status: PASS' 850 260 \
+            --click-after-marker '[TEST] forge_control_audio_surface: PASS' 523 510 \
             --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
             --require-marker '[TEST] flux_control_center_live: PASS' \
             --require-marker '[TEST] flux_control_center_audio_status: PASS' \
+            --require-marker '[TEST] forge_control_audio_surface: PASS' \
             --require-marker '[TEST] flux_control_center_audio_action: PASS'
-
-      - name: Commit and publish AC97 smoke support
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add scripts/smoke-uefi-iso-qemu.sh
-          git diff --cached --quiet && { echo "guard produced no AC97 smoke changes"; exit 1; }
-          git commit -m "test(gui): qualify Control Center AC97 actions"
-          git reset --hard HEAD
-          git fetch origin gpt/road-to-15-consolidation
-          git rebase origin/gpt/road-to-15-consolidation
-          git push origin HEAD:gpt/road-to-15-consolidation

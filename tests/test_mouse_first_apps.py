@@ -88,19 +88,25 @@ assert "flux_notification_center_public_record: PASS" in notifications
 assert "CLICK A CARD TO OPEN" not in launcher, "launcher: instruction-banner UI returned"
 
 control_center = read("userspace/gui/performance/main.c")
-assert 'gui_open("CONTROL CENTER"' in control_center
-assert '"FLUX CONTROL CENTER"' in control_center
+assert 'gui_open("FORGE CONTROL"' in control_center
+assert '"FORGE CONTROL / LIVE SYSTEM"' in control_center
 assert "ku_system_get_snapshot" in control_center
 assert "ku_network_get_status" in control_center
 assert "ku_audio_get_state" in control_center and "ku_audio_set" in control_center
 assert "KU_UI_EVENT_POINTER" in control_center and "kui_scene_hit_test" in control_center
 assert "KU_UI_EVENT_KEY" not in control_center
-assert "kui_flow_progress" in control_center and "kui_flow_button" in control_center
+assert "kui_flow_metric" in control_center and "kui_flow_tile" in control_center
+assert "kui_flow_progress" in control_center and "kui_flow_toggle" in control_center
+assert "FORGE_SECTION_PERFORMANCE" in control_center
+assert "FORGE_SECTION_NETWORK" in control_center
+assert "FORGE_SECTION_AUDIO" in control_center
 assert "flux_control_center_live: PASS" in control_center
+assert "forge_control_audio_surface: PASS" in control_center
 assert "flux_control_center_audio_action: PASS" in control_center
-assert '"CONTROL CENTER"' in launcher
+assert '"FORGE CONTROL"' in launcher
 assert '"system pulse / network / audio"' in launcher
-assert "\"CONTROL CENTER\", 'v'" in window_manager
+assert "\"FORGE CONTROL\", 'v'" in window_manager
+assert 'text_equals(title, "CONTROL CENTER")' in window_manager
 
 browser = read("userspace/gui/browser/main.c")
 assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"

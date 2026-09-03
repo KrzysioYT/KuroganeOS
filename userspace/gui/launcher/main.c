@@ -19,7 +19,7 @@ typedef struct launcher_app {
 static const launcher_app g_apps[APP_COUNT] = {
     {"TERMINAL", "shared shell / development", "/gui/terminal", KU_DESKTOP_APP_TERMINAL, KU_UI_NATIVE_ICON_TERMINAL, 1},
     {"FILES", "persistent root / applications", "/gui/files", KU_DESKTOP_APP_FILES, KU_UI_NATIVE_ICON_FILES, 1},
-    {"CONTROL CENTER", "system pulse / network / audio", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
+    {"FORGE CONTROL", "system pulse / network / audio", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
     {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER, KU_UI_NATIVE_ICON_BROWSER, 1},
     {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR, KU_UI_NATIVE_ICON_MONITOR, 1},
     {"SETTINGS", "appearance / sound", "/gui/settings", KU_DESKTOP_APP_SETTINGS, KU_UI_NATIVE_ICON_SETTINGS, 1},

@@ -77,7 +77,7 @@ constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
     {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
     {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
     {"FILES", 'f', ui::DockIcon::Files, "FILES"},
-    {"CONTROL CENTER", 'v', ui::DockIcon::Monitor, "CTRL"},
+    {"FORGE CONTROL", 'v', ui::DockIcon::Monitor, "CTRL"},
     {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
     {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
     {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
@@ -196,7 +196,8 @@ bool is_home_surface(const char* title) {
 }
 
 bool is_performance_surface(const char* title) {
-    return text_equals(title, "CONTROL CENTER");
+    return text_equals(title, "FORGE CONTROL") ||
+        text_equals(title, "CONTROL CENTER");
 }
 
 Slot* login_surface() {
