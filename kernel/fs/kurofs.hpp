@@ -28,7 +28,9 @@ enum class Status : uint8_t {
     CorruptSuperblock,
     InvalidGeometry,
     InvalidRootInode,
+    InvalidInodeMetadata,
     InvalidExtent,
+    OverlappingExtents,
     StaleInode,
     NotFound,
     AlreadyExists,
@@ -206,6 +208,12 @@ Status directory_move(
     const char* source_name,
     Inode* destination_directory,
     const char* destination_name);
+
+// Validate all live inode metadata, extent ownership and directory records.
+// Unattached low-level reservations remain legal, but no two live inodes may
+// own the same block and every published directory record must be unique and
+// generation-correct. mount() runs this check before exposing a filesystem.
+Status validate_consistency(FileSystem* filesystem);
 
 const char* status_message(Status status);
 

@@ -1159,7 +1159,7 @@ Status find_unique_parent(
             parent_id = candidate.id;
         }
     }
-    if (parent_id == 0U) return Status::CorruptDirectory;
+    if (parent_id == 0U) return Status::NotFound;
     *out_parent_id = parent_id;
     return Status::Ok;
 }
@@ -1187,6 +1187,7 @@ Status destination_creates_cycle(
         }
         uint64_t parent = 0U;
         const Status status = find_unique_parent(filesystem, current, &parent);
+        if (status == Status::NotFound) return Status::CorruptDirectory;
         if (status != Status::Ok) return status;
         current = parent;
     }
@@ -1422,6 +1423,8 @@ Status mount(FileSystem* output, const storage::block::Device* device) {
     if (root_status != Status::Ok || root.type != InodeType::Directory) {
         return Status::InvalidRootInode;
     }
+    const Status consistency = validate_consistency(&candidate);
+    if (consistency != Status::Ok) return consistency;
     *output = candidate;
     return Status::Ok;
 }
@@ -2400,6 +2403,101 @@ Status directory_move(
         filesystem, destination.extent_start, destination.extent_blocks);
 }
 
+Status validate_consistency(FileSystem* filesystem) {
+    if (filesystem == nullptr) return Status::InvalidArgument;
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+
+    for (uint64_t inode_id = ROOT_INODE;
+         inode_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++inode_id) {
+        Inode inode{};
+        Status status = read_inode(filesystem, inode_id, &inode);
+        if (status == Status::NotFound) continue;
+        if (status != Status::Ok) return status;
+        status = validate_inode_extent(filesystem, inode);
+        if (status != Status::Ok) return status;
+        if (inode.flags != 0U || inode.link_count != 1U) {
+            return Status::InvalidInodeMetadata;
+        }
+        if (inode.type == InodeType::Directory) {
+            if ((inode.size % DIRECTORY_ENTRY_SIZE) != 0U) {
+                return Status::CorruptDirectory;
+            }
+            const uint64_t entry_count = inode.size / DIRECTORY_ENTRY_SIZE;
+            for (uint64_t index = 0U; index < entry_count; ++index) {
+                DirectoryEntry entry{};
+                status = directory_entry_at(
+                    filesystem, &inode, index, &entry);
+                if (status != Status::Ok) return status;
+                if (entry.inode_id == ROOT_INODE || entry.inode_id == inode.id) {
+                    return Status::CorruptDirectory;
+                }
+                for (uint64_t previous_index = 0U;
+                     previous_index < index;
+                     ++previous_index) {
+                    DirectoryEntry previous{};
+                    status = directory_entry_at(
+                        filesystem, &inode, previous_index, &previous);
+                    if (status != Status::Ok) return status;
+                    if (previous.inode_id == entry.inode_id ||
+                        (previous.name_length == entry.name_length &&
+                         same_name(previous, entry.name, entry.name_length))) {
+                        return Status::CorruptDirectory;
+                    }
+                }
+            }
+        }
+        if (inode.extent_blocks == 0U) continue;
+        for (uint64_t other_id = inode_id + 1U;
+             other_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+             ++other_id) {
+            Inode other{};
+            status = read_inode(filesystem, other_id, &other);
+            if (status == Status::NotFound) continue;
+            if (status != Status::Ok) return status;
+            if (inode_extents_overlap(inode, other)) {
+                return Status::OverlappingExtents;
+            }
+        }
+    }
+
+    for (uint64_t inode_id = ROOT_INODE + 1U;
+         inode_id <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+         ++inode_id) {
+        Inode inode{};
+        Status status = read_inode(filesystem, inode_id, &inode);
+        if (status == Status::NotFound) continue;
+        if (status != Status::Ok) return status;
+        uint64_t parent = 0U;
+        status = find_unique_parent(filesystem, inode.id, &parent);
+        if (status == Status::NotFound) continue;
+        if (status != Status::Ok) return status;
+        if (inode.type != InodeType::Directory) continue;
+
+        uint64_t current = parent;
+        bool terminated = false;
+        for (uint64_t depth = 0U;
+             depth <= static_cast<uint64_t>(filesystem->geometry.inode_count);
+             ++depth) {
+            if (current == inode.id) return Status::CorruptDirectory;
+            if (current == ROOT_INODE) {
+                terminated = true;
+                break;
+            }
+            uint64_t next = 0U;
+            status = find_unique_parent(filesystem, current, &next);
+            if (status == Status::NotFound) {
+                terminated = true;
+                break;
+            }
+            if (status != Status::Ok) return status;
+            current = next;
+        }
+        if (!terminated) return Status::CorruptDirectory;
+    }
+    return Status::Ok;
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
@@ -2412,7 +2510,9 @@ const char* status_message(Status status) {
         case Status::CorruptSuperblock: return "corrupt superblock";
         case Status::InvalidGeometry: return "invalid filesystem geometry";
         case Status::InvalidRootInode: return "invalid root inode";
+        case Status::InvalidInodeMetadata: return "invalid KuroFS inode metadata";
         case Status::InvalidExtent: return "invalid or unallocated KuroFS extent";
+        case Status::OverlappingExtents: return "overlapping live KuroFS extents";
         case Status::StaleInode: return "stale KuroFS inode generation";
         case Status::NotFound: return "KuroFS entry not found";
         case Status::AlreadyExists: return "KuroFS entry already exists";

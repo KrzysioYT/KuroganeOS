@@ -1,3 +1,14 @@
 # KuroFS 4.0 entry
 
 The 4.0 Pre-Steel storage work begins only after the persistent allocator slice passes the production host regression suite and release kernel build on the self-hosted KVM runner. The allocator must use the production `storage::block::Device` contract and survive remount without overlapping extents or inode reuse.
+
+## Current unqualified consistency model
+
+- Regular-file and directory replacements become durable before inode publication.
+- Cross-directory move uses the `FEATURE_MOVE_INTENT` superblock feature. Existing v1 volumes are upgraded by a higher-generation redundant-superblock publication before their first cross-parent move.
+- The move intent records both parent snapshots and replacement extents. Destination publication precedes source removal; recovery aborts a wholly unpublished intent or completes a partial publication before mount succeeds.
+- Clearing the intent precedes reclamation of superseded extents. An interrupted cleanup may leak bounded space, but cannot transfer a live block to a second inode.
+- Mount validates every live inode extent, rejects overlapping live ownership, validates all directory record CRC/generation/type bindings, rejects duplicate names or child IDs and rejects cross-parent aliases or directory ancestry cycles.
+- Low-level unattached inode/block reservations remain legal. Automatic orphan reclamation is a later recovery-policy slice and is not implied by the current validator.
+
+Host coverage injects one failure at every persistent write and flush in both file and non-empty-directory moves, remounts the resulting image and requires exactly one old-or-new namespace owner with non-overlapping live extents. Native KuroganeOS runtime persistence and the formal same-SHA 4.0 closeout are still pending.

@@ -98,6 +98,16 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_move_recovery"
 
+# Refuse live inode overlap, free-block ownership, stale directory identities
+# and unsupported inode/link metadata before a KuroFS mount is exposed.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_consistency.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_consistency"
+
+"$OUT_DIR/test_kurofs_consistency"
+
 # Exercise KuroFS through the production VFS routing/open/read/readdir API.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

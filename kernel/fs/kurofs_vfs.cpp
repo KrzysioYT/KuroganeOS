@@ -15,7 +15,9 @@ vfs::Status map_status(kurofs::Status status) {
         case kurofs::Status::CorruptSuperblock:
         case kurofs::Status::InvalidGeometry:
         case kurofs::Status::InvalidRootInode:
+        case kurofs::Status::InvalidInodeMetadata:
         case kurofs::Status::InvalidExtent:
+        case kurofs::Status::OverlappingExtents:
         case kurofs::Status::CorruptDirectory:
             return vfs::Status::CorruptFilesystem;
         case kurofs::Status::StaleInode: return vfs::Status::StaleHandle;
