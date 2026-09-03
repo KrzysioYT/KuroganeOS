@@ -456,6 +456,33 @@ vfs::Status sync() {
     return vfs::sync_all(&g_vfs);
 }
 
+vfs::Status mount_backend(
+    const char* target,
+    const vfs::FileSystem* filesystem,
+    vfs::MountHandle* handle) {
+    if (handle != nullptr) *handle = {};
+    if (!g_mounted) return vfs::Status::NotInitialized;
+    if (target == nullptr || filesystem == nullptr) {
+        return vfs::Status::InvalidArgument;
+    }
+    VfsGuard guard{};
+    vfs::FileStat target_info{};
+    vfs::Status status = vfs::stat(
+        &g_vfs, &g_path_context, target, &target_info);
+    if (status == vfs::Status::NotFound) {
+        status = vfs::mkdir(&g_vfs, &g_path_context, target);
+        if (status != vfs::Status::Ok) return status;
+        status = vfs::sync_all(&g_vfs);
+        if (status != vfs::Status::Ok) return status;
+    } else if (status != vfs::Status::Ok) {
+        return status;
+    } else if (target_info.type != vfs::NodeType::Directory) {
+        return vfs::Status::NotDirectory;
+    }
+    return vfs::mount(
+        &g_vfs, &g_path_context, target, filesystem, handle);
+}
+
 Status initialization_status() { return g_status; }
 
 const char* status_message(Status status) {

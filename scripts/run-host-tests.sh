@@ -108,6 +108,18 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_consistency"
 
+# Bind an explicitly formatted raw KuroFS disk through the production adapter
+# without ever formatting unknown media implicitly.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_volume.cpp \
+  kernel/fs/kurofs_volume.cpp \
+  kernel/fs/kurofs_vfs.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_volume"
+
+"$OUT_DIR/test_kurofs_volume"
+
 # Exercise KuroFS through the production VFS routing/open/read/readdir API.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

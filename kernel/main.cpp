@@ -19,6 +19,7 @@
 #include "drivers/pit.hpp"
 #include "drivers/serial.hpp"
 #include "drivers/usb/xhci.hpp"
+#include "fs/kurofs_volume.hpp"
 #include "fs/root_volume.hpp"
 #include "fs/ramfs.hpp"
 #include "memory/allocator.hpp"
@@ -999,6 +1000,40 @@ void initialize_storage_probe() {
         terminal::println(
             "[TEST] ahci_write_flush_readback_restore: FAIL");
         boot_failure("AHCI", "tagged scratch storage test failed");
+    }
+
+    // A dedicated raw KuroFS disk is an auxiliary data volume, never a
+    // replacement for the qualified FAT32 system root. Probe it only after
+    // the root VFS exists, and never format unknown media implicitly.
+    if (fs::root_volume::mounted() && !fs::kurofs_volume::mounted()) {
+        for (size_t index = 0U;
+             index < storage::ahci::device_count();
+             ++index) {
+            const storage::block::Device* const device =
+                storage::ahci::device_at(index);
+            if (device == nullptr) continue;
+            storage::gpt::Table table{};
+            if (storage::gpt::parse_primary(device, &table).status ==
+                storage::gpt::Status::Ok) {
+                continue;
+            }
+            const fs::kurofs_volume::Status status =
+                fs::kurofs_volume::mount(device);
+            if (status == fs::kurofs_volume::Status::Ok) {
+                log::write(
+                    log::Level::Info,
+                    "KUROFS",
+                    "raw data volume mounted read-write at /kuro");
+                terminal::println("[TEST] kurofs_vfs_mount: PASS");
+                break;
+            }
+            if (status != fs::kurofs_volume::Status::KurofsMountFailed) {
+                log::write(
+                    log::Level::Warn,
+                    "KUROFS",
+                    fs::kurofs_volume::status_message(status));
+            }
+        }
     }
 }
 
