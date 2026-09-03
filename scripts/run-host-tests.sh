@@ -88,6 +88,16 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_directory"
 
+# Interrupt every persistent write/flush phase of cross-directory moves and
+# require remount recovery to expose exactly the old or the new namespace.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_move_recovery.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_move_recovery"
+
+"$OUT_DIR/test_kurofs_move_recovery"
+
 # Exercise KuroFS through the production VFS routing/open/read/readdir API.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
