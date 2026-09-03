@@ -160,13 +160,48 @@ int main() {
             root2.revision == root_revision_before_refusal,
             "refuse unlink of non-empty directory")) return 1;
 
+    DirectoryEntry before_rename{};
+    if (!ok(directory_lookup(&remounted, &root2, "entry5", &before_rename) == Status::Ok,
+            "lookup rename source")) return 1;
+    Inode stale_rename_root = root2;
+    const uint32_t before_rename_revision = root2.revision;
+    if (!ok(directory_rename(&remounted, &root2, "entry5", "renamed") == Status::Ok &&
+            root2.revision == before_rename_revision + 1U,
+            "copy-on-write same-directory rename")) return 1;
+    DirectoryEntry renamed{};
+    if (!ok(directory_lookup(&remounted, &root2, "entry5", &found) == Status::NotFound &&
+            directory_lookup(&remounted, &root2, "renamed", &renamed) == Status::Ok &&
+            renamed.inode_id == before_rename.inode_id &&
+            renamed.inode_generation == before_rename.inode_generation &&
+            renamed.type == before_rename.type,
+            "rename preserves child identity")) return 1;
+    DirectoryEntry renamed_ordinal{};
+    if (!ok(directory_entry_at(&remounted, &root2, 4U, &renamed_ordinal) == Status::Ok &&
+            std::strcmp(renamed_ordinal.name, "renamed") == 0,
+            "rename preserves directory order")) return 1;
+    const uint32_t before_refused_rename = root2.revision;
+    if (!ok(directory_rename(&remounted, &root2, "renamed", "entry6") ==
+                Status::AlreadyExists &&
+            root2.revision == before_refused_rename,
+            "rename refuses destination collision")) return 1;
+    if (!ok(directory_rename(&remounted, &root2, "renamed", "renamed") == Status::Ok &&
+            root2.revision == before_refused_rename,
+            "same-name rename is a non-mutating success")) return 1;
+    if (!ok(directory_rename(&remounted, &stale_rename_root, "entry5", "stale") ==
+                Status::StaleInode,
+            "stale directory snapshot cannot rename")) return 1;
+
     FileSystem removed_mount{};
     Inode removed_root{};
     if (!ok(mount(&removed_mount, &device) == Status::Ok &&
             read_inode(&removed_mount, ROOT_INODE, &removed_root) == Status::Ok &&
             directory_lookup(&removed_mount, &removed_root, "entry4", &found) ==
-                Status::NotFound,
-            "unlink and compaction survive remount")) return 1;
+                Status::NotFound &&
+            directory_lookup(&removed_mount, &removed_root, "entry5", &found) ==
+                Status::NotFound &&
+            directory_lookup(&removed_mount, &removed_root, "renamed", &renamed) ==
+                Status::Ok,
+            "unlink and rename survive remount")) return 1;
 
     const uint64_t corrupt_offset = root2.extent_start * S + 20U;
     bytes[corrupt_offset] ^= 0x01U;

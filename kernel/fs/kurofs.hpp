@@ -167,6 +167,13 @@ Status directory_append(
 // directories are refused until recursive removal is explicitly implemented.
 Status directory_remove(
     FileSystem* filesystem, Inode* directory, const char* name);
+// Rename one entry without changing child identity. This operation is scoped
+// to a single parent and publishes a copy-on-write directory replacement.
+Status directory_rename(
+    FileSystem* filesystem,
+    Inode* directory,
+    const char* old_name,
+    const char* new_name);
 
 const char* status_message(Status status);
 

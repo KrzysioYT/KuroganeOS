@@ -1483,6 +1483,96 @@ Status directory_remove(
         filesystem, current.extent_start, current.extent_blocks);
 }
 
+Status directory_rename(
+    FileSystem* filesystem,
+    Inode* directory,
+    const char* old_name,
+    const char* new_name) {
+    if (filesystem == nullptr || directory == nullptr) {
+        return Status::InvalidArgument;
+    }
+    if (!is_mounted(filesystem)) return Status::NotMounted;
+    size_t old_length = 0U;
+    size_t new_length = 0U;
+    Status status = parse_directory_name(old_name, &old_length);
+    if (status != Status::Ok) return status;
+    status = parse_directory_name(new_name, &new_length);
+    if (status != Status::Ok) return status;
+
+    Inode current{};
+    status = require_current_snapshot(filesystem, directory, &current);
+    if (status != Status::Ok) return status;
+    if (current.type != InodeType::Directory) return Status::NotDirectory;
+    if ((current.size % DIRECTORY_ENTRY_SIZE) != 0U) {
+        return Status::CorruptDirectory;
+    }
+
+    const uint64_t entry_count = current.size / DIRECTORY_ENTRY_SIZE;
+    uint64_t renamed_index = UINT64_MAX;
+    DirectoryEntry renamed_entry{};
+    bool destination_exists = false;
+    for (uint64_t index = 0U; index < entry_count; ++index) {
+        DirectoryEntry entry{};
+        status = directory_entry_at(filesystem, &current, index, &entry);
+        if (status != Status::Ok) return status;
+        if (same_name(entry, old_name, old_length)) {
+            renamed_index = index;
+            renamed_entry = entry;
+        }
+        if (same_name(entry, new_name, new_length)) destination_exists = true;
+    }
+    if (renamed_index == UINT64_MAX) return Status::NotFound;
+    if (old_length == new_length &&
+        same_name(renamed_entry, new_name, new_length)) return Status::Ok;
+    if (destination_exists) return Status::AlreadyExists;
+
+    const uint64_t replacement_blocks =
+        divide_round_up(current.size, kSectorSize);
+    if (replacement_blocks == 0U) return Status::CorruptDirectory;
+    uint64_t replacement_extent = 0U;
+    status = allocate_blocks(
+        filesystem, replacement_blocks, &replacement_extent);
+    if (status != Status::Ok) return status;
+
+    for (uint64_t index = 0U; index < entry_count; ++index) {
+        uint64_t offset = 0U;
+        if (!multiply_u64(index, DIRECTORY_ENTRY_SIZE, &offset)) {
+            return Status::ArithmeticOverflow;
+        }
+        uint8_t record[DIRECTORY_ENTRY_SIZE]{};
+        if (index == renamed_index) {
+            Inode child{};
+            status = read_inode(filesystem, renamed_entry.inode_id, &child);
+            if (status != Status::Ok ||
+                child.generation != renamed_entry.inode_generation ||
+                child.type != renamed_entry.type) {
+                return Status::CorruptDirectory;
+            }
+            encode_directory_entry(new_name, new_length, child, record);
+        } else {
+            size_t read = 0U;
+            status = read_inode_data(
+                filesystem, &current, offset,
+                record, sizeof(record), &read);
+            if (status != Status::Ok) return status;
+            if (read != sizeof(record)) return Status::CorruptDirectory;
+        }
+        status = write_extent_data(
+            filesystem, replacement_extent, replacement_blocks,
+            offset, record, sizeof(record));
+        if (status != Status::Ok) return status;
+    }
+
+    Inode candidate = current;
+    candidate.extent_start = replacement_extent;
+    candidate.extent_blocks = replacement_blocks;
+    status = update_inode(filesystem, &candidate);
+    if (status != Status::Ok) return status;
+    *directory = candidate;
+    return release_extent(
+        filesystem, current.extent_start, current.extent_blocks);
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";

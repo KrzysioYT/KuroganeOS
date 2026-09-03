@@ -91,7 +91,7 @@ No known 3.6 blocker remains. GPU acceleration remains outside this milestone; F
 
 Status: **ACTIVE**
 
-The active KuroFS slice has progressed from allocator and inode-data durability into revision-checked file growth, zero-filled expansion, shrink/truncate reclamation, leak-free directory copy-on-grow and generation-safe copy-on-write unlink on the production block-device contract. Unlink refuses non-empty directories and orders parent publication, child tombstoning and extent release to prefer bounded leaks over duplicate ownership after interruption. Directory rename and writable VFS integration remain open and are not claimed. Device Model 2.0 work proceeds with capability-scoped ownership and deterministic cleanup; unrestricted PCI/MMIO/I/O-port/DMA access is not exposed to arbitrary Ring-3 applications.
+The active KuroFS slice has progressed from allocator and inode-data durability into revision-checked file growth, zero-filled expansion, shrink/truncate reclamation, leak-free directory copy-on-grow, generation-safe copy-on-write unlink and collision-safe same-directory rename on the production block-device contract. Unlink orders parent publication, child tombstoning and extent release to prefer bounded leaks over duplicate ownership after interruption. Cross-directory move and writable VFS integration remain open and are not claimed. Device Model 2.0 work proceeds with capability-scoped ownership and deterministic cleanup; unrestricted PCI/MMIO/I/O-port/DMA access is not exposed to arbitrary Ring-3 applications.
 
 ### Road to 15 status
 
