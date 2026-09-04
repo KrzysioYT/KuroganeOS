@@ -84,6 +84,34 @@ drivers::device::Descriptor virtual_descriptor(
     };
 }
 
+struct ReentrantContext {
+    drivers::device::DeviceId original;
+    drivers::device::DeviceId replacement;
+    size_t probes;
+    size_t attaches;
+};
+
+KStatus replace_during_probe(
+    const drivers::device::Device&,
+    uint32_t,
+    void* opaque) {
+    auto* context = static_cast<ReentrantContext*>(opaque);
+    ++context->probes;
+    assert(drivers::device::remove_device(context->original) == KStatus::Ok);
+    assert(drivers::device::register_device(
+        virtual_descriptor("probe-replacement", nullptr, 0),
+        &context->replacement) == KStatus::Ok);
+    return KStatus::Ok;
+}
+
+KStatus count_reentrant_attach(
+    const drivers::device::Device&,
+    uint32_t,
+    void* opaque) {
+    ++static_cast<ReentrantContext*>(opaque)->attaches;
+    return KStatus::Ok;
+}
+
 } // namespace
 
 int main() {
@@ -214,6 +242,32 @@ int main() {
     assert(failing_input.probes == 2 && failing_input.attaches == 2);
     assert(fallback_input.probes == 2 && fallback_input.attaches == 2);
     assert(driver::get(failing_input_id)->failure_count == 2);
+
+    // A probe may synchronously trigger hot removal. A replacement can reuse
+    // the numeric slot, but it must never inherit the in-flight bind.
+    assert(device::initialize() == KStatus::Ok);
+    assert(driver::initialize() == KStatus::Ok);
+    ReentrantContext reentrant{
+        device::INVALID_DEVICE_ID,
+        device::INVALID_DEVICE_ID,
+        0,
+        0,
+    };
+    assert(device::register_device(
+        virtual_descriptor("probe-original", nullptr, 0),
+        &reentrant.original) == KStatus::Ok);
+    const device::DeviceHandle removed_handle = device::handle_for(reentrant.original);
+    device::DriverId reentrant_driver = device::INVALID_DRIVER_ID;
+    assert(driver::register_driver(
+        {"reentrant-probe", 100, 10, match_input, replace_during_probe,
+            count_reentrant_attach, nullptr, &reentrant},
+        &reentrant_driver) == KStatus::Ok);
+    assert(driver::bind_device(reentrant.original) == KStatus::NoDevice);
+    assert(reentrant.probes == 1U && reentrant.attaches == 0U);
+    assert(reentrant.replacement == reentrant.original);
+    assert(device::resolve(removed_handle) == nullptr);
+    assert(device::get(reentrant.replacement)->driver == device::INVALID_DRIVER_ID);
+    assert(device::get(reentrant.replacement)->status == device::Status::Discovered);
 
     std::cout << "driver core tests: PASS\n";
     return 0;
