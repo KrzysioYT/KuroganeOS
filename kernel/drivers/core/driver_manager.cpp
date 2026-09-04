@@ -219,13 +219,22 @@ KStatus bind_device(device::DeviceId id) {
 
 KStatus unbind_device(device::DeviceId id) {
     if (!g_initialized || !device::initialized()) return KStatus::BadState;
-    device::Device* target = device::get_mutable(id);
+    const device::DeviceHandle target_handle = device::handle_for(id);
+    device::Device* target = device::resolve_mutable(target_handle);
     if (target == nullptr) return KStatus::NotFound;
     if (target->driver == device::INVALID_DRIVER_ID) return KStatus::NotFound;
     if (target->driver >= g_count) return KStatus::Corrupted;
 
     Driver& driver = g_drivers[target->driver];
     if (driver.detach != nullptr) driver.detach(*target, driver.context);
+    target = device::resolve_mutable(target_handle);
+    if (target == nullptr || target->driver != driver.id) {
+        if (driver.attached_count != 0U) --driver.attached_count;
+        driver.status = driver.attached_count == 0U
+            ? Status::Registered : Status::Ready;
+        bump_lifecycle(driver);
+        return KStatus::NoDevice;
+    }
     const KStatus release_status = device::release(id, driver.id);
     if (release_status != KStatus::Ok) return release_status;
     if (driver.attached_count != 0U) --driver.attached_count;
@@ -249,7 +258,8 @@ KStatus rebind_device(device::DeviceId id) {
 KStatus report_device_failure(device::DeviceId id, KStatus reason) {
     if (!g_initialized || !device::initialized()) return KStatus::BadState;
     if (reason == KStatus::Ok) return KStatus::InvalidArgument;
-    device::Device* target = device::get_mutable(id);
+    const device::DeviceHandle target_handle = device::handle_for(id);
+    device::Device* target = device::resolve_mutable(target_handle);
     if (target == nullptr) return KStatus::NotFound;
 
     if (target->driver == device::INVALID_DRIVER_ID) {
@@ -261,6 +271,11 @@ KStatus report_device_failure(device::DeviceId id, KStatus reason) {
     Driver& driver = g_drivers[target->driver];
     record_failure(driver, id, FailureStage::Runtime, reason);
     if (driver.detach != nullptr) driver.detach(*target, driver.context);
+    target = device::resolve_mutable(target_handle);
+    if (target == nullptr || target->driver != driver.id) {
+        if (driver.attached_count != 0U) --driver.attached_count;
+        return KStatus::NoDevice;
+    }
     const KStatus release_status = device::release(id, driver.id);
     if (release_status != KStatus::Ok) return release_status;
     if (driver.attached_count != 0U) --driver.attached_count;

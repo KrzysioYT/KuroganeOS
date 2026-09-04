@@ -11,6 +11,7 @@ struct Context {
     uint32_t expected_timeout;
     size_t probes;
     size_t attaches;
+    size_t detaches;
     KStatus probe_result;
     KStatus attach_result;
 };
@@ -41,6 +42,10 @@ KStatus attach(
     assert(timeout == context->expected_timeout);
     ++context->attaches;
     return context->attach_result;
+}
+
+void detach(const drivers::device::Device&, void* opaque) {
+    ++static_cast<Context*>(opaque)->detaches;
 }
 
 drivers::device::Descriptor descriptor(
@@ -110,6 +115,30 @@ KStatus count_reentrant_attach(
     void* opaque) {
     ++static_cast<ReentrantContext*>(opaque)->attaches;
     return KStatus::Ok;
+}
+
+struct ReentrantDetachContext {
+    drivers::device::DeviceId replacement;
+    size_t detaches;
+};
+
+KStatus accept_lifecycle(
+    const drivers::device::Device&,
+    uint32_t,
+    void*) {
+    return KStatus::Ok;
+}
+
+void replace_during_detach(
+    const drivers::device::Device& target,
+    void* opaque) {
+    auto* context = static_cast<ReentrantDetachContext*>(opaque);
+    ++context->detaches;
+    assert(drivers::device::release(target.id, target.driver) == KStatus::Ok);
+    assert(drivers::device::remove_device(target.id) == KStatus::Ok);
+    assert(drivers::device::register_device(
+        virtual_descriptor("detach-replacement", nullptr, 0),
+        &context->replacement) == KStatus::Ok);
 }
 
 } // namespace
@@ -191,8 +220,8 @@ int main() {
     assert(device::resolve(claimed_handle) == nullptr);
     assert(device::resolve(released_handle) != nullptr);
 
-    Context preferred{25, 0, 0, KStatus::NotSupported, KStatus::Ok};
-    Context fallback{50, 0, 0, KStatus::Ok, KStatus::Ok};
+    Context preferred{25, 0, 0, 0, KStatus::NotSupported, KStatus::Ok};
+    Context fallback{50, 0, 0, 0, KStatus::Ok, KStatus::Ok};
     device::DriverId preferred_id = device::INVALID_DRIVER_ID;
     device::DriverId fallback_id = device::INVALID_DRIVER_ID;
     assert(driver::register_driver(
@@ -217,15 +246,15 @@ int main() {
         {"fallback", 0, 1, match_storage, probe, attach, nullptr, &fallback},
         &preferred_id) == KStatus::AlreadyExists);
 
-    Context failing_input{10, 0, 0, KStatus::Ok, KStatus::IoError};
-    Context fallback_input{10, 0, 0, KStatus::Ok, KStatus::Ok};
+    Context failing_input{10, 0, 0, 0, KStatus::Ok, KStatus::IoError};
+    Context fallback_input{10, 0, 0, 0, KStatus::Ok, KStatus::Ok};
     device::DriverId failing_input_id = device::INVALID_DRIVER_ID;
     device::DriverId fallback_input_id = device::INVALID_DRIVER_ID;
     assert(driver::register_driver(
         {"input-failing", 100, 10, match_input, probe, attach, nullptr, &failing_input},
         &failing_input_id) == KStatus::Ok);
     assert(driver::register_driver(
-        {"input-fallback", 50, 10, match_input, probe, attach, nullptr, &fallback_input},
+        {"input-fallback", 50, 10, match_input, probe, attach, detach, &fallback_input},
         &fallback_input_id) == KStatus::Ok);
     assert(driver::bind_device(reused) == KStatus::Ok);
     assert(device::get(reused)->driver == fallback_input_id);
@@ -235,6 +264,7 @@ int main() {
     assert(driver::get(failing_input_id)->last_failure_stage == driver::FailureStage::Attach);
     assert(driver::get(failing_input_id)->attached_count == 0);
     assert(driver::report_device_failure(reused, KStatus::IoError) == KStatus::Ok);
+    assert(fallback_input.detaches == 1U);
     assert(device::get(reused)->driver == device::INVALID_DRIVER_ID);
     assert(device::get(reused)->status == device::Status::Failed);
     assert(driver::rebind_device(reused) == KStatus::Ok);
@@ -242,6 +272,24 @@ int main() {
     assert(failing_input.probes == 2 && failing_input.attaches == 2);
     assert(fallback_input.probes == 2 && fallback_input.attaches == 2);
     assert(driver::get(failing_input_id)->failure_count == 2);
+
+    const device::DeviceHandle bound_handle = device::handle_for(reused);
+    assert(driver::unbind_device(reused) == KStatus::Ok);
+    assert(fallback_input.detaches == 2U);
+    assert(device::resolve(bound_handle) == nullptr);
+    const device::DeviceHandle unbound_handle = device::handle_for(reused);
+    assert(device::resolve(unbound_handle) != nullptr);
+    assert(device::get(reused)->driver == device::INVALID_DRIVER_ID);
+    assert(device::get(reused)->status == device::Status::Discovered);
+    assert(driver::get(fallback_input_id)->attached_count == 0U);
+    assert(device::remove_device(reused) == KStatus::Ok);
+    assert(device::resolve(unbound_handle) == nullptr);
+    device::DeviceId lifecycle_replacement = device::INVALID_DEVICE_ID;
+    assert(device::register_device(
+        virtual_descriptor("lifecycle-replacement", nullptr, 0),
+        &lifecycle_replacement) == KStatus::Ok);
+    assert(lifecycle_replacement == reused);
+    assert(device::handle_for(lifecycle_replacement) != unbound_handle);
 
     // A probe may synchronously trigger hot removal. A replacement can reuse
     // the numeric slot, but it must never inherit the in-flight bind.
@@ -268,6 +316,32 @@ int main() {
     assert(device::resolve(removed_handle) == nullptr);
     assert(device::get(reentrant.replacement)->driver == device::INVALID_DRIVER_ID);
     assert(device::get(reentrant.replacement)->status == device::Status::Discovered);
+
+    assert(device::initialize() == KStatus::Ok);
+    assert(driver::initialize() == KStatus::Ok);
+    device::DeviceId detach_original = device::INVALID_DEVICE_ID;
+    assert(device::register_device(
+        virtual_descriptor("detach-original", nullptr, 0),
+        &detach_original) == KStatus::Ok);
+    ReentrantDetachContext reentrant_detach{device::INVALID_DEVICE_ID, 0};
+    device::DriverId detach_driver = device::INVALID_DRIVER_ID;
+    assert(driver::register_driver(
+        {"reentrant-detach", 100, 10, match_input, accept_lifecycle,
+            accept_lifecycle, replace_during_detach, &reentrant_detach},
+        &detach_driver) == KStatus::Ok);
+    assert(driver::bind_device(detach_original) == KStatus::Ok);
+    const device::DeviceHandle detached_handle = device::handle_for(detach_original);
+    assert(driver::get(detach_driver)->attached_count == 1U);
+    assert(driver::unbind_device(detach_original) == KStatus::NoDevice);
+    assert(reentrant_detach.detaches == 1U);
+    assert(reentrant_detach.replacement == detach_original);
+    assert(device::resolve(detached_handle) == nullptr);
+    assert(device::get(reentrant_detach.replacement)->driver ==
+        device::INVALID_DRIVER_ID);
+    assert(device::get(reentrant_detach.replacement)->status ==
+        device::Status::Discovered);
+    assert(driver::get(detach_driver)->attached_count == 0U);
+    assert(driver::get(detach_driver)->status == driver::Status::Registered);
 
     std::cout << "driver core tests: PASS\n";
     return 0;
