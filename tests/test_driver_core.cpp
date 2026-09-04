@@ -14,6 +14,7 @@ struct Context {
     size_t detaches;
     KStatus probe_result;
     KStatus attach_result;
+    bool partial_active;
 };
 
 bool match_storage(const drivers::device::Device& device, void*) {
@@ -41,11 +42,14 @@ KStatus attach(
     auto* context = static_cast<Context*>(opaque);
     assert(timeout == context->expected_timeout);
     ++context->attaches;
+    context->partial_active = true;
     return context->attach_result;
 }
 
 void detach(const drivers::device::Device&, void* opaque) {
-    ++static_cast<Context*>(opaque)->detaches;
+    auto* context = static_cast<Context*>(opaque);
+    ++context->detaches;
+    context->partial_active = false;
 }
 
 drivers::device::Descriptor descriptor(
@@ -220,8 +224,8 @@ int main() {
     assert(device::resolve(claimed_handle) == nullptr);
     assert(device::resolve(released_handle) != nullptr);
 
-    Context preferred{25, 0, 0, 0, KStatus::NotSupported, KStatus::Ok};
-    Context fallback{50, 0, 0, 0, KStatus::Ok, KStatus::Ok};
+    Context preferred{25, 0, 0, 0, KStatus::NotSupported, KStatus::Ok, false};
+    Context fallback{50, 0, 0, 0, KStatus::Ok, KStatus::Ok, false};
     device::DriverId preferred_id = device::INVALID_DRIVER_ID;
     device::DriverId fallback_id = device::INVALID_DRIVER_ID;
     assert(driver::register_driver(
@@ -246,12 +250,12 @@ int main() {
         {"fallback", 0, 1, match_storage, probe, attach, nullptr, &fallback},
         &preferred_id) == KStatus::AlreadyExists);
 
-    Context failing_input{10, 0, 0, 0, KStatus::Ok, KStatus::IoError};
-    Context fallback_input{10, 0, 0, 0, KStatus::Ok, KStatus::Ok};
+    Context failing_input{10, 0, 0, 0, KStatus::Ok, KStatus::IoError, false};
+    Context fallback_input{10, 0, 0, 0, KStatus::Ok, KStatus::Ok, false};
     device::DriverId failing_input_id = device::INVALID_DRIVER_ID;
     device::DriverId fallback_input_id = device::INVALID_DRIVER_ID;
     assert(driver::register_driver(
-        {"input-failing", 100, 10, match_input, probe, attach, nullptr, &failing_input},
+        {"input-failing", 100, 10, match_input, probe, attach, detach, &failing_input},
         &failing_input_id) == KStatus::Ok);
     assert(driver::register_driver(
         {"input-fallback", 50, 10, match_input, probe, attach, detach, &fallback_input},
@@ -259,23 +263,29 @@ int main() {
     assert(driver::bind_device(reused) == KStatus::Ok);
     assert(device::get(reused)->driver == fallback_input_id);
     assert(failing_input.probes == 1 && failing_input.attaches == 1);
+    assert(failing_input.detaches == 1U && !failing_input.partial_active);
     assert(fallback_input.probes == 1 && fallback_input.attaches == 1);
+    assert(fallback_input.partial_active);
     assert(driver::get(failing_input_id)->failure_count == 1);
     assert(driver::get(failing_input_id)->last_failure_stage == driver::FailureStage::Attach);
     assert(driver::get(failing_input_id)->attached_count == 0);
     assert(driver::report_device_failure(reused, KStatus::IoError) == KStatus::Ok);
     assert(fallback_input.detaches == 1U);
+    assert(!fallback_input.partial_active);
     assert(device::get(reused)->driver == device::INVALID_DRIVER_ID);
     assert(device::get(reused)->status == device::Status::Failed);
     assert(driver::rebind_device(reused) == KStatus::Ok);
     assert(device::get(reused)->driver == fallback_input_id);
     assert(failing_input.probes == 2 && failing_input.attaches == 2);
+    assert(failing_input.detaches == 2U && !failing_input.partial_active);
     assert(fallback_input.probes == 2 && fallback_input.attaches == 2);
+    assert(fallback_input.partial_active);
     assert(driver::get(failing_input_id)->failure_count == 2);
 
     const device::DeviceHandle bound_handle = device::handle_for(reused);
     assert(driver::unbind_device(reused) == KStatus::Ok);
     assert(fallback_input.detaches == 2U);
+    assert(!fallback_input.partial_active);
     assert(device::resolve(bound_handle) == nullptr);
     const device::DeviceHandle unbound_handle = device::handle_for(reused);
     assert(device::resolve(unbound_handle) != nullptr);

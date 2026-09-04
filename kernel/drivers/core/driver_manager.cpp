@@ -202,6 +202,11 @@ KStatus bind_device(device::DeviceId id) {
         }
         record_failure(driver, id, FailureStage::Attach, status);
         last_failure = status;
+        if (driver.detach != nullptr) driver.detach(*target, driver.context);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr || target->driver != driver.id) {
+            return KStatus::NoDevice;
+        }
         const KStatus release_status = device::release(id, driver.id);
         if (release_status != KStatus::Ok) return release_status;
         target_handle = device::handle_for(id);
