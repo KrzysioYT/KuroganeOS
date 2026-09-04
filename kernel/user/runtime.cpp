@@ -64,6 +64,16 @@ struct RuntimeSharedMapping {
 
 RuntimeSharedMapping g_shared_mappings[kMaximumRuntimeSharedMappings]{};
 
+ku_status_t device_status(KStatus status) {
+    switch (status) {
+        case KStatus::Ok: return KU_STATUS_OK;
+        case KStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case KStatus::OutOfRange: return KU_STATUS_OUT_OF_RANGE;
+        case KStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
+        default: return KU_STATUS_BAD_STATE;
+    }
+}
+
 ku_status_t ipc_status(ipc::Status status) {
     switch (status) {
         case ipc::Status::Ok: return KU_STATUS_OK;
@@ -482,9 +492,10 @@ void extended_syscall_handler(
                 return;
             }
             const auto handle = static_cast<drivers::device::DeviceHandle>(frame.rdi);
-            const drivers::device::Device* device = drivers::device::resolve(handle);
-            if (device == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+            const drivers::device::Device* device = nullptr;
+            const KStatus status = drivers::device::resolve_checked(handle, &device);
+            if (status != KStatus::Ok) {
+                frame.rax = static_cast<uint64_t>(device_status(status));
                 return;
             }
             ku_device_info result{};
@@ -540,16 +551,8 @@ void extended_syscall_handler(
                 static_cast<drivers::device::DeviceHandle>(frame.rdi),
                 static_cast<size_t>(frame.rsi),
                 &resource);
-            if (status == KStatus::NotFound) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
-                return;
-            }
-            if (status == KStatus::OutOfRange) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
-                return;
-            }
             if (status != KStatus::Ok) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                frame.rax = static_cast<uint64_t>(device_status(status));
                 return;
             }
             output->type = static_cast<uint32_t>(resource.type);

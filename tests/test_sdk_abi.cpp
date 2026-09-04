@@ -115,6 +115,7 @@ int main() {
     static_assert(KU_STATUS_END_OF_STREAM == -15);
     static_assert(KU_STATUS_CONNECTION_REFUSED == -16);
     static_assert(KU_STATUS_CONNECTION_RESET == -17);
+    static_assert(KU_STATUS_STALE_HANDLE == -18);
 
     static_assert(KU_FILE_SEEK_BEGIN == 0);
     static_assert(KU_FILE_SEEK_CURRENT == 1);

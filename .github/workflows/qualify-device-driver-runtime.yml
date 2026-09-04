@@ -66,7 +66,7 @@ jobs:
           grep -F 'deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c' scripts/build-linux.sh
           grep -F 'ku_device_enumerate(' userspace/system/device-probe/main.c
           grep -F 'ku_device_get_resource(' userspace/system/device-probe/main.c
-          grep -F 'KU_STATUS_NOT_FOUND' userspace/system/device-probe/main.c
+          grep -F 'KU_STATUS_STALE_HANDLE' userspace/system/device-probe/main.c
 
       - name: Build clean release media
         shell: bash

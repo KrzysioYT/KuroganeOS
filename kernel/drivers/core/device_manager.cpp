@@ -233,26 +233,49 @@ DeviceHandle handle_for(DeviceId id) {
 }
 
 const Device* resolve(DeviceHandle handle) {
+    const Device* device = nullptr;
+    return resolve_checked(handle, &device) == KStatus::Ok ? device : nullptr;
+}
+
+KStatus resolve_checked(DeviceHandle handle, const Device** output) {
+    if (output == nullptr) return KStatus::InvalidArgument;
+    *output = nullptr;
     DeviceId id = INVALID_DEVICE_ID;
     uint32_t generation = 0U;
-    if (!decode_handle(handle, &id, &generation)) return nullptr;
+    if (!decode_handle(handle, &id, &generation)) return KStatus::InvalidArgument;
     const Device* device = get(id);
-    return device != nullptr && device->generation == generation ? device : nullptr;
+    if (device == nullptr || device->generation != generation) {
+        return KStatus::StaleHandle;
+    }
+    *output = device;
+    return KStatus::Ok;
 }
 
 Device* resolve_mutable(DeviceHandle handle) {
+    Device* device = nullptr;
+    return resolve_mutable_checked(handle, &device) == KStatus::Ok ? device : nullptr;
+}
+
+KStatus resolve_mutable_checked(DeviceHandle handle, Device** output) {
+    if (output == nullptr) return KStatus::InvalidArgument;
+    *output = nullptr;
     DeviceId id = INVALID_DEVICE_ID;
     uint32_t generation = 0U;
-    if (!decode_handle(handle, &id, &generation)) return nullptr;
+    if (!decode_handle(handle, &id, &generation)) return KStatus::InvalidArgument;
     Device* device = get_mutable(id);
-    return device != nullptr && device->generation == generation ? device : nullptr;
+    if (device == nullptr || device->generation != generation) {
+        return KStatus::StaleHandle;
+    }
+    *output = device;
+    return KStatus::Ok;
 }
 
 KStatus get_resource(DeviceHandle handle, size_t index, Resource* output) {
     if (output == nullptr) return KStatus::InvalidArgument;
     *output = {};
-    const Device* device = resolve(handle);
-    if (device == nullptr) return KStatus::NotFound;
+    const Device* device = nullptr;
+    const KStatus resolve_status = resolve_checked(handle, &device);
+    if (resolve_status != KStatus::Ok) return resolve_status;
     if (index >= device->resource_count) return KStatus::OutOfRange;
     *output = device->resources[index];
     return KStatus::Ok;

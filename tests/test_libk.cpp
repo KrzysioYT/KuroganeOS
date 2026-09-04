@@ -21,6 +21,9 @@ int main() {
     assert(kstatus_succeeded(KStatus::Ok));
     assert(kstatus_failed(KStatus::IoError));
     assert(k_strcmp(kstatus_name(KStatus::Timeout), "KSTATUS_TIMEOUT") == 0);
+    assert(k_strcmp(kstatus_name(KStatus::StaleHandle),
+        "KSTATUS_STALE_HANDLE") == 0);
+    assert(k_strcmp(kstatus_message(KStatus::StaleHandle), "stale handle") == 0);
 
     char bytes[8]{};
     k_memset(bytes, 'x', 4);

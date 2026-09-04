@@ -299,8 +299,14 @@ KStatus run(Result* output) {
     status = device::remove_device(g_state.target);
     if (status != KStatus::Ok) return fail(status);
     survivor = device::resolve(survivor_handle);
+    const device::Device* stale_device = nullptr;
+    const bool removed_handle_is_typed_stale =
+        device::resolve_checked(removed_handle, &stale_device) ==
+            KStatus::StaleHandle &&
+        stale_device == nullptr;
     const bool first_remove_ok = device::resolve(removed_handle) == nullptr &&
-        survivor != nullptr && survivor->child_count == 0U &&
+        removed_handle_is_typed_stale && survivor != nullptr &&
+        survivor->child_count == 0U &&
         device::active_count() == initial_active_count + 1U;
 
     device::DeviceId replacement = device::INVALID_DEVICE_ID;
@@ -328,7 +334,13 @@ KStatus run(Result* output) {
 
     output->device_remove_cleanup = first_remove_ok && reuse_ok &&
         replacement_remove_ok && device::active_count() == initial_active_count;
-    output->device_stale_handle = reuse_ok &&
+    stale_device = nullptr;
+    const bool replacement_handle_is_typed_stale =
+        device::resolve_checked(replacement_handle, &stale_device) ==
+            KStatus::StaleHandle &&
+        stale_device == nullptr;
+    output->device_stale_handle = reuse_ok && removed_handle_is_typed_stale &&
+        replacement_handle_is_typed_stale &&
         device::resolve(replacement_handle) == nullptr &&
         device::resolve(survivor_handle) == nullptr;
     return output->complete() ? KStatus::Ok : KStatus::Corrupted;

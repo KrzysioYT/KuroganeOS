@@ -21,7 +21,8 @@ enum ku_status_code {
     KU_STATUS_CORRUPT_DATA = -14,
     KU_STATUS_END_OF_STREAM = -15,
     KU_STATUS_CONNECTION_REFUSED = -16,
-    KU_STATUS_CONNECTION_RESET = -17
+    KU_STATUS_CONNECTION_RESET = -17,
+    KU_STATUS_STALE_HANDLE = -18
 };
 
 static inline int ku_status_is_success(ku_status_t status) {

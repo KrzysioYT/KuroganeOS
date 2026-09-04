@@ -134,6 +134,10 @@ KStatus remove_device(DeviceId id);
 const Device* get(DeviceId id);
 Device* get_mutable(DeviceId id);
 DeviceHandle handle_for(DeviceId id);
+// Checked resolution distinguishes malformed handles from well-formed handles
+// whose generation no longer names the active device in that slot.
+KStatus resolve_checked(DeviceHandle handle, const Device** output);
+KStatus resolve_mutable_checked(DeviceHandle handle, Device** output);
 const Device* resolve(DeviceHandle handle);
 Device* resolve_mutable(DeviceHandle handle);
 KStatus get_resource(DeviceHandle handle, size_t index, Resource* output);

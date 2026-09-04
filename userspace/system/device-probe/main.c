@@ -116,7 +116,7 @@ __attribute__((noreturn)) void _start(void) {
         ((uint64_t)stale_generation << 32U) | encoded_id;
     ku_device_info stale = {0};
     if (stale_generation == 0U || stale_handle == g_handles[0] ||
-        ku_device_query(stale_handle, &stale) != KU_STATUS_NOT_FOUND ||
+        ku_device_query(stale_handle, &stale) != KU_STATUS_STALE_HANDLE ||
         ku_device_query(KU_DEVICE_INVALID_HANDLE, &stale) !=
             KU_STATUS_INVALID_ARGUMENT) {
         fail(19U);

@@ -27,6 +27,7 @@ enum class KStatus : uint16_t {
     DeviceFault,
     ReadOnly,
     EndOfStream,
+    StaleHandle,
 };
 
 constexpr bool kstatus_succeeded(KStatus status) {

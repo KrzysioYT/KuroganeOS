@@ -174,6 +174,18 @@ int main() {
         virtual_descriptor("virtual-input", &virtual_resource, 1),
         &virtual_parent) == KStatus::Ok);
     const device::DeviceHandle stale_handle = device::handle_for(virtual_parent);
+    const device::Device* checked_device = nullptr;
+    assert(device::resolve_checked(stale_handle, &checked_device) == KStatus::Ok);
+    assert(checked_device != nullptr && checked_device->id == virtual_parent);
+    device::Device* checked_mutable_device = nullptr;
+    assert(device::resolve_mutable_checked(stale_handle, &checked_mutable_device) ==
+        KStatus::Ok);
+    assert(checked_mutable_device != nullptr &&
+        checked_mutable_device->id == virtual_parent);
+    assert(device::resolve_checked(device::INVALID_DEVICE_HANDLE, &checked_device) ==
+        KStatus::InvalidArgument);
+    assert(checked_device == nullptr);
+    assert(device::resolve_checked(stale_handle, nullptr) == KStatus::InvalidArgument);
     assert(device::has_capability(stale_handle, device::CapabilityMmio));
     assert(device::has_capability(stale_handle, device::CapabilityHotRemove));
     device::Resource returned_resource{};
@@ -198,6 +210,14 @@ int main() {
     assert(device::get(virtual_parent)->child_count == 0);
     assert(device::remove_device(virtual_parent) == KStatus::Ok);
     assert(device::resolve(stale_handle) == nullptr);
+    assert(device::resolve_checked(stale_handle, &checked_device) ==
+        KStatus::StaleHandle);
+    assert(checked_device == nullptr);
+    assert(device::resolve_mutable_checked(stale_handle, &checked_mutable_device) ==
+        KStatus::StaleHandle);
+    assert(checked_mutable_device == nullptr);
+    assert(device::get_resource(stale_handle, 0, &returned_resource) ==
+        KStatus::StaleHandle);
     assert(device::active_count() == initial_active_count + 2U);
 
     device::DeviceId reused = device::INVALID_DEVICE_ID;
@@ -217,12 +237,16 @@ int main() {
     const device::DeviceHandle claimed_handle = device::handle_for(reused);
     assert(claimed_handle != unclaimed_handle);
     assert(device::resolve(unclaimed_handle) == nullptr);
+    assert(device::resolve_checked(unclaimed_handle, &checked_device) ==
+        KStatus::StaleHandle);
     assert(device::resolve(claimed_handle) != nullptr);
     assert(device::release(reused, 77U) == KStatus::Ok);
     assert(device::get(reused)->lifecycle_generation == claim_lifecycle + 2U);
     const device::DeviceHandle released_handle = device::handle_for(reused);
     assert(released_handle != claimed_handle);
     assert(device::resolve(claimed_handle) == nullptr);
+    assert(device::resolve_checked(claimed_handle, &checked_device) ==
+        KStatus::StaleHandle);
     assert(device::resolve(released_handle) != nullptr);
 
     Context preferred{25, 0, 0, 0, KStatus::NotSupported, KStatus::Ok, false};
