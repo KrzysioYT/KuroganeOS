@@ -127,6 +127,16 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_orphan_recovery"
 
+# Interrupt every write and flush in regular-file COW replacement and require
+# remount to expose one complete old-or-new payload with valid ownership.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_write_recovery.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_write_recovery"
+
+"$OUT_DIR/test_kurofs_write_recovery"
+
 # Bind an explicitly formatted raw KuroFS disk through the production adapter
 # without ever formatting unknown media implicitly.
 "$HOST_CXX" \

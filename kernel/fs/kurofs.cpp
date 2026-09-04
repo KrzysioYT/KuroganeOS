@@ -1964,7 +1964,11 @@ Status write_inode_data(
     candidate.extent_start = replacement_extent;
     candidate.extent_blocks = replacement_blocks;
     status = update_inode(filesystem, &candidate);
-    if (status != Status::Ok) return abandon_replacement(status);
+    // A metadata flush can fail after the replacement extent has already been
+    // encoded into the inode sector. Preserve both allocations when
+    // publication is ambiguous: remount may expose either complete version,
+    // while releasing the replacement here could free the live new extent.
+    if (status != Status::Ok) return status;
     *inode = candidate;
     if (current.extent_blocks == 0U) return Status::Ok;
     return release_extent(
