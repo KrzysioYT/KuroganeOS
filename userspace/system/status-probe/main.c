@@ -7,7 +7,7 @@
 #include "../../runtime/user.h"
 
 #define STATUS_ENDPOINT "qualification.status"
-#define STATUS_FILE "/status-handle.tmp"
+#define STATUS_FILE "/stale.tmp"
 
 __attribute__((noreturn)) static void fail(uint64_t code) {
     (void)u_puts("[TEST] unified_status_runtime: FAIL code=");

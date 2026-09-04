@@ -137,6 +137,15 @@ __attribute__((noreturn)) void _start(void) {
     (void)u_puts("/system/init: PID 1 online\n");
     (void)u_puts("[TEST] userspace_init_pid1: PASS\n");
 
+
+    int32_t status_probe_exit = -1;
+    if (!u_spawn_wait("/system/stprobe", &status_probe_exit) ||
+        status_probe_exit != 0) {
+        (void)u_puts("[TEST] unified_status_probe_exit: FAIL\n");
+        ku_exit(71);
+    }
+    (void)u_puts("[TEST] unified_status_probe_exit: PASS\n");
+
     const uint64_t event_broker_pid = spawn_event_broker();
     if (event_broker_pid == 0U) {
         (void)u_puts("init: cannot spawn /system/eventd\n");

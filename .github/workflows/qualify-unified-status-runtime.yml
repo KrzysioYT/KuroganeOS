@@ -1,0 +1,87 @@
+name: Qualify 4.0 Unified Status Runtime
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-unified-status-runtime.yml'
+      - 'kernel/user/runtime.cpp'
+      - 'kernel/user/runtime_base.inc'
+      - 'kernel/fs/vfs.*'
+      - 'kernel/ipc/**'
+      - 'kernel/net/socket.*'
+      - 'sdk/include/kurogane/status.h'
+      - 'userspace/system/status-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/qualification/inject-unified-status-runtime.py'
+      - 'scripts/qualify-unified-status-runtime.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-unified-status-runtime:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact tested SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify native qualification host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run complete host regression suite
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Inject and validate Ring-3 status qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification/inject-unified-status-runtime.py
+          git diff --check
+          grep -F 'u_spawn_wait("/system/stprobe"' userspace/system/init/main.c
+          grep -F 'statusprobe|userspace/system/status-probe/main.c|system/stprobe|c' scripts/build-linux.sh
+          grep -F 'case ipc::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;' kernel/user/runtime.cpp
+          grep -F 'case fs::vfs::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;' kernel/user/runtime_base.inc
+          grep -F 'KU_STATUS_STALE_HANDLE' userspace/system/status-probe/main.c
+          bash -n scripts/qualify-unified-status-runtime.sh
+
+      - name: Build clean release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/images/KuroganeOS-installer.iso
+          test -s build/userspace/rootfs/system/stprobe
+          test -s build/install.pkg
+          test -s dist/SHA256SUMS.txt
+          readelf -hW build/userspace/rootfs/system/stprobe | grep -Eq 'Type:[[:space:]]+EXEC'
+
+      - name: Qualify typed stale-handle statuses on KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash ./scripts/qualify-unified-status-runtime.sh \
+            build/images/KuroganeOS-linux.img kvm
