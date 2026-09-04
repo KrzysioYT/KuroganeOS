@@ -430,8 +430,8 @@ ku_status_t socket_wait_status(net::socket::Status status) {
     switch (status) {
         case SocketStatus::Ok:
         case SocketStatus::AlreadyInitialized: return KU_STATUS_OK;
-        case SocketStatus::InvalidArgument:
-        case SocketStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case SocketStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
         case SocketStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
         case SocketStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
@@ -715,10 +715,10 @@ ku_status_t vfs_status(fs::vfs::Status status) {
         case fs::vfs::Status::InvalidFlags:
         case fs::vfs::Status::InvalidPath:
         case fs::vfs::Status::InvalidHandle:
-        case fs::vfs::Status::StaleHandle:
         case fs::vfs::Status::NameTooLong:
         case fs::vfs::Status::PathTooLong:
         case fs::vfs::Status::PathTooDeep: return KU_STATUS_INVALID_ARGUMENT;
+        case fs::vfs::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case fs::vfs::Status::OutOfRange:
         case fs::vfs::Status::ArithmeticOverflow:
         case fs::vfs::Status::BufferTooSmall: return KU_STATUS_OUT_OF_RANGE;

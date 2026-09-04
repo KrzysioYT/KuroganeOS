@@ -317,7 +317,8 @@ function Build-UserApplications {
         @{ Name = 'monitor'; Source = 'apps\monitor\main.c'; Output = 'apps/monitor'; Assembly = $false },
         @{ Name = 'about'; Source = 'apps\about\main.c'; Output = 'apps/about'; Assembly = $false },
         @{ Name = 'init'; Source = 'system\init\main.c'; Output = 'system/init'; Assembly = $false },
-        @{ Name = 'deviceprobe'; Source = 'system\device-probe\main.c'; Output = 'system/devprobe'; Assembly = $false }
+        @{ Name = 'deviceprobe'; Source = 'system\device-probe\main.c'; Output = 'system/devprobe'; Assembly = $false },
+        @{ Name = 'statusprobe'; Source = 'system\status-probe\main.c'; Output = 'system/stprobe'; Assembly = $false }
     )
     if (-not (Test-Path -LiteralPath $linkerScript -PathType Leaf)) {
         throw "Missing userspace linker script: $linkerScript"

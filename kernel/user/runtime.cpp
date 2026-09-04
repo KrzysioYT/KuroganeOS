@@ -80,8 +80,8 @@ ku_status_t ipc_status(ipc::Status status) {
         case ipc::Status::AlreadyInitialized: return KU_STATUS_OK;
         case ipc::Status::InvalidArgument:
         case ipc::Status::InvalidName:
-        case ipc::Status::NameTooLong:
-        case ipc::Status::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case ipc::Status::NameTooLong: return KU_STATUS_INVALID_ARGUMENT;
+        case ipc::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case ipc::Status::AlreadyExists: return KU_STATUS_ALREADY_EXISTS;
         case ipc::Status::NotFound: return KU_STATUS_NOT_FOUND;
         case ipc::Status::AccessDenied: return KU_STATUS_ACCESS_DENIED;
@@ -99,8 +99,8 @@ ku_status_t shared_memory_status(ipc::shared_memory::Status status) {
     switch (status) {
         case SharedStatus::Ok:
         case SharedStatus::AlreadyInitialized: return KU_STATUS_OK;
-        case SharedStatus::InvalidArgument:
-        case SharedStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SharedStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case SharedStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case SharedStatus::OutOfRange: return KU_STATUS_OUT_OF_RANGE;
         case SharedStatus::OutOfMemory:
         case SharedStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
@@ -118,8 +118,8 @@ ku_status_t event_status(ipc::event::Status status) {
     switch (status) {
         case EventStatus::Ok:
         case EventStatus::AlreadyInitialized: return KU_STATUS_OK;
-        case EventStatus::InvalidArgument:
-        case EventStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case EventStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case EventStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case EventStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
         case EventStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
         case EventStatus::AlreadyGranted: return KU_STATUS_ALREADY_EXISTS;
@@ -134,8 +134,8 @@ ku_status_t socket_status(net::socket::Status status) {
     switch (status) {
         case SocketStatus::Ok:
         case SocketStatus::AlreadyInitialized: return KU_STATUS_OK;
-        case SocketStatus::InvalidArgument:
-        case SocketStatus::StaleHandle: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case SocketStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
         case SocketStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
         case SocketStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;

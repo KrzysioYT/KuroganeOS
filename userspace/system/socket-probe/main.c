@@ -284,7 +284,7 @@ static int qualify_handle_generation(void) {
     if (result <= 0) return 0;
     replacement = (ku_socket_t)result;
     if (replacement == stale) return 0;
-    if (ku_socket_close(stale) != KU_STATUS_INVALID_ARGUMENT) return 0;
+    if (ku_socket_close(stale) != KU_STATUS_STALE_HANDLE) return 0;
     if (ku_socket_close(replacement) != KU_STATUS_OK) return 0;
     return 1;
 }
