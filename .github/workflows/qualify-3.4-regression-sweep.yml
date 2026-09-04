@@ -1,6 +1,7 @@
 name: Qualify 3.4 System Services Regression Sweep
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -38,6 +39,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install build and QEMU dependencies
         run: |

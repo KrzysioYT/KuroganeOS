@@ -1,6 +1,7 @@
 name: Qualify 3.6 Flux Runtime Core
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -29,8 +30,13 @@ jobs:
       - name: Checkout qualification source
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Inject session-tree runtime probe
         shell: bash

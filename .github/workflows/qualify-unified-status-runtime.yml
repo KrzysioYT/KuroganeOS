@@ -1,6 +1,7 @@
 name: Qualify 4.0 Unified Status Runtime
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -56,6 +57,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ! grep -Fq 'u_spawn_wait("/system/stprobe"' userspace/system/init/main.c
           python3 scripts/qualification/inject-unified-status-runtime.py
           git diff --check
           grep -F 'u_spawn_wait("/system/stprobe"' userspace/system/init/main.c

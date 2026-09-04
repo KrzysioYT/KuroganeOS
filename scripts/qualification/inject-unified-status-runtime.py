@@ -7,6 +7,9 @@ from pathlib import Path
 init = Path("userspace/system/init/main.c")
 text = init.read_text(encoding="utf-8")
 anchor = '    (void)u_puts("[TEST] userspace_init_pid1: PASS\\n");\n'
+probe_marker = 'u_spawn_wait("/system/stprobe"'
+if probe_marker in text:
+    raise SystemExit(f"{init}: qualification launch already present")
 launch = anchor + """
 
     int32_t status_probe_exit = -1;

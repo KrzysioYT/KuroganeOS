@@ -1,6 +1,7 @@
 name: Qualify 4.0 Device and Driver Runtime
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation

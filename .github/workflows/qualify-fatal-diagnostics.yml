@@ -1,6 +1,7 @@
 name: Qualify 3.3.3 fatal diagnostics
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -37,6 +38,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -68,6 +73,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install build and QEMU dependencies
         run: |

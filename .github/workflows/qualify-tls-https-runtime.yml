@@ -1,6 +1,7 @@
 name: Qualify 3.5 TLS HTTPS Runtime
 
 on:
+  workflow_call:
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -35,6 +36,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Install build QEMU and TLS dependencies
         run: |
