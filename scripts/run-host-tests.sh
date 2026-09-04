@@ -137,6 +137,16 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_kurofs_write_recovery"
 
+# Interrupt inode reservation and every namespace-publication phase of create;
+# remount must expose either no name plus an orphan or one live child.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kurofs_create_recovery.cpp \
+  kernel/fs/kurofs.cpp \
+  -o "$OUT_DIR/test_kurofs_create_recovery"
+
+"$OUT_DIR/test_kurofs_create_recovery"
+
 # Bind an explicitly formatted raw KuroFS disk through the production adapter
 # without ever formatting unknown media implicitly.
 "$HOST_CXX" \

@@ -201,9 +201,10 @@ Status directory_lookup(
 Status directory_append(
     FileSystem* filesystem, Inode* directory,
     const char* name, uint64_t child_inode_id);
-// Allocate an empty inode and attach it to one directory. If namespace
-// publication fails before the parent revision advances, the new inode is
-// retired before the original failure is returned.
+// Allocate an empty inode and attach it to one directory. An ambiguous
+// namespace-publication failure leaves the child pending: mount resolves it
+// to live when the parent record persisted, or to an explicitly reclaimable
+// orphan when publication did not persist.
 Status directory_create(
     FileSystem* filesystem,
     Inode* directory,

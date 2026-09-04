@@ -2298,8 +2298,11 @@ Status directory_create(
         }
         return Status::Ok;
     }
-    const Status retirement = retire_inode(filesystem, child);
-    return retirement == Status::Ok ? status : retirement;
+    // The parent-sector write can be accepted before its flush reports an
+    // error. Retiring the child here could leave a durable directory record
+    // pointing at a tombstone. Keep the pending reservation; mount will mark
+    // it live if attached or orphan if the parent publication did not persist.
+    return status;
 }
 
 Status directory_remove(
