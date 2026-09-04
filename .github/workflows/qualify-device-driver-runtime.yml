@@ -1,0 +1,90 @@
+name: Qualify 4.0 Device and Driver Runtime
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-device-driver-runtime.yml'
+      - 'kernel/drivers/core/**'
+      - 'kernel/main.cpp'
+      - 'kernel/user/runtime.cpp'
+      - 'sdk/include/kurogane/device.h'
+      - 'sdk/include/kurogane/status.h'
+      - 'sdk/include/kurogane/syscall.h'
+      - 'userspace/system/device-probe/**'
+      - 'userspace/system/init/main.c'
+      - 'scripts/build-linux.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/qualification/inject-device-driver-runtime.py'
+      - 'scripts/qualify-device-driver-runtime.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/test.sh'
+      - 'tests/test_driver_core.cpp'
+      - 'tests/test_sdk_abi.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-device-driver-runtime:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact tested SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify native qualification host
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run full host regression suite
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Inject production lifecycle qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification/inject-device-driver-runtime.py
+          git diff --check
+          grep -F 'drivers::runtime_qualification::run' kernel/main.cpp
+          grep -F 'u_spawn_wait("/system/devprobe"' userspace/system/init/main.c
+          grep -F 'deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c' scripts/build-linux.sh
+          grep -F 'ku_device_enumerate(' userspace/system/device-probe/main.c
+          grep -F 'ku_device_get_resource(' userspace/system/device-probe/main.c
+          grep -F 'KU_STATUS_NOT_FOUND' userspace/system/device-probe/main.c
+
+      - name: Build clean release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/images/KuroganeOS-installer.iso
+          test -s build/userspace/rootfs/system/devprobe
+          test -s build/install.pkg
+          test -s dist/SHA256SUMS.txt
+          readelf -hW build/userspace/rootfs/system/devprobe | grep -Eq 'Type:[[:space:]]+EXEC'
+
+      - name: Qualify production managers and Ring-3 boundary on KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash ./scripts/qualify-device-driver-runtime.sh \
+            build/images/KuroganeOS-linux.img kvm
