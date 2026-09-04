@@ -1,6 +1,7 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
 #include <kurogane/dns_service.h>
+#include <kurogane/device.h>
 #include <kurogane/event.h>
 #include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
@@ -84,6 +85,16 @@ int main() {
     static_assert(KU_SYS_DEVICE_QUERY == 65);
     static_assert(KU_SYS_DEVICE_RESOURCE == 66);
     static_assert(KU_SYS_SOCKET_WAIT == 67);
+
+    static_assert(KU_DEVICE_MAX_DEVICES == 192U);
+    static_assert(KU_DEVICE_MAX_RESOURCES == 8U);
+    static_assert(KU_DEVICE_MAX_CHILDREN == 16U);
+    static_assert(sizeof(ku_device_info) == 152U);
+    static_assert(sizeof(ku_device_resource) == 32U);
+    static_assert(offsetof(ku_device_info, handle) == 8U);
+    static_assert(offsetof(ku_device_info, capabilities) == 24U);
+    static_assert(offsetof(ku_device_info, name) == 68U);
+    static_assert(offsetof(ku_device_resource, start) == 8U);
 
     static_assert(KU_EVENT_AUTO_RESET == 0);
     static_assert(KU_EVENT_MANUAL_RESET == 1);

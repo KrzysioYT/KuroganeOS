@@ -95,6 +95,7 @@ applications=(
     "monitor|userspace/apps/monitor/main.c|apps/monitor|c"
     "about|userspace/apps/about/main.c|apps/about|c"
     "init|userspace/system/init/main.c|system/init|c"
+    "deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c"
     "eventd|userspace/system/eventd/main.c|system/eventd|c"
     "evprobe|userspace/system/event-probe/main.c|system/evprobe|c"
     "settingsd|userspace/system/settingsd/main.c|system/setd|c"
