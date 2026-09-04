@@ -4,6 +4,7 @@
 
 #include "../kernel/drivers/core/device_manager.hpp"
 #include "../kernel/drivers/core/driver_manager.hpp"
+#include "../kernel/drivers/core/runtime_qualification.hpp"
 
 namespace {
 
@@ -352,6 +353,12 @@ int main() {
         device::Status::Discovered);
     assert(driver::get(detach_driver)->attached_count == 0U);
     assert(driver::get(detach_driver)->status == driver::Status::Registered);
+
+    assert(device::initialize() == KStatus::Ok);
+    assert(driver::initialize() == KStatus::Ok);
+    runtime_qualification::Result runtime_result{};
+    assert(runtime_qualification::run(&runtime_result) == KStatus::Ok);
+    assert(runtime_result.complete());
 
     std::cout << "driver core tests: PASS\n";
     return 0;

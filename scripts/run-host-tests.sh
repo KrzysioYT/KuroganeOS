@@ -27,6 +27,18 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_sdk_abi"
 
+# Exercise the production Device Model and Driver Manager lifecycle, including
+# stale-handle rejection, partial-attach cleanup, fallback and slot reuse.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_driver_core.cpp \
+  kernel/drivers/core/device_manager.cpp \
+  kernel/drivers/core/driver_manager.cpp \
+  kernel/drivers/core/runtime_qualification.cpp \
+  -o "$OUT_DIR/test_driver_core"
+
+"$OUT_DIR/test_driver_core"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

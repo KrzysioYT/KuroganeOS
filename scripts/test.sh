@@ -37,7 +37,8 @@ run_test libk "$root/tests/test_libk.cpp" \
     "$root/kernel/libk/utf8.cpp"
 run_test driver-core "$root/tests/test_driver_core.cpp" \
     "$root/kernel/drivers/core/device_manager.cpp" \
-    "$root/kernel/drivers/core/driver_manager.cpp"
+    "$root/kernel/drivers/core/driver_manager.cpp" \
+    "$root/kernel/drivers/core/runtime_qualification.cpp"
 run_test acpi "$root/tests/test_acpi.cpp" \
     "$root/kernel/arch/x86_64/acpi.cpp"
 run_test install-package "$root/tests/test_install_package.cpp" \
