@@ -149,10 +149,19 @@ int main() {
     assert(device::count() == initial_count + 4U);
     assert(device::active_count() == initial_active_count + 3U);
     const uint32_t claim_lifecycle = device::get(reused)->lifecycle_generation;
+    const device::DeviceHandle unclaimed_handle = device::handle_for(reused);
     assert(device::claim(reused, 77U, "test-driver") == KStatus::Ok);
     assert(device::get(reused)->lifecycle_generation == claim_lifecycle + 1U);
+    const device::DeviceHandle claimed_handle = device::handle_for(reused);
+    assert(claimed_handle != unclaimed_handle);
+    assert(device::resolve(unclaimed_handle) == nullptr);
+    assert(device::resolve(claimed_handle) != nullptr);
     assert(device::release(reused, 77U) == KStatus::Ok);
     assert(device::get(reused)->lifecycle_generation == claim_lifecycle + 2U);
+    const device::DeviceHandle released_handle = device::handle_for(reused);
+    assert(released_handle != claimed_handle);
+    assert(device::resolve(claimed_handle) == nullptr);
+    assert(device::resolve(released_handle) != nullptr);
 
     Context preferred{25, 0, 0, KStatus::NotSupported, KStatus::Ok};
     Context fallback{50, 0, 0, KStatus::Ok, KStatus::Ok};

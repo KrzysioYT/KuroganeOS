@@ -140,6 +140,9 @@ KStatus get_resource(DeviceHandle handle, size_t index, Resource* output);
 bool has_capability(DeviceHandle handle, uint64_t capability_mask);
 const Device* find_pci(uint8_t bus, uint8_t slot, uint8_t function);
 KStatus set_status(DeviceId id, Status status);
+// Driver ownership transitions advance the public handle generation. Callers
+// must enumerate again after bind/unbind instead of carrying a handle across
+// a changed resource owner.
 KStatus claim(DeviceId id, DriverId driver, const char* driver_name);
 KStatus release(DeviceId id, DriverId driver);
 void visit(VisitCallback callback, void* context);

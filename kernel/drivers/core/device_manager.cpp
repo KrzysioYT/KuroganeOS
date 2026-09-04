@@ -85,6 +85,11 @@ void bump_lifecycle(Device& device) {
     if (device.lifecycle_generation == 0U) device.lifecycle_generation = 1U;
 }
 
+void bump_handle_generation(Device& device) {
+    ++device.generation;
+    if (device.generation == 0U) device.generation = 1U;
+}
+
 void unlink_child(Device& parent, DeviceId child) {
     for (size_t index = 0U; index < parent.child_count; ++index) {
         if (parent.children[index] != child) continue;
@@ -302,6 +307,7 @@ KStatus claim(DeviceId id, DriverId driver, const char* driver_name) {
     }
     device->driver = driver;
     copy_text(device->driver_name, sizeof(device->driver_name), driver_name);
+    bump_handle_generation(*device);
     bump_lifecycle(*device);
     return KStatus::Ok;
 }
@@ -317,6 +323,7 @@ KStatus release(DeviceId id, DriverId driver) {
     device->driver = INVALID_DRIVER_ID;
     device->driver_name[0] = '\0';
     device->status = Status::Discovered;
+    bump_handle_generation(*device);
     bump_lifecycle(*device);
     return KStatus::Ok;
 }
