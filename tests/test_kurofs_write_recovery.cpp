@@ -188,6 +188,36 @@ bool remount_is_old_or_new(
         "interrupted regular write exposes complete old or new payload");
 }
 
+bool remount_is_old_or_truncated(
+    MemoryDevice* memory,
+    storage::block::Device* device,
+    const char* mount_message) {
+    using namespace fs::kurofs;
+    reset_calls(memory);
+    FileSystem recovered{};
+    if (!expect(mount(&recovered, device) == Status::Ok, mount_message) ||
+        !expect(
+            validate_consistency(&recovered) == Status::Ok,
+            "interrupted truncate remains consistent")) {
+        return false;
+    }
+    Inode file{};
+    if (!expect(load_file(&recovered, &file),
+                "load file after interrupted truncate")) {
+        return false;
+    }
+    if (file.size == 0U) {
+        return expect(
+            file.extent_start == 0U && file.extent_blocks == 0U,
+            "completed truncate exposes an empty inode");
+    }
+    uint8_t payload[PAYLOAD_SIZE]{};
+    return expect(
+        file.size == PAYLOAD_SIZE && read_payload(&recovered, file, payload) &&
+            std::memcmp(payload, old_payload, PAYLOAD_SIZE) == 0,
+        "interrupted truncate preserves the complete old payload");
+}
+
 bool qualify_failures() {
     using namespace fs::kurofs;
     std::memcpy(working_disk, base_disk, sizeof(working_disk));
@@ -271,13 +301,91 @@ bool qualify_failures() {
     return true;
 }
 
+bool qualify_truncate_failures() {
+    using namespace fs::kurofs;
+    std::memcpy(working_disk, base_disk, sizeof(working_disk));
+    MemoryDevice baseline{
+        working_disk, 0U, 0U, NEVER_FAIL, NEVER_FAIL};
+    storage::block::Device baseline_device = make_device(&baseline);
+    FileSystem filesystem{};
+    Inode file{};
+    if (mount(&filesystem, &baseline_device) != Status::Ok ||
+        !load_file(&filesystem, &file)) {
+        return false;
+    }
+    reset_calls(&baseline);
+    if (resize_inode(&filesystem, &file, 0U) != Status::Ok) return false;
+    const size_t write_count = baseline.writes;
+    const size_t flush_count = baseline.flushes;
+    if (!expect(
+            write_count != 0U && flush_count != 0U,
+            "successful truncate has persistent phases")) {
+        return false;
+    }
+
+    for (size_t failure = 0U; failure < write_count; ++failure) {
+        std::memcpy(working_disk, base_disk, sizeof(working_disk));
+        MemoryDevice memory{
+            working_disk, 0U, 0U, NEVER_FAIL, NEVER_FAIL};
+        storage::block::Device device = make_device(&memory);
+        FileSystem interrupted{};
+        Inode interrupted_file{};
+        if (mount(&interrupted, &device) != Status::Ok ||
+            !load_file(&interrupted, &interrupted_file)) {
+            return false;
+        }
+        reset_calls(&memory);
+        memory.fail_write = failure;
+        if (!expect(
+                resize_inode(&interrupted, &interrupted_file, 0U) ==
+                    Status::BlockDeviceError,
+                "surface interrupted truncate write") ||
+            !remount_is_old_or_truncated(
+                &memory, &device,
+                "remount after interrupted truncate write")) {
+            std::fprintf(stderr, "truncate write failure index: %zu\n", failure);
+            return false;
+        }
+    }
+
+    for (size_t failure = 0U; failure < flush_count; ++failure) {
+        std::memcpy(working_disk, base_disk, sizeof(working_disk));
+        MemoryDevice memory{
+            working_disk, 0U, 0U, NEVER_FAIL, NEVER_FAIL};
+        storage::block::Device device = make_device(&memory);
+        FileSystem interrupted{};
+        Inode interrupted_file{};
+        if (mount(&interrupted, &device) != Status::Ok ||
+            !load_file(&interrupted, &interrupted_file)) {
+            return false;
+        }
+        reset_calls(&memory);
+        memory.fail_flush = failure;
+        if (!expect(
+                resize_inode(&interrupted, &interrupted_file, 0U) ==
+                    Status::BlockDeviceError,
+                "surface interrupted truncate flush") ||
+            !remount_is_old_or_truncated(
+                &memory, &device,
+                "remount after interrupted truncate flush")) {
+            std::fprintf(stderr, "truncate flush failure index: %zu\n", failure);
+            return false;
+        }
+    }
+
+    std::printf(
+        "KuroFS truncate recovery: PASS (%zu writes, %zu flushes)\n",
+        write_count, flush_count);
+    return true;
+}
+
 } // namespace
 
 int main() {
     if (!expect(build_fixture(), "build regular-write recovery fixture") ||
-        !qualify_failures()) {
+        !qualify_failures() || !qualify_truncate_failures()) {
         return 1;
     }
-    std::puts("KuroFS interrupted regular write tests passed");
+    std::puts("KuroFS interrupted regular write/truncate tests passed");
     return 0;
 }

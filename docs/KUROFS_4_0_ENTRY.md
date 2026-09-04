@@ -18,4 +18,6 @@ Host coverage injects one failure at every persistent write and flush in both fi
 
 Regular-file copy-on-write recovery is also interrupted at every data, bitmap, inode-publication and cleanup write/flush. Once inode publication begins, an ambiguous failure conservatively preserves both old and replacement allocations so remount can expose one complete old-or-new payload without ever freeing its live extent.
 
+Truncate-to-zero recovery is interrupted at each inode and bitmap write/flush. Remount must expose either the complete pre-truncate payload or a zero-size inode with no extent; cleanup failure may retain an unowned allocation but cannot partially free the extent of the visible old file.
+
 Native raw-volume persistence passed on source SHA `6dd9581e79d79bcd5155b4aa719d7ffcf1a1f8b1` in Actions run `33817447611`. A clean release kernel mounted a dedicated AHCI KuroFS disk at `/kuro`; the Ring-3 probe used the public filesystem ABI to create directories, write and sync a file, move it across parents and validate the new namespace. A second, new OVMF/Q35/KVM process reused the same unformatted image and read the exact payload back. The formal same-SHA 4.0 closeout remains pending.
