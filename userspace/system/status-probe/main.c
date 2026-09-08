@@ -60,10 +60,35 @@ __attribute__((noreturn)) void _start(void) {
     }
     created = ku_file_open(STATUS_FILE, sizeof(STATUS_FILE) - 1U);
     if (created <= 0) fail(51U);
-    const ku_file_t file = (ku_file_t)created;
-    if (ku_file_close(file) != KU_STATUS_OK ||
-        ku_file_close(file) != KU_STATUS_STALE_HANDLE) {
-        fail(52U);
+    const ku_file_t first_file = (ku_file_t)created;
+    if (ku_file_close(first_file) != KU_STATUS_OK) fail(52U);
+    if (ku_file_close(first_file) != KU_STATUS_STALE_HANDLE) fail(54U);
+
+    uint8_t byte = 0U;
+    ku_directory_entry entry;
+    uint64_t offset = 0U;
+    if (ku_file_read(first_file, &byte, sizeof(byte)) != KU_STATUS_STALE_HANDLE ||
+        ku_file_write(first_file, &byte, sizeof(byte)) != KU_STATUS_STALE_HANDLE ||
+        ku_file_readdir(first_file, &entry) != KU_STATUS_STALE_HANDLE ||
+        ku_file_seek(first_file, 0, KU_FILE_SEEK_BEGIN, &offset) !=
+            KU_STATUS_STALE_HANDLE) {
+        fail(55U);
+    }
+
+    if (ku_file_close((ku_file_t)2U) != KU_STATUS_INVALID_ARGUMENT ||
+        ku_file_close(UINT64_C(0x00000001FFFFFFFF)) !=
+            KU_STATUS_INVALID_ARGUMENT) {
+        fail(56U);
+    }
+
+    created = ku_file_open(STATUS_FILE, sizeof(STATUS_FILE) - 1U);
+    if (created <= 0) fail(57U);
+    const ku_file_t replacement = (ku_file_t)created;
+    if (replacement == first_file ||
+        ku_file_close(first_file) != KU_STATUS_STALE_HANDLE ||
+        ku_file_read(replacement, &byte, sizeof(byte)) < 0 ||
+        ku_file_close(replacement) != KU_STATUS_OK) {
+        fail(58U);
     }
     if (ku_file_unlink(STATUS_FILE, sizeof(STATUS_FILE) - 1U) != KU_STATUS_OK) {
         fail(53U);

@@ -9,6 +9,7 @@ on:
       - '.github/workflows/qualify-unified-status-runtime.yml'
       - 'kernel/user/runtime.cpp'
       - 'kernel/user/runtime_base.inc'
+      - 'kernel/user/file_handle.hpp'
       - 'kernel/fs/vfs.*'
       - 'kernel/ipc/**'
       - 'kernel/net/socket.*'
@@ -21,6 +22,7 @@ on:
       - 'scripts/qualify-unified-status-runtime.sh'
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'tests/test_file_handle.cpp'
   workflow_dispatch:
 
 permissions:
@@ -64,6 +66,7 @@ jobs:
           grep -F 'statusprobe|userspace/system/status-probe/main.c|system/stprobe|c' scripts/build-linux.sh
           grep -F 'case ipc::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;' kernel/user/runtime.cpp
           grep -F 'case fs::vfs::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;' kernel/user/runtime_base.inc
+          grep -F 'case user::file_handle::Resolution::Stale:' kernel/user/runtime_base.inc
           grep -F 'KU_STATUS_STALE_HANDLE' userspace/system/status-probe/main.c
           bash -n scripts/qualify-unified-status-runtime.sh
 

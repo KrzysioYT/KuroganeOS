@@ -455,6 +455,14 @@ addition to stdout/stderr. `KU_SYS_OPEN` remains syscall 5 and accepts the
 write/append/directory flags. This preserves source and syscall-number
 compatibility for existing applications.
 
+Process-local file handles encode a bounded slot and its generation. File
+operations return `KU_STATUS_STALE_HANDLE` when that descriptor is
+well-formed but its slot was closed or has since been reused. Values outside
+the process-local file-handle namespace return `KU_STATUS_INVALID_ARGUMENT`
+when used as file handles; stdin, stdout, and stderr retain their documented
+operation-specific behavior. The distinction applies consistently to read,
+write, close, directory iteration, and seek operations.
+
 Use SDK wrappers instead of hardcoding syscall numbers.
 
 ## Adding a public API

@@ -73,6 +73,15 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_vfs_process_paths"
 
+# Keep malformed process-local descriptors distinct from generation-safe stale
+# file handles before either result reaches the public Ring-3 status ABI.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_file_handle.cpp \
+  -o "$OUT_DIR/test_file_handle"
+
+"$OUT_DIR/test_file_handle"
+
 # Exercise KuroFS v1 metadata persistence through the production block-device ABI.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

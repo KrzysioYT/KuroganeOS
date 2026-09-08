@@ -11,6 +11,7 @@
 
 #include "elf_loader.hpp"
 #include "console.hpp"
+#include "file_handle.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
 #include "../core/system_metrics.hpp"
@@ -681,15 +682,18 @@ bool validate_user_buffer(
 
 uint64_t encode_handle(size_t index, uint32_t generation) {
     return (static_cast<uint64_t>(generation) << 32U) |
-        static_cast<uint64_t>(index + 3U);
+        static_cast<uint64_t>(index + user::file_handle::FIRST_DESCRIPTOR);
 }
 
-HandleSlot* decode_handle(Context& context, uint64_t handle) {
-    const uint64_t encoded = handle & UINT64_C(0xFFFFFFFF);
-    const uint32_t generation = static_cast<uint32_t>(handle >> 32U);
-    if (encoded < 3U || encoded >= 3U + kMaximumHandles) return nullptr;
-    HandleSlot& slot = context.handles[static_cast<size_t>(encoded - 3U)];
-    return slot.active && slot.generation == generation ? &slot : nullptr;
+ku_status_t file_handle_status(user::file_handle::Resolution resolution) {
+    switch (resolution) {
+        case user::file_handle::Resolution::Ok: return KU_STATUS_OK;
+        case user::file_handle::Resolution::Invalid:
+            return KU_STATUS_INVALID_ARGUMENT;
+        case user::file_handle::Resolution::Stale:
+            return KU_STATUS_STALE_HANDLE;
+    }
+    return KU_STATUS_INVALID_ARGUMENT;
 }
 
 void sync_process_handle_count(Context& context) {
@@ -997,11 +1001,14 @@ void syscall_handler(
                 frame.rax = count;
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, descriptor);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, descriptor);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             size_t bytes_written = 0U;
             const fs::vfs::Status status = fs::root_volume::write(
                 handle->file,
@@ -1039,11 +1046,14 @@ void syscall_handler(
                     ? static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK) : bytes_read;
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, descriptor);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, descriptor);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             size_t bytes_read = 0U;
             const fs::vfs::Status status = fs::root_volume::read(
                 handle->file,
@@ -1092,11 +1102,14 @@ void syscall_handler(
             return;
         }
         case KU_SYS_CLOSE: {
-            HandleSlot* slot = decode_handle(*context, frame.rdi);
-            if (slot == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, frame.rdi);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* slot = resolved.slot;
             const fs::vfs::Status status = fs::root_volume::close(slot->file);
             if (status == fs::vfs::Status::Ok) {
                 slot->active = false;
@@ -1142,11 +1155,14 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, frame.rdi);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, frame.rdi);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             fs::vfs::DirectoryEntry entry{};
             const fs::vfs::Status status = fs::root_volume::readdir(
                 handle->file, &entry);
@@ -1233,11 +1249,14 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, request->file);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, request->file);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             fs::vfs::SeekOrigin origin = fs::vfs::SeekOrigin::Begin;
             switch (request->origin) {
                 case KU_FILE_SEEK_BEGIN:
