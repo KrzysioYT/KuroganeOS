@@ -15,6 +15,7 @@
 #include "drivers/core/device_manager.hpp"
 #include "drivers/core/driver_manager.hpp"
 #include "drivers/pci.hpp"
+#include "drivers/pci_edu.hpp"
 #include "drivers/pic.hpp"
 #include "drivers/pit.hpp"
 #include "drivers/serial.hpp"
@@ -1726,6 +1727,15 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (!context.safe_mode) {
         pci::scan();
         initialize_device_framework(false);
+        const auto pci_msi_qualification = drivers::pci_edu::initialize();
+        if (pci_msi_qualification != drivers::pci_edu::Status::NotFound) {
+            log::write(
+                pci_msi_qualification == drivers::pci_edu::Status::Ok
+                    ? log::Level::Info
+                    : log::Level::Warn,
+                "MSI",
+                drivers::pci_edu::status_name(pci_msi_qualification));
+        }
         initialize_storage_probe();
         run_userland_probe();
     } else {
@@ -1806,6 +1816,25 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     } else {
         terminal::println(
             "[TEST] e1000_msi_delivery: SKIP (E1000/MSI unavailable)");
+    }
+    if (drivers::pci_edu::msi_configured()) {
+        const bool msi_delivered =
+            drivers::pci_edu::qualify_msi_delivery(UINT32_C(1000000));
+        log::write(
+            msi_delivered ? log::Level::Info : log::Level::Warn,
+            "MSI",
+            msi_delivered
+                ? "QEMU EDU MSI reached the Local APIC handler and route teardown completed"
+                : drivers::pci_edu::status_name(drivers::pci_edu::status()));
+        terminal::println(
+            msi_delivered
+                ? "[TEST] pci_msi_delivery: PASS"
+                : "[TEST] pci_msi_delivery: FAIL");
+    } else {
+        terminal::write("[TEST] pci_msi_delivery: SKIP (");
+        terminal::write(
+            drivers::pci_edu::status_name(drivers::pci_edu::status()));
+        terminal::println(")");
     }
     if (!run_kernel_preemption_probe()) {
         terminal::println("[TEST] kernel_preemption: FAIL");

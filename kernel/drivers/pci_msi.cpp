@@ -67,7 +67,7 @@ bool valid_programmed_state(const ProgrammedState& state) {
     return range_valid(address_low_offset, 4U) &&
         (!state.address_64_bit || range_valid(address_high_offset, 4U)) &&
         range_valid(message_data_offset, 2U) &&
-        (!state.per_vector_masking || range_valid(vector_mask_offset, 4U));
+        (!state.per_vector_masking || range_valid(vector_mask_offset, 8U));
 }
 
 } // namespace
@@ -121,7 +121,7 @@ Status program_single(
     }
     const uint16_t vector_mask_offset_wide =
         mask_offset(capability_offset, address_64_bit);
-    if (per_vector_masking && !range_valid(vector_mask_offset_wide, 4U)) {
+    if (per_vector_masking && !range_valid(vector_mask_offset_wide, 8U)) {
         return Status::CapabilityMalformed;
     }
     const uint8_t message_data_offset =

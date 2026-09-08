@@ -127,6 +127,8 @@ bool find_capability(
     Capability* output);
 bool read_msi_info(const Device& device, MsiInfo* output);
 bool read_msix_info(const Device& device, MsiXInfo* output);
+bool msi_capability_layout_valid(uint8_t offset, uint16_t message_control);
+bool msix_capability_layout_valid(uint8_t offset);
 const char* capability_walk_status_name(CapabilityWalkStatus status);
 uint64_t bar_address(const Device& device, uint8_t bar_index,
                      bool* is_io = nullptr);

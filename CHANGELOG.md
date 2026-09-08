@@ -13,6 +13,8 @@
 - Added a bounded, allocation-free hardware interrupt vector pool with atomic generation-safe leases, syscall-vector exclusion, stale release rejection and concurrent host regression.
 - Enabled the current CPU's xAPIC only after CPUID, MADT/MMIO and APIC-base validation; dynamic hardware vectors now bypass the software-syscall scheduler and send Local APIC EOI.
 - Added reversible single-vector PCI MSI programming with 32/64-bit layouts, optional per-vector masking, INTx exclusion and ordered teardown that quiesces the device before vector reuse.
+- Corrected the runtime target after proving QEMU's 82540EM `e1000` model exposes legacy INTA rather than MSI: the gate now uses the documented QEMU EDU endpoint to raise and acknowledge a real PCI MSI, then verifies route teardown. E1000 remains on its polling/INTx-compatible path when no MSI capability exists.
+- Reject truncated MSI and MSI-X capability layouts before 8-bit PCI configuration offsets can wrap into the header; per-vector MSI masking now requires the complete mask/PBA layout.
 - Added an E1000 MSI delivery probe using the real device Interrupt Cause Set register. Failure restores polling-safe PCI state; MSI-X and general multi-device interrupt qualification remain open.
 
 ### Road to 15 versioning

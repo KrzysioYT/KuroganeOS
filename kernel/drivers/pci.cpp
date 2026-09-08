@@ -36,6 +36,12 @@ bool valid_capability_offset(uint8_t offset) {
     return offset >= 0x40U && offset <= 0xFCU && (offset & 0x03U) == 0U;
 }
 
+bool config_range_valid(uint16_t offset, uint16_t width) {
+    constexpr uint16_t kConfigurationBytes = UINT16_C(0x100);
+    return offset < kConfigurationBytes &&
+        width <= static_cast<uint16_t>(kConfigurationBytes - offset);
+}
+
 void record_function(Address address) {
     if (g_device_count >= kMaximumDevices || !function_exists(address)) {
         return;
@@ -226,6 +232,7 @@ bool read_msi_info(const Device& device, MsiInfo* output) {
     if (!find_capability(device, CapabilityId::Msi, &capability)) return false;
     const uint16_t control = read16(
         device.address, static_cast<uint8_t>(capability.offset + 2U));
+    if (!msi_capability_layout_valid(capability.offset, control)) return false;
     output->offset = capability.offset;
     output->enabled = (control & UINT16_C(1)) != 0U;
     output->multiple_message_capable = static_cast<uint8_t>((control >> 1U) & 0x07U);
@@ -240,6 +247,7 @@ bool read_msix_info(const Device& device, MsiXInfo* output) {
     *output = {};
     Capability capability{};
     if (!find_capability(device, CapabilityId::MsiX, &capability)) return false;
+    if (!msix_capability_layout_valid(capability.offset)) return false;
     const uint16_t control = read16(
         device.address, static_cast<uint8_t>(capability.offset + 2U));
     const uint32_t table = read32(
@@ -255,6 +263,33 @@ bool read_msix_info(const Device& device, MsiXInfo* output) {
     output->pending_bit_array_bar = static_cast<uint8_t>(pba & 0x07U);
     output->pending_bit_array_offset = pba & ~UINT32_C(0x07);
     return true;
+}
+
+bool msi_capability_layout_valid(
+    uint8_t offset,
+    uint16_t message_control) {
+    if (!valid_capability_offset(offset)) return false;
+    const bool address_64_bit =
+        (message_control & (UINT16_C(1) << 7U)) != 0U;
+    const bool per_vector_masking =
+        (message_control & (UINT16_C(1) << 8U)) != 0U;
+
+    // Header/control + address + data. Per-vector masking also carries both
+    // the mask and pending-bit dwords; validate the complete layout even
+    // though discovery does not read either value.
+    uint16_t bytes = address_64_bit ? UINT16_C(14) : UINT16_C(10);
+    if (per_vector_masking) {
+        bytes = address_64_bit ? UINT16_C(24) : UINT16_C(20);
+    }
+    return config_range_valid(offset, bytes);
+}
+
+bool msix_capability_layout_valid(uint8_t offset) {
+    // MSI-X always contains its four-byte header/control followed by the
+    // table and PBA descriptors. Widen before addition so offsets near 0xff
+    // cannot wrap into the PCI header.
+    return valid_capability_offset(offset) &&
+        config_range_valid(offset, UINT16_C(12));
 }
 
 const char* capability_walk_status_name(CapabilityWalkStatus status) {

@@ -63,6 +63,18 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_pci_msi"
 
+# Reject truncated MSI/MSI-X layouts before a config-space offset can wrap
+# from the end of the legacy 256-byte header back into offset zero.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
+  tests/test_pci_capability_layout.cpp \
+  kernel/drivers/pci.cpp \
+  -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_capability_layout"
+
+"$OUT_DIR/test_pci_capability_layout"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

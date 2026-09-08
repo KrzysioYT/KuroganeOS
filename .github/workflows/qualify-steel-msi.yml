@@ -1,4 +1,4 @@
-name: Qualify 5.0 E1000 MSI Delivery
+name: Qualify 5.0 PCI MSI Delivery
 
 on:
   push:
@@ -16,10 +16,13 @@ on:
       - 'kernel/drivers/pci.hpp'
       - 'kernel/drivers/pci_msi.cpp'
       - 'kernel/drivers/pci_msi.hpp'
+      - 'kernel/drivers/pci_edu.cpp'
+      - 'kernel/drivers/pci_edu.hpp'
       - 'kernel/net/e1000.cpp'
       - 'kernel/net/e1000.hpp'
       - 'kernel/main.cpp'
       - 'tests/test_hardware_vectors.cpp'
+      - 'tests/test_pci_capability_layout.cpp'
       - 'tests/test_pci_msi.cpp'
       - 'scripts/run-host-tests.sh'
   workflow_dispatch:
@@ -28,7 +31,7 @@ permissions:
   contents: read
 
 jobs:
-  e1000-msi-delivery:
+  pci-msi-delivery:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -60,7 +63,7 @@ jobs:
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
 
-      - name: Require real E1000 MSI delivery through Local APIC
+      - name: Require real PCI MSI delivery through Local APIC
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +111,7 @@ jobs:
             -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
             -netdev user,id=kurogane_net \
             -device e1000,netdev=kurogane_net,id=kurogane_nic,mac=52:54:00:4b:55:50 \
+            -device edu,id=kurogane_msi_qualifier \
             -serial "file:$serial" \
             -display none \
             -no-reboot \
@@ -116,13 +120,13 @@ jobs:
           pid=$!
 
           for _ in $(seq 1 900); do
-            if grep -Fq '[TEST] e1000_msi_delivery: PASS' "$serial" 2>/dev/null; then
+            if grep -Fq '[TEST] pci_msi_delivery: PASS' "$serial" 2>/dev/null; then
               grep -F '[TEST] apic_discovery: PASS' "$serial"
-              grep -F '[TEST] e1000_msi_delivery: PASS' "$serial"
-              echo '[steel-msi] real E1000 -> MSI -> Local APIC -> IDT delivery: PASS'
+              grep -F '[TEST] pci_msi_delivery: PASS' "$serial"
+              echo '[steel-msi] real QEMU EDU -> PCI MSI -> Local APIC -> IDT delivery: PASS'
               exit 0
             fi
-            if grep -Eq 'e1000_msi_delivery: (DEGRADED|SKIP)|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
+            if grep -Eq 'pci_msi_delivery: (FAIL|SKIP)|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
               echo 'MSI delivery entered a fallback or panic path' >&2
               exit 1
             fi
@@ -132,5 +136,5 @@ jobs:
             fi
             sleep 0.2
           done
-          echo 'timeout waiting for real E1000 MSI delivery' >&2
+          echo 'timeout waiting for real PCI MSI delivery' >&2
           exit 1
