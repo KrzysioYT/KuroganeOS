@@ -39,6 +39,30 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_driver_core"
 
+# Exercise the bounded generation-safe hardware interrupt vector allocator.
+# Vector 0x80 must remain reserved for the public Ring-3 syscall gate.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hardware_vectors.cpp \
+  kernel/arch/x86_64/hardware_vectors.cpp \
+  -pthread \
+  -o "$OUT_DIR/test_hardware_vectors"
+
+"$OUT_DIR/test_hardware_vectors"
+
+# Validate the MSI programming transaction against an emulated PCI config
+# space: mask, program, enable, quiesce, release barrier and full restoration.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
+  tests/test_pci_msi.cpp \
+  kernel/drivers/pci_msi.cpp \
+  kernel/arch/x86_64/hardware_vectors.cpp \
+  -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_msi"
+
+"$OUT_DIR/test_pci_msi"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

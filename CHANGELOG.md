@@ -8,6 +8,13 @@
 - Qualified `4.0.0-dev — Pre-Steel` at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e` through same-SHA Actions run `34260827773`, final authoritative job `102186252372`.
 - Activated `5.0.0-dev — Steel / Hardware` without relabelling the embedded `3.3.3-dev` runtime version. Existing MSI/MSI-X capability discovery remains explicitly incomplete until APIC delivery, programming, cleanup and real hardware-emulation runtime proof pass.
 
+### Steel interrupt delivery
+
+- Added a bounded, allocation-free hardware interrupt vector pool with atomic generation-safe leases, syscall-vector exclusion, stale release rejection and concurrent host regression.
+- Enabled the current CPU's xAPIC only after CPUID, MADT/MMIO and APIC-base validation; dynamic hardware vectors now bypass the software-syscall scheduler and send Local APIC EOI.
+- Added reversible single-vector PCI MSI programming with 32/64-bit layouts, optional per-vector masking, INTx exclusion and ordered teardown that quiesces the device before vector reuse.
+- Added an E1000 MSI delivery probe using the real device Interrupt Cause Set register. Failure restores polling-safe PCI state; MSI-X and general multi-device interrupt qualification remain open.
+
 ### Road to 15 versioning
 
 - Normalized the formal Road-to-15 sequence: `3.3.3-dev` Red Flux is followed by `3.4.0-dev` System Services; patch-like `3.3.5`-`3.3.9` and `3.4.1` names are internal development workstreams rather than separate formal product releases.

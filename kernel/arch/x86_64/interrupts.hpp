@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hardware_vectors.hpp"
+
 namespace arch::x86_64::interrupts {
 
 constexpr size_t IDT_ENTRY_COUNT = 256;
@@ -93,6 +95,16 @@ bool initialized();
 
 bool register_handler(uint8_t vector, InterruptHandler handler);
 void unregister_handler(uint8_t vector);
+
+// Installs a kernel-only hardware route from the bounded dynamic vector pool.
+// Callers must mask/disable the device and drain in-flight interrupts before
+// release_hardware_vector() makes the vector reusable.
+hardware_vectors::Status allocate_hardware_vector(
+    InterruptHandler handler,
+    hardware_vectors::Lease* output);
+hardware_vectors::Status release_hardware_vector(
+    const hardware_vectors::Lease& lease);
+bool owns_hardware_vector(const hardware_vectors::Lease& lease);
 
 // A ring-3 callable gate is permitted only for a software-defined vector that
 // already has a handler. Removing that handler first demotes the gate to ring

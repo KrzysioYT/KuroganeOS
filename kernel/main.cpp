@@ -28,6 +28,7 @@
 #include "input/input.hpp"
 #include "install/installer.hpp"
 #include "net/service.hpp"
+#include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
 #include "storage/gpt.hpp"
@@ -663,7 +664,22 @@ void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
         log::write_u64(
             log::Level::Info, "APIC", "mapped I/O APICs=",
             arch::x86_64::apic::io_apic_count());
-        terminal::println("[TEST] apic_discovery: PASS (PIC fallback active)");
+        const auto enable_status = arch::x86_64::apic::enable_local();
+        if (enable_status == arch::x86_64::apic::Status::Ok) {
+            log::write(
+                log::Level::Info,
+                "APIC",
+                "Local APIC delivery enabled; legacy IRQs remain on PIC");
+            terminal::println(
+                "[TEST] apic_discovery: PASS (Local APIC enabled, PIC IRQ fallback active)");
+        } else {
+            log::write(
+                log::Level::Warn,
+                "APIC",
+                arch::x86_64::apic::status_message(enable_status));
+            terminal::println(
+                "[TEST] apic_discovery: DEGRADED (PIC fallback active)");
+        }
     } else {
         log::write(
             log::Level::Warn,
@@ -1773,6 +1789,23 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             : "[TEST] ps2_mouse: FAIL");
     if (!hardware_ready) {
         boot_failure("INTERRUPTS", "required timer or PS/2 input unavailable");
+    }
+    if (net::e1000::msi_configured()) {
+        const bool msi_delivered =
+            net::e1000::qualify_msi_delivery(UINT32_C(1000000));
+        log::write(
+            msi_delivered ? log::Level::Info : log::Level::Warn,
+            "MSI",
+            msi_delivered
+                ? "E1000 device MSI reached the Local APIC handler"
+                : "E1000 MSI delivery failed; restored polling-safe PCI state");
+        terminal::println(
+            msi_delivered
+                ? "[TEST] e1000_msi_delivery: PASS"
+                : "[TEST] e1000_msi_delivery: DEGRADED (polling fallback)");
+    } else {
+        terminal::println(
+            "[TEST] e1000_msi_delivery: SKIP (E1000/MSI unavailable)");
     }
     if (!run_kernel_preemption_probe()) {
         terminal::println("[TEST] kernel_preemption: FAIL");

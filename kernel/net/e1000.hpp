@@ -31,6 +31,12 @@ const MacAddress* hardware_address();
 uint64_t transmitted_frames();
 uint64_t received_frames();
 uint64_t dropped_frames();
+bool msi_configured();
+// Uses the E1000 Interrupt Cause Set register to request an actual device MSI
+// and waits for the production IDT/APIC handler. Failure disables MSI and
+// restores the polling-safe PCI state.
+bool qualify_msi_delivery(uint32_t spin_budget);
+uint64_t delivered_interrupts();
 const char* status_message(Status status);
 
 } // namespace net::e1000

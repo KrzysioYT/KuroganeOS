@@ -1,4 +1,5 @@
 #include "interrupts.hpp"
+#include "apic.hpp"
 #include "gdt.hpp"
 
 #include "../../core/log.hpp"
@@ -44,6 +45,7 @@ static IrqHandler g_irq_handlers[IRQ_COUNT];
 static IrqScheduleHook g_irq_schedule_hook = nullptr;
 static SoftwareScheduleHook g_software_schedule_hook = nullptr;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
+alignas(8) static uint8_t g_hardware_vector_lock = 0U;
 
 static bool g_initialized = false;
 static uint8_t g_last_exception_vector = 0xFF;
@@ -60,6 +62,17 @@ uintptr_t read_cr2() {
     uintptr_t value = 0;
     __asm__ volatile("mov %%cr2, %0" : "=r"(value));
     return value;
+}
+
+void lock_hardware_vectors() {
+    while (__atomic_test_and_set(
+        &g_hardware_vector_lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile("pause");
+    }
+}
+
+void unlock_hardware_vectors() {
+    __atomic_clear(&g_hardware_vector_lock, __ATOMIC_RELEASE);
 }
 
 void set_gate(
@@ -100,6 +113,9 @@ void load_idt() {
 void initialize() {
     disable();
 
+    hardware_vectors::initialize();
+    __atomic_clear(&g_hardware_vector_lock, __ATOMIC_RELAXED);
+
     const uint16_t selector = code_segment_selector();
     for (size_t i = 0; i < IDT_ENTRY_COUNT; ++i) {
         set_gate(
@@ -128,12 +144,58 @@ bool initialized() {
 }
 
 bool register_handler(uint8_t vector, InterruptHandler handler) {
-    if (handler == nullptr) {
+    if (handler == nullptr || hardware_vectors::is_allocatable(vector)) {
         return false;
     }
 
     __atomic_store_n(&g_handlers[vector], handler, __ATOMIC_RELEASE);
     return true;
+}
+
+hardware_vectors::Status allocate_hardware_vector(
+    InterruptHandler handler,
+    hardware_vectors::Lease* output) {
+    if (handler == nullptr || output == nullptr) {
+        return hardware_vectors::Status::InvalidArgument;
+    }
+    *output = {};
+    if (!g_initialized) return hardware_vectors::Status::NotInitialized;
+
+    lock_hardware_vectors();
+    hardware_vectors::Lease lease{};
+    const hardware_vectors::Status status = hardware_vectors::allocate(&lease);
+    if (status == hardware_vectors::Status::Ok) {
+        __atomic_store_n(&g_handlers[lease.vector], handler, __ATOMIC_RELEASE);
+        *output = lease;
+    }
+    unlock_hardware_vectors();
+    return status;
+}
+
+hardware_vectors::Status release_hardware_vector(
+    const hardware_vectors::Lease& lease) {
+    if (!hardware_vectors::is_allocatable(lease.vector) ||
+        lease.generation == 0U) {
+        return hardware_vectors::Status::InvalidArgument;
+    }
+    if (!g_initialized) return hardware_vectors::Status::NotInitialized;
+
+    lock_hardware_vectors();
+    if (!hardware_vectors::owns(lease)) {
+        unlock_hardware_vectors();
+        return hardware_vectors::Status::StaleLease;
+    }
+    __atomic_store_n(
+        &g_handlers[lease.vector],
+        static_cast<InterruptHandler>(nullptr),
+        __ATOMIC_RELEASE);
+    const hardware_vectors::Status status = hardware_vectors::release(lease);
+    unlock_hardware_vectors();
+    return status;
+}
+
+bool owns_hardware_vector(const hardware_vectors::Lease& lease) {
+    return g_initialized && hardware_vectors::owns(lease);
 }
 
 void unregister_handler(uint8_t vector) {
@@ -350,6 +412,25 @@ x86_64_interrupt_dispatch(
                 return selected;
             }
         }
+        return frame;
+    }
+
+    // The dynamic hardware range is never a software-scheduling boundary.
+    // Even an unowned/late interrupt is acknowledged and returned without
+    // entering the Ring-3 syscall scheduling hook.
+    if (arch::x86_64::hardware_vectors::is_allocatable(vector)) {
+        InterruptHandler handler =
+            __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
+        if (handler != nullptr &&
+            arch::x86_64::hardware_vectors::claimed(vector)) {
+            handler(*frame);
+        }
+        arch::x86_64::apic::send_eoi();
+        return frame;
+    }
+
+    if (vector == arch::x86_64::apic::SPURIOUS_VECTOR &&
+        arch::x86_64::apic::local_enabled()) {
         return frame;
     }
 

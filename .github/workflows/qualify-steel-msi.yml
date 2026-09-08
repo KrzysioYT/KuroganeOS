@@ -1,0 +1,136 @@
+name: Qualify 5.0 E1000 MSI Delivery
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-msi.yml'
+      - 'kernel/arch/x86_64/apic.cpp'
+      - 'kernel/arch/x86_64/apic.hpp'
+      - 'kernel/arch/x86_64/hardware_vectors.cpp'
+      - 'kernel/arch/x86_64/hardware_vectors.hpp'
+      - 'kernel/arch/x86_64/interrupts.cpp'
+      - 'kernel/arch/x86_64/interrupts.hpp'
+      - 'kernel/drivers/pci.cpp'
+      - 'kernel/drivers/pci.hpp'
+      - 'kernel/drivers/pci_msi.cpp'
+      - 'kernel/drivers/pci_msi.hpp'
+      - 'kernel/net/e1000.cpp'
+      - 'kernel/net/e1000.hpp'
+      - 'kernel/main.cpp'
+      - 'tests/test_hardware_vectors.cpp'
+      - 'tests/test_pci_msi.cpp'
+      - 'scripts/run-host-tests.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e1000-msi-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run host regressions
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real E1000 MSI delivery through Local APIC
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            if [[ -f "$serial" ]]; then
+              tail -n 300 "$serial" || true
+            fi
+            if [[ -f "$qemu_log" ]]; then
+              tail -n 100 "$qemu_log" || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu max \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,id=kurogane_nic,mac=52:54:00:4b:55:50 \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          for _ in $(seq 1 900); do
+            if grep -Fq '[TEST] e1000_msi_delivery: PASS' "$serial" 2>/dev/null; then
+              grep -F '[TEST] apic_discovery: PASS' "$serial"
+              grep -F '[TEST] e1000_msi_delivery: PASS' "$serial"
+              echo '[steel-msi] real E1000 -> MSI -> Local APIC -> IDT delivery: PASS'
+              exit 0
+            fi
+            if grep -Eq 'e1000_msi_delivery: (DEGRADED|SKIP)|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
+              echo 'MSI delivery entered a fallback or panic path' >&2
+              exit 1
+            fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then
+              echo 'QEMU exited before the MSI marker' >&2
+              exit 1
+            fi
+            sleep 0.2
+          done
+          echo 'timeout waiting for real E1000 MSI delivery' >&2
+          exit 1
