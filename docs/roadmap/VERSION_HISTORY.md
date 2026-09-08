@@ -85,7 +85,7 @@ KuroFS v1, Device Model 2.0, read-only Ring-3 Device API, Driver Manager 2.0 fai
 
 Status: **ACTIVE**.
 
-Active work starts from bounded PCI MSI/MSI-X capability discovery. Discovery is not counted as interrupt support; APIC delivery, vector ownership, programming, cleanup and runtime proof remain open.
+Bounded single-vector PCI MSI transport is qualified at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`, including a real QEMU EDU device interrupt, production IDT/LAPIC delivery and ordered teardown. MSI-X table/PBA programming, multi-vector routing, broad device adoption, SMP and the rest of the Steel hardware gates remain open.
 
 ## Future formal milestones
 

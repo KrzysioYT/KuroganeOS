@@ -16,6 +16,7 @@
 - Corrected the runtime target after proving QEMU's 82540EM `e1000` model exposes legacy INTA rather than MSI: the gate now uses the documented QEMU EDU endpoint to raise and acknowledge a real PCI MSI, then verifies route teardown. E1000 remains on its polling/INTx-compatible path when no MSI capability exists.
 - Reject truncated MSI and MSI-X capability layouts before 8-bit PCI configuration offsets can wrap into the header; per-vector MSI masking now requires the complete mask/PBA layout.
 - Added an E1000 MSI delivery probe using the real device Interrupt Cause Set register. Failure restores polling-safe PCI state; MSI-X and general multi-device interrupt qualification remain open.
+- Qualified bounded single-vector PCI MSI transport at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`; the real QEMU EDU interrupt reached the production IDT/LAPIC path and ordered teardown completed. MSI-X remains open.
 
 ### Road to 15 versioning
 

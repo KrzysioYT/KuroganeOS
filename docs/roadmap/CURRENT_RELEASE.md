@@ -104,7 +104,7 @@ Authoritative same-SHA evidence:
 
 Status: **ACTIVE**
 
-The first active Steel slice is interrupt delivery infrastructure for PCI devices. Existing bounded MSI/MSI-X capability discovery remains discovery-only; vector ownership, APIC delivery/EOI, reversible device programming and real OVMF/Q35 interrupt delivery must be implemented and qualified before MSI or MSI-X can be marked complete. Legacy PIC/PIT behavior remains the qualified fallback during the migration.
+The first Steel interrupt slice is qualified at source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`: a real QEMU EDU PCI endpoint raised MSI through generation-safe vector ownership, validated xAPIC configuration, the production IDT dispatcher and Local APIC EOI, followed by device quiesce and route teardown. This qualifies bounded single-vector MSI transport, not MSI-X or complete Steel hardware support. MSI-X table/PBA programming, multi-vector routing, device integrations, SMP and the remaining hardware matrix stay open; legacy PIC/PIT remains the qualified fallback during migration.
 
 ### Road to 15 status
 

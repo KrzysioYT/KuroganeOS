@@ -158,7 +158,7 @@ Status: **ACTIVE**.
 
 PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
 
-Current MSI/MSI-X code performs bounded PCI capability discovery only. It is not interrupt support: vector ownership, Local APIC delivery/EOI, device configuration, teardown and real OVMF/Q35 interrupt qualification remain required.
+Bounded single-vector PCI MSI transport passed exact-SHA runtime qualification at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. The real QEMU EDU device interrupt traversed reversible PCI MSI programming, generation-safe vector ownership, validated xAPIC, the production IDT dispatcher and Local APIC EOI before ordered teardown restored PCI state. This does not qualify MSI-X: table/PBA mapping, BAR-span validation, multi-vector programming and runtime delivery remain required, together with broader device adoption.
 
 SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
 

@@ -25,4 +25,4 @@ Native KuroFS runtime persistence was qualified at exact source SHA `6dd9581e79d
 
 Status: **ACTIVE**.
 
-Bounded PCI MSI/MSI-X capability discovery exists, but configuration and interrupt delivery do not. Active work begins with bounded hardware-vector ownership and Local APIC delivery/EOI, followed by reversible MSI programming and real OVMF/Q35 interrupt qualification. MSI/MSI-X remain incomplete until that runtime evidence exists.
+Single-vector PCI MSI is now qualified at exact source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. The production path uses bounded generation-safe vector ownership, validated xAPIC enablement, Local APIC EOI, reversible 32/64-bit MSI programming and ordered route teardown. The runtime proof uses the documented QEMU EDU endpoint to raise and acknowledge a real device MSI; QEMU's 82540EM `e1000` remains on its truthful polling/INTx-compatible path because that emulated model does not expose MSI. MSI-X table/PBA programming, multi-vector routing and broader device integration remain open, so the full Steel milestone is still active.
