@@ -21,8 +21,8 @@ The compiled runtime version may remain `3.3.3-dev` while later engineering mile
 | `3.4.0-dev` | System Services | QUALIFIED |
 | `3.5.0-dev` | Connected Userspace | QUALIFIED |
 | `3.6.0-dev` | Flux Stabilization | QUALIFIED |
-| `4.0.0-dev` | Pre-Steel | ACTIVE |
-| `5.0.0-dev` | Steel / Hardware | PENDING |
+| `4.0.0-dev` | Pre-Steel | QUALIFIED |
+| `5.0.0-dev` | Steel / Hardware | ACTIVE |
 | `6.0.0-dev` | Core Steel | PENDING |
 | `7.0.0-dev` | Iron Shield | PENDING |
 | `8.0.0-dev` | Connected Steel | PENDING |
@@ -146,13 +146,19 @@ The closeout's host-release, same-SHA dispatch and final evidence jobs all passe
 
 ## 4.0.0-dev — Pre-Steel
 
-Status: **ACTIVE**.
+Status: **QUALIFIED** at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e`.
 
 Device Model 2.0, Driver Manager 2.0, kernel/driver boundaries, userspace/device boundaries, unified error/status model, capability foundation, process resource ownership, driver failure isolation and structured boot diagnostics.
 
+The authoritative same-SHA closeout is Actions run `34260827773`; final job `102186252372` recorded `KuroganeOS 4.0 Pre-Steel closeout: PASS sha=bbec12248773930d6f40aa98837ff13e99b7cf5e`. The matrix included host/media production boot, Device/Driver/Ring-3 device ABI, KuroFS native two-boot persistence, Fatal Diagnostic, network/TLS, qualified 3.4/3.5 regressions, Flux, audio/application and Unified Status gates.
+
 ## 5.0.0-dev — Steel / Hardware
 
+Status: **ACTIVE**.
+
 PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
+
+Current MSI/MSI-X code performs bounded PCI capability discovery only. It is not interrupt support: vector ownership, Local APIC delivery/EOI, device configuration, teardown and real OVMF/Q35 interrupt qualification remain required.
 
 SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
 

@@ -71,14 +71,24 @@ Final runtime evidence included DHCP, gateway ICMP, global required tests, real 
 
 ## 3.6.0-dev — Flux Stabilization
 
+Status: **QUALIFIED**.
+
+Qualified scope covers bounded native per-window surfaces and damage regions, focus/input/drag/resize ownership, GUI crash isolation and Login → Home → Logout → Login recovery. Authoritative same-SHA closeout: Actions run `33530392489` at source SHA `0caf8cc42f872b11b44f874029eb41aeae152abc`.
+
+## 4.0.0-dev — Pre-Steel
+
+Status: **QUALIFIED**.
+
+KuroFS v1, Device Model 2.0, read-only Ring-3 Device API, Driver Manager 2.0 failure isolation and unified status behavior passed authoritative same-SHA closeout run `34260827773`, final job `102186252372`, at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e`.
+
+## 5.0.0-dev — Steel / Hardware
+
 Status: **ACTIVE**.
 
-Current work begins with bounded native per-window surfaces and damage regions while preserving the existing Red Flux Window Core and compatibility `KU_SYS_UI_PRESENT` path. Follow-up gates cover focus/input/drag/resize ownership, GUI crash isolation, Login → Home → Login recovery and long-runtime window/session churn.
+Active work starts from bounded PCI MSI/MSI-X capability discovery. Discovery is not counted as interrupt support; APIC delivery, vector ownership, programming, cleanup and runtime proof remain open.
 
 ## Future formal milestones
 
-- `4.0.0-dev` — Pre-Steel.
-- `5.0.0-dev` — Steel / Hardware.
 - `6.0.0-dev` — Core Steel.
 - `7.0.0-dev` — Iron Shield.
 - `8.0.0-dev` — Connected Steel.

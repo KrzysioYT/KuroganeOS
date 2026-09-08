@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Pre-Steel closeout / Steel activation
+
+- Fixed process-local VFS descriptor resolution so malformed descriptors return `KU_STATUS_INVALID_ARGUMENT` while closed or generation-mismatched descriptors return `KU_STATUS_STALE_HANDLE`; added host and Ring-3 runtime regression coverage.
+- Qualified `4.0.0-dev — Pre-Steel` at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e` through same-SHA Actions run `34260827773`, final authoritative job `102186252372`.
+- Activated `5.0.0-dev — Steel / Hardware` without relabelling the embedded `3.3.3-dev` runtime version. Existing MSI/MSI-X capability discovery remains explicitly incomplete until APIC delivery, programming, cleanup and real hardware-emulation runtime proof pass.
+
 ### Road to 15 versioning
 
 - Normalized the formal Road-to-15 sequence: `3.3.3-dev` Red Flux is followed by `3.4.0-dev` System Services; patch-like `3.3.5`-`3.3.9` and `3.4.1` names are internal development workstreams rather than separate formal product releases.

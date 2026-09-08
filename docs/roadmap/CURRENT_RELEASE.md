@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-03
+Last updated: 2026-09-08
 
 ## COMPILED / RUNTIME VERSION
 
@@ -85,13 +85,26 @@ No known 3.6 blocker remains. GPU acceleration remains outside this milestone; F
 
 ---
 
+### 4.0.0-dev — Pre-Steel
+
+Status: **QUALIFIED**
+
+Pre-Steel is closed at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e`. Qualified scope includes KuroFS v1 metadata and writable VFS integration, native two-boot persistence, Device Model 2.0 generation-safe handles and capability boundaries, read-only Ring-3 device discovery, Driver Manager 2.0 failure isolation, unified status semantics and the qualified Fatal Diagnostic path.
+
+Authoritative same-SHA evidence:
+- Pre-Steel closeout run `34260827773` — **PASS**;
+- final authoritative job `102186252372` — **PASS**;
+- final gate: `KuroganeOS 4.0 Pre-Steel closeout: PASS sha=bbec12248773930d6f40aa98837ff13e99b7cf5e`.
+
+---
+
 ## ACTIVE DEVELOPMENT
 
-**4.0.0-dev — Pre-Steel**
+**5.0.0-dev — Steel / Hardware**
 
 Status: **ACTIVE**
 
-The active KuroFS slice has progressed from allocator and inode-data durability into revision-checked file growth, zero-filled expansion, shrink/truncate reclamation, leak-free directory copy-on-grow, generation-safe copy-on-write unlink, collision-safe same-directory rename, recoverable cross-directory move and writable VFS integration on the production block-device contract. Cross-parent file and non-empty-directory moves prepare both copy-on-write directory images before recording an on-disk intent; mount aborts a wholly unpublished move or finishes a destination-first partial publication before exposing the namespace. Deterministic failure injection covers every move write and flush phase. Mount also validates live inode fields, allocated extent references, non-overlap, directory record identity, local uniqueness, cross-parent ownership and directory ancestry. Unattached low-level reservations remain legal and are not silently reclaimed. Native raw-volume persistence passed at SHA `6dd9581e79d79bcd5155b4aa719d7ffcf1a1f8b1` in Actions run `33817447611`: a Ring-3 probe used the public filesystem ABI across two separate OVMF/Q35/KVM boots with the same KuroFS image. Device Model 2.0 work proceeds with capability-scoped ownership and deterministic cleanup; unrestricted PCI/MMIO/I/O-port/DMA access is not exposed to arbitrary Ring-3 applications.
+The first active Steel slice is interrupt delivery infrastructure for PCI devices. Existing bounded MSI/MSI-X capability discovery remains discovery-only; vector ownership, APIC delivery/EOI, reversible device programming and real OVMF/Q35 interrupt delivery must be implemented and qualified before MSI or MSI-X can be marked complete. Legacy PIC/PIT behavior remains the qualified fallback during the migration.
 
 ### Road to 15 status
 
@@ -99,8 +112,8 @@ The active KuroFS slice has progressed from allocator and inode-data durability 
 - `3.4.0-dev` — System Services — **QUALIFIED**
 - `3.5.0-dev` — Connected Userspace — **QUALIFIED**
 - `3.6.0-dev` — Flux Stabilization — **QUALIFIED**
-- `4.0.0-dev` — Pre-Steel — **ACTIVE**
-- `5.0.0-dev` — Steel / Hardware — pending
+- `4.0.0-dev` — Pre-Steel — **QUALIFIED**
+- `5.0.0-dev` — Steel / Hardware — **ACTIVE**
 - `6.0.0-dev` — Core Steel — pending
 - `7.0.0-dev` — Iron Shield — pending
 - `8.0.0-dev` — Connected Steel — pending
