@@ -75,6 +75,20 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_pci_capability_layout"
 
+# Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
+# restore transaction without touching privileged host PCI configuration.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
+  tests/test_pci_msix.cpp \
+  kernel/drivers/pci_msix.cpp \
+  kernel/drivers/pci_msi.cpp \
+  kernel/arch/x86_64/hardware_vectors.cpp \
+  -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_msix"
+
+"$OUT_DIR/test_pci_msix"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

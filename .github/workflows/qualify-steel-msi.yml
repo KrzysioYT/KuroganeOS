@@ -16,6 +16,8 @@ on:
       - 'kernel/drivers/pci.hpp'
       - 'kernel/drivers/pci_msi.cpp'
       - 'kernel/drivers/pci_msi.hpp'
+      - 'kernel/drivers/pci_msix.cpp'
+      - 'kernel/drivers/pci_msix.hpp'
       - 'kernel/drivers/pci_edu.cpp'
       - 'kernel/drivers/pci_edu.hpp'
       - 'kernel/net/e1000.cpp'
@@ -24,6 +26,7 @@ on:
       - 'tests/test_hardware_vectors.cpp'
       - 'tests/test_pci_capability_layout.cpp'
       - 'tests/test_pci_msi.cpp'
+      - 'tests/test_pci_msix.cpp'
       - 'scripts/run-host-tests.sh'
   workflow_dispatch:
 
