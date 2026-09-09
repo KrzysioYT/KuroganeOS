@@ -13,21 +13,20 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 main = Path("kernel/main.cpp")
 driver_include = '#include "drivers/core/driver_manager.hpp"\n'
+qualification_include = '#include "drivers/core/runtime_qualification.hpp"\n'
+if qualification_include in main.read_text(encoding="utf-8"):
+    raise SystemExit(f"{main}: qualification already injected")
 replace_once(
     main,
     driver_include,
-    driver_include + '#include "drivers/core/runtime_qualification.hpp"\n',
+    driver_include + qualification_include,
 )
 
 framework_anchor = """    if (!context.safe_mode) {
         pci::scan();
         initialize_device_framework(false);
-        initialize_storage_probe();
 """
-qualification = """    if (!context.safe_mode) {
-        pci::scan();
-        initialize_device_framework(false);
-        drivers::runtime_qualification::Result device_driver_result{};
+qualification = framework_anchor + """        drivers::runtime_qualification::Result device_driver_result{};
         const KStatus device_driver_status =
             drivers::runtime_qualification::run(&device_driver_result);
         terminal::println(device_driver_result.device_claim
@@ -63,7 +62,6 @@ qualification = """    if (!context.safe_mode) {
             !device_driver_result.complete()) {
             boot_failure("DEVICE", "Device/Driver runtime qualification failed");
         }
-        initialize_storage_probe();
 """
 replace_once(main, framework_anchor, qualification)
 
