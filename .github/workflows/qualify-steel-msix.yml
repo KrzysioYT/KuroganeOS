@@ -1,0 +1,156 @@
+name: Qualify 5.0 PCI MSI-X Delivery
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-msix.yml'
+      - 'kernel/arch/x86_64/apic.cpp'
+      - 'kernel/arch/x86_64/apic.hpp'
+      - 'kernel/arch/x86_64/hardware_vectors.cpp'
+      - 'kernel/arch/x86_64/hardware_vectors.hpp'
+      - 'kernel/arch/x86_64/interrupts.cpp'
+      - 'kernel/arch/x86_64/interrupts.hpp'
+      - 'kernel/drivers/e1000e_msix_qualification.cpp'
+      - 'kernel/drivers/e1000e_msix_qualification.hpp'
+      - 'kernel/drivers/pci.cpp'
+      - 'kernel/drivers/pci.hpp'
+      - 'kernel/drivers/pci_bar.cpp'
+      - 'kernel/drivers/pci_bar.hpp'
+      - 'kernel/drivers/pci_msi.cpp'
+      - 'kernel/drivers/pci_msi.hpp'
+      - 'kernel/drivers/pci_msix.cpp'
+      - 'kernel/drivers/pci_msix.hpp'
+      - 'kernel/main.cpp'
+      - 'scripts/qualification/inject-steel-msix-runtime.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_hardware_vectors.cpp'
+      - 'tests/test_pci_capability_layout.cpp'
+      - 'tests/test_pci_bar.cpp'
+      - 'tests/test_pci_msi.cpp'
+      - 'tests/test_pci_msix.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pci-msix-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify exact tested SHA
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run host regressions
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Inject real e1000e MSI-X qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/qualification/inject-steel-msix-runtime.py
+          git diff --check
+          grep -F '#include "drivers/e1000e_msix_qualification.hpp"' kernel/main.cpp
+          grep -F 'e1000e_msix_qualification::initialize' kernel/main.cpp
+          grep -F 'e1000e_msix_qualification::qualify_delivery' kernel/main.cpp
+
+      - name: Build clean release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real PCI MSI-X delivery through Local APIC
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            if [[ -f "$serial" ]]; then
+              tail -n 300 "$serial" || true
+            fi
+            if [[ -f "$qemu_log" ]]; then
+              tail -n 100 "$qemu_log" || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]] || { echo 'OVMF CODE not found' >&2; exit 1; }
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          [[ -f "$vars_template" ]] || { echo 'OVMF VARS not found' >&2; exit 1; }
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=tcg \
+            -cpu max \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,id=kurogane_nic,mac=52:54:00:4b:55:50 \
+            -netdev user,id=kurogane_msix_net,restrict=on \
+            -device e1000e,netdev=kurogane_msix_net,id=kurogane_msix_qualifier,mac=52:54:00:4b:55:51 \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          for _ in $(seq 1 900); do
+            if grep -Fq '[TEST] pci_msix_delivery: PASS' "$serial" 2>/dev/null; then
+              grep -F '[TEST] apic_discovery: PASS' "$serial"
+              grep -F '[TEST] pci_msix_delivery: PASS' "$serial"
+              echo '[steel-msix] real QEMU e1000e -> PCI MSI-X table -> Local APIC -> IDT delivery: PASS'
+              exit 0
+            fi
+            if grep -Eq 'pci_msix_delivery: (FAIL|SKIP)|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
+              echo 'MSI-X delivery entered a fallback or panic path' >&2
+              exit 1
+            fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then
+              echo 'QEMU exited before the MSI-X marker' >&2
+              exit 1
+            fi
+            sleep 0.2
+          done
+          echo 'timeout waiting for real PCI MSI-X delivery' >&2
+          exit 1

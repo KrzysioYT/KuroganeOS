@@ -19,6 +19,8 @@
 - Qualified bounded single-vector PCI MSI transport at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`; the real QEMU EDU interrupt reached the production IDT/LAPIC path and ordered teardown completed. MSI-X remains open.
 - Added the bounded single-entry MSI-X programming foundation: complete table/PBA span validation against driver-owned BAR mappings, generation-safe vector allocation, function/entry masking, ordered enable, quiesce, rollback and stale-route cleanup. Deterministic host tests cover malformed regions and exact register ordering; real MSI-X device delivery remains an open runtime gate.
 - Added reversible PCI BAR sizing for detached/decoding-disabled endpoints, with typed 32-bit MMIO, 64-bit MMIO and I/O results, upper-half rejection, full register restoration, size/alignment checks and deterministic host coverage. This provides the bounded mapping contract required by a future real-device MSI-X gate without probing active devices.
+- Added a bounded Intel 82574L qualification driver that sizes BARs only with PCI decoding disabled, maps complete MMIO regions with supervisor-only cache-disabled pages, programs one generation-owned MSI-X vector, triggers a real device interrupt, and restores the IVAR, MSI-X table, PCI command state, vector lease, and mappings during teardown.
+- Added a CI-only source injection and QEMU/OVMF gate using a separate `e1000e` endpoint. Normal release boot does not invoke the destructive qualification transaction, while the exact release kernel code remains what CI exercises. MSI-X remains open until the workflow observes `[TEST] pci_msix_delivery: PASS` from actual PCI -> MSI-X -> Local APIC -> IDT delivery.
 
 ### Road to 15 versioning
 
