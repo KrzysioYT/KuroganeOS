@@ -75,6 +75,18 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_pci_capability_layout"
 
+# Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
+# 64-bit MMIO, 16-bit I/O masks and rejection of a 64-bit BAR's upper half.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
+  tests/test_pci_bar.cpp \
+  kernel/drivers/pci_bar.cpp \
+  -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_bar"
+
+"$OUT_DIR/test_pci_bar"
+
 # Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
 # restore transaction without touching privileged host PCI configuration.
 "$HOST_CXX" \

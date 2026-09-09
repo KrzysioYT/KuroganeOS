@@ -18,6 +18,7 @@
 - Added an E1000 MSI delivery probe using the real device Interrupt Cause Set register. Failure restores polling-safe PCI state; MSI-X and general multi-device interrupt qualification remain open.
 - Qualified bounded single-vector PCI MSI transport at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`; the real QEMU EDU interrupt reached the production IDT/LAPIC path and ordered teardown completed. MSI-X remains open.
 - Added the bounded single-entry MSI-X programming foundation: complete table/PBA span validation against driver-owned BAR mappings, generation-safe vector allocation, function/entry masking, ordered enable, quiesce, rollback and stale-route cleanup. Deterministic host tests cover malformed regions and exact register ordering; real MSI-X device delivery remains an open runtime gate.
+- Added reversible PCI BAR sizing for detached/decoding-disabled endpoints, with typed 32-bit MMIO, 64-bit MMIO and I/O results, upper-half rejection, full register restoration, size/alignment checks and deterministic host coverage. This provides the bounded mapping contract required by a future real-device MSI-X gate without probing active devices.
 
 ### Road to 15 versioning
 
