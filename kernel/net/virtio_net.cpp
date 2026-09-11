@@ -30,6 +30,9 @@ constexpr uint8_t kStatusDriver = UINT8_C(2);
 constexpr uint8_t kStatusDriverOk = UINT8_C(4);
 constexpr uint8_t kStatusFeaturesOk = UINT8_C(8);
 constexpr uint8_t kStatusFailed = UINT8_C(128);
+constexpr uint16_t kCommandMemory = UINT16_C(2);
+constexpr uint16_t kCommandBusMaster = UINT16_C(4);
+constexpr size_t kResetPollLimit = 100000U;
 constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB20000000000);
 constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB20000010000);
 constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB20000020000);
@@ -43,7 +46,9 @@ struct VirtioCapability {
 };
 
 struct MappedRegion {
+    uintptr_t virtual_base;
     volatile uint8_t* base;
+    size_t mapped_pages;
     size_t length;
 };
 
@@ -91,6 +96,9 @@ Queue g_receive_queue{};
 Queue g_transmit_queue{};
 NetworkInterface g_interface{};
 MacAddress g_mac{};
+uint16_t g_original_command = 0U;
+bool g_command_owned = false;
+bool g_cleanup_blocked = false;
 
 uint8_t pci_read8(const pci::Device& device, uint8_t offset) {
     const uint8_t aligned = static_cast<uint8_t>(offset & UINT8_C(0xFC));
@@ -198,12 +206,34 @@ bool scan_capabilities(
     return common->present && notify->present;
 }
 
+bool unmap_capability(MappedRegion* region) {
+    if (region == nullptr) return false;
+    if (region->mapped_pages == 0U) {
+        *region = {};
+        return true;
+    }
+    auto* address_space = memory::kernel_virtual_memory::address_space();
+    if (address_space == nullptr) return false;
+    // Retain the remaining mapping on failure so retry cannot overwrite it.
+    while (region->mapped_pages != 0U) {
+        const uintptr_t target = region->virtual_base +
+            (region->mapped_pages - 1U) * memory::virtual_memory::PAGE_SIZE;
+        const auto status = memory::virtual_memory::unmap_page(address_space, target);
+        if (status != memory::virtual_memory::Status::Ok &&
+            status != memory::virtual_memory::Status::NotMapped) return false;
+        --region->mapped_pages;
+    }
+    *region = {};
+    return true;
+}
+
 bool map_capability(
     const pci::Device& device,
     const VirtioCapability& capability,
     uintptr_t virtual_base,
     MappedRegion* output) {
-    if (output == nullptr || !capability_valid(capability)) return false;
+    if (output == nullptr || output->base != nullptr ||
+        output->mapped_pages != 0U || !capability_valid(capability)) return false;
     bool io_space = false;
     const uint64_t bar = pci::bar_address(device, capability.bar, &io_space);
     if (bar == 0U || io_space || bar > UINT64_MAX - capability.offset) return false;
@@ -217,13 +247,16 @@ bool map_capability(
     const size_t prefix = static_cast<size_t>(physical & page_mask);
     const size_t extent = prefix + capability.length;
     const size_t pages = static_cast<size_t>((extent + page_mask) / page_size);
-    if (pages == 0U || pages > 2U) return false;
+    if (pages == 0U || pages > 2U || (virtual_base & page_mask) != 0U ||
+        virtual_base > UINTPTR_MAX - pages * page_size ||
+        aligned > UINT64_MAX - pages * page_size) return false;
 
     const auto flags = memory::virtual_memory::MapFlags::Writable |
         memory::virtual_memory::MapFlags::WriteThrough |
         memory::virtual_memory::MapFlags::CacheDisable |
         memory::virtual_memory::MapFlags::NoExecute;
     size_t mapped = 0U;
+    output->virtual_base = virtual_base;
     for (; mapped < pages; ++mapped) {
         memory::virtual_memory::Mapping existing{};
         const uintptr_t target = virtual_base + mapped * page_size;
@@ -238,14 +271,10 @@ bool map_capability(
                 flags) != memory::virtual_memory::Status::Ok) {
             break;
         }
+        ++output->mapped_pages;
     }
     if (mapped != pages) {
-        while (mapped != 0U) {
-            --mapped;
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                address_space,
-                virtual_base + mapped * page_size));
-        }
+        static_cast<void>(unmap_capability(output));
         return false;
     }
     output->base = reinterpret_cast<volatile uint8_t*>(virtual_base + prefix);
@@ -253,23 +282,29 @@ bool map_capability(
     return true;
 }
 
-void release_queue(Queue* queue) {
-    if (queue == nullptr) return;
+bool release_queue(Queue* queue) {
+    if (queue == nullptr) return false;
+    bool complete = true;
     for (size_t index = 0U; index < kQueueCapacity; ++index) {
         if (queue->buffers[index].allocated) {
-            static_cast<void>(storage::dma::release_page(&queue->buffers[index]));
+            if (storage::dma::release_page(&queue->buffers[index]) !=
+                storage::dma::Status::Ok) complete = false;
         }
     }
     if (queue->descriptor_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->descriptor_page));
+        if (storage::dma::release_page(&queue->descriptor_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
     if (queue->available_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->available_page));
+        if (storage::dma::release_page(&queue->available_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
     if (queue->used_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->used_page));
+        if (storage::dma::release_page(&queue->used_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
-    *queue = {};
+    if (complete) *queue = {};
+    return complete;
 }
 
 uint16_t choose_queue_size(uint16_t maximum) {
@@ -353,16 +388,15 @@ bool configure_queue(
     if (!write_queue_address(32U, queue->descriptor_page.physical_address) ||
         !write_queue_address(40U, queue->available_page.physical_address) ||
         !write_queue_address(48U, queue->used_page.physical_address)) {
-        release_queue(queue);
+        // Addresses have been exposed. The caller must reset before freeing.
         return false;
     }
 
     const uint16_t notify_offset = mmio_read16(g_common, 30U);
     const uint64_t byte_offset =
         static_cast<uint64_t>(notify_offset) * notify_capability.notify_multiplier;
-    if (byte_offset > SIZE_MAX ||
-        static_cast<size_t>(byte_offset) + sizeof(uint16_t) > g_notify.length) {
-        release_queue(queue);
+    if (g_notify.length < sizeof(uint16_t) ||
+        byte_offset > g_notify.length - sizeof(uint16_t)) {
         return false;
     }
     queue->notify = reinterpret_cast<volatile uint16_t*>(
@@ -370,7 +404,6 @@ bool configure_queue(
     memory_barrier();
     mmio_write16(g_common, 28U, 1U);
     if (mmio_read16(g_common, 28U) != 1U) {
-        release_queue(queue);
         return false;
     }
     queue->configured = true;
@@ -582,19 +615,64 @@ void mark_failed() {
     }
 }
 
+bool reset_device() {
+    // No common mapping means queue addresses have not been exposed yet.
+    if (g_common.base == nullptr || g_common.length <= 20U) return true;
+    mmio_write8(g_common, 20U, 0U);
+    memory_barrier();
+    for (size_t poll = 0U; poll < kResetPollLimit; ++poll) {
+        if (mmio_read8(g_common, 20U) == 0U) return true;
+        __asm__ volatile("pause");
+    }
+    return false;
+}
+
+Status cleanup_after_reset(Status cause, bool reset_complete) {
+    g_initialized = false;
+    g_interface = {};
+    if (g_command_owned) {
+        const uint16_t command = pci::read16(g_device, 0x04U);
+        pci::write16(g_device, 0x04U,
+            static_cast<uint16_t>(command & ~kCommandBusMaster));
+        // Flush the config write. Clearing BME alone does not prove that
+        // outstanding DMA is drained, so only a completed reset permits free.
+        static_cast<void>(pci::read16(g_device, 0x04U));
+    }
+    if (!reset_complete) {
+        g_cleanup_blocked = true;
+        g_status = Status::DeviceResetFailed;
+        return g_status;
+    }
+
+    const bool rx_released = release_queue(&g_receive_queue);
+    const bool tx_released = release_queue(&g_transmit_queue);
+    const bool device_unmapped = unmap_capability(&g_device_config);
+    const bool notify_unmapped = unmap_capability(&g_notify);
+    const bool common_unmapped = unmap_capability(&g_common);
+    bool command_restored = true;
+    if (g_command_owned) {
+        pci::write16(g_device, 0x04U, g_original_command);
+        command_restored = pci::read16(g_device, 0x04U) == g_original_command;
+        if (command_restored) g_command_owned = false;
+    }
+    const bool complete = rx_released && tx_released && device_unmapped &&
+        notify_unmapped && common_unmapped && command_restored;
+    g_cleanup_blocked = !complete;
+    g_status = !command_restored ? Status::PciCommandFailed :
+        (!complete ? Status::DeviceCleanupFailed : cause);
+    return g_status;
+}
+
 Status fail(Status status) {
     mark_failed();
-    release_queue(&g_receive_queue);
-    release_queue(&g_transmit_queue);
-    g_initialized = false;
-    g_status = status;
-    return status;
+    return cleanup_after_reset(status, reset_device());
 }
 
 } // namespace
 
 Status initialize() {
     if (g_initialized) return Status::AlreadyInitialized;
+    if (g_cleanup_blocked) return g_status;
     g_status = Status::NotInitialized;
     g_detected = false;
     g_common = {};
@@ -630,11 +708,14 @@ Status initialize() {
         return g_status;
     }
 
-    const uint32_t command = pci::read32(g_device, UINT8_C(0x04));
-    pci::write32(
-        g_device,
-        UINT8_C(0x04),
-        (command & UINT32_C(0x0000FFFF)) | UINT32_C(0x00000006));
+    g_original_command = pci::read16(g_device, 0x04U);
+    g_command_owned = true;
+    // Map/reset with memory decoding enabled; enable DMA only after reset.
+    pci::write16(g_device, 0x04U, static_cast<uint16_t>(
+        (g_original_command | kCommandMemory) & ~kCommandBusMaster));
+    if ((pci::read16(g_device, 0x04U) & kCommandMemory) == 0U) {
+        return fail(Status::PciCommandFailed);
+    }
 
     if (!map_capability(
             g_device,
@@ -658,11 +739,11 @@ Status initialize() {
     }
     if (g_common.length < 56U) return fail(Status::MissingCapability);
 
-    mmio_write8(g_common, 20U, 0U);
-    memory_barrier();
-    if (mmio_read8(g_common, 20U) != 0U) {
-        return fail(Status::DeviceFault);
-    }
+    if (!reset_device()) return cleanup_after_reset(Status::DeviceFault, false);
+    pci::write16(g_device, 0x04U, static_cast<uint16_t>(
+        g_original_command | kCommandMemory | kCommandBusMaster));
+    if ((pci::read16(g_device, 0x04U) & (kCommandMemory | kCommandBusMaster)) !=
+        (kCommandMemory | kCommandBusMaster)) return fail(Status::PciCommandFailed);
     mmio_write8(g_common, 20U, kStatusAcknowledge);
     mmio_write8(
         g_common,
@@ -751,6 +832,9 @@ const char* status_message(Status status) {
         case Status::FrameTooLarge: return "VirtIO-net frame exceeds MTU";
         case Status::WouldBlock: return "VirtIO-net queue would block";
         case Status::DeviceFault: return "VirtIO-net device fault";
+        case Status::PciCommandFailed: return "VirtIO-net PCI command failed";
+        case Status::DeviceResetFailed: return "VirtIO-net reset failed; resources quarantined";
+        case Status::DeviceCleanupFailed: return "VirtIO-net resource cleanup incomplete";
     }
     return "unknown VirtIO-net status";
 }

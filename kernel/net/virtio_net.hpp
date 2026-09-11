@@ -22,7 +22,10 @@ enum class Status : uint8_t {
     InvalidArgument,
     FrameTooLarge,
     WouldBlock,
-    DeviceFault
+    DeviceFault,
+    PciCommandFailed,
+    DeviceResetFailed,
+    DeviceCleanupFailed
 };
 
 Status initialize();

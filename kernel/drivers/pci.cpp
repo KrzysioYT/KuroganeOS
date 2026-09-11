@@ -82,12 +82,10 @@ void write32(Address address, uint8_t offset, uint32_t value) {
 }
 
 void write16(Address address, uint8_t offset, uint16_t value) {
-    const uint8_t aligned_offset = offset & 0xFCu;
-    const uint32_t shift = (offset & 2u) * 8u;
-    uint32_t current = read32(address, aligned_offset);
-    current &= ~(0xFFFFu << shift);
-    current |= static_cast<uint32_t>(value) << shift;
-    write32(address, aligned_offset, current);
+    // The adjacent word may contain write-one-to-clear status bits. Never
+    // replay it in a read/modify/write when updating Command or MSI controls.
+    arch::out32(0xCF8, configuration_address(address, offset));
+    arch::out16(static_cast<uint16_t>(0xCFCu + (offset & 2u)), value);
 }
 
 void scan() {

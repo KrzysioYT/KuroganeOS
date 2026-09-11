@@ -101,6 +101,14 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$OUT_DIR/test_pci_msix"
 
+# Exercise production PCI word writes and VirtIO resource failure paths.
+for test in test_pci_word_write test_virtio_net_cleanup; do
+  "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+    -ffunction-sections -fdata-sections "tests/$test.cpp" \
+    -Wl,--gc-sections -o "$OUT_DIR/$test"
+  "$OUT_DIR/$test"
+done
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

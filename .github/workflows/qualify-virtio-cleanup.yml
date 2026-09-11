@@ -1,0 +1,55 @@
+name: Qualify 5.0 VirtIO Network Cleanup
+
+on:
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - '.github/workflows/qualify-virtio-cleanup.yml'
+      - 'kernel/net/virtio_net.*'
+      - 'kernel/net/physical.cpp'
+      - 'kernel/drivers/pci.cpp'
+      - 'kernel/storage/dma.*'
+      - 'kernel/memory/**'
+      - 'scripts/qualification/inject-virtio-cleanup-runtime.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_virtio_net_cleanup.cpp'
+      - 'tests/test_pci_word_write.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtio-cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Host regressions including DMA failure ownership
+        run: bash scripts/run-host-tests.sh
+      - name: Inject real active-queue cleanup qualification
+        run: |
+          python3 scripts/qualification/inject-virtio-cleanup-runtime.py
+          git diff --check
+      - name: Build clean release media
+        run: |
+          chmod +x scripts/*.sh
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require four reset cycles, released DMA, unmapped MMIO, retry and network
+        run: |
+          bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --accel tcg --timeout 180 --nic virtio --require-network \
+            --require-marker '[TEST] virtio_reset_cleanup: PASS' \
+            --require-marker '[TEST] virtio_reset_retry: PASS' \
+            --require-marker-count '[VIRTIO-TEST] released DMA frames=' 4

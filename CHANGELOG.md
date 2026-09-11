@@ -23,6 +23,12 @@
 - Added a CI-only source injection and QEMU/OVMF gate using a separate `e1000e` endpoint. Normal release boot does not invoke the qualification transaction, while the exact release kernel code remains what CI exercises.
 - Qualified bounded single-vector MSI-X at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in Actions run `34358861039`, job `102490389818`: real QEMU Intel 82574L delivery through the MSI-X table, Local APIC and production IDT followed by ordered teardown. The same source passed Pre-Steel closeout run `34358861380`. Multi-vector routing, production-driver adoption, SMP and broader hardware coverage remain open.
 
+### VirtIO-net failure ownership
+
+- Reset the real device before freeing exposed queue DMA, defer cleanup after partial queue configuration, track and remove capability MMIO mappings, and restore the saved PCI Command after successful reset. A reset timeout quarantines DMA/mappings and blocks reinitialization; failed releases retain their ownership records with typed errors.
+- Enable bus mastering only after the initial reset and use real 16-bit PCI configuration writes so updating Command does not clear adjacent write-one-to-clear Status bits.
+- Added host regressions for reset/free ordering, reset timeout quarantine, DMA release failure, partial MMIO mapping rollback, PCI restoration failure and adjacent PCI Status preservation. A separate QEMU/OVMF workflow checks four real active-queue reset/retry cycles and subsequent DHCP/gateway traffic; runtime qualification is pending its exact-source result.
+
 ### Road to 15 versioning
 
 - Normalized the formal Road-to-15 sequence: `3.3.3-dev` Red Flux is followed by `3.4.0-dev` System Services; patch-like `3.3.5`-`3.3.9` and `3.4.1` names are internal development workstreams rather than separate formal product releases.
