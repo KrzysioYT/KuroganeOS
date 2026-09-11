@@ -85,7 +85,7 @@ KuroFS v1, Device Model 2.0, read-only Ring-3 Device API, Driver Manager 2.0 fai
 
 Status: **ACTIVE**.
 
-Bounded single-vector PCI MSI transport is qualified at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`, including a real QEMU EDU device interrupt, production IDT/LAPIC delivery and ordered teardown. MSI-X table/PBA programming, multi-vector routing, broad device adoption, SMP and the rest of the Steel hardware gates remain open.
+Bounded single-vector MSI passed at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X passed at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in run `34358861039`, job `102490389818`, with real QEMU Intel 82574L delivery and ordered teardown; Pre-Steel regression closeout also passed in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and the remaining Steel hardware gates stay open.
 
 ## Future formal milestones
 

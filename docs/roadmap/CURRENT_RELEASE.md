@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-08
+Last updated: 2026-09-11
 
 ## COMPILED / RUNTIME VERSION
 
@@ -104,7 +104,7 @@ Authoritative same-SHA evidence:
 
 Status: **ACTIVE**
 
-The first Steel interrupt slice is qualified at source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`: a real QEMU EDU PCI endpoint raised MSI through generation-safe vector ownership, validated xAPIC configuration, the production IDT dispatcher and Local APIC EOI, followed by device quiesce and route teardown. This qualifies bounded single-vector MSI transport, not MSI-X or complete Steel hardware support. MSI-X table/PBA programming, multi-vector routing, device integrations, SMP and the remaining hardware matrix stay open; legacy PIC/PIT remains the qualified fallback during migration.
+Bounded single-vector MSI is qualified at `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X is qualified at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` by run `34358861039`, job `102490389818`: real QEMU Intel 82574L delivery through the mapped MSI-X table, generation-owned vector, Local APIC and production IDT, followed by ordered teardown. Pre-Steel regression closeout also passed on that source in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and the remaining hardware matrix stay open; legacy PIC/PIT remains the fallback during migration.
 
 ### Road to 15 status
 

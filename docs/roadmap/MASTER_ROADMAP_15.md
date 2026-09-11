@@ -158,7 +158,7 @@ Status: **ACTIVE**.
 
 PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
 
-Bounded single-vector PCI MSI transport passed exact-SHA runtime qualification at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. The real QEMU EDU device interrupt traversed reversible PCI MSI programming, generation-safe vector ownership, validated xAPIC, the production IDT dispatcher and Local APIC EOI before ordered teardown restored PCI state. This does not qualify MSI-X: table/PBA mapping, BAR-span validation, multi-vector programming and runtime delivery remain required, together with broader device adoption.
+Bounded single-vector PCI MSI passed at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X passed at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in run `34358861039`, job `102490389818`, including validated BAR/table/PBA regions, real QEMU Intel 82574L delivery through the Local APIC and production IDT, and ordered teardown. Same-source Pre-Steel regression closeout passed in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and broader hardware qualification remain required.
 
 SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
 
