@@ -7,6 +7,7 @@ on:
       - '.github/workflows/qualify-virtio-cleanup.yml'
       - 'kernel/net/virtio_net.*'
       - 'kernel/net/physical.cpp'
+      - 'kernel/main.cpp'
       - 'kernel/drivers/pci.cpp'
       - 'kernel/storage/dma.*'
       - 'kernel/memory/**'
@@ -52,4 +53,5 @@ jobs:
             --disk --accel tcg --timeout 180 --nic virtio --require-network \
             --require-marker '[TEST] virtio_reset_cleanup: PASS' \
             --require-marker '[TEST] virtio_reset_retry: PASS' \
+            --require-marker '[TEST] virtio_net_link: PASS' \
             --require-marker-count '[VIRTIO-TEST] released DMA frames=' 4

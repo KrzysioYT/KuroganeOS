@@ -29,6 +29,7 @@
 #include "input/input.hpp"
 #include "install/installer.hpp"
 #include "net/service.hpp"
+#include "net/physical.hpp"
 #include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
@@ -1869,8 +1870,22 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         terminal::println("[TEST] network_loopback: SKIP");
     } else if (network_status == net::Status::Ok &&
                net::service::physical_interface()) {
-        terminal::println("E1000 link READY");
-        terminal::println("[TEST] e1000_link: PASS");
+        terminal::write(net::service::interface_name());
+        terminal::println(" link READY");
+        switch (net::physical::driver()) {
+            case net::physical::Driver::E1000:
+                terminal::println("[TEST] e1000_link: PASS");
+                break;
+            case net::physical::Driver::VirtioNet:
+                terminal::println("[TEST] virtio_net_link: PASS");
+                break;
+            case net::physical::Driver::Pcnet:
+                terminal::println("[TEST] pcnet_link: PASS");
+                break;
+            case net::physical::Driver::None:
+                boot_failure("NET", "physical network has no owning driver");
+                break;
+        }
         if (!net::service::dhcp_configured()) {
             terminal::println("[TEST] dhcp_lease: FAIL");
             boot_failure("NET", "DHCP did not configure the physical link");

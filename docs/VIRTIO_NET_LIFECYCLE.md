@@ -37,4 +37,6 @@ It initializes both queues, invokes failure cleanup, checks every former DMA
 page against the PMM bitmap, checks former MMIO addresses against the page
 tables and checks the restored PCI command. Four cycles must pass, followed
 by reinitialization, DHCP and gateway ICMP. Production sources contain no
-failure trigger. No runtime PASS is claimed before this workflow succeeds.
+failure trigger. Exact-source run `34546210440`, job `103099276350`, passed
+at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`. This qualifies reset/free/retry
+with the QEMU VirtIO device; it does not qualify MSI-X queue delivery.

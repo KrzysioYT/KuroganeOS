@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
 
 ## COMPILED / RUNTIME VERSION
 
@@ -107,6 +107,12 @@ Status: **ACTIVE**
 Bounded single-vector MSI is qualified at `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X is qualified at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` by run `34358861039`, job `102490389818`: real QEMU Intel 82574L delivery through the mapped MSI-X table, generation-owned vector, Local APIC and production IDT, followed by ordered teardown. Pre-Steel regression closeout also passed on that source in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and the remaining hardware matrix stay open; legacy PIC/PIT remains the fallback during migration.
 
 ### Road to 15 status
+
+Current regression evidence at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`:
+all eleven triggered workflows passed, including VirtIO active-queue reset/
+cleanup/retry (`34546210440`), Pre-Steel closeout (`34546210640`), System
+Services regression (`34546210434`) and Fatal Diagnostic (`34546210350`).
+VirtIO-net queue interrupt adoption remains an active Steel task.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

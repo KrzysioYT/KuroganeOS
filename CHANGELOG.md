@@ -27,7 +27,8 @@
 
 - Reset the real device before freeing exposed queue DMA, defer cleanup after partial queue configuration, track and remove capability MMIO mappings, and restore the saved PCI Command after successful reset. A reset timeout quarantines DMA/mappings and blocks reinitialization; failed releases retain their ownership records with typed errors.
 - Enable bus mastering only after the initial reset and use real 16-bit PCI configuration writes so updating Command does not clear adjacent write-one-to-clear Status bits.
-- Added host regressions for reset/free ordering, reset timeout quarantine, DMA release failure, partial MMIO mapping rollback, PCI restoration failure and adjacent PCI Status preservation. A separate QEMU/OVMF workflow checks four real active-queue reset/retry cycles and subsequent DHCP/gateway traffic; runtime qualification is pending its exact-source result.
+- Added host regressions for reset/free ordering, reset timeout quarantine, DMA release failure, partial MMIO mapping rollback, PCI restoration failure and adjacent PCI Status preservation. Exact-source QEMU/OVMF run `34546210440` passed at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`: four real active-queue reset/retry cycles, former DMA/MMIO release and subsequent DHCP/gateway traffic. All eleven workflows on that source passed, including Pre-Steel closeout `34546210640`, 3.4 regression `34546210434` and Fatal Diagnostic `34546210350`.
+- Boot diagnostics now report the physical driver that owns the active interface. VirtIO-net and PCnet no longer emit the E1000 success marker; the VirtIO cleanup gate requires its own driver marker.
 
 ### Road to 15 versioning
 
