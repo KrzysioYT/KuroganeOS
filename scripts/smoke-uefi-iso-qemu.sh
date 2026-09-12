@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
     echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
@@ -550,28 +551,15 @@ while ((SECONDS < deadline)); do
                 exit 2
             fi
 
-            if $require_tls && grep -Fq '[TEST] tls_https_optional: SKIP' "$serial"; then
-                echo "KuroganeOS reached networking but real TLS/HTTPS qualification did not pass for $nic_model" >&2
-                tail -n 220 "$serial" >&2 || true
+            network_state=0
+            kurogane_network_smoke_state "$serial" "$require_tls" || network_state=$?
+            if [[ "$network_state" == 2 ]]; then
+                echo "KuroganeOS reported a network/TLS/runtime qualification failure for $nic_model" >&2
+                tail -n 180 "$serial" >&2 || true
                 exit 1
             fi
 
-            network_ready=false
-            if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
-               grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
-               grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then
-                network_ready=true
-            fi
-
-            tls_ready=true
-            if $require_tls; then
-                tls_ready=false
-                if grep -Fq '[TEST] tls_https_optional: PASS' "$serial"; then
-                    tls_ready=true
-                fi
-            fi
-
-            if $network_ready && $tls_ready && $all_markers_ready; then
+            if [[ "$network_state" == 0 ]] && $all_markers_ready; then
                 if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
                     echo "[uefi-qemu] required runtime markers: PASS"
                     for require_marker in "${require_markers[@]}"; do
@@ -588,11 +576,6 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] firmware CODE: $firmware_code"
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
-            fi
-            if grep -Eq '\[TEST\] (dhcp_lease|network_gateway_icmp|ALL_REQUIRED_TESTS_PASSED): FAIL' "$serial"; then
-                echo "KuroganeOS reported a network/runtime qualification failure for $nic_model" >&2
-                tail -n 180 "$serial" >&2 || true
-                exit 1
             fi
         elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
              grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then

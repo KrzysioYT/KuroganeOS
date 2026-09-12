@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Runtime gate correctness
+
+- Network smoke qualification now gives explicit guest failures precedence over success and requires a complete final boot marker. `ALL_REQUIRED_TESTS_PASSED: FAIL` could previously match the success prefix before the failure check ran. Added thirteen behavioral serial-parser cases, including contradictory logs, incomplete markers and required TLS failure/skip.
+
 ### Pre-Steel closeout / Steel activation
 
 - Fixed process-local VFS descriptor resolution so malformed descriptors return `KU_STATUS_INVALID_ARGUMENT` while closed or generation-mismatched descriptors return `KU_STATUS_STALE_HANDLE`; added host and Ring-3 runtime regression coverage.
