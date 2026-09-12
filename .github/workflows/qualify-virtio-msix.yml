@@ -53,9 +53,30 @@ jobs:
         run: |
           bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --accel tcg --timeout 180 --nic virtio --require-network \
+            --log-dir build/qualification/virtio-msix \
             --require-marker '[TEST] virtio_msix_delivery: PASS' \
             --require-marker '[TEST] virtio_msix_route_cleanup: PASS' \
             --require-marker '[TEST] virtio_reset_cleanup: PASS' \
             --require-marker '[TEST] virtio_reset_retry: PASS' \
             --require-marker '[TEST] virtio_net_link: PASS' \
             --require-marker-count '[VIRTIO-TEST] released DMA frames=' 4
+          grep -F '[VIRTIO-TEST]' build/qualification/virtio-msix/serial.log
+      - name: Rebuild uninjected production media for polling fallback
+        run: |
+          git restore -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
+          git diff --exit-code -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require production VirtIO networking without MSI-X capability
+        run: |
+          bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --accel tcg --timeout 180 --nic virtio --virtio-vectors 0 \
+            --log-dir build/qualification/virtio-polling --require-network \
+            --require-marker '[TEST] virtio_net_link: PASS' \
+            --require-marker 'VirtIO queue interrupts: CAPABILITY_UNAVAILABLE; vector=0'
+      - name: Preserve raw serial and QEMU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtio-interrupt-evidence-${{ github.sha }}
+          path: build/qualification/
+          if-no-files-found: warn

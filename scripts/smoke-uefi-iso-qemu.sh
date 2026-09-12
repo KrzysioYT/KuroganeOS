@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -13,6 +13,8 @@ persistent_disk=false
 accel_model="tcg"
 timeout_seconds=60
 nic_model="none"
+virtio_vectors=""
+log_dir=""
 audio_model="none"
 require_network=false
 require_tls=false
@@ -42,6 +44,8 @@ while (($#)); do
         --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
+        --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
+        --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
@@ -141,10 +145,21 @@ if $require_network && [[ "$nic_model" == "none" ]]; then
     echo "--require-network/--require-tls needs --nic e1000, pcnet or virtio" >&2
     exit 2
 fi
+if [[ -n "$virtio_vectors" ]]; then
+    if [[ "$nic_model" != virtio || ! "$virtio_vectors" =~ ^(0|[1-9][0-9]{0,3})$ ]] ||
+       ((virtio_vectors > 2048)); then
+        echo "--virtio-vectors requires --nic virtio and a count from 0 to 2048" >&2
+        exit 2
+    fi
+fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
     echo "qemu-system-x86_64 is required" >&2; exit 1; }
 media="$(cd "$(dirname "$media")" && pwd)/$(basename "$media")"
 [[ -f "$media" && -s "$media" ]] || { echo "media missing or empty: $media" >&2; exit 1; }
+if [[ -n "$log_dir" ]]; then
+    mkdir -p -- "$log_dir"
+    log_dir="$(cd "$log_dir" && pwd)"
+fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-smoke.XXXXXX")"
 serial="$tmp/serial.log"
@@ -153,13 +168,25 @@ monitor="$tmp/qemu-monitor.sock"
 qmp="$tmp/qemu-qmp.sock"
 pid=""
 cleanup() {
+    local result=$?
+    trap - EXIT INT TERM
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
     fi
+    if [[ -n "$log_dir" ]]; then
+        for log in "$serial" "$qemu_log"; do
+            if [[ -f "$log" ]]; then
+                cp -- "$log" "$log_dir/" || result=1
+            fi
+        done
+    fi
     rm -rf -- "$tmp"
+    exit "$result"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 marker_occurrences() {
     local marker="$1"
@@ -399,6 +426,9 @@ if [[ "$nic_model" != "none" ]]; then
     qemu_nic_model="$nic_model"
     if [[ "$nic_model" == "virtio" ]]; then
         qemu_nic_model="virtio-net-pci"
+        if [[ -n "$virtio_vectors" ]]; then
+            qemu_nic_model+=",vectors=$virtio_vectors"
+        fi
     fi
     network_args=(
         -netdev user,id=kurogane_net

@@ -30,7 +30,8 @@
 ### VirtIO-net failure ownership
 
 - Added shared RX/TX MSI-X notification to the production VirtIO-net driver: bounded complete BAR mappings, reset-before-sizing, vector assignment readback, an allocation-free IRQ signal and deferred queue service. Polling fallback remains explicit when resources are unavailable; rejected queue vectors fail initialization.
-- Integrated vector teardown and table/PBA ownership into reset cleanup, including route quarantine after reset/cleanup failure. Added host error-path tests and a separate real QEMU gate requiring increasing IRQ delivery during successful gateway traffic plus four generation-safe route cleanup cycles. Runtime qualification is pending the exact-source result.
+- Integrated vector teardown and table/PBA ownership into reset cleanup, including route quarantine after reset/cleanup failure. Host tests and real QEMU run `34683815908`, job `103527144398`, passed at `6898c72f273207dbfd526f78a640433932e2291c`: IRQ delivery increased during successful gateway traffic, with four generation-safe route cleanup cycles. The same source passed 3.4 regression, real TLS/HTTPS and PCI MSI/MSI-X transport gates.
+- Extended VirtIO qualification with an uninjected production boot using a device without MSI-X (`vectors=0`), plus archived raw serial/QEMU logs. This additional fallback runtime gate awaits its own result.
 
 - Reset the real device before freeing exposed queue DMA, defer cleanup after partial queue configuration, track and remove capability MMIO mappings, and restore the saved PCI Command after successful reset. A reset timeout quarantines DMA/mappings and blocks reinitialization; failed releases retain their ownership records with typed errors.
 - Enable bus mastering only after the initial reset and use real 16-bit PCI configuration writes so updating Command does not clear adjacent write-one-to-clear Status bits.

@@ -162,6 +162,12 @@ Bounded single-vector PCI MSI passed at `718d8c546b4eb436be382f847f910a62b371422
 
 SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
 
+Production VirtIO-net shared RX/TX MSI-X notification and ordered cleanup
+passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job
+`103527144398`. Four real queue resets release DMA/MMIO/vector ownership; real
+IRQ counts increase during successful gateway traffic. This qualifies one
+production-driver adoption slice, not multi-vector/SMP or the whole milestone.
+
 ## 6.0.0-dev — Core Steel
 
 Kernel Core 2.0, PMM/VMM/address spaces, Scheduler 2.0, threads, processes/jobs, IPC 2.0, shared memory/synchronization, VFS 2.0 and syscall ABI qualification.

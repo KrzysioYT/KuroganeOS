@@ -87,6 +87,12 @@ Status: **ACTIVE**.
 
 Bounded single-vector MSI passed at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X passed at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in run `34358861039`, job `102490389818`, with real QEMU Intel 82574L delivery and ordered teardown; Pre-Steel regression closeout also passed in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and the remaining Steel hardware gates stay open.
 
+Steel implementation evidence: production VirtIO-net shared-vector MSI-X
+delivery and four-cycle resource cleanup passed at
+`6898c72f273207dbfd526f78a640433932e2291c`, Actions `34683815908`, job
+`103527144398`. Formal 5.0 remains ACTIVE; this does not change the embedded
+runtime version or qualify SMP/multi-vector support.
+
 ## Future formal milestones
 
 - `6.0.0-dev` — Core Steel.

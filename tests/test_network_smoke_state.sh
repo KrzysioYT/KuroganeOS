@@ -38,3 +38,21 @@ done
 printf '[TEST] dhcp_lease: PASS\n[TEST] network_gateway_icmp: PASS\n[TEST] ALL_REQUIRED_TESTS_PASSED_EXTRA\n' > "$serial"
 expect_state 1
 echo "network smoke serial evaluation: PASS ($checks cases; parser tests only)"
+
+# Invalid device properties are rejected before launching QEMU or opening media.
+runner="$(dirname "${BASH_SOURCE[0]}")/../scripts/smoke-uefi-iso-qemu.sh"
+for vectors in -1 2049 012 '1,x=2' 999999999999999999999999; do
+    result=0
+    bash "$runner" "$scratch/image.img" --nic virtio --virtio-vectors "$vectors" > "$scratch/cli.log" 2>&1 || result=$?
+    if [[ "$result" != 2 ]] || ! grep -Fq -- '--virtio-vectors requires' "$scratch/cli.log"; then
+        echo "invalid VirtIO vector count was not rejected: $vectors" >&2
+        exit 1
+    fi
+done
+result=0
+bash "$runner" "$scratch/image.img" --nic e1000 --virtio-vectors 0 > "$scratch/cli.log" 2>&1 || result=$?
+if [[ "$result" != 2 ]] || ! grep -Fq -- '--virtio-vectors requires' "$scratch/cli.log"; then
+    echo "VirtIO-only option accepted for E1000" >&2
+    exit 1
+fi
+echo "network smoke device-property rejection: PASS (6 cases)"

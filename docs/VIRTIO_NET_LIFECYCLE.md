@@ -65,4 +65,12 @@ exact vector allocation counts, rejection of retired vector generations, and
 MSI-X BAR unmapping in every cleanup cycle. After final initialization it
 requires the real IRQ count to increase during the successful gateway ICMP
 transaction. Merely programming a vector cannot satisfy this gate. The new
-driver integration remains runtime-unqualified until its exact-source run passes.
+driver integration passed at source `6898c72f273207dbfd526f78a640433932e2291c`
+in Actions run `34683815908`, job `103527144398`. The same source passed the
+3.4 regression sweep (`34683815923`), real TLS/HTTPS (`34683815909`) and both
+PCI interrupt transport gates (`34683815912`, `34683815880`).
+
+The expanded gate also rebuilds uninjected production media and boots QEMU
+with `virtio-net-pci,vectors=0`. It requires the typed capability-unavailable
+polling state and successful DHCP/gateway traffic. Raw serial/QEMU logs are
+retained as CI artifacts. This additional no-MSI-X path awaits its own run.

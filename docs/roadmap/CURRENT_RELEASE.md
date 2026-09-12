@@ -114,8 +114,12 @@ cleanup/retry (`34546210440`), Pre-Steel closeout (`34546210640`), System
 Services regression (`34546210434`) and Fatal Diagnostic (`34546210350`).
 VirtIO-net now has production shared RX/TX MSI-X notification and typed polling
 fallback, with host-tested cleanup and a dedicated delivery/teardown runtime
-gate. This integration remains **UNQUALIFIED** until its exact-source QEMU run
-passes; the earlier transport and polling cleanup runs do not qualify it.
+gate. Shared-vector delivery and cleanup are **QUALIFIED** at
+`6898c72f273207dbfd526f78a640433932e2291c` by QEMU run `34683815908`, job
+`103527144398`. This source also passed 3.4 regression `34683815923`, real
+TLS/HTTPS `34683815909` and PCI MSI/MSI-X transport `34683815912`/`34683815880`.
+The newly added production boot with MSI-X absent remains pending runtime
+evidence. Full 5.0 qualification, multi-vector operation and SMP remain open.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**
