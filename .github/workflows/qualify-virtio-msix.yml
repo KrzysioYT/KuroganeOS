@@ -1,30 +1,29 @@
-name: Qualify 5.0 VirtIO Network Cleanup
+name: Qualify 5.0 VirtIO MSI-X Runtime
 
 on:
   push:
     branches: [gpt/road-to-15-consolidation]
     paths:
-      - '.github/workflows/qualify-virtio-cleanup.yml'
+      - '.github/workflows/qualify-virtio-msix.yml'
       - 'kernel/net/virtio_net.*'
-      - 'kernel/net/physical.cpp'
       - 'kernel/main.cpp'
-      - 'kernel/drivers/pci.cpp'
-      - 'kernel/drivers/pci_bar.*'
-      - 'kernel/drivers/pci_msix.*'
+      - 'kernel/arch/x86_64/interrupt*'
+      - 'kernel/arch/x86_64/hardware_vectors.*'
+      - 'kernel/arch/x86_64/apic.*'
+      - 'kernel/drivers/pci*'
       - 'kernel/storage/dma.*'
       - 'kernel/memory/**'
       - 'scripts/qualification/inject-virtio-cleanup-runtime.py'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'scripts/qualification/network-smoke-state.sh'
-      - 'scripts/run-host-tests.sh'
       - 'tests/test_virtio_net_cleanup.cpp'
-      - 'tests/test_pci_word_write.cpp'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  virtio-cleanup:
+  virtio-msix:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -40,20 +39,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential binutils python3 \
             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
-      - name: Host regressions including DMA failure ownership
+      - name: Host regressions including queue interrupt ownership
         run: bash scripts/run-host-tests.sh
-      - name: Inject real active-queue cleanup qualification
+      - name: Inject real MSI-X delivery and cleanup qualification
         run: |
-          python3 scripts/qualification/inject-virtio-cleanup-runtime.py
+          python3 scripts/qualification/inject-virtio-cleanup-runtime.py --require-msix
           git diff --check
       - name: Build clean release media
         run: |
           chmod +x scripts/*.sh
           bash scripts/build-media-linux.sh --configuration release --rebuild
-      - name: Require four reset cycles, released DMA, unmapped MMIO, retry and network
+      - name: Require real VirtIO queue IRQs, four route releases and network traffic
         run: |
           bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --accel tcg --timeout 180 --nic virtio --require-network \
+            --require-marker '[TEST] virtio_msix_delivery: PASS' \
+            --require-marker '[TEST] virtio_msix_route_cleanup: PASS' \
             --require-marker '[TEST] virtio_reset_cleanup: PASS' \
             --require-marker '[TEST] virtio_reset_retry: PASS' \
             --require-marker '[TEST] virtio_net_link: PASS' \

@@ -25,8 +25,34 @@ enum class Status : uint8_t {
     DeviceFault,
     PciCommandFailed,
     DeviceResetFailed,
-    DeviceCleanupFailed
+    DeviceCleanupFailed,
+    QueueInterruptFailed
 };
+
+// Kernel diagnostics only. Polling remains available when interrupt resources
+// cannot be obtained. A queue rejecting an assigned vector fails initialization.
+enum class InterruptStatus : uint8_t {
+    NotInitialized = 0,
+    MsiXEnabled,
+    LocalApicUnavailable,
+    CapabilityUnavailable,
+    CapabilityMalformed,
+    BarUnavailable,
+    MappingUnavailable,
+    RouteUnavailable,
+    QueueRejected,
+    CleanupFailed
+};
+
+struct InterruptDiagnostics {
+    InterruptStatus status;
+    uint8_t vector;
+    uint64_t delivered;
+    bool pending;
+};
+
+InterruptDiagnostics interrupt_diagnostics();
+const char* interrupt_status_name(InterruptStatus status);
 
 Status initialize();
 bool initialized();

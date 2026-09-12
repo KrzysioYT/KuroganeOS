@@ -112,7 +112,10 @@ Current regression evidence at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`:
 all eleven triggered workflows passed, including VirtIO active-queue reset/
 cleanup/retry (`34546210440`), Pre-Steel closeout (`34546210640`), System
 Services regression (`34546210434`) and Fatal Diagnostic (`34546210350`).
-VirtIO-net queue interrupt adoption remains an active Steel task.
+VirtIO-net now has production shared RX/TX MSI-X notification and typed polling
+fallback, with host-tested cleanup and a dedicated delivery/teardown runtime
+gate. This integration remains **UNQUALIFIED** until its exact-source QEMU run
+passes; the earlier transport and polling cleanup runs do not qualify it.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

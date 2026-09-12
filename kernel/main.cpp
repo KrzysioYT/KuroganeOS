@@ -30,6 +30,7 @@
 #include "install/installer.hpp"
 #include "net/service.hpp"
 #include "net/physical.hpp"
+#include "net/virtio_net.hpp"
 #include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
@@ -1876,9 +1877,16 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             case net::physical::Driver::E1000:
                 terminal::println("[TEST] e1000_link: PASS");
                 break;
-            case net::physical::Driver::VirtioNet:
+            case net::physical::Driver::VirtioNet: {
                 terminal::println("[TEST] virtio_net_link: PASS");
+                const auto diagnostics = net::virtio_net::interrupt_diagnostics();
+                terminal::write("VirtIO queue interrupts: ");
+                terminal::write(net::virtio_net::interrupt_status_name(diagnostics.status));
+                terminal::write("; vector=");
+                terminal::write_u64(diagnostics.vector);
+                terminal::println("");
                 break;
+            }
             case net::physical::Driver::Pcnet:
                 terminal::println("[TEST] pcnet_link: PASS");
                 break;
