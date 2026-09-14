@@ -3,6 +3,7 @@
 #include "../drivers/pci.hpp"
 #include "../drivers/pci_bar.hpp"
 #include "../drivers/pci_msix.hpp"
+#include "../drivers/pci_msix_group.hpp"
 #include "../arch/x86_64/apic.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/virtual_memory.hpp"
@@ -107,10 +108,14 @@ bool g_command_owned = false;
 bool g_cleanup_blocked = false;
 MappedRegion g_msix_table{};
 MappedRegion g_msix_pending{};
-pci::msix::Route g_msix_route{};
+pci::msix::RouteGroup g_msix_route{};
 InterruptStatus g_interrupt_status = InterruptStatus::NotInitialized;
 uint64_t g_interrupt_count = 0U;
-bool g_interrupt_pending = false;
+constexpr uint8_t kReceiveInterrupt = 1U;
+constexpr uint8_t kTransmitInterrupt = 2U;
+uint8_t g_interrupt_pending = 0U;
+uint64_t g_receive_interrupt_count = 0U;
+uint64_t g_transmit_interrupt_count = 0U;
 
 uint8_t pci_read8(const pci::Device& device, uint8_t offset) {
     const uint8_t aligned = static_cast<uint8_t>(offset & UINT8_C(0xFC));
@@ -307,10 +312,27 @@ void queue_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
     // The IDT dispatcher owns LAPIC EOI. Packet processing stays outside IRQ;
     // one shared vector notifies the existing network pump about both queues.
     __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
-    __atomic_store_n(&g_interrupt_pending, true, __ATOMIC_RELEASE);
+    __atomic_fetch_or(&g_interrupt_pending,
+        kReceiveInterrupt | kTransmitInterrupt, __ATOMIC_RELEASE);
+}
+
+void receive_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
+    __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_add_fetch(&g_receive_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_fetch_or(&g_interrupt_pending, kReceiveInterrupt, __ATOMIC_RELEASE);
+}
+
+void transmit_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
+    __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_add_fetch(&g_transmit_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_fetch_or(&g_interrupt_pending, kTransmitInterrupt, __ATOMIC_RELEASE);
 }
 
 bool interrupt_mapping_fallback(InterruptStatus reason) {
+    if (g_msix_route.count != 0U) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        return false;
+    }
     const bool table = unmap_capability(&g_msix_table);
     const bool pending = unmap_capability(&g_msix_pending);
     g_interrupt_status = table && pending ? reason : InterruptStatus::CleanupFailed;
@@ -382,11 +404,27 @@ bool prepare_queue_interrupts() {
     const pci::msix::MmioRegion pending_region = info.table_bar == info.pending_bit_array_bar
         ? table_region : pci::msix::MmioRegion{pending.index, pending.physical_address,
             g_msix_pending.base, g_msix_pending.length};
-    if (pci::msix::enable_single(g_device, 0U, table_region, pending_region,
-            queue_interrupt, &g_msix_route) != pci::msix::Status::Ok) {
+    const pci::msix::RouteRequest separate[2] = {
+        {0U, receive_interrupt}, {1U, transmit_interrupt}};
+    const pci::msix::RouteRequest shared{0U, queue_interrupt};
+    const size_t desired = info.table_size >= 2U ? 2U : 1U;
+    auto route_status = pci::msix::enable_group(g_device,
+        desired == 2U ? separate : &shared, desired,
+        table_region, pending_region, &g_msix_route);
+    // Partial rollback is still ownership. Reset/retire it before any retry;
+    // never overwrite a retained lease or unmap its table to enter polling.
+    if (g_msix_route.count != 0U && route_status != pci::msix::Status::Ok) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        return false;
+    }
+    if (route_status == pci::msix::Status::VectorUnavailable && desired == 2U) {
+        route_status = pci::msix::enable_group(g_device, &shared, 1U,
+            table_region, pending_region, &g_msix_route);
+    }
+    if (route_status != pci::msix::Status::Ok) {
         return interrupt_mapping_fallback(InterruptStatus::RouteUnavailable);
     }
-    // Reset leaves all events unmapped. Use entry zero for RX and TX only.
+    // Reset leaves all events unmapped. Configuration interrupts remain off.
     mmio_write16(g_common, 16U, kNoMsixVector);
     g_interrupt_status = InterruptStatus::MsiXEnabled;
     return true;
@@ -494,9 +532,10 @@ bool configure_queue(
     queue->index = index;
 
     mmio_write16(g_common, 24U, size);
-    const uint16_t queue_vector = g_msix_route.active ? 0U : kNoMsixVector;
+    const uint16_t queue_vector = g_msix_route.programmed.active
+        ? (g_msix_route.count == 2U ? index : 0U) : kNoMsixVector;
     mmio_write16(g_common, 26U, queue_vector);
-    if (g_msix_route.active) {
+    if (g_msix_route.programmed.active) {
         if (mmio_read16(g_common, 26U) != queue_vector) {
             g_interrupt_status = InterruptStatus::QueueRejected;
             return false;
@@ -651,7 +690,8 @@ Status receive_frame(
     }
 
     Queue& queue = g_receive_queue;
-    if (__atomic_exchange_n(&g_interrupt_pending, false, __ATOMIC_ACQUIRE)) {
+    if ((__atomic_exchange_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_ACQUIRE) &
+            kTransmitInterrupt) != 0U) {
         reclaim_transmit();
     }
     const uint16_t used_index = queue.used_header[1];
@@ -760,7 +800,7 @@ Status cleanup_after_reset(Status cause, bool reset_complete) {
         static_cast<void>(pci::read16(g_device, 0x04U));
     }
     if (!reset_complete) {
-        if (g_msix_route.active) {
+        if (g_msix_route.programmed.active) {
             const uint8_t control_offset = static_cast<uint8_t>(
                 g_msix_route.programmed.capability_offset + 2U);
             pci::write16(g_device, control_offset, static_cast<uint16_t>(
@@ -774,7 +814,8 @@ Status cleanup_after_reset(Status cause, bool reset_complete) {
 
     // Reset unmaps queue events before the route is released. Keep MMIO and
     // DMA owned if vector teardown fails; never erase a possibly live route.
-    if (g_msix_route.active && pci::msix::disable(&g_msix_route) != pci::msix::Status::Ok) {
+    if (g_msix_route.count != 0U &&
+        pci::msix::disable_group(&g_msix_route) != pci::msix::Status::Ok) {
         g_interrupt_status = InterruptStatus::CleanupFailed;
         g_cleanup_blocked = true;
         g_status = Status::DeviceCleanupFailed;
@@ -783,7 +824,7 @@ Status cleanup_after_reset(Status cause, bool reset_complete) {
     if (g_interrupt_status == InterruptStatus::MsiXEnabled) {
         g_interrupt_status = InterruptStatus::NotInitialized;
     }
-    __atomic_store_n(&g_interrupt_pending, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_RELEASE);
 
     const bool rx_released = release_queue(&g_receive_queue);
     const bool tx_released = release_queue(&g_transmit_queue);
@@ -831,7 +872,9 @@ Status initialize() {
     g_msix_route = {};
     g_interrupt_status = InterruptStatus::NotInitialized;
     __atomic_store_n(&g_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
-    __atomic_store_n(&g_interrupt_pending, false, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_receive_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_transmit_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_RELEASE);
 
     const pci::Device* found = pci::find(
         kVirtioVendor,
@@ -958,9 +1001,16 @@ Status initialize() {
 
 bool initialized() { return g_initialized; }
 InterruptDiagnostics interrupt_diagnostics() {
-    return {g_interrupt_status, g_msix_route.active ? g_msix_route.vector.vector : uint8_t{0},
+    const uint8_t count = g_msix_route.programmed.active
+        ? static_cast<uint8_t>(g_msix_route.count) : uint8_t{0};
+    const uint8_t rx = count == 0U ? uint8_t{0} : g_msix_route.vectors[0].vector;
+    const uint8_t tx = count == 2U ? g_msix_route.vectors[1].vector : rx;
+    return {g_interrupt_status, rx,
         __atomic_load_n(&g_interrupt_count, __ATOMIC_RELAXED),
-        __atomic_load_n(&g_interrupt_pending, __ATOMIC_ACQUIRE)};
+        __atomic_load_n(&g_interrupt_pending, __ATOMIC_ACQUIRE) != 0U,
+        count, rx, tx,
+        __atomic_load_n(&g_receive_interrupt_count, __ATOMIC_RELAXED),
+        __atomic_load_n(&g_transmit_interrupt_count, __ATOMIC_RELAXED)};
 }
 
 const char* interrupt_status_name(InterruptStatus status) {

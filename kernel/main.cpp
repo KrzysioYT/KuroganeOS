@@ -1884,6 +1884,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                 terminal::write(net::virtio_net::interrupt_status_name(diagnostics.status));
                 terminal::write("; vector=");
                 terminal::write_u64(diagnostics.vector);
+                terminal::write("; routes=");
+                terminal::write_u64(diagnostics.route_count);
+                terminal::write("; RX=");
+                terminal::write_u64(diagnostics.receive_vector);
+                terminal::write("; TX=");
+                terminal::write_u64(diagnostics.transmit_vector);
                 terminal::println("");
                 break;
             }

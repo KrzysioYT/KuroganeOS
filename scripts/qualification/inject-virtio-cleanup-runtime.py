@@ -4,7 +4,9 @@ from pathlib import Path
 import argparse
 
 
-def inject(root=Path('.'), require_msix=False):
+def inject(root=Path('.'), require_msix=False, expected_routes=0):
+    if expected_routes not in (0, 1, 2) or (expected_routes and not require_msix):
+        raise ValueError('an expected MSI-X route count requires MSI-X qualification')
     driver = root / 'kernel/net/virtio_net.cpp'
     physical = root / 'kernel/net/physical.cpp'
     main = root / 'kernel/main.cpp'
@@ -29,7 +31,7 @@ def inject(root=Path('.'), require_msix=False):
 // Test-only transaction, injected into a clean CI checkout. All device,
 // allocator, page-table and cleanup operations are the production code.
 bool qualify_cleanup_runtime() {
-    arch::x86_64::hardware_vectors::Lease previous{};
+    arch::x86_64::hardware_vectors::Lease previous[2]{};
     for (size_t cycle = 0U; cycle < 4U; ++cycle) {
         const size_t vectors_before = arch::x86_64::hardware_vectors::allocated_count();
         if (initialize() != Status::Ok || !g_receive_queue.configured ||
@@ -42,11 +44,13 @@ bool qualify_cleanup_runtime() {
         const MappedRegion mappings[5] = {
             g_common, g_notify, g_device_config, g_msix_table, g_msix_pending};
         const auto retired_route = g_msix_route;
-        if (previous.generation != 0U && arch::x86_64::hardware_vectors::owns(previous)) {
-            terminal::println("[TEST] virtio_reset_cleanup: FAIL (stale vector reuse)");
-            return false;
+        for (size_t i = 0U; i < 2U; ++i) {
+            if (previous[i].generation != 0U && arch::x86_64::hardware_vectors::owns(previous[i])) {
+                terminal::println("[TEST] virtio_reset_cleanup: FAIL (stale vector reuse)");
+                return false;
+            }
+            previous[i] = retired_route.vectors[i];
         }
-        previous = retired_route.vector;
         // REQUIRE_MSIX_RUNTIME
         const uint16_t original_command = g_original_command;
         terminal::println("[VIRTIO-TEST] active RX/TX queues; requesting failure cleanup");
@@ -56,9 +60,11 @@ bool qualify_cleanup_runtime() {
             terminal::println("[TEST] virtio_reset_cleanup: FAIL (cleanup state)");
             return false;
         }
-        if (arch::x86_64::hardware_vectors::allocated_count() != vectors_before ||
-            (retired_route.active &&
-             arch::x86_64::hardware_vectors::owns(retired_route.vector))) {
+        bool retired_owned = false;
+        for (size_t i = 0U; i < retired_route.count; ++i) {
+            retired_owned |= arch::x86_64::hardware_vectors::owns(retired_route.vectors[i]);
+        }
+        if (arch::x86_64::hardware_vectors::allocated_count() != vectors_before || retired_owned) {
             terminal::println("[TEST] virtio_reset_cleanup: FAIL (vector ownership)");
             return false;
         }
@@ -115,23 +121,33 @@ bool qualify_cleanup_runtime() {
 ''' + call_anchor)
     if require_msix:
         source = source.replace('        // REQUIRE_MSIX_RUNTIME', r'''
-        if (!retired_route.active ||
+        constexpr size_t expected_routes = EXPECTED_MSIX_ROUTES;
+        if (!retired_route.programmed.active ||
             interrupt_diagnostics().status != InterruptStatus::MsiXEnabled ||
-            arch::x86_64::hardware_vectors::allocated_count() != vectors_before + 1U ||
-            !arch::x86_64::hardware_vectors::owns(retired_route.vector)) {
+            retired_route.count == 0U || retired_route.count > 2U ||
+            (expected_routes != 0U && retired_route.count != expected_routes) ||
+            arch::x86_64::hardware_vectors::allocated_count() != vectors_before + retired_route.count) {
             terminal::write("[VIRTIO-TEST] interrupt status: ");
             terminal::println(interrupt_status_name(interrupt_diagnostics().status));
             terminal::println("[TEST] virtio_msix_route: FAIL");
             return false;
         }
+        for (size_t i = 0U; i < retired_route.count; ++i) {
+            if (!arch::x86_64::hardware_vectors::owns(retired_route.vectors[i])) {
+                terminal::println("[TEST] virtio_msix_route: FAIL (lease ownership)");
+                return false;
+            }
+        }
         for (uint16_t queue = 0U; queue < 2U; ++queue) {
             mmio_write16(g_common, 22U, queue);
-            if (mmio_read16(g_common, 26U) != 0U || retired[queue].available[0] != 0U) {
+            const uint16_t entry = retired_route.count == 2U ? queue : 0U;
+            if (mmio_read16(g_common, 26U) != entry || retired[queue].available[0] != 0U) {
                 terminal::println("[TEST] virtio_msix_route: FAIL (queue vector)");
                 return false;
             }
         }
 ''')
+        source = source.replace('EXPECTED_MSIX_ROUTES', str(expected_routes) + 'U')
         source = source.replace('    terminal::println("[TEST] virtio_reset_cleanup: PASS");',
             '    terminal::println("[TEST] virtio_msix_route_cleanup: PASS");\n'
             '    terminal::println("[TEST] virtio_reset_cleanup: PASS");')
@@ -140,9 +156,12 @@ bool qualify_cleanup_runtime() {
             '        const auto virtio_irq_before = net::virtio_net::interrupt_diagnostics();\n' + before_ping)
         main_source = main_source.replace(after_ping, after_ping + r'''
             const auto virtio_irq_after = net::virtio_net::interrupt_diagnostics();
+            constexpr uint8_t expected_routes = EXPECTED_MSIX_ROUTES;
             if (virtio_irq_before.status != net::virtio_net::InterruptStatus::MsiXEnabled ||
                 virtio_irq_after.status != net::virtio_net::InterruptStatus::MsiXEnabled ||
                 virtio_irq_after.vector == 0U ||
+                virtio_irq_after.route_count != virtio_irq_before.route_count ||
+                (expected_routes != 0U && virtio_irq_after.route_count != expected_routes) ||
                 virtio_irq_after.delivered <= virtio_irq_before.delivered) {
                 terminal::write("[VIRTIO-TEST] before IRQ=");
                 terminal::write_u64(virtio_irq_before.delivered);
@@ -152,11 +171,38 @@ bool qualify_cleanup_runtime() {
                 terminal::println("[TEST] virtio_msix_delivery: FAIL");
                 boot_failure("NET", "VirtIO queue MSI-X did not progress during gateway traffic");
             }
+            if (virtio_irq_after.route_count == 2U) {
+                if (virtio_irq_after.receive_vector == virtio_irq_after.transmit_vector ||
+                    virtio_irq_after.receive_delivered <= virtio_irq_before.receive_delivered ||
+                    virtio_irq_after.transmit_delivered <= virtio_irq_before.transmit_delivered) {
+                    terminal::println("[TEST] virtio_msix_delivery: FAIL (independent RX/TX)");
+                    boot_failure("NET", "VirtIO RX and TX must each deliver their own IRQ");
+                }
+                terminal::write("[VIRTIO-TEST] RX vector=");
+                terminal::write_u64(virtio_irq_after.receive_vector);
+                terminal::write(" delta=");
+                terminal::write_u64(virtio_irq_after.receive_delivered - virtio_irq_before.receive_delivered);
+                terminal::write(" TX vector=");
+                terminal::write_u64(virtio_irq_after.transmit_vector);
+                terminal::write(" delta=");
+                terminal::write_u64(virtio_irq_after.transmit_delivered - virtio_irq_before.transmit_delivered);
+                terminal::println("");
+                terminal::println("[TEST] virtio_msix_split_delivery: PASS");
+            } else {
+                if (virtio_irq_after.route_count != 1U ||
+                    virtio_irq_after.receive_vector != virtio_irq_after.transmit_vector ||
+                    virtio_irq_after.receive_delivered != 0U || virtio_irq_after.transmit_delivered != 0U) {
+                    terminal::println("[TEST] virtio_msix_delivery: FAIL (shared source metadata)");
+                    boot_failure("NET", "VirtIO shared IRQ cannot attribute a source");
+                }
+                terminal::println("[TEST] virtio_msix_shared_delivery: PASS");
+            }
             terminal::write("[VIRTIO-TEST] gateway MSI-X deliveries=");
             terminal::write_u64(virtio_irq_after.delivered - virtio_irq_before.delivered);
             terminal::println("");
             terminal::println("[TEST] virtio_msix_delivery: PASS");
 ''')
+        main_source = main_source.replace('EXPECTED_MSIX_ROUTES', str(expected_routes) + 'U')
     # Validate both before writing either file.
     driver.write_text(source)
     physical.write_text(caller)
@@ -167,6 +213,7 @@ bool qualify_cleanup_runtime() {
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--require-msix', action='store_true')
+    parser.add_argument('--msix-routes', type=int, choices=(1, 2), default=0)
     arguments = parser.parse_args()
-    inject(require_msix=arguments.require_msix)
+    inject(require_msix=arguments.require_msix, expected_routes=arguments.msix_routes)
     print('[qualification] real VirtIO reset, DMA release and retry injected')

@@ -24,6 +24,10 @@ permissions:
 
 jobs:
   virtio-msix:
+    strategy:
+      fail-fast: false
+      matrix:
+        vectors: [1, 2]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -43,7 +47,7 @@ jobs:
         run: bash scripts/run-host-tests.sh
       - name: Inject real MSI-X delivery and cleanup qualification
         run: |
-          python3 scripts/qualification/inject-virtio-cleanup-runtime.py --require-msix
+          python3 scripts/qualification/inject-virtio-cleanup-runtime.py --require-msix --msix-routes ${{ matrix.vectors }}
           git diff --check
       - name: Build clean release media
         run: |
@@ -51,8 +55,13 @@ jobs:
           bash scripts/build-media-linux.sh --configuration release --rebuild
       - name: Require real VirtIO queue IRQs, four route releases and network traffic
         run: |
+          mode_marker='[TEST] virtio_msix_shared_delivery: PASS'
+          if [[ '${{ matrix.vectors }}' == 2 ]]; then
+            mode_marker='[TEST] virtio_msix_split_delivery: PASS'
+          fi
           bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --accel tcg --timeout 180 --nic virtio --require-network \
+            --virtio-vectors ${{ matrix.vectors }} --require-marker "$mode_marker" \
             --log-dir build/qualification/virtio-msix \
             --require-marker '[TEST] virtio_msix_delivery: PASS' \
             --require-marker '[TEST] virtio_msix_route_cleanup: PASS' \
@@ -62,11 +71,13 @@ jobs:
             --require-marker-count '[VIRTIO-TEST] released DMA frames=' 4
           grep -F '[VIRTIO-TEST]' build/qualification/virtio-msix/serial.log
       - name: Rebuild uninjected production media for polling fallback
+        if: matrix.vectors == 2
         run: |
           git restore -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
           git diff --exit-code -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
           bash scripts/build-media-linux.sh --configuration release --rebuild
       - name: Require production VirtIO networking without MSI-X capability
+        if: matrix.vectors == 2
         run: |
           bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
             --disk --accel tcg --timeout 180 --nic virtio --virtio-vectors 0 \
@@ -77,6 +88,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: virtio-interrupt-evidence-${{ github.sha }}
+          name: virtio-interrupt-evidence-${{ matrix.vectors }}-${{ github.sha }}
           path: build/qualification/
           if-no-files-found: warn

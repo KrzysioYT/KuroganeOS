@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Steel VirtIO RX/TX interrupt groups
+
+- Adopted bounded MSI-X route groups in VirtIO-net: separate RX/TX handlers and pending bits, one-vector fallback after complete allocation rollback, and polling without MSI-X. Diagnostics preserve existing fields while adding real per-source vectors/counts; shared IRQs never invent a source.
+- Retained group/vector/table ownership across failed enable rollback and partial teardown. Host regressions cover independent source dispatch, deferred TX reclaim, vector exhaustion, unsafe table rejection and partial group release.
+- Extended QEMU qualification to one and two vectors with exact queue assignment, every retired generation, independent RX/TX progress and production no-MSI-X boot. This extension awaits exact-source runtime qualification.
+- Reconciled the preceding group implementation with exact-source evidence: all twelve workflows passed at `d42d9e31e98fbcb39577184475e36d97cb77d251`, including PCI MSI-X group/single run `34811940628`, VirtIO run `34811940595`, full Pre-Steel `34811940844` and Fatal Diagnostic `34811940618`.
+
 ### Runtime gate correctness
 
 - Network smoke qualification now gives explicit guest failures precedence over success and requires a complete final boot marker. `ALL_REQUIRED_TESTS_PASSED: FAIL` could previously match the success prefix before the failure check ran. Added thirteen behavioral serial-parser cases, including contradictory logs, incomplete markers and required TLS failure/skip.

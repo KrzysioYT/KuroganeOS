@@ -109,13 +109,24 @@ checks are in `build/logs/steel-group-kernel.log`, `steel-group-native.log`,
 | Single-vector qualifier | `af7935b42e44b752f4e67c4bd299a8d7a1b9de24c919a0bdcf822d7f7d0288a8` |
 | Uninjected release kernel | `e0797375f6b57872e32c7a15d92fe518e97c03b7616c4fb8e4bf4ad7b54f798e` |
 
-**Full release qualification is still pending.** WSL2 could not start because
+**Local full release qualification was incomplete.** WSL2 could not start because
 host virtualization was unavailable. The local transport images contain an
 EFI/FAT32 boot volume, not the canonical GPT persistent root or installer
 payload. On the uninjected image, APIC, kernel preemption, E1000 DHCP and gateway
 ICMP passed, then PID 1 startup failed because `/system/init` was absent. This
 is retained in `local-msix-production/` as an incomplete full-OS fixture, not a
 successful production closeout. The full Linux host/media suite, rootfs boot
-and exact-source Actions matrix have not been run for this candidate. The
+and exact-source Actions matrix were subsequently run as recorded below. The
 unchanged VirtIO host fixture also cannot compile against native UCRT's missing
 `std::aligned_alloc`; no pass is assigned to that attempted native test.
+
+## Exact-source Actions evidence
+
+Source `d42d9e31e98fbcb39577184475e36d97cb77d251` passed all twelve triggered
+workflows. MSI-X run `34811940628` passed the group job `103874874541` and
+single-vector job `103874874697`; the group delivered twice to vector 64 and
+twice to vector 65, then released both routes. Pre-Steel closeout `34811940844`,
+VirtIO interrupt/polling regression `34811940595`, System Services regression
+`34811940673` and Fatal Diagnostic `34811940618` also passed. These results
+supersede the local full-media limitation above for that source. They qualify
+the bounded group transport, not SMP or all Steel hardware.

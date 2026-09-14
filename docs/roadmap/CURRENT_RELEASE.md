@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-12
+Last updated: 2026-09-14
 
 ## COMPILED / RUNTIME VERSION
 
@@ -108,6 +108,17 @@ Bounded single-vector MSI is qualified at `718d8c546b4eb436be382f847f910a62b3714
 
 ### Road to 15 status
 
+Current verified source `d42d9e31e98fbcb39577184475e36d97cb77d251` passed all
+twelve triggered Actions workflows. This includes MSI-X group/single delivery
+`34811940628`, VirtIO MSI-X and production polling `34811940595`, Pre-Steel
+closeout `34811940844`, 3.4 regression `34811940673` and Fatal Diagnostic
+`34811940618`. Bounded MSI-X groups are qualified for this transport scope.
+
+Active implementation: use a group to give VirtIO RX and TX separate vectors,
+with shared-vector and polling fallback, per-source diagnostics, and retained
+ownership after partial rollback. This new driver extension awaits its own
+one-/two-/zero-vector runtime matrix; no full 5.0 qualification is claimed.
+
 Current regression evidence at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`:
 all eleven triggered workflows passed, including VirtIO active-queue reset/
 cleanup/retry (`34546210440`), Pre-Steel closeout (`34546210640`), System
@@ -118,13 +129,13 @@ gate. Shared-vector delivery and cleanup are **QUALIFIED** at
 `6898c72f273207dbfd526f78a640433932e2291c` by QEMU run `34683815908`, job
 `103527144398`. This source also passed 3.4 regression `34683815923`, real
 TLS/HTTPS `34683815909` and PCI MSI/MSI-X transport `34683815912`/`34683815880`.
-The newly added production boot with MSI-X absent remains pending runtime
-evidence. Full 5.0 qualification, multi-vector operation and SMP remain open.
+Production boot with MSI-X absent passed at `cb352b7` in `34684091876` and
+again at `d42d9e3` in `34811940595`. Full 5.0 qualification and SMP remain open.
 
 The current Steel engineering slice implements bounded MSI-X route groups and
 a two-vector e1000e runtime gate. Host ownership/rollback tests and three local
 two-vector QEMU boots passed, alongside a single-vector regression;
-formal exact-source Actions qualification remains pending. See
+exact-source Actions run `34811940628` subsequently qualified both modes. See
 [PCI_MSIX_GROUPS.md](../PCI_MSIX_GROUPS.md) for the API contract and evidence.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**

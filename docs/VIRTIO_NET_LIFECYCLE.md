@@ -1,10 +1,18 @@
 # VirtIO-net initialization failure ownership
 
-The modern PCI driver owns one network device. It now attempts one shared
-MSI-X vector for RX and TX, retaining polling when LAPIC, MSI-X capability,
+The modern PCI driver owns one network device. It now attempts one
+MSI-X group with separate RX and TX vectors, retaining polling when LAPIC, MSI-X capability,
 bounded BAR mappings or a free route are unavailable. A queue rejecting an
 assigned vector fails initialization with `QueueInterruptFailed` and resets
 the device before releasing its resources.
+
+A one-entry device uses a shared vector. If a two-vector reservation runs out
+of vectors and completely rolls back, the driver retries a shared route. A
+failed rollback never permits fallback: retained leases and MMIO stay owned
+until group teardown succeeds. Malformed/unowned table state does not trigger
+the allocation-exhaustion retry. One `RouteGroup` owns the function-wide bits
+in both interrupt modes; the existing single-vector PCI API remains available
+to other drivers.
 
 Only after reset does the driver disable PCI decoding and size the table/PBA
 BARs. Each complete BAR is bounded to 256 KiB and mapped with supervisor-only,
@@ -13,13 +21,15 @@ PCI MSI-X core validates spans and owns the vector generation. Both queue
 assignments are read back; configuration-change interrupts remain unmapped.
 See [VirtIO 1.2, PCI MSI-X vector configuration](https://docs.oasis-open.org/virtio/virtio/v1.2/virtio-v1.2.html).
 
-The IRQ handler increments a counter and sets an atomic pending flag. The
-normal network pump consumes that flag and services TX completions alongside
+The IRQ handlers increment total and source-specific counters and set atomic
+pending bits. A shared IRQ updates only the total: its origin is unknown.
+The normal network pump consumes those bits and services TX completions alongside
 RX. It still checks the rings to tolerate notification suppression and races;
 no packet parsing, allocation or network stack execution occurs in the IRQ.
-This is shared-vector notification adoption, not multi-queue or an SMP network
-scheduler. `interrupt_diagnostics()` exposes the actual route status, vector,
-delivery count and pending state to kernel diagnostics, not Ring-3 MMIO access.
+This is separate notification for the existing RX/TX queue pair, not multiple
+queue pairs or an SMP network scheduler. `interrupt_diagnostics()` preserves
+the earlier status/vector/total/pending fields and adds route count, RX/TX
+vectors and source delivery counts. It does not expose Ring-3 MMIO access.
 
 Initialization owns the original PCI Command, each successfully mapped MMIO
 page and every DMA page. Memory decoding is enabled before mapping; bus
@@ -73,4 +83,14 @@ PCI interrupt transport gates (`34683815912`, `34683815880`).
 The expanded gate also rebuilds uninjected production media and boots QEMU
 with `virtio-net-pci,vectors=0`. It requires the typed capability-unavailable
 polling state and successful DHCP/gateway traffic. Raw serial/QEMU logs are
-retained as CI artifacts. This additional no-MSI-X path awaits its own run.
+retained as CI artifacts. That fallback passed in run `34684091876` at
+`cb352b7aa78105a3b446b354cd0376b96010ac6d`, and again in `34811940595` at
+`d42d9e31e98fbcb39577184475e36d97cb77d251`.
+
+The split-source extension now runs a one-/two-vector QEMU matrix, checking
+the exact route count, both queue assignments, every retired generation and
+independent RX/TX count increases during gateway traffic. The shared case
+requires equal vectors and zero source-specific counts. The two-vector job
+also rebuilds production media and boots the no-MSI-X device. The split-source
+extension is implemented and host-tested, but awaits its exact-source runtime
+matrix before being marked qualified.

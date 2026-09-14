@@ -11,6 +11,7 @@ on:
       - 'kernel/drivers/pci.cpp'
       - 'kernel/drivers/pci_bar.*'
       - 'kernel/drivers/pci_msix.*'
+      - 'kernel/drivers/pci_msix_group.*'
       - 'kernel/storage/dma.*'
       - 'kernel/memory/**'
       - 'scripts/qualification/inject-virtio-cleanup-runtime.py'
