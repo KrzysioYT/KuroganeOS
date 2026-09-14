@@ -22,6 +22,8 @@ on:
       - 'kernel/drivers/pci_msi.hpp'
       - 'kernel/drivers/pci_msix.cpp'
       - 'kernel/drivers/pci_msix.hpp'
+      - 'kernel/drivers/pci_msix_group.cpp'
+      - 'kernel/drivers/pci_msix_group.hpp'
       - 'kernel/main.cpp'
       - 'scripts/qualification/inject-steel-msix-runtime.py'
       - 'scripts/run-host-tests.sh'
@@ -30,6 +32,7 @@ on:
       - 'tests/test_pci_bar.cpp'
       - 'tests/test_pci_msi.cpp'
       - 'tests/test_pci_msix.cpp'
+      - 'tests/test_pci_msix_group.cpp'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +40,17 @@ permissions:
 
 jobs:
   pci-msix-delivery:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: single
+            inject_args: ''
+            marker: pci_msix_delivery
+          - mode: group
+            inject_args: '--group'
+            marker: pci_msix_group_delivery
+    name: PCI MSI-X ${{ matrix.mode }} delivery
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -66,7 +80,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/qualification/inject-steel-msix-runtime.py
+          python3 scripts/qualification/inject-steel-msix-runtime.py ${{ matrix.inject_args }}
           git diff --check
           grep -F '#include "drivers/e1000e_msix_qualification.hpp"' kernel/main.cpp
           grep -F 'e1000e_msix_qualification::initialize' kernel/main.cpp
@@ -82,7 +96,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tmp="$(mktemp -d)"
+          tmp="build/qualification/msix-${{ matrix.mode }}"
+          mkdir -p "$tmp"
           serial="$tmp/serial.log"
           qemu_log="$tmp/qemu.log"
           vars="$tmp/OVMF_VARS.fd"
@@ -98,7 +113,6 @@ jobs:
             if [[ -f "$qemu_log" ]]; then
               tail -n 100 "$qemu_log" || true
             fi
-            rm -rf -- "$tmp"
           }
           trap cleanup EXIT INT TERM
 
@@ -136,15 +150,19 @@ jobs:
           pid=$!
 
           for _ in $(seq 1 900); do
-            if grep -Fq '[TEST] pci_msix_delivery: PASS' "$serial" 2>/dev/null; then
-              grep -F '[TEST] apic_discovery: PASS' "$serial"
-              grep -F '[TEST] pci_msix_delivery: PASS' "$serial"
-              echo '[steel-msix] real QEMU e1000e -> PCI MSI-X table -> Local APIC -> IDT delivery: PASS'
-              exit 0
-            fi
-            if grep -Eq 'pci_msix_delivery: (FAIL|SKIP)|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
+            if grep -Eq '${{ matrix.marker }}: (FAIL|SKIP)|\[MSIX-GROUP\].*FAIL|PANIC_BEGIN|FATAL ERROR' "$serial" 2>/dev/null; then
               echo 'MSI-X delivery entered a fallback or panic path' >&2
               exit 1
+            fi
+            if grep -Eq '^\[TEST\] ${{ matrix.marker }}: PASS[[:space:]]*$' "$serial" 2>/dev/null; then
+              grep -F '[TEST] apic_discovery: PASS' "$serial"
+              grep -F '[TEST] ${{ matrix.marker }}: PASS' "$serial"
+              if [[ '${{ matrix.mode }}' == group ]]; then
+                test "$(grep -cF '[MSIX-GROUP] entry=' "$serial")" -eq 4
+                grep -F '[MSIX-GROUP] teardown: PASS' "$serial"
+              fi
+              echo '[steel-msix] real QEMU e1000e -> PCI MSI-X table -> Local APIC -> IDT delivery: PASS'
+              exit 0
             fi
             if ! kill -0 "$pid" >/dev/null 2>&1; then
               echo 'QEMU exited before the MSI-X marker' >&2
@@ -154,3 +172,11 @@ jobs:
           done
           echo 'timeout waiting for real PCI MSI-X delivery' >&2
           exit 1
+
+      - name: Preserve raw serial and QEMU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pci-msix-${{ matrix.mode }}-${{ github.sha }}
+          path: build/qualification/
+          if-no-files-found: warn

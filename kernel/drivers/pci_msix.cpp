@@ -409,6 +409,7 @@ const char* status_name(Status status) {
         case Status::VectorUnavailable: return "VECTOR_UNAVAILABLE";
         case Status::StaleRoute: return "STALE_ROUTE";
         case Status::NotActive: return "NOT_ACTIVE";
+        case Status::UnmaskedEntry: return "UNMASKED_ENTRY";
     }
     return "UNKNOWN";
 }

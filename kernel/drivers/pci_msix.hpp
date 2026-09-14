@@ -30,6 +30,7 @@ enum class Status : uint8_t {
     VectorUnavailable,
     StaleRoute,
     NotActive,
+    UnmaskedEntry,
 };
 
 struct ConfigAccess {

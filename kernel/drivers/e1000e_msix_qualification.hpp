@@ -24,7 +24,9 @@ enum class Status : uint8_t {
 // The target is a dedicated QEMU Intel 82574L (e1000e) endpoint. The bounded
 // transaction restores its PCI command, MSI-X table, IVAR, interrupt mask and
 // MMIO mappings before returning.
-Status initialize();
+// Group mode steers the real OTHER interrupt source through two concurrently
+// installed table entries, verifying each distinct IDT vector before teardown.
+Status initialize(bool group_mode = false);
 bool msix_configured();
 bool qualify_delivery(uint32_t spin_budget);
 Status status();

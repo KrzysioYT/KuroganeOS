@@ -14,6 +14,9 @@
 
 ### Steel interrupt delivery
 
+- Added bounded MSI-X route groups with distinct generation-owned vectors, all-or-nothing programming validation, partial-allocation rollback, posted-write readback and retryable teardown. A stale member rejects the entire cleanup before any register write; failed release retains ownership and INTx suppression.
+- Added host group lifecycle regressions and a separate e1000e two-vector runtime mode. The Steel MSI-X workflow now checks both single/group modes, rejects explicit failures before success and retains their serial/QEMU evidence. Group transport awaits exact-source Actions qualification and production-driver adoption.
+
 - Added a bounded, allocation-free hardware interrupt vector pool with atomic generation-safe leases, syscall-vector exclusion, stale release rejection and concurrent host regression.
 - Enabled the current CPU's xAPIC only after CPUID, MADT/MMIO and APIC-base validation; dynamic hardware vectors now bypass the software-syscall scheduler and send Local APIC EOI.
 - Added reversible single-vector PCI MSI programming with 32/64-bit layouts, optional per-vector masking, INTx exclusion and ordered teardown that quiesces the device before vector reuse.

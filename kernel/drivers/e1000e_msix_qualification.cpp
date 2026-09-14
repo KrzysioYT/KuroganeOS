@@ -5,6 +5,9 @@
 #include "pci.hpp"
 #include "pci_bar.hpp"
 #include "pci_msix.hpp"
+#include "pci_msix_group.hpp"
+#include "pit.hpp"
+#include "../terminal.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/virtual_memory.hpp"
 
@@ -45,6 +48,9 @@ Mapping g_register_mapping{};
 Mapping g_msix_mapping{};
 pci::msix::MmioRegion g_msix_region{};
 pci::msix::Route g_route{};
+pci::msix::RouteGroup g_group{};
+bool g_group_mode = false;
+uint64_t g_group_interrupts[2]{};
 uint64_t g_interrupt_count = 0U;
 uint32_t g_last_causes = 0U;
 uint32_t g_original_ivar = 0U;
@@ -162,17 +168,24 @@ bool map_region(
     return true;
 }
 
-uint32_t qualification_ivar(uint32_t original) {
+uint32_t qualification_ivar(uint32_t original, uint32_t entry = kMsiXEntry) {
     const uint32_t field_mask = kIvarEntryMask << kIvarOtherShift;
     const uint32_t field =
-        (kIvarEntryValid | kMsiXEntry) << kIvarOtherShift;
+        (kIvarEntryValid | entry) << kIvarOtherShift;
     return (original & ~field_mask) | field;
 }
 
-void interrupt_handler(arch::x86_64::interrupts::InterruptFrame&) {
+void interrupt_handler(arch::x86_64::interrupts::InterruptFrame& frame) {
     if (g_register_mapping.region == nullptr) return;
     const uint32_t causes = read_register(kInterruptCauseRead);
     if ((causes & kLinkStatusChange) == 0U) return;
+    if (g_group_mode) {
+        for (size_t i = 0U; i < 2U; ++i) {
+            if (frame.vector == g_group.vectors[i].vector) {
+                __atomic_fetch_add(&g_group_interrupts[i], UINT64_C(1), __ATOMIC_RELEASE);
+            }
+        }
+    }
     __atomic_fetch_or(&g_last_causes, causes, __ATOMIC_RELAXED);
     __atomic_fetch_add(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELEASE);
 }
@@ -213,6 +226,9 @@ bool release_resources() {
         }
         g_route_active = false;
     }
+    if (g_group.count != 0U && pci::msix::disable_group(&g_group) != pci::msix::Status::Ok) {
+        return false;
+    }
     if (g_interrupt_mask_saved && g_register_mapping.region != nullptr) {
         write_register(kInterruptMaskSet, g_original_interrupt_mask);
         g_interrupt_mask_saved = false;
@@ -231,9 +247,10 @@ bool release_resources() {
 
 } // namespace
 
-Status initialize() {
-    if (g_initialized) return Status::AlreadyInitialized;
+Status initialize(bool group_mode) {
+    if (g_initialized || g_route_active || g_group.count != 0U) return Status::AlreadyInitialized;
     g_status = Status::NotInitialized;
+    g_group_mode = group_mode;
 
     const pci::Device* const device =
         pci::find(kIntelVendor, kE1000e82574L);
@@ -248,6 +265,10 @@ Status initialize() {
         return g_status;
     }
     if (msix_info.enabled) {
+        g_status = Status::MsiXUnavailable;
+        return g_status;
+    }
+    if (group_mode && msix_info.table_size < 2U) {
         g_status = Status::MsiXUnavailable;
         return g_status;
     }
@@ -329,7 +350,12 @@ Status initialize() {
         kInterruptVectorAllocation,
         qualification_ivar(g_original_ivar));
 
-    const pci::msix::Status route_status = pci::msix::enable_single(
+    const pci::msix::RouteRequest requests[2] = {
+        {0U, interrupt_handler}, {1U, interrupt_handler}};
+    const pci::msix::Status route_status = group_mode
+        ? pci::msix::enable_group(g_device, requests, 2U,
+            g_msix_region, g_msix_region, &g_group)
+        : pci::msix::enable_single(
         g_device,
         static_cast<uint16_t>(kMsiXEntry),
         g_msix_region,
@@ -337,28 +363,109 @@ Status initialize() {
         interrupt_handler,
         &g_route);
     if (route_status != pci::msix::Status::Ok) {
+        if (g_group.count != 0U) {
+            g_status = Status::TeardownFailed;
+            return g_status;
+        }
         abandon_mappings();
         g_status = Status::MsiXUnavailable;
         return g_status;
     }
 
-    g_route_active = true;
+    g_route_active = !group_mode;
     g_initialized = true;
     g_status = Status::Ok;
     return g_status;
 }
 
 bool msix_configured() {
-    return g_initialized && g_route_active &&
+    return g_initialized && (g_route_active || g_group.programmed.active) &&
         g_register_mapping.region != nullptr &&
         g_msix_mapping.region != nullptr;
 }
+
+namespace {
+bool drain_interrupt_source(uint32_t spin_budget) {
+    write_register(kInterruptMaskClear, UINT32_MAX);
+    static_cast<void>(read_register(kInterruptCauseRead));
+    if (!pit::initialized() || pit::frequency_hz() == 0U) return false;
+    // EITR is a 16-bit interval in 256 ns units (at most 16.78 ms).
+    // QEMU also schedules a trailing notification after an immediate one.
+    // Keep ICR empty for at least 20 ms before moving the shared OTHER cause
+    // to another vector or retiring its route; otherwise that old notification
+    // can acknowledge the next vector's cause. One extra PIT tick accounts for
+    // starting between tick edges. The poll cap still bounds a broken clock.
+    const uint64_t wait_ticks = (static_cast<uint64_t>(pit::frequency_hz()) + 49U) / 50U + 1U;
+    const uint64_t before = pit::ticks();
+    const uint64_t poll_limit = static_cast<uint64_t>(spin_budget) * 64U;
+    for (uint64_t attempt = 0U; attempt < poll_limit; ++attempt) {
+        if (pit::ticks() - before >= wait_ticks) return true;
+        relax();
+    }
+    return false;
+}
+
+bool qualify_group_delivery(uint32_t spin_budget) {
+    const auto retired = g_group;
+    const size_t vectors_before = arch::x86_64::hardware_vectors::allocated_count();
+    bool delivered = retired.count == 2U && vectors_before >= 2U &&
+        retired.vectors[0].vector != retired.vectors[1].vector;
+    // Both routes remain installed throughout. Change only the endpoint's
+    // OTHER-source selector and require the corresponding hardware IDT vector.
+    // This exercises the transport, not RX/TX queues or SMP scheduling.
+    for (size_t round = 0U; round < 2U && delivered; ++round) {
+        for (size_t i = 0U; i < 2U && delivered; ++i) {
+            if (!drain_interrupt_source(spin_budget)) {
+                terminal::println("[MSIX-GROUP] source drain: FAIL");
+                delivered = false;
+                break;
+            }
+            write_register(kInterruptVectorAllocation,
+                qualification_ivar(g_original_ivar, static_cast<uint32_t>(i)));
+            const uint64_t before = __atomic_load_n(&g_group_interrupts[i], __ATOMIC_ACQUIRE);
+            const uint64_t other = __atomic_load_n(&g_group_interrupts[1U - i], __ATOMIC_ACQUIRE);
+            write_register(kInterruptMaskSet, kQualificationInterruptMask);
+            write_register(kInterruptCauseSet, kLinkStatusChange);
+            delivered = false;
+            for (uint32_t attempt = 0U; attempt < spin_budget; ++attempt) {
+                if (__atomic_load_n(&g_group_interrupts[i], __ATOMIC_ACQUIRE) > before) {
+                    delivered = __atomic_load_n(&g_group_interrupts[1U - i], __ATOMIC_ACQUIRE) == other;
+                    break;
+                }
+                relax();
+            }
+            terminal::write("[MSIX-GROUP] entry=");
+            terminal::write_u64(i);
+            terminal::write(" vector=");
+            terminal::write_u64(retired.vectors[i].vector);
+            terminal::println(delivered ? " delivered: PASS" : " delivered: FAIL");
+        }
+    }
+    // Keep mappings and leases quarantined if delayed delivery cannot be
+    // drained. A timeout must not turn an old MSI-X message into a new owner's IRQ.
+    bool teardown = drain_interrupt_source(spin_budget) && release_resources();
+    if (teardown) {
+        teardown = vectors_before >= 2U &&
+            arch::x86_64::hardware_vectors::allocated_count() == vectors_before - 2U;
+        for (size_t i = 0U; i < 2U; ++i) {
+            teardown &= !arch::x86_64::hardware_vectors::owns(retired.vectors[i]);
+        }
+        auto stale = retired;
+        teardown &= pci::msix::disable_group(&stale) == pci::msix::Status::StaleRoute;
+    }
+    terminal::println(teardown ? "[MSIX-GROUP] teardown: PASS" : "[MSIX-GROUP] teardown: FAIL");
+    g_status = !teardown ? Status::TeardownFailed :
+        (delivered ? Status::Ok : Status::InterruptTimedOut);
+    return delivered && teardown;
+}
+} // namespace
 
 bool qualify_delivery(uint32_t spin_budget) {
     if (!msix_configured() || spin_budget == 0U) {
         g_status = Status::NotInitialized;
         return false;
     }
+    if (g_group_mode) return qualify_group_delivery(spin_budget);
 
     write_register(kInterruptMaskClear, UINT32_MAX);
     static_cast<void>(read_register(kInterruptCauseRead));
@@ -382,7 +489,7 @@ bool qualify_delivery(uint32_t spin_budget) {
         relax();
     }
 
-    const bool teardown_ok = release_resources();
+    const bool teardown_ok = drain_interrupt_source(spin_budget) && release_resources();
     if (!teardown_ok) {
         g_status = Status::TeardownFailed;
         return false;

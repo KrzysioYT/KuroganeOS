@@ -2,6 +2,11 @@
 """Inject the real QEMU e1000e MSI-X runtime qualification."""
 
 from pathlib import Path
+import argparse
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--group', action='store_true', help='qualify two concurrently owned MSI-X vectors')
+args = parser.parse_args()
 
 
 main = Path("kernel/main.cpp")
@@ -40,6 +45,8 @@ if text.count(initialize_anchor) != 1:
     raise SystemExit(
         f"{main}: initialization anchor count={text.count(initialize_anchor)}"
     )
+if args.group:
+    initialize = initialize.replace('::initialize();', '::initialize(true);', 1)
 text = text.replace(initialize_anchor, initialize, 1)
 
 qualification_anchor = """    if (!run_kernel_preemption_probe()) {
@@ -72,6 +79,11 @@ if text.count(qualification_anchor) != 1:
     raise SystemExit(
         f"{main}: qualification anchor count={text.count(qualification_anchor)}"
     )
+if args.group:
+    qualification = qualification.replace('pci_msix_delivery:', 'pci_msix_group_delivery:')
+    qualification = qualification.replace(
+        'e1000e MSI-X reached the Local APIC handler and teardown completed',
+        'e1000e MSI-X reached both Local APIC vectors and group teardown completed')
 text = text.replace(qualification_anchor, qualification, 1)
 main.write_text(text, encoding="utf-8")
 

@@ -121,6 +121,12 @@ TLS/HTTPS `34683815909` and PCI MSI/MSI-X transport `34683815912`/`34683815880`.
 The newly added production boot with MSI-X absent remains pending runtime
 evidence. Full 5.0 qualification, multi-vector operation and SMP remain open.
 
+The current Steel engineering slice implements bounded MSI-X route groups and
+a two-vector e1000e runtime gate. Host ownership/rollback tests and three local
+two-vector QEMU boots passed, alongside a single-vector regression;
+formal exact-source Actions qualification remains pending. See
+[PCI_MSIX_GROUPS.md](../PCI_MSIX_GROUPS.md) for the API contract and evidence.
+
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**
 - `3.5.0-dev` — Connected Userspace — **QUALIFIED**

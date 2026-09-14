@@ -102,6 +102,21 @@ bash tests/test_network_smoke_state.sh
 
 "$OUT_DIR/test_pci_msix"
 
+# Exercise a whole MSI-X function with multiple independently owned vectors,
+# partial allocation rollback, stale group rejection and retryable teardown.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
+  tests/test_pci_msix_group.cpp \
+  kernel/drivers/pci_msix_group.cpp \
+  kernel/drivers/pci_msix.cpp \
+  kernel/drivers/pci_msi.cpp \
+  kernel/arch/x86_64/hardware_vectors.cpp \
+  -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_msix_group"
+
+"$OUT_DIR/test_pci_msix_group"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

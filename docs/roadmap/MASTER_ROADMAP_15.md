@@ -168,6 +168,13 @@ passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job
 IRQ counts increase during successful gateway traffic. This qualifies one
 production-driver adoption slice, not multi-vector/SMP or the whole milestone.
 
+The next Steel transport slice adds bounded MSI-X route groups (one to eight
+distinct vectors), whole-group ownership validation, allocation rollback and
+retryable teardown. A separate e1000e group gate requires real delivery on two
+concurrently installed vectors. Implementation and evidence are tracked in
+[`../PCI_MSIX_GROUPS.md`](../PCI_MSIX_GROUPS.md); exact-source Actions
+qualification and production-driver group adoption remain open.
+
 ## 6.0.0-dev — Core Steel
 
 Kernel Core 2.0, PMM/VMM/address spaces, Scheduler 2.0, threads, processes/jobs, IPC 2.0, shared memory/synchronization, VFS 2.0 and syscall ABI qualification.
