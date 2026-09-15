@@ -1,6 +1,7 @@
 #include "xhci.hpp"
 
 #include "protocol.hpp"
+#include "xhci_layout.hpp"
 #include "../../core/log.hpp"
 #include "../../input/input.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
@@ -855,9 +856,13 @@ Status initialize(
     g_controller.maximum_ports = static_cast<uint8_t>(hcsparams1 >> 24U);
     g_controller.context_size = (hccparams1 & (UINT32_C(1) << 2U)) != 0U
         ? 64U : 32U;
-    if (cap_length < 0x20U || g_controller.maximum_slots == 0U ||
-        g_controller.maximum_ports == 0U || dboff >= MMIO_BYTES ||
-        rtsoff + 0x40U > MMIO_BYTES) {
+    if (validate_capability_layout(
+            cap_length,
+            dboff,
+            rtsoff,
+            g_controller.maximum_slots,
+            g_controller.maximum_ports,
+            MMIO_BYTES) != LayoutStatus::Ok) {
         release_resources(&g_controller);
         return Status::UnsupportedController;
     }

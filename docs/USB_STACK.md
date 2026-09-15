@@ -16,7 +16,7 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
 - Walidacja odrzuca niepełne deskryptory, alternatywne interfejsy, EP0, endpointy bez interwału oraz nieprawidłowe rozmiary pakietów.
 - Dekoder raportów HID boot keyboard jest ograniczony do sześciu klawiszy i stałego bufora zdarzeń.
 - Host-suite uruchamia `tests/test_usb_protocol.cpp` jako regresję protokołu.
-- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard, ale nadal wymaga kwalifikacji na sprzęcie/QEMU; mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
+- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell MMIO odrzuca overflow i obcięte okna przed mapowaniem. Nadal wymaga kwalifikacji na sprzęcie/QEMU; mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
 
 ## Kolejność dalszych prac
 

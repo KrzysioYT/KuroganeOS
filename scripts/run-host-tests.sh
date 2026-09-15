@@ -137,6 +137,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
+# Validate xHCI capability/runtime/doorbell MMIO windows with overflow-safe
+# arithmetic before privileged controller access.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \\
+  tests/test_xhci_layout.cpp kernel/drivers/usb/xhci_layout.cpp \\
+  -o "$OUT_DIR/test_xhci_layout"
+"$OUT_DIR/test_xhci_layout"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
