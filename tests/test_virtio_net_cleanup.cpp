@@ -400,6 +400,78 @@ int main() {
     assert((msix_control & pci::msix::CONTROL_FUNCTION_MASK) != 0U);
     assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
     assert(routes == 0U && allocated == 0U && mappings.empty());
+    // Completion batches are validated before any ownership mutation.
+    start(); map_common();
+    assert(allocate_queue_storage(&g_transmit_queue, 8U));
+    g_initialized = true;
+    uint8_t frame[ETHERNET_HEADER_SIZE]{};
+    g_transmit_queue.buffer_free[0] = false;
+    g_transmit_queue.available_index = 1U;
+    g_transmit_queue.used_elements[0].id = 8U;
+    g_transmit_queue.used_header[1] = 1U;
+    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(g_transmit_queue.completion_fault &&
+        !g_transmit_queue.buffer_free[0] &&
+        g_transmit_queue.last_used_index == 0U);
+    assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
+
+    start(); map_common();
+    assert(allocate_queue_storage(&g_transmit_queue, 8U));
+    g_initialized = true;
+    g_transmit_queue.buffer_free[0] = false;
+    g_transmit_queue.available_index = 2U;
+    g_transmit_queue.used_elements[0].id = 0U;
+    g_transmit_queue.used_elements[1].id = 0U;
+    g_transmit_queue.used_header[1] = 2U;
+    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(g_transmit_queue.completion_fault &&
+        !g_transmit_queue.buffer_free[0] &&
+        g_transmit_queue.last_used_index == 0U);
+    assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
+
+    start(); map_common();
+    assert(allocate_queue_storage(&g_transmit_queue, 8U));
+    g_initialized = true;
+    g_transmit_queue.buffer_free[0] = false;
+    g_transmit_queue.available_index = 1U;
+    g_transmit_queue.used_elements[0].id = 0U;
+    g_transmit_queue.used_header[1] = 2U;
+    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(g_transmit_queue.completion_fault &&
+        g_transmit_queue.last_used_index == 0U);
+    assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
+
+    start(); map_common();
+    assert(allocate_queue_storage(&g_transmit_queue, 8U));
+    g_transmit_queue.buffer_free[7] = false;
+    g_transmit_queue.last_used_index = UINT16_MAX;
+    g_transmit_queue.available_index = 0U;
+    g_transmit_queue.used_elements[7].id = 7U;
+    g_transmit_queue.used_header[1] = 0U;
+    assert(reclaim_transmit() == Status::Ok);
+    assert(!g_transmit_queue.completion_fault &&
+        g_transmit_queue.buffer_free[7] &&
+        g_transmit_queue.last_used_index == 0U);
+    assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
+
+    start(); map_common();
+    assert(allocate_queue_storage(&g_receive_queue, 8U));
+    g_initialized = true;
+    g_receive_queue.available_index = 2U;
+    g_receive_queue.buffer_free[0] = false;
+    g_receive_queue.buffer_free[1] = false;
+    g_receive_queue.used_elements[0].id = 0U;
+    g_receive_queue.used_elements[1].id = 0U;
+    g_receive_queue.used_header[1] = 2U;
+    uint8_t packet[64]{};
+    size_t packet_bytes = 0U;
+    assert(receive_frame(nullptr, packet, sizeof(packet), &packet_bytes) == Status::DeviceFault);
+    assert(g_receive_queue.completion_fault &&
+        g_receive_queue.last_used_index == 0U &&
+        g_receive_queue.available_index == 2U);
+    assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
+
+    std::puts("VirtIO-net malformed completion ownership and 16-bit wrap: PASS");
     std::puts("VirtIO-net reset, DMA quarantine, MMIO rollback and PCI restore: PASS");
     std::puts("VirtIO-net MSI-X routing, deferred work, fallback and cleanup ownership: PASS");
     std::puts("VirtIO-net split RX/TX sources, shared fallback and partial group ownership: PASS");
