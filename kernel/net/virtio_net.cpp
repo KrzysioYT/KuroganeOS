@@ -89,6 +89,7 @@ struct Queue {
     uint16_t available_index;
     uint16_t last_used_index;
     bool buffer_free[kQueueCapacity];
+    bool completion_fault;
     bool configured;
 };
 
@@ -595,17 +596,64 @@ void prepare_receive_queue() {
     notify_queue(queue);
 }
 
-void reclaim_transmit() {
-    Queue& queue = g_transmit_queue;
+struct CompletionBatch {
+    uint16_t count;
+    uint32_t ids[kQueueCapacity];
+};
+
+Status mark_completion_fault(Queue& queue) {
+    queue.completion_fault = true;
+    g_status = Status::DeviceFault;
+    return Status::DeviceFault;
+}
+
+Status snapshot_completions(Queue& queue, CompletionBatch* batch) {
+    if (batch == nullptr || queue.completion_fault || queue.size == 0U ||
+        queue.size > kQueueCapacity || queue.used_header == nullptr ||
+        queue.used_elements == nullptr) {
+        return mark_completion_fault(queue);
+    }
+
     const uint16_t used_index = queue.used_header[1];
     memory_barrier();
-    while (queue.last_used_index != used_index) {
-        const uint16_t slot = static_cast<uint16_t>(
-            queue.last_used_index % queue.size);
-        const uint32_t id = queue.used_elements[slot].id;
-        if (id < queue.size) queue.buffer_free[id] = true;
-        ++queue.last_used_index;
+    const uint16_t pending = static_cast<uint16_t>(
+        used_index - queue.last_used_index);
+    const uint16_t submitted = static_cast<uint16_t>(
+        queue.available_index - queue.last_used_index);
+    if (pending > queue.size || submitted > queue.size || pending > submitted) {
+        return mark_completion_fault(queue);
     }
+
+    uint16_t seen = 0U;
+    batch->count = pending;
+    for (uint16_t offset = 0U; offset < pending; ++offset) {
+        const uint16_t slot = static_cast<uint16_t>(
+            (queue.last_used_index + offset) % queue.size);
+        const uint32_t id = queue.used_elements[slot].id;
+        if (id >= queue.size || queue.buffer_free[id]) {
+            return mark_completion_fault(queue);
+        }
+        const uint16_t bit = static_cast<uint16_t>(1U << id);
+        if ((seen & bit) != 0U) {
+            return mark_completion_fault(queue);
+        }
+        seen = static_cast<uint16_t>(seen | bit);
+        batch->ids[offset] = id;
+    }
+    return Status::Ok;
+}
+
+Status reclaim_transmit() {
+    Queue& queue = g_transmit_queue;
+    CompletionBatch batch{};
+    const Status status = snapshot_completions(queue, &batch);
+    if (status != Status::Ok) return status;
+    for (uint16_t index = 0U; index < batch.count; ++index) {
+        queue.buffer_free[batch.ids[index]] = true;
+    }
+    queue.last_used_index = static_cast<uint16_t>(
+        queue.last_used_index + batch.count);
+    return Status::Ok;
 }
 
 bool read_mac_from_device(MacAddress* output) {
@@ -649,7 +697,8 @@ Status transmit_frame(void*, const uint8_t* frame, size_t frame_length) {
         return Status::FrameTooLarge;
     }
 
-    reclaim_transmit();
+    const Status completion_status = reclaim_transmit();
+    if (completion_status != Status::Ok) return completion_status;
     Queue& queue = g_transmit_queue;
     uint16_t descriptor = queue.size;
     for (uint16_t index = 0U; index < queue.size; ++index) {
@@ -694,16 +743,17 @@ Status receive_frame(
             kTransmitInterrupt) != 0U) {
         reclaim_transmit();
     }
-    const uint16_t used_index = queue.used_header[1];
-    memory_barrier();
-    if (queue.last_used_index == used_index) return Status::WouldBlock;
+    CompletionBatch batch{};
+    const Status completion_status = snapshot_completions(queue, &batch);
+    if (completion_status != Status::Ok) return completion_status;
+    if (batch.count == 0U) return Status::WouldBlock;
 
     const uint16_t slot = static_cast<uint16_t>(
         queue.last_used_index % queue.size);
-    const uint32_t id = queue.used_elements[slot].id;
+    const uint32_t id = batch.ids[0];
     const uint32_t length = queue.used_elements[slot].length;
-    ++queue.last_used_index;
-    if (id >= queue.size) return Status::DeviceFault;
+    queue.last_used_index = static_cast<uint16_t>(
+        queue.last_used_index + 1U);
 
     Status result = Status::Ok;
     if (length < kVirtioNetHeaderSize || length > kDmaBufferSize) {
