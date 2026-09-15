@@ -406,12 +406,12 @@ int main() {
     start(); map_common();
     assert(allocate_queue_storage(&g_transmit_queue, 8U));
     g_initialized = true;
-    uint8_t frame[ETHERNET_HEADER_SIZE]{};
+    uint8_t payload[ETHERNET_HEADER_SIZE]{};
     g_transmit_queue.buffer_free[0] = false;
     g_transmit_queue.available_index = 1U;
     g_transmit_queue.used_elements[0].id = 8U;
     g_transmit_queue.used_header[1] = 1U;
-    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(transmit_frame(nullptr, payload, sizeof(payload)) == Status::DeviceFault);
     assert(g_transmit_queue.completion_fault &&
         !g_transmit_queue.buffer_free[0] &&
         g_transmit_queue.last_used_index == 0U);
@@ -425,7 +425,7 @@ int main() {
     g_transmit_queue.used_elements[0].id = 0U;
     g_transmit_queue.used_elements[1].id = 0U;
     g_transmit_queue.used_header[1] = 2U;
-    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(transmit_frame(nullptr, payload, sizeof(payload)) == Status::DeviceFault);
     assert(g_transmit_queue.completion_fault &&
         !g_transmit_queue.buffer_free[0] &&
         g_transmit_queue.last_used_index == 0U);
@@ -438,7 +438,7 @@ int main() {
     g_transmit_queue.available_index = 1U;
     g_transmit_queue.used_elements[0].id = 0U;
     g_transmit_queue.used_header[1] = 2U;
-    assert(transmit_frame(nullptr, frame, sizeof(frame)) == Status::DeviceFault);
+    assert(transmit_frame(nullptr, payload, sizeof(payload)) == Status::DeviceFault);
     assert(g_transmit_queue.completion_fault &&
         g_transmit_queue.last_used_index == 0U);
     assert(cleanup_after_reset(Status::DeviceFault, true) == Status::DeviceFault);
@@ -465,9 +465,9 @@ int main() {
     g_receive_queue.used_elements[0].id = 0U;
     g_receive_queue.used_elements[1].id = 0U;
     g_receive_queue.used_header[1] = 2U;
-    uint8_t packet[64]{};
-    size_t packet_bytes = 0U;
-    assert(receive_frame(nullptr, packet, sizeof(packet), &packet_bytes) == Status::DeviceFault);
+    uint8_t rx_packet[64]{};
+    size_t rx_bytes = 0U;
+    assert(receive_frame(nullptr, rx_packet, sizeof(rx_packet), &rx_bytes) == Status::DeviceFault);
     assert(g_receive_queue.completion_fault &&
         g_receive_queue.last_used_index == 0U &&
         g_receive_queue.available_index == 2U);
