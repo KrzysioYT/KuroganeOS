@@ -125,6 +125,11 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_io_apic_route"
 "$OUT_DIR/test_io_apic_route"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_io_apic_irq.cpp kernel/arch/x86_64/io_apic_irq.cpp \
+  -o "$OUT_DIR/test_io_apic_irq"
+"$OUT_DIR/test_io_apic_irq"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

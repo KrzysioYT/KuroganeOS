@@ -1,4 +1,5 @@
 #include "apic.hpp"
+#include "io_apic_irq.hpp"
 
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
@@ -34,6 +35,8 @@ volatile uint32_t* g_io_registers[acpi::MAXIMUM_IO_APICS]{};
 uint32_t g_io_global_bases[acpi::MAXIMUM_IO_APICS]{};
 uint16_t g_io_redirection_counts[acpi::MAXIMUM_IO_APICS]{};
 size_t g_io_count = 0U;
+acpi::InterruptOverride g_overrides[acpi::MAXIMUM_OVERRIDES]{};
+size_t g_override_count = 0U;
 
 volatile uint32_t* map_register_page(uint64_t physical, uint64_t virtual_base) {
     if ((physical & (memory::virtual_memory::PAGE_SIZE - 1U)) != 0U) {
@@ -119,15 +122,22 @@ Status prepare(const acpi::Topology& topology) {
     g_local_id = 0U;
     g_local_version = 0U;
     g_io_count = 0U;
+    g_override_count = 0U;
     for (size_t index = 0U; index < acpi::MAXIMUM_IO_APICS; ++index) {
+        g_io_versions[index] = 0U;
         g_io_registers[index] = nullptr;
         g_io_global_bases[index] = 0U;
         g_io_redirection_counts[index] = 0U;
     }
     if (topology.local_apic_address == 0U ||
         topology.io_apic_count == 0U ||
-        topology.io_apic_count > acpi::MAXIMUM_IO_APICS) {
+        topology.io_apic_count > acpi::MAXIMUM_IO_APICS ||
+        topology.override_count > acpi::MAXIMUM_OVERRIDES) {
         return Status::InvalidTopology;
+    }
+    g_override_count = topology.override_count;
+    for (size_t index = 0U; index < g_override_count; ++index) {
+        g_overrides[index] = topology.overrides[index];
     }
     if (!cpu_supports_apic()) return Status::CpuUnsupported;
     if (memory::kernel_virtual_memory::address_space() == nullptr) {
@@ -244,6 +254,20 @@ Status route_gsi(uint32_t global_system_interrupt,
     return Status::Ok;
 }
 
+Status route_legacy_irq(uint8_t legacy_irq, const io_apic::Route& route) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    io_apic::LegacyRoute legacy{};
+    if (io_apic::resolve_legacy_irq(
+            legacy_irq, g_overrides, g_override_count, &legacy) !=
+        io_apic::LegacyStatus::Ok) {
+        return Status::InvalidLegacyIrq;
+    }
+    io_apic::Route effective = route;
+    effective.trigger = legacy.trigger;
+    effective.polarity = legacy.polarity;
+    return route_gsi(legacy.global_system_interrupt, effective);
+}
+
 Status clear_gsi(uint32_t global_system_interrupt) {
     if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
     size_t selected = acpi::MAXIMUM_IO_APICS;
@@ -280,6 +304,7 @@ const char* status_message(Status status) {
         case Status::BaseMismatch: return "Local APIC base does not match MADT";
         case Status::IoRouteUnavailable: return "I/O APIC route unavailable";
         case Status::InvalidRoute: return "invalid I/O APIC route";
+        case Status::InvalidLegacyIrq: return "invalid legacy IRQ override";
         case Status::GsiOutOfRange: return "GSI is outside every I/O APIC";
     }
     return "unknown APIC status";

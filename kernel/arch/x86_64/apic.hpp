@@ -20,6 +20,7 @@ enum class Status : uint8_t {
     BaseMismatch,
     IoRouteUnavailable,
     InvalidRoute,
+    InvalidLegacyIrq,
     GsiOutOfRange,
 };
 
@@ -38,6 +39,7 @@ size_t io_apic_redirection_count(size_t index);
 Status route_gsi(uint32_t global_system_interrupt,
                  const io_apic::Route& route);
 Status clear_gsi(uint32_t global_system_interrupt);
+Status route_legacy_irq(uint8_t legacy_irq, const io_apic::Route& route);
 const char* status_message(Status status);
 
 } // namespace arch::x86_64::apic
