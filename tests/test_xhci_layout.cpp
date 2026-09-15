@@ -28,7 +28,7 @@ int main() {
         0x20U, 0x1000U, 0xFFFFFFE0U, 32U, 4U, mmio) ==
         LayoutStatus::RuntimeWindowOutOfRange);
     assert(validate_capability_layout(
-        0x20U, 0x1000U, 0x2000U, 32U, 255U, mmio) ==
+        0x20U, 0x0800U, 0x1000U, 32U, 255U, 0x13E0U) ==
         LayoutStatus::PortWindowOutOfRange);
     assert(validate_capability_layout(
         0x20U, 0x1000U, 0x2000U, 255U, 4U, mmio) ==
