@@ -16,6 +16,7 @@ constexpr size_t LOCAL_EOI_REGISTER = 0xB0U;
 constexpr size_t LOCAL_SPURIOUS_REGISTER = 0xF0U;
 constexpr uint32_t LOCAL_SPURIOUS_SOFTWARE_ENABLE = UINT32_C(1) << 8U;
 constexpr uint32_t CPUID_APIC_BIT = UINT32_C(1) << 9U;
+constexpr uint32_t MAXIMUM_IO_APIC_REDIRECTIONS = 120U;
 constexpr uint32_t IA32_APIC_BASE_MSR = 0x1BU;
 constexpr uint64_t IA32_APIC_BASE_ENABLE = UINT64_C(1) << 11U;
 constexpr uint64_t IA32_APIC_BASE_X2_MODE = UINT64_C(1) << 10U;
@@ -29,6 +30,9 @@ uint64_t g_local_physical_address = 0U;
 uint32_t g_local_id = 0U;
 uint32_t g_local_version = 0U;
 uint32_t g_io_versions[acpi::MAXIMUM_IO_APICS]{};
+volatile uint32_t* g_io_registers[acpi::MAXIMUM_IO_APICS]{};
+uint32_t g_io_global_bases[acpi::MAXIMUM_IO_APICS]{};
+uint16_t g_io_redirection_counts[acpi::MAXIMUM_IO_APICS]{};
 size_t g_io_count = 0U;
 
 volatile uint32_t* map_register_page(uint64_t physical, uint64_t virtual_base) {
@@ -150,7 +154,7 @@ Status prepare(const acpi::Topology& topology) {
         if ((version & 0xFFU) == 0U ||
             version == UINT32_MAX ||
             redirection_count == 0U ||
-            redirection_count > UINT16_MAX) {
+            redirection_count > MAXIMUM_IO_APIC_REDIRECTIONS) {
             return Status::HardwareUnavailable;
         }
         g_io_registers[index] = io;
