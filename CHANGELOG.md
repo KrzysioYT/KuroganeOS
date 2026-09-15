@@ -4,6 +4,13 @@
 
 ### APIC routing contract
 
+### ACPI legacy IRQ routing
+
+- Added an allocation-free ISA IRQ resolver that applies ACPI MADT interrupt overrides to effective GSI, trigger and polarity values, preserving ISA conforming defaults.
+- Rejects reserved override encodings, out-of-range ISA sources and conflicting duplicate overrides before hardware programming.
+- Wired `apic::route_legacy_irq()` to copy the validated effective route into the bounded I/O APIC programming path.
+- Added host qualification `[test_io_apic_irq] PASS`; real I/O APIC delivery and SMP qualification remain open.
+
 - Added an allocation-free fixed-delivery I/O APIC route encoder/decoder with explicit hardware-vector validation, physical destination encoding, polarity/trigger/mask bits and rejection of unsupported delivery/destination modes.
 - Wired the APIC runtime to map each MADT I/O APIC's redirection span, program routes masked-first then unmask, and clear routes before vector reuse. GSI selection is bounded by each controller's global interrupt base and advertised entry count.
 - Added host regression coverage for reserved vectors, level/active-low encoding, decode round-trips and unsupported route modes. This is an APIC routing foundation; real multi-CPU interrupt qualification remains open.
