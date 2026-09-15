@@ -131,7 +131,7 @@ two-vector QEMU boots passed, alongside a single-vector regression;
 exact-source Actions run `34811940628` subsequently qualified both modes. See
 [PCI_MSIX_GROUPS.md](../PCI_MSIX_GROUPS.md) for the API contract and evidence.
 
-The APIC routing foundation now also resolves ISA legacy IRQs through ACPI MADT overrides before GSI programming. Invalid reserved flags and conflicting overrides are rejected deterministically; the host contract passed as `[test_io_apic_irq] PASS` in current-head run `34953615582`, job `104330260616`. This remains a routing foundation: firmware I/O APIC delivery, SMP interrupt routing and the broader hardware matrix are still open.
+The APIC routing foundation now also resolves ISA legacy IRQs through ACPI MADT overrides before GSI programming. Invalid reserved flags and conflicting overrides are rejected deterministically; the host contract passed as `[test_io_apic_irq] PASS` in current-head run `34953615582`, job `104330260616`. This remains a routing foundation: firmware I/O APIC delivery, SMP interrupt routing and the broader hardware matrix are still open. Redirection span validation now rejects zero-length, overflowing and overlapping controller GSI ranges before they are accepted.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

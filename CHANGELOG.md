@@ -6,6 +6,12 @@
 
 ### ACPI legacy IRQ routing
 
+### I/O APIC GSI span validation
+
+- Added bounded redirection-span validation for zero-length, 32-bit-overflowing and overlapping I/O APIC GSI ranges.
+- APIC preparation rejects ambiguous GSI topology before retaining a controller, while route encoding remains allocation-free and hardware-vector bounded.
+- Added host coverage for adjacent, overlapping, invalid and overflowed spans.
+
 - Added an allocation-free ISA IRQ resolver that applies ACPI MADT interrupt overrides to effective GSI, trigger and polarity values, preserving ISA conforming defaults.
 - Rejects reserved override encodings, out-of-range ISA sources and conflicting duplicate overrides before hardware programming.
 - Wired `apic::route_legacy_irq()` to copy the validated effective route into the bounded I/O APIC programming path.
