@@ -6,6 +6,22 @@
 namespace io_apic = arch::x86_64::io_apic;
 
 int main() {
+    const io_apic::RedirectionSpan valid_spans[] = {
+        {0U, 24U},
+        {24U, 24U},
+        {64U, 8U},
+    };
+    assert(io_apic::validate_non_overlapping(valid_spans, 3U));
+    assert(io_apic::span_valid({UINT32_C(0xFFFFFFF0), 16U}));
+    assert(!io_apic::span_valid({UINT32_MAX, 2U}));
+    assert(!io_apic::span_valid({0U, 0U}));
+    assert(io_apic::spans_overlap({0U, 16U}, {15U, 2U}));
+    assert(!io_apic::spans_overlap({0U, 16U}, {16U, 2U}));
+    const io_apic::RedirectionSpan overlap[] = {{0U, 32U}, {31U, 2U}};
+    assert(!io_apic::validate_non_overlapping(overlap, 2U));
+    assert(!io_apic::validate_non_overlapping(nullptr, 1U));
+    assert(io_apic::validate_non_overlapping(nullptr, 0U));
+
     assert(!io_apic::validate({0x20U, 0U, io_apic::TriggerMode::Edge,
         io_apic::Polarity::ActiveHigh, true}));
     assert(!io_apic::validate({0x80U, 0U, io_apic::TriggerMode::Edge,

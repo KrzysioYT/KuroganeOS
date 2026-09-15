@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace arch::x86_64::io_apic {
@@ -26,6 +27,11 @@ enum class Status : uint8_t {
     UnsupportedDestinationMode,
 };
 
+struct RedirectionSpan {
+    uint32_t global_base;
+    uint16_t entry_count;
+};
+
 struct Route {
     uint8_t vector;
     uint8_t destination_apic_id;
@@ -33,6 +39,10 @@ struct Route {
     Polarity polarity;
     bool masked;
 };
+
+bool span_valid(const RedirectionSpan& span);
+bool spans_overlap(const RedirectionSpan& left, const RedirectionSpan& right);
+bool validate_non_overlapping(const RedirectionSpan* spans, size_t count);
 
 bool validate(const Route& route);
 uint32_t encode_low(const Route& route);

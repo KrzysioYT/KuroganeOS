@@ -167,6 +167,18 @@ Status prepare(const acpi::Topology& topology) {
             redirection_count > MAXIMUM_IO_APIC_REDIRECTIONS) {
             return Status::HardwareUnavailable;
         }
+        const io_apic::RedirectionSpan candidate{
+            topology.io_apics[index].global_interrupt_base,
+            static_cast<uint16_t>(redirection_count)};
+        if (!io_apic::span_valid(candidate)) return Status::HardwareUnavailable;
+        for (size_t previous = 0U; previous < g_io_count; ++previous) {
+            const io_apic::RedirectionSpan existing{
+                g_io_global_bases[previous],
+                g_io_redirection_counts[previous]};
+            if (io_apic::spans_overlap(candidate, existing)) {
+                return Status::InvalidTopology;
+            }
+        }
         g_io_registers[index] = io;
         g_io_global_bases[index] = topology.io_apics[index].global_interrupt_base;
         g_io_redirection_counts[index] =

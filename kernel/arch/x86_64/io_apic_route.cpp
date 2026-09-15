@@ -3,6 +3,7 @@
 namespace arch::x86_64::io_apic {
 namespace {
 
+constexpr size_t kMaximumRedirectionSpans = 8U;
 constexpr uint32_t kPolarityBit = UINT32_C(1) << 13U;
 constexpr uint32_t kTriggerBit = UINT32_C(1) << 15U;
 constexpr uint32_t kMaskBit = UINT32_C(1) << 16U;
@@ -10,6 +11,40 @@ constexpr uint32_t kDeliveryModeMask = UINT32_C(0x7) << 8U;
 constexpr uint32_t kDestinationModeBit = UINT32_C(1) << 11U;
 
 } // namespace
+
+bool span_valid(const RedirectionSpan& span) {
+    if (span.entry_count == 0U) return false;
+    const uint64_t end = static_cast<uint64_t>(span.global_base) +
+        static_cast<uint64_t>(span.entry_count);
+    return end <= UINT64_C(0x100000000);
+}
+
+bool spans_overlap(
+    const RedirectionSpan& left,
+    const RedirectionSpan& right) {
+    if (!span_valid(left) || !span_valid(right)) return false;
+    const uint64_t left_begin = left.global_base;
+    const uint64_t left_end = left_begin + left.entry_count;
+    const uint64_t right_begin = right.global_base;
+    const uint64_t right_end = right_begin + right.entry_count;
+    return left_begin < right_end && right_begin < left_end;
+}
+
+bool validate_non_overlapping(
+    const RedirectionSpan* spans,
+    size_t count) {
+    if ((count != 0U && spans == nullptr) ||
+        count > kMaximumRedirectionSpans) {
+        return false;
+    }
+    for (size_t index = 0U; index < count; ++index) {
+        if (!span_valid(spans[index])) return false;
+        for (size_t previous = 0U; previous < index; ++previous) {
+            if (spans_overlap(spans[index], spans[previous])) return false;
+        }
+    }
+    return true;
+}
 
 bool validate(const Route& route) {
     const uint8_t vector = route.vector;
