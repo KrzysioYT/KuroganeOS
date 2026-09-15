@@ -314,6 +314,7 @@ int main() {
     assert(mmio_read16(g_common, 26U) == 0U && g_receive_queue.available[0] == 0U);
     assert(allocate_queue_storage(&g_transmit_queue, 8U));
     g_transmit_queue.buffer_free[0] = false;
+    g_transmit_queue.available_index = 1U;
     g_transmit_queue.used_elements[0].id = 0U;
     g_transmit_queue.used_header[1] = 1U;
     g_initialized = true;
@@ -344,6 +345,7 @@ int main() {
     assert(configure_queue(1U, notify_irq, &g_transmit_queue));
     assert(mmio_read16(g_common, 26U) == 1U);
     g_transmit_queue.buffer_free[0] = false;
+    g_transmit_queue.available_index = 1U;
     g_transmit_queue.used_elements[0].id = 0U;
     g_transmit_queue.used_header[1] = 1U;
     g_initialized = true;
