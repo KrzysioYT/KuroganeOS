@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
 ## COMPILED / RUNTIME VERSION
 
@@ -108,16 +108,9 @@ Bounded single-vector MSI is qualified at `718d8c546b4eb436be382f847f910a62b3714
 
 ### Road to 15 status
 
-Current verified source `d42d9e31e98fbcb39577184475e36d97cb77d251` passed all
-twelve triggered Actions workflows. This includes MSI-X group/single delivery
-`34811940628`, VirtIO MSI-X and production polling `34811940595`, Pre-Steel
-closeout `34811940844`, 3.4 regression `34811940673` and Fatal Diagnostic
-`34811940618`. Bounded MSI-X groups are qualified for this transport scope.
+Current verified source `308f2fb75205dfa265c8a620cf88e84d0627742d` passed the VirtIO Steel qualification matrix. Network Cleanup run `34950706350` / job `104320726734` and MSI-X Runtime run `34950706505` / jobs `104320726926`, `104320727235` passed. The matrix covers malformed used-ring completion rejection without partial ownership mutation, legal 16-bit completion wrap, active-queue reset/cleanup, real queue IRQ delivery, two-vector RX/TX delivery, and truthful no-MSI-X polling fallback. Clean release-media builds passed in both workflows.
 
-Active implementation: use a group to give VirtIO RX and TX separate vectors,
-with shared-vector and polling fallback, per-source diagnostics, and retained
-ownership after partial rollback. This new driver extension awaits its own
-one-/two-/zero-vector runtime matrix; no full 5.0 qualification is claimed.
+Bounded MSI-X groups are therefore qualified for the production VirtIO transport scope. Full 5.0 qualification is not claimed: SMP, PCIe/ACPI/APIC/HPET hardening, NVMe, USB/xHCI, Intel HDA and real-hardware coverage remain open.
 
 Current regression evidence at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`:
 all eleven triggered workflows passed, including VirtIO active-queue reset/

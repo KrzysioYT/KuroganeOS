@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### VirtIO completion validation and MSI-X qualification
+
+- Added allocation-free used-ring completion validation in VirtIO-net: bounded modular accounting, submitted-descriptor checks, invalid/duplicate ID rejection, legal 16-bit wrap handling and a latched device-fault state that prevents unsafe reuse.
+- Propagated completion faults through TX reclaim and RX receive paths instead of silently accepting malformed device state; validated completions are committed only after the full batch passes.
+- Extended host regressions for invalid IDs, duplicate IDs, over-reported completions, RX duplicates, legal wrap and no-partial-mutation ownership invariants. Existing production completion fixtures now model submitted descriptors explicitly.
+- Qualified exact source SHA `308f2fb75205dfa265c8a620cf88e84d0627742d` with Network Cleanup run `34950706350` / job `104320726734` and MSI-X Runtime run `34950706505` / jobs `104320726926`, `104320727235`; both passed clean release-media builds and the real one-/two-vector plus no-MSI-X polling matrix.
+
 ### Steel VirtIO RX/TX interrupt groups
 
 - Adopted bounded MSI-X route groups in VirtIO-net: separate RX/TX handlers and pending bits, one-vector fallback after complete allocation rollback, and polling without MSI-X. Diagnostics preserve existing fields while adding real per-source vectors/counts; shared IRQs never invent a source.
