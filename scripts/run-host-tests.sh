@@ -139,8 +139,8 @@ bash tests/test_network_smoke_state.sh
 
 # Validate xHCI capability/runtime/doorbell MMIO windows with overflow-safe
 # arithmetic before privileged controller access.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \\
-  tests/test_xhci_layout.cpp kernel/drivers/usb/xhci_layout.cpp \\
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_xhci_layout.cpp kernel/drivers/usb/xhci_layout.cpp \
   -o "$OUT_DIR/test_xhci_layout"
 "$OUT_DIR/test_xhci_layout"
 
