@@ -53,7 +53,7 @@ int main() {
     for (size_t index = 0U; index < sizeof(configuration); ++index) {
         alternate_interface[index] = configuration[index];
     }
-    alternate_interface[13U] = 1U;
+    alternate_interface[12U] = 1U;
     assert(!drivers::usb::find_boot_keyboard_interface(
         alternate_interface, sizeof(alternate_interface), &interface));
 

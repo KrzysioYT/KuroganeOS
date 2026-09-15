@@ -170,7 +170,6 @@ bool find_boot_keyboard_interface(
         if (descriptor_type == 4U) {
             if (descriptor_length < 9U) return false;
             keyboard_interface = descriptors[offset + 3U] == 0U &&
-                descriptors[offset + 4U] == 0U &&
                 descriptors[offset + 5U] == 3U &&
                 descriptors[offset + 6U] == 1U &&
                 descriptors[offset + 7U] == 1U;
