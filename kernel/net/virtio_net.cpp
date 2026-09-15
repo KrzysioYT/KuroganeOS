@@ -741,7 +741,8 @@ Status receive_frame(
     Queue& queue = g_receive_queue;
     if ((__atomic_exchange_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_ACQUIRE) &
             kTransmitInterrupt) != 0U) {
-        reclaim_transmit();
+        const Status transmit_status = reclaim_transmit();
+        if (transmit_status != Status::Ok) return transmit_status;
     }
     CompletionBatch batch{};
     const Status completion_status = snapshot_completions(queue, &batch);
