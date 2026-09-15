@@ -60,6 +60,13 @@ uint32_t io_read(volatile uint32_t* registers, uint8_t index) {
     return registers[4];
 }
 
+void io_write(volatile uint32_t* registers, uint8_t index, uint32_t value) {
+    registers[0] = index;
+    __asm__ volatile("mfence" : : : "memory");
+    registers[4] = value;
+    __asm__ volatile("mfence" : : : "memory");
+}
+
 bool cpu_supports_apic() {
     uint32_t eax = 1U;
     uint32_t ebx = 0U;
@@ -108,6 +115,11 @@ Status prepare(const acpi::Topology& topology) {
     g_local_id = 0U;
     g_local_version = 0U;
     g_io_count = 0U;
+    for (size_t index = 0U; index < acpi::MAXIMUM_IO_APICS; ++index) {
+        g_io_registers[index] = nullptr;
+        g_io_global_bases[index] = 0U;
+        g_io_redirection_counts[index] = 0U;
+    }
     if (topology.local_apic_address == 0U ||
         topology.io_apic_count == 0U ||
         topology.io_apic_count > acpi::MAXIMUM_IO_APICS) {
@@ -133,9 +145,18 @@ Status prepare(const acpi::Topology& topology) {
             IO_VIRTUAL_BASE + index * IO_VIRTUAL_STRIDE);
         if (io == nullptr) return Status::MappingFailed;
         const uint32_t version = io_read(io, 1U);
-        if ((version & 0xFFU) == 0U || version == UINT32_MAX) {
+        const uint32_t redirection_count =
+            ((version >> 16U) & 0xFFU) + 1U;
+        if ((version & 0xFFU) == 0U ||
+            version == UINT32_MAX ||
+            redirection_count == 0U ||
+            redirection_count > UINT16_MAX) {
             return Status::HardwareUnavailable;
         }
+        g_io_registers[index] = io;
+        g_io_global_bases[index] = topology.io_apics[index].global_interrupt_base;
+        g_io_redirection_counts[index] =
+            static_cast<uint16_t>(redirection_count);
         g_io_versions[index] = version;
         ++g_io_count;
     }
@@ -184,6 +205,64 @@ uint32_t io_apic_version(size_t index) {
     return index < g_io_count ? g_io_versions[index] : 0U;
 }
 
+size_t io_apic_redirection_count(size_t index) {
+    return index < g_io_count ? g_io_redirection_counts[index] : 0U;
+}
+
+Status route_gsi(uint32_t global_system_interrupt,
+                 const io_apic::Route& route) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    if (!io_apic::validate(route)) return Status::InvalidRoute;
+
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (global_system_interrupt >= base &&
+            global_system_interrupt - base < count) {
+            selected = index;
+            pin = global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+
+    io_apic::Route masked = route;
+    masked.masked = true;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(registers, static_cast<uint8_t>(low_index + 1U),
+             io_apic::encode_high(route));
+    io_write(registers, low_index, io_apic::encode_low(masked));
+    io_write(registers, low_index, io_apic::encode_low(route));
+    return Status::Ok;
+}
+
+Status clear_gsi(uint32_t global_system_interrupt) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (global_system_interrupt >= base &&
+            global_system_interrupt - base < count) {
+            selected = index;
+            pin = global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(registers, low_index, UINT32_C(1) << 16U);
+    io_write(registers, static_cast<uint8_t>(low_index + 1U), 0U);
+    return Status::Ok;
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
@@ -195,6 +274,9 @@ const char* status_message(Status status) {
         case Status::CpuUnsupported: return "CPU does not support Local APIC";
         case Status::UnsupportedMode: return "x2APIC mode is not supported yet";
         case Status::BaseMismatch: return "Local APIC base does not match MADT";
+        case Status::IoRouteUnavailable: return "I/O APIC route unavailable";
+        case Status::InvalidRoute: return "invalid I/O APIC route";
+        case Status::GsiOutOfRange: return "GSI is outside every I/O APIC";
     }
     return "unknown APIC status";
 }

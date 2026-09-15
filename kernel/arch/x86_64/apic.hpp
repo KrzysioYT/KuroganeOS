@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "acpi.hpp"
+#include "io_apic_route.hpp"
 
 namespace arch::x86_64::apic {
 
@@ -36,7 +37,7 @@ void send_eoi();
 uint32_t local_apic_id();
 uint32_t local_apic_version();
 size_t io_apic_count();
-uint32_t io_apic_version(size_t index);
+uint32_t io_apic_version(size_t index);\nsize_t io_apic_redirection_count(size_t index);\n// Programs one masked-then-unmasked fixed delivery entry. The route remains\n// allocation-free and is rejected until a validated MADT topology is mapped.\nStatus route_gsi(uint32_t global_system_interrupt,\n                 const io_apic::Route& route);\n// Masks and clears one previously routed entry before vector reuse.\nStatus clear_gsi(uint32_t global_system_interrupt);
 const char* status_message(Status status);
 
 } // namespace arch::x86_64::apic

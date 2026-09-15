@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### APIC routing contract
+
+- Added an allocation-free fixed-delivery I/O APIC route encoder/decoder with explicit hardware-vector validation, physical destination encoding, polarity/trigger/mask bits and rejection of unsupported delivery/destination modes.
+- Wired the APIC runtime to map each MADT I/O APIC's redirection span, program routes masked-first then unmask, and clear routes before vector reuse. GSI selection is bounded by each controller's global interrupt base and advertised entry count.
+- Added host regression coverage for reserved vectors, level/active-low encoding, decode round-trips and unsupported route modes. This is an APIC routing foundation; real multi-CPU interrupt qualification remains open.
+
 ### VirtIO completion validation and MSI-X qualification
 
 - Added allocation-free used-ring completion validation in VirtIO-net: bounded modular accounting, submitted-descriptor checks, invalid/duplicate ID rejection, legal 16-bit wrap handling and a latched device-fault state that prevents unsafe reuse.
