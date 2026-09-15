@@ -406,7 +406,7 @@ int main() {
     start(); map_common();
     assert(allocate_queue_storage(&g_transmit_queue, 8U));
     g_initialized = true;
-    uint8_t payload[ETHERNET_HEADER_SIZE]{};
+    uint8_t payload[net::ETHERNET_HEADER_SIZE]{};
     g_transmit_queue.buffer_free[0] = false;
     g_transmit_queue.available_index = 1U;
     g_transmit_queue.used_elements[0].id = 8U;
