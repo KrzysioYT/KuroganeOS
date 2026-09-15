@@ -16,7 +16,6 @@ constexpr size_t LOCAL_EOI_REGISTER = 0xB0U;
 constexpr size_t LOCAL_SPURIOUS_REGISTER = 0xF0U;
 constexpr uint32_t LOCAL_SPURIOUS_SOFTWARE_ENABLE = UINT32_C(1) << 8U;
 constexpr uint32_t CPUID_APIC_BIT = UINT32_C(1) << 9U;
-constexpr uint32_t MAXIMUM_IO_APIC_REDIRECTIONS = 120U;
 constexpr uint32_t IA32_APIC_BASE_MSR = 0x1BU;
 constexpr uint64_t IA32_APIC_BASE_ENABLE = UINT64_C(1) << 11U;
 constexpr uint64_t IA32_APIC_BASE_X2_MODE = UINT64_C(1) << 10U;
@@ -151,7 +150,7 @@ Status prepare(const acpi::Topology& topology) {
         if ((version & 0xFFU) == 0U ||
             version == UINT32_MAX ||
             redirection_count == 0U ||
-            redirection_count > MAXIMUM_IO_APIC_REDIRECTIONS) {
+            redirection_count > UINT16_MAX) {
             return Status::HardwareUnavailable;
         }
         g_io_registers[index] = io;
@@ -234,11 +233,9 @@ Status route_gsi(uint32_t global_system_interrupt,
     volatile uint32_t* registers = g_io_registers[selected];
     const uint8_t low_index = static_cast<uint8_t>(
         0x10U + static_cast<uint8_t>(pin * 2U));
-    // Mask the existing entry before changing its destination. This keeps
-    // a live device from observing a half-updated redirection pair.
-    io_write(registers, low_index, io_apic::encode_low(masked));
     io_write(registers, static_cast<uint8_t>(low_index + 1U),
              io_apic::encode_high(route));
+    io_write(registers, low_index, io_apic::encode_low(masked));
     io_write(registers, low_index, io_apic::encode_low(route));
     return Status::Ok;
 }

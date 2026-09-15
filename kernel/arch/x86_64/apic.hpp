@@ -18,6 +18,9 @@ enum class Status : uint8_t {
     CpuUnsupported,
     UnsupportedMode,
     BaseMismatch,
+    IoRouteUnavailable,
+    InvalidRoute,
+    GsiOutOfRange,
 };
 
 constexpr uint8_t SPURIOUS_VECTOR = 0xFFU;
@@ -37,7 +40,14 @@ void send_eoi();
 uint32_t local_apic_id();
 uint32_t local_apic_version();
 size_t io_apic_count();
-uint32_t io_apic_version(size_t index);\nsize_t io_apic_redirection_count(size_t index);\n// Programs one masked-then-unmasked fixed delivery entry. The route remains\n// allocation-free and is rejected until a validated MADT topology is mapped.\nStatus route_gsi(uint32_t global_system_interrupt,\n                 const io_apic::Route& route);\n// Masks and clears one previously routed entry before vector reuse.\nStatus clear_gsi(uint32_t global_system_interrupt);
+uint32_t io_apic_version(size_t index);
+size_t io_apic_redirection_count(size_t index);
+// Programs one masked-then-unmasked fixed delivery entry. The route remains
+// allocation-free and is rejected until a validated MADT topology is mapped.
+Status route_gsi(uint32_t global_system_interrupt,
+                 const io_apic::Route& route);
+// Masks and clears one previously routed entry before vector reuse.
+Status clear_gsi(uint32_t global_system_interrupt);
 const char* status_message(Status status);
 
 } // namespace arch::x86_64::apic
