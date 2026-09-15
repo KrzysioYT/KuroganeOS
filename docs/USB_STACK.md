@@ -8,16 +8,20 @@ xHCI → USB Core → Device → Configuration → Interface → Class Driver
                                                    └→ Mass Storage
 ```
 
-USB Core będzie odpowiadać za deskryptory, adresację, konfiguracje, endpointy, transfery, timeouty i disconnect. xHCI pozostanie warstwą kontrolera. HID będzie publikować zdarzenia przez wspólny `InputDeviceOps`, a Mass Storage przez `BlockDeviceOps`.
-
-## Kolejność
-
-1. xHCI reset i command/event rings.
-2. Root hub i enumeration jednego urządzenia.
-3. USB HID keyboard, potem mouse.
-4. Disconnect/reconnect i failure injection.
-5. USB Mass Storage jako zwykły block device.
+USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfery, timeouty i disconnect. xHCI pozostaje warstwą kontrolera. HID publikuje zdarzenia przez wspólny `InputDeviceOps`, a Mass Storage przez `BlockDeviceOps`.
 
 ## Stan
 
-Niezaimplementowane. `CONFIG_USB=n` i `CONFIG_XHCI=n` są bezpiecznymi wartościami domyślnymi. Istnieje tylko wspólny kontrakt zdarzeń input przygotowany w Driver Framework.
+- Parser konfiguracji USB i wybór HID boot keyboard są zaimplementowane bez alokacji dynamicznej.
+- Walidacja odrzuca niepełne deskryptory, alternatywne interfejsy, EP0, endpointy bez interwału oraz nieprawidłowe rozmiary pakietów.
+- Dekoder raportów HID boot keyboard jest ograniczony do sześciu klawiszy i stałego bufora zdarzeń.
+- Host-suite uruchamia `tests/test_usb_protocol.cpp` jako regresję protokołu.
+- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard, ale nadal wymaga kwalifikacji na sprzęcie/QEMU; mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
+
+## Kolejność dalszych prac
+
+1. Kwalifikacja xHCI resetu, command/event rings i root-hub enumeration.
+2. USB HID keyboard na QEMU oraz obsługa disconnect/reconnect.
+3. HID mouse i wspólny routing input.
+4. USB Mass Storage jako `BlockDeviceOps`.
+5. Failure injection i stress testy hotplug.

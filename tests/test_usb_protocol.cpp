@@ -48,6 +48,39 @@ int main() {
     malformed[9U] = 0U;
     assert(!drivers::usb::find_boot_keyboard_interface(
         malformed, sizeof(malformed), &interface));
+
+    uint8_t alternate_interface[sizeof(configuration)]{};
+    for (size_t index = 0U; index < sizeof(configuration); ++index) {
+        alternate_interface[index] = configuration[index];
+    }
+    alternate_interface[13U] = 1U;
+    assert(!drivers::usb::find_boot_keyboard_interface(
+        alternate_interface, sizeof(alternate_interface), &interface));
+
+    uint8_t endpoint_zero[sizeof(configuration)]{};
+    for (size_t index = 0U; index < sizeof(configuration); ++index) {
+        endpoint_zero[index] = configuration[index];
+    }
+    endpoint_zero[29U] = 0x80U;
+    assert(!drivers::usb::find_boot_keyboard_interface(
+        endpoint_zero, sizeof(endpoint_zero), &interface));
+
+    uint8_t zero_interval[sizeof(configuration)]{};
+    for (size_t index = 0U; index < sizeof(configuration); ++index) {
+        zero_interval[index] = configuration[index];
+    }
+    zero_interval[33U] = 0U;
+    assert(!drivers::usb::find_boot_keyboard_interface(
+        zero_interval, sizeof(zero_interval), &interface));
+
+    uint8_t oversized_endpoint[sizeof(configuration)]{};
+    for (size_t index = 0U; index < sizeof(configuration); ++index) {
+        oversized_endpoint[index] = configuration[index];
+    }
+    oversized_endpoint[31U] = 0x01U;
+    oversized_endpoint[32U] = 0x08U;
+    assert(!drivers::usb::find_boot_keyboard_interface(
+        oversized_endpoint, sizeof(oversized_endpoint), &interface));
     std::cout << "USB descriptor and HID tests: PASS\n";
     return 0;
 }

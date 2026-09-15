@@ -170,6 +170,7 @@ bool find_boot_keyboard_interface(
         if (descriptor_type == 4U) {
             if (descriptor_length < 9U) return false;
             keyboard_interface = descriptors[offset + 3U] == 0U &&
+                descriptors[offset + 4U] == 0U &&
                 descriptors[offset + 5U] == 3U &&
                 descriptors[offset + 6U] == 1U &&
                 descriptors[offset + 7U] == 1U;
@@ -181,13 +182,19 @@ bool find_boot_keyboard_interface(
             const uint16_t packet =
                 static_cast<uint16_t>(descriptors[offset + 4U]) |
                 static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
-            if ((endpoint & 0x80U) != 0U && (attributes & 3U) == 3U &&
-                (packet & 0x7FFU) >= 8U) {
+            const uint16_t packet_size = static_cast<uint16_t>(packet & 0x7FFU);
+            const uint8_t endpoint_number = static_cast<uint8_t>(endpoint & 0x0FU);
+            const uint8_t interval = descriptors[offset + 6U];
+            // Boot keyboards require an interrupt-IN endpoint other than EP0.
+            // Reject malformed descriptors before xHCI context programming.
+            if ((endpoint & 0x80U) != 0U && endpoint_number != 0U &&
+                (attributes & 3U) == 3U && interval != 0U &&
+                packet_size >= 8U && packet_size <= 1024U) {
                 *output = {
                     configuration,
                     interface_number,
                     endpoint,
-                    static_cast<uint16_t>(packet & 0x7FFU),
+                    packet_size,
                     descriptors[offset + 6U],
                 };
                 return true;

@@ -130,6 +130,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_io_apic_irq"
 "$OUT_DIR/test_io_apic_irq"
 
+# Exercise bounded USB configuration-descriptor parsing and HID boot-report
+# decoding without hardware. xHCI runtime qualification remains separate.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_protocol.cpp kernel/drivers/usb/protocol.cpp \
+  -o "$OUT_DIR/test_usb_protocol"
+"$OUT_DIR/test_usb_protocol"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
