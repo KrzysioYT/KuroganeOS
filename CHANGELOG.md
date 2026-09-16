@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### xHCI ring-wrap qualification
+
+- Added host regression of the production producer/event ring paths across
+  eight cycle transitions, including Link TRB reuse, ERDP updates and stale
+  event rejection.
+- Extended real USB qualification to 130 ordered F12 press/release pairs,
+  requiring observed transfer/event cycle-bit wrap; the new runtime scope
+  awaits exact-source execution.
+- DMA-safe cleanup passed full host tests, clean release media, keyboard boot
+  and real empty-controller halt/release at `648b9d38cabf8fcabb66ab3e5071f676f18ad98a`
+  in run `35085130775`, job `104758052878`.
+
 ### xHCI DMA-safe failure cleanup
 
 - Require acknowledged controller halt and verified PCI bus-master disable
@@ -11,9 +23,8 @@
   remove registered USB children on failed claim and successful teardown.
 - Added host fault-injection tests for quarantine, exact-once retry, partial
   unmap and stale child handles, plus a real empty-controller QEMU runtime gate.
-  This new runtime gate awaits exact-source execution; keyboard enumeration
-  and two F12 press/release cycles passed at `17ca70f4afc9ef3deca770da91a5189f86565c52`
-  in run `35060322848`.
+  Keyboard enumeration and two F12 press/release cycles also passed at
+  `17ca70f4afc9ef3deca770da91a5189f86565c52` in run `35060322848`.
 
 ### HID report failure atomicity
 

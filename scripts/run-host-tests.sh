@@ -156,6 +156,12 @@ bash tests/test_network_smoke_state.sh
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_ports"
 timeout 10 "$OUT_DIR/test_xhci_ports"
 
+# Exercise cycle-bit transitions and stale-event rejection in production rings.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+  -ffunction-sections -fdata-sections tests/test_xhci_rings.cpp \
+  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_rings"
+timeout 10 "$OUT_DIR/test_xhci_rings"
+
 # Fault-inject the production cleanup path: no DMA release before halt,
 # retained ownership on failure, exact-once retry and child-slot rollback.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

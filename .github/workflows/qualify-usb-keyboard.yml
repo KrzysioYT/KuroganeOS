@@ -60,21 +60,29 @@ jobs:
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
 
-      - name: Require real xHCI enumeration and repeated HID press release
+      - name: Require real HID delivery through transfer and event ring wrap
         shell: bash
         run: |
           set -euo pipefail
+          # 130 acknowledged pairs exceed both the 255-entry transfer ring
+          # and the 256-entry event ring. Each next key waits for guest release.
+          key_steps=()
+          for count in $(seq 1 129); do
+            key_steps+=(--send-key-after-marker-count \
+              '[TEST] usb_hid_f12_release: PASS' "$count" f12)
+          done
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --usb-keyboard \
-            --log-dir build/tests/usb-runtime --timeout 120 \
+            --log-dir build/tests/usb-runtime --timeout 300 \
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
-            --send-key-after-marker-count '[TEST] usb_hid_f12_release: PASS' 1 f12 \
+            "${key_steps[@]}" \
             --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_f12_press: PASS' \
             --require-marker '[TEST] usb_hid_f12_release: PASS' \
-            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 2 \
-            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 2
+            --require-marker '[TEST] usb_hid_ring_wrap: PASS' \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 130 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 130
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_f12_.*: FAIL' \
             build/tests/usb-runtime/serial.log
 

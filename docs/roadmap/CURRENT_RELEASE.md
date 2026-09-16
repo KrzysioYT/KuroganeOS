@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
 ## COMPILED / RUNTIME VERSION
 
@@ -132,6 +132,29 @@ exact-source Actions run `34811940628` subsequently qualified both modes. See
 [PCI_MSIX_GROUPS.md](../PCI_MSIX_GROUPS.md) for the API contract and evidence.
 
 The APIC routing foundation now also resolves ISA legacy IRQs through ACPI MADT overrides before GSI programming. Invalid reserved flags and conflicting overrides are rejected deterministically; the host contract passed as `[test_io_apic_irq] PASS` in current-head run `34953615582`, job `104330260616`. This remains a routing foundation: firmware I/O APIC delivery, SMP interrupt routing and the broader hardware matrix are still open. Redirection span validation now rejects zero-length, overflowing and overlapping controller GSI ranges before they are accepted.
+
+### USB keyboard and cleanup evidence
+
+The bounded xHCI keyboard path now has real OVMF/QEMU evidence at
+`648b9d38cabf8fcabb66ab3e5071f676f18ad98a`: run
+[`35085130775`](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35085130775),
+job `104758052878`, passed the full host suite, clean release-media build,
+enumeration, two ordered hardware HID press/release pairs accepted by the
+input queue, and an empty-controller boot requiring acknowledged halt and
+DMA/MMIO cleanup. Host fault injection additionally covers timeout quarantine,
+failed release retry and stale device handles. It does not establish hotplug,
+multiple keyboards, hubs, mouse, mass storage or physical hardware support.
+
+Same-source regressions passed: System Services closeout `35085130746`,
+3.4 sweep `35085130828`, Settings persistence `35085130736`, Notifications
+`35085130766`, Socket Core `35085130731`, DNS `35085130759`, Fatal Diagnostic
+`35085130812`, MSI `35085130779`, MSI-X `35085130744`, VirtIO cleanup
+`35085130849` and VirtIO MSI-X `35085130851`. Pre-Steel closeout `35085131514`
+and some self-hosted component jobs are still queued; historical qualification
+is preserved but a complete current-source matrix is not yet claimed.
+
+The next USB gate extends input to 130 pairs and requires real ring wrap.
+It awaits its own runtime result. **5.0 remains ACTIVE**, not qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

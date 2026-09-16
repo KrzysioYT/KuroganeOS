@@ -25,6 +25,14 @@ INSTRUMENTATION = """                // Qualification only: require successful p
                     continue;
                 }
                 static bool qualification_f12_down = false;
+                static bool qualification_ring_wrap = false;
+                if (!qualification_ring_wrap &&
+                    controller.reports > RING_TRB_COUNT &&
+                    !controller.interrupt_ring.cycle &&
+                    !controller.event_cycle) {
+                    qualification_ring_wrap = true;
+                    terminal::println("[TEST] usb_hid_ring_wrap: PASS");
+                }
                 if (events[index].key == keyboard::KeyCode::F12) {
                     if (events[index].pressed) {
                         terminal::println(qualification_f12_down

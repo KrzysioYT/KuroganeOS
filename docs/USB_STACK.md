@@ -43,8 +43,8 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
 Workflow `Qualify 5.0 xHCI USB Keyboard` buduje pełny obraz po dodaniu
 wyłącznie diagnostyki do produkcyjnego `handle_keyboard_report()`.
 QEMU udostępnia `qemu-xhci` i `usb-kbd`; dopiero po starcie Login QMP
-wysyła F12, dwukrotnie. PASS wymaga rzeczywistej enumeracji, odebrania raportów
-USB oraz dwóch poprawnie uporządkowanych par press/release opublikowanych
+wysyła F12. PASS wymaga rzeczywistej enumeracji, odebrania raportów
+USB oraz poprawnie uporządkowanych par press/release opublikowanych
 do kolejki input. Instrumentacja nie tworzy raportów ani backendu USB i nie
 trafia do zwykłego builda. Pierwsza kwalifikacja tego zakresu przeszła na SHA
 `73aba709c535261b99d23182ecb4b2ead091b6e1` w Actions
@@ -57,14 +57,24 @@ Dekoder z atomowym zatwierdzaniem raportów przeszedł ten sam gate na SHA
 `17ca70f4afc9ef3deca770da91a5189f86565c52`, run
 [35060322848](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35060322848).
 
-Gate zawiera teraz również boot z `--usb-controller`, bez klawiatury.
+Gate zawiera również boot z `--usb-controller`, bez klawiatury.
 Marker `xhci_empty_cleanup` wymaga rzeczywistego startu kontrolera, braku
-urządzenia i pomyślnego zatrzymania/zwolnienia zasobów. Ta nowa ścieżka
-kwalifikacji oczekuje na wynik dla commitu wprowadzającego cleanup.
+urządzenia i pomyślnego zatrzymania/zwolnienia zasobów. Przeszedł na SHA
+`648b9d38cabf8fcabb66ab3e5071f676f18ad98a`, run
+[35085130775](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35085130775),
+job `104758052878`, razem z pełnym host-suite, clean media i klawiaturą.
 Hostowe wstrzykiwanie błędów nie jest dowodem zachowania wadliwego sprzętu.
 
-1. Kwalifikacja runtime cleanupu pustego kontrolera.
-2. Obsługa disconnect/reconnect i stress ringów klawiatury.
+Nowe rozszerzenie gate wymaga 130 par F12, czyli ponad 260 rzeczywistych
+raportów, oraz obserwacji zmiany cycle bit obu produkcyjnych ringów:
+transferowego (255 wpisów + Link TRB) i eventowego (256 wpisów).
+Każde kolejne naciśnięcie czeka na poprzednie zwolnienie w logu gościa.
+Budżet 300 s obejmuje tę nową liczbę interakcji; nie zastępuje żadnego
+sprawdzenia. Host regression przechodzi przez osiem zawinięć i odrzuca
+nieaktualne eventy. Rozszerzenie runtime oczekuje na wynik własnego commitu.
+
+1. Kwalifikacja runtime zawinięcia ringów klawiatury.
+2. Obsługa disconnect/reconnect.
 3. HID mouse i wspólny routing input.
 4. USB Mass Storage jako `BlockDeviceOps`.
 5. Failure injection i stress testy hotplug.
