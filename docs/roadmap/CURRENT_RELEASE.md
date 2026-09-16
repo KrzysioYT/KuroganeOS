@@ -153,8 +153,28 @@ Same-source regressions passed: System Services closeout `35085130746`,
 and some self-hosted component jobs are still queued; historical qualification
 is preserved but a complete current-source matrix is not yet claimed.
 
-The next USB gate extends input to 130 pairs and requires real ring wrap.
-It awaits its own runtime result. **5.0 remains ACTIVE**, not qualified.
+The extended USB gate is now **PASS** at production source
+`d96c9c8b631c1c60799aed1a9b80f85e0fb81865`, run
+[`35086010272`](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35086010272),
+job `104760879337`: full host suite, clean release IMG/ISO/install.pkg,
+130 real F12 press/release pairs, transfer/event ring cycle wrap and empty
+controller halt/cleanup. This source also rejects malformed and duplicate
+completion pointers before report DMA reuse; the host regression reproduced
+the previous premature retirement and now passes, including ASan/UBSan.
+
+Latest same-source regressions passed: 3.4 sweep `35086010366`, Socket Core
+`35086010286`, DNS `35086010335`, Fatal Diagnostic `35086010379`, MSI
+`35086010325`, MSI-X `35086010292`, VirtIO cleanup `35086010369`.
+Pre-Steel closeout `35086010691`, KuroFS `35086010340`, Device/Driver
+`35086010345` and Unified Status `35086010311` remain queued at this update.
+No completed current-source job failed, but this is not a complete fresh
+Pre-Steel matrix. The earlier ring gate `35085576426` failed before QEMU due
+to a timeout argument outside the harness contract; it was corrected to the
+existing 240-second limit without reducing the 130-pair test.
+
+Next exact USB task: Port Status Change handling in `xhci::poll()` with held-key
+release, safe disconnect cleanup and re-enumeration, qualified using real QMP
+device removal/addition. **5.0 remains ACTIVE**, not qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

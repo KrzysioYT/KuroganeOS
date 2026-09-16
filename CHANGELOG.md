@@ -10,7 +10,11 @@
 - Added a production-poll host regression that failed before the fix: an event
   for another TRB prematurely delivered a key and retired the pending report.
   The fixed test also checks ordered key release and no-outstanding-transfer
-  rejection. Strict host build and ASan/UBSan pass; exact-source QEMU is required.
+  rejection. Strict host build and ASan/UBSan pass. Exact-source QEMU run
+  `35086010272` / job `104760879337` passed on
+  `d96c9c8b631c1c60799aed1a9b80f85e0fb81865`: full host suite, clean release
+  IMG/ISO/install.pkg, 130 real F12 pairs, both ring wraps and empty-controller
+  DMA cleanup. USB hotplug, hubs, mouse and mass storage remain open.
 
 ### xHCI ring-wrap qualification
 
@@ -18,8 +22,9 @@
   eight cycle transitions, including Link TRB reuse, ERDP updates and stale
   event rejection.
 - Extended real USB qualification to 130 ordered F12 press/release pairs,
-  requiring observed transfer/event cycle-bit wrap; the new runtime scope
-  awaits exact-source execution.
+  requiring observed transfer/event cycle-bit wrap. The scope passed at
+  `cdb2af84bfeab5bf139f6b06fa810ca18d7e4c97` in run `35085875406` and again
+  after completion ownership validation in `35086010272`.
 - DMA-safe cleanup passed full host tests, clean release media, keyboard boot
   and real empty-controller halt/release at `648b9d38cabf8fcabb66ab3e5071f676f18ad98a`
   in run `35085130775`, job `104758052878`.

@@ -42,7 +42,11 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   slotu i endpointu. Obcy, niewyrównany, zduplikowany oraz Event Data completion
   nie zmienia dekodera, nie czyści bufora DMA i nie publikuje klawiszy.
   Host regression wykonuje produkcyjny `poll()` i reprodukuje błędne przedwczesne
-  przetworzenie raportu sprzed poprawki. Osobny pełny QEMU gate pozostaje wymagany.
+  przetworzenie raportu sprzed poprawki. Pełny QEMU gate przeszedł na SHA
+  `d96c9c8b631c1c60799aed1a9b80f85e0fb81865`, run
+  [35086010272](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35086010272),
+  job `104760879337`: full host-suite, clean release IMG/ISO i install.pkg,
+  130 par F12, zawinięcie ringów i cleanup pustego kontrolera.
 
 ## Kolejność dalszych prac
 
@@ -77,10 +81,16 @@ transferowego (255 wpisów + Link TRB) i eventowego (256 wpisów).
 Każde kolejne naciśnięcie czeka na poprzednie zwolnienie w logu gościa.
 Budżet 240 s obejmuje tę nową liczbę interakcji; nie zastępuje żadnego
 sprawdzenia. Host regression przechodzi przez osiem zawinięć i odrzuca
-nieaktualne eventy. Rozszerzenie runtime oczekuje na wynik własnego commitu.
+nieaktualne eventy. Rozszerzenie runtime przeszło na SHA
+`cdb2af84bfeab5bf139f6b06fa810ca18d7e4c97`, run
+[35085875406](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35085875406),
+job `104760439289`: 130 press, 130 release, `usb_hid_ring_wrap`, a następnie
+osobny boot i `xhci_empty_cleanup`. Poprzednia próba `35085576426` zatrzymała
+się przed startem QEMU z powodu niedozwolonego parametru timeout 300 s;
+poprawka używa istniejącego limitu 240 s, bez zmniejszenia liczby raportów.
 
-1. Kwalifikacja runtime zawinięcia ringów klawiatury.
-2. Obsługa disconnect/reconnect.
-3. HID mouse i wspólny routing input.
-4. USB Mass Storage jako `BlockDeviceOps`.
-5. Failure injection i stress testy hotplug.
+1. Obsługa Port Status Change w `xhci::poll()`: disconnect, zwolnienie
+   przytrzymanych klawiszy, bezpieczny cleanup i ponowna enumeracja.
+2. HID mouse i wspólny routing input.
+3. USB Mass Storage jako `BlockDeviceOps`.
+4. Failure injection i stress testy hotplug.
