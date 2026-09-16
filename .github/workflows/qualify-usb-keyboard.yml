@@ -78,10 +78,24 @@ jobs:
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_f12_.*: FAIL' \
             build/tests/usb-runtime/serial.log
 
+      - name: Require empty-controller halt and DMA cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-controller \
+            --log-dir build/tests/usb-empty-runtime --timeout 120 \
+            --require-marker '[TEST] xhci_empty_cleanup: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_empty_cleanup: FAIL' \
+            build/tests/usb-empty-runtime/serial.log
+
       - name: Retain serial and QEMU logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: usb-keyboard-${{ github.sha }}
-          path: build/tests/usb-runtime
+          path: |
+            build/tests/usb-runtime
+            build/tests/usb-empty-runtime
           if-no-files-found: warn

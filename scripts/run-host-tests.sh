@@ -156,6 +156,14 @@ bash tests/test_network_smoke_state.sh
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_ports"
 timeout 10 "$OUT_DIR/test_xhci_ports"
 
+# Fault-inject the production cleanup path: no DMA release before halt,
+# retained ownership on failure, exact-once retry and child-slot rollback.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+  -ffunction-sections -fdata-sections tests/test_xhci_cleanup.cpp \
+  kernel/drivers/core/device_manager.cpp \
+  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_cleanup"
+timeout 10 "$OUT_DIR/test_xhci_cleanup"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

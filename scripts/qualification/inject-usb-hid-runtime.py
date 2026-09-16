@@ -6,6 +6,18 @@ from pathlib import Path
 
 ANCHOR = "                static_cast<void>(input::submit_key(events[index]));"
 MARKER = "[TEST] usb_hid_f12_press:"
+EMPTY_ANCHOR = "    return cleanup == Status::Ok ? failure : cleanup;"
+EMPTY_INSTRUMENTATION = """    if (failure == Status::NoDevice) {
+        const bool released = cleanup == Status::Ok &&
+            !g_controller.cleanup_pending && !g_controller.dma_published &&
+            !g_controller.bus_master_enabled && !g_controller.initialized &&
+            g_controller.mapped_pages == 0U &&
+            g_controller.keyboard_device == device::INVALID_DEVICE_ID;
+        terminal::println(released
+            ? "[TEST] xhci_empty_cleanup: PASS"
+            : "[TEST] xhci_empty_cleanup: FAIL");
+    }
+    return cleanup == Status::Ok ? failure : cleanup;"""
 INSTRUMENTATION = """                // Qualification only: require successful publication to the
                 // production input queue and an ordered hardware press/release.
                 if (!input::submit_key(events[index])) {
@@ -33,7 +45,11 @@ def inject(source: str) -> str:
         raise ValueError("USB HID qualifier already injected")
     if source.count(ANCHOR) != 1:
         raise ValueError("USB HID input-queue anchor must occur exactly once")
-    return source.replace(ANCHOR, INSTRUMENTATION, 1)
+    if source.count(EMPTY_ANCHOR) != 1:
+        raise ValueError("xHCI cleanup result anchor must occur exactly once")
+    return source.replace(ANCHOR, INSTRUMENTATION, 1).replace(
+        EMPTY_ANCHOR, EMPTY_INSTRUMENTATION, 1
+    )
 
 
 if __name__ == "__main__":

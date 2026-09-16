@@ -26,7 +26,17 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   (0, 254 i 255 portów, brak urządzenia i ostatni port). Porty są adresowane
   względem rejestrów operational: limit uwzględnia CAPLENGTH. Licznik skanera
   nie zawija się przy MaxPorts=255.
-- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Nadal wymaga kwalifikacji na sprzęcie/QEMU; mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
+- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Enumeracja i klawiatura przeszły kwalifikację QEMU opisaną poniżej; realny sprzęt, mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
+- Cleanup stron opublikowanych kontrolerowi wymaga potwierdzenia USBSTS.HCHalted
+  i wyłączenia PCI bus mastering z odczytem kontrolnym. Samo skasowanie RUN
+  nie pozwala oddać stron DMA. Odczyt rejestru równy wszystkim jedynkom nie
+  stanowi potwierdzenia zatrzymania. `ControllerHaltTimeout` zachowuje strony
+  i mapowania; `ResourceReleaseFailed` zachowuje niezwrócone zasoby. Ponowna
+  inicjalizacja najpierw ponawia zaległy cleanup, zamiast nadpisywać jego stan.
+- Częściowe mapowanie MMIO i nieudana rejestracja klawiatury zachowują właściciela
+  do rollbacku. Unmap od końca umożliwia ponowienie bez podwójnego zwalniania.
+  Host regression sprawdza timeout, odmowę wyłączenia bus mastering, błąd DMA
+  release, częściowy unmap, rollback urządzenia i odrzucenie starego uchwytu.
 
 ## Kolejność dalszych prac
 
@@ -43,8 +53,18 @@ job `104677993041`: pełny host-suite, clean release media, enumeracja
 i dwie rzeczywiste pary F12 press/release. Nie jest to kwalifikacja hotplug,
 hubów, wielu urządzeń ani USB Mass Storage.
 
-1. Kwalifikacja xHCI resetu, command/event rings i root-hub enumeration.
-2. USB HID keyboard na QEMU oraz obsługa disconnect/reconnect.
+Dekoder z atomowym zatwierdzaniem raportów przeszedł ten sam gate na SHA
+`17ca70f4afc9ef3deca770da91a5189f86565c52`, run
+[35060322848](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35060322848).
+
+Gate zawiera teraz również boot z `--usb-controller`, bez klawiatury.
+Marker `xhci_empty_cleanup` wymaga rzeczywistego startu kontrolera, braku
+urządzenia i pomyślnego zatrzymania/zwolnienia zasobów. Ta nowa ścieżka
+kwalifikacji oczekuje na wynik dla commitu wprowadzającego cleanup.
+Hostowe wstrzykiwanie błędów nie jest dowodem zachowania wadliwego sprzętu.
+
+1. Kwalifikacja runtime cleanupu pustego kontrolera.
+2. Obsługa disconnect/reconnect i stress ringów klawiatury.
 3. HID mouse i wspólny routing input.
 4. USB Mass Storage jako `BlockDeviceOps`.
 5. Failure injection i stress testy hotplug.

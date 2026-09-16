@@ -120,6 +120,9 @@ struct Controller {
     bool report_queued;
     bool input_proven;
     bool initialized;
+    bool dma_published;
+    bool bus_master_enabled;
+    bool cleanup_pending;
     uint64_t reports;
 };
 
@@ -232,6 +235,8 @@ bool map_mmio(uint64_t physical, Controller* controller) {
         memory::virtual_memory::MapFlags::WriteThrough |
         memory::virtual_memory::MapFlags::CacheDisable |
         memory::virtual_memory::MapFlags::NoExecute;
+    controller->mapped_base = MMIO_VIRTUAL_BASE;
+    controller->mapped_pages = 0U;
     size_t mapped = 0U;
     for (; mapped < page_count; ++mapped) {
         memory::virtual_memory::Mapping existing{};
@@ -244,57 +249,120 @@ bool map_mmio(uint64_t physical, Controller* controller) {
                 memory::virtual_memory::Status::Ok) {
             break;
         }
+        ++controller->mapped_pages;
     }
     if (mapped != page_count) {
-        while (mapped != 0U) {
-            --mapped;
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                address_space, MMIO_VIRTUAL_BASE + mapped * page_size));
-        }
+        // The caller's retryable cleanup owns even an incomplete mapping.
+        // Do not discard ownership if a rollback unmap itself fails.
         return false;
     }
-    controller->mapped_base = MMIO_VIRTUAL_BASE;
-    controller->mapped_pages = page_count;
     controller->registers = reinterpret_cast<volatile uint8_t*>(
         MMIO_VIRTUAL_BASE + offset);
     return true;
 }
 
-void release_dma_page(storage::dma::Page* page) {
+bool release_dma_page(storage::dma::Page* page) {
     if (page != nullptr && page->allocated) {
-        static_cast<void>(storage::dma::release_page(page));
+        return storage::dma::release_page(page) == storage::dma::Status::Ok;
     }
+    return true;
 }
 
-void release_resources(Controller* controller) {
-    if (controller == nullptr) return;
-    if (controller->operational != nullptr) {
-        write32(controller->operational, OP_USBCMD,
-                read32(controller->operational, OP_USBCMD) & ~CMD_RUN);
-    }
-    release_dma_page(&controller->command_ring.page);
-    release_dma_page(&controller->ep0_ring.page);
-    release_dma_page(&controller->interrupt_ring.page);
-    release_dma_page(&controller->dcbaa_page);
-    release_dma_page(&controller->event_ring_page);
-    release_dma_page(&controller->erst_page);
-    release_dma_page(&controller->input_context_page);
-    release_dma_page(&controller->device_context_page);
-    release_dma_page(&controller->data_page);
-    release_dma_page(&controller->scratchpad_array_page);
-    for (size_t index = 0U; index < MAXIMUM_SCRATCHPADS; ++index) {
-        release_dma_page(&controller->scratchpads[index]);
-    }
-    auto* space = memory::kernel_virtual_memory::address_space();
-    if (space != nullptr) {
-        for (size_t index = 0U; index < controller->mapped_pages; ++index) {
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                space, controller->mapped_base +
-                    index * memory::virtual_memory::PAGE_SIZE));
+Status quiesce_dma(Controller& controller) {
+    bool halted = !controller.dma_published;
+    if (controller.dma_published && controller.operational != nullptr) {
+        const uint32_t command = read32(controller.operational, OP_USBCMD);
+        if (command != UINT32_MAX) {
+            write32(controller.operational, OP_USBCMD, command & ~CMD_RUN);
+            for (uint32_t attempt = 0U; attempt < POLL_BUDGET; ++attempt) {
+                const uint32_t status = read32(controller.operational, OP_USBSTS);
+                if (status != UINT32_MAX && (status & STS_HALTED) != 0U) {
+                    halted = true;
+                    break;
+                }
+                relax();
+            }
         }
+    }
+    // A stopped command bit alone does not acknowledge DMA completion.
+    // Disable bus mastering as containment even when halt times out, but
+    // retain every DMA page until the controller actually acknowledges halt.
+    if (controller.bus_master_enabled) {
+        const uint16_t command = pci::read16(controller.pci_device, 0x04U);
+        if (command == UINT16_MAX) return Status::ResourceReleaseFailed;
+        pci::write16(controller.pci_device, 0x04U,
+                     static_cast<uint16_t>(command & ~UINT16_C(4)));
+        const uint16_t readback = pci::read16(controller.pci_device, 0x04U);
+        if (readback == UINT16_MAX || (readback & 4U) != 0U) {
+            return Status::ResourceReleaseFailed;
+        }
+        controller.bus_master_enabled = false;
+    }
+    if (!halted) return Status::ControllerHaltTimeout;
+    controller.dma_published = false;
+    return Status::Ok;
+}
+
+Status release_resources(Controller* controller) {
+    if (controller == nullptr) return Status::InvalidArgument;
+    controller->initialized = false;
+    controller->cleanup_pending = true;
+    const Status stopped = quiesce_dma(*controller);
+    if (stopped != Status::Ok) return stopped;
+
+    if (controller->keyboard_device != device::INVALID_DEVICE_ID) {
+        const auto* child = device::get(controller->keyboard_device);
+        if (child != nullptr) {
+            if (child->driver != device::INVALID_DRIVER_ID &&
+                (child->driver != controller->owner_driver ||
+                 device::release(child->id, controller->owner_driver) !=
+                     KStatus::Ok)) {
+                return Status::ResourceReleaseFailed;
+            }
+            if (device::remove_device(controller->keyboard_device) !=
+                KStatus::Ok) return Status::ResourceReleaseFailed;
+        }
+        controller->keyboard_device = device::INVALID_DEVICE_ID;
+    }
+    bool released = true;
+    storage::dma::Page* const pages[] = {
+        &controller->command_ring.page, &controller->ep0_ring.page,
+        &controller->interrupt_ring.page, &controller->dcbaa_page,
+        &controller->event_ring_page, &controller->erst_page,
+        &controller->input_context_page, &controller->device_context_page,
+        &controller->data_page, &controller->scratchpad_array_page,
+    };
+    for (auto* page : pages) {
+        if (!release_dma_page(page)) released = false;
+    }
+    for (size_t index = 0U; index < MAXIMUM_SCRATCHPADS; ++index) {
+        if (!release_dma_page(&controller->scratchpads[index])) released = false;
+    }
+    if (!released) return Status::ResourceReleaseFailed;
+    auto* space = memory::kernel_virtual_memory::address_space();
+    if (space == nullptr && controller->mapped_pages != 0U) {
+        return Status::ResourceReleaseFailed;
+    }
+    // Release the tail first so a failed unmap leaves a contiguous, retryable
+    // prefix, never an object reset that loses the remaining mapping owner.
+    while (controller->mapped_pages != 0U) {
+        const size_t index = controller->mapped_pages - 1U;
+        if (memory::virtual_memory::unmap_page(
+                space, controller->mapped_base +
+                    index * memory::virtual_memory::PAGE_SIZE) !=
+            memory::virtual_memory::Status::Ok) {
+            return Status::ResourceReleaseFailed;
+        }
+        --controller->mapped_pages;
     }
     *controller = {};
     controller->keyboard_device = device::INVALID_DEVICE_ID;
+    return Status::Ok;
+}
+
+Status fail_initialization(Status failure) {
+    const Status cleanup = release_resources(&g_controller);
+    return cleanup == Status::Ok ? failure : cleanup;
 }
 
 bool take_ownership(Controller& controller, uint32_t hccparams) {
@@ -384,6 +452,7 @@ bool configure_controller(Controller& controller) {
     };
     controller.event_dequeue = 0U;
     controller.event_cycle = true;
+    controller.dma_published = true;
     volatile uint8_t* interrupter = controller.runtime + 0x20U;
     write32(interrupter, 0x00U, 0U);
     write32(interrupter, 0x08U, 1U);
@@ -783,8 +852,11 @@ bool register_keyboard(Controller& controller) {
         0U,
     };
     device::DeviceId id = device::INVALID_DEVICE_ID;
-    if (device::register_device(descriptor, &id) != KStatus::Ok ||
-        device::claim(id, controller.owner_driver, "usb-hid-boot") !=
+    if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
+    // Retain the child identity even when claim or activation fails so the
+    // error path can unwind its parent link and generation-owned slot.
+    controller.keyboard_device = id;
+    if (device::claim(id, controller.owner_driver, "usb-hid-boot") !=
             KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
@@ -840,6 +912,10 @@ Status initialize(
         owner_driver == device::INVALID_DRIVER_ID) {
         return Status::InvalidArgument;
     }
+    if (g_controller.cleanup_pending) {
+        const Status cleanup = release_resources(&g_controller);
+        if (cleanup != Status::Ok) return cleanup;
+    }
     g_controller = {};
     g_controller.keyboard_device = device::INVALID_DEVICE_ID;
     g_controller.pci_device = pci_device;
@@ -848,8 +924,7 @@ Status initialize(
     bool is_io = false;
     const uint64_t bar = pci::bar_address(pci_device, 0U, &is_io);
     if (bar == 0U || is_io || !map_mmio(bar, &g_controller)) {
-        release_resources(&g_controller);
-        return Status::MmioUnavailable;
+        return fail_initialization(Status::MmioUnavailable);
     }
     const uint8_t cap_length = read8(g_controller.registers, 0U);
     const uint32_t hcsparams1 = read32(
@@ -871,53 +946,45 @@ Status initialize(
             g_controller.maximum_slots,
             g_controller.maximum_ports,
             MMIO_BYTES) != LayoutStatus::Ok) {
-        release_resources(&g_controller);
-        return Status::UnsupportedController;
+        return fail_initialization(Status::UnsupportedController);
     }
     g_controller.operational = g_controller.registers + cap_length;
     g_controller.runtime = g_controller.registers + rtsoff;
     g_controller.doorbells = reinterpret_cast<volatile uint32_t*>(
         g_controller.registers + dboff);
     if (!take_ownership(g_controller, hccparams1)) {
-        release_resources(&g_controller);
-        return Status::BiosHandoffTimeout;
+        return fail_initialization(Status::BiosHandoffTimeout);
     }
     if (!reset_controller(g_controller)) {
-        release_resources(&g_controller);
-        return Status::ControllerResetTimeout;
+        return fail_initialization(Status::ControllerResetTimeout);
     }
     if (!allocate_controller_memory(g_controller, hcsparams2)) {
-        release_resources(&g_controller);
-        return Status::DmaAllocationFailed;
+        return fail_initialization(Status::DmaAllocationFailed);
     }
     pci::enable_bus_mastering(pci_device);
+    g_controller.bus_master_enabled = true;
     if (!configure_controller(g_controller)) {
-        release_resources(&g_controller);
-        return Status::ControllerStartTimeout;
+        return fail_initialization(Status::ControllerStartTimeout);
     }
     if (!reset_connected_port(g_controller)) {
         const bool any_connected = first_connected_port(g_controller) != 0U;
-        release_resources(&g_controller);
-        return any_connected ? Status::PortResetTimeout : Status::NoDevice;
+        return fail_initialization(
+            any_connected ? Status::PortResetTimeout : Status::NoDevice);
     }
     log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
     if (!address_device(g_controller)) {
-        release_resources(&g_controller);
-        return Status::CommandFailed;
+        return fail_initialization(Status::CommandFailed);
     }
     if (!read_descriptors(g_controller)) {
-        release_resources(&g_controller);
-        return Status::HidKeyboardNotFound;
+        return fail_initialization(Status::HidKeyboardNotFound);
     }
     log::write(log::Level::Info, "XHCI", "USB HID descriptors accepted");
     if (!configure_keyboard_endpoint(g_controller)) {
-        release_resources(&g_controller);
-        return Status::CommandFailed;
+        return fail_initialization(Status::CommandFailed);
     }
     reset_keyboard_decoder(&g_controller.keyboard_decoder);
     if (!register_keyboard(g_controller)) {
-        release_resources(&g_controller);
-        return Status::DeviceRegistrationFailed;
+        return fail_initialization(Status::DeviceRegistrationFailed);
     }
     g_controller.initialized = true;
     static_cast<void>(queue_keyboard_report(g_controller));
@@ -968,6 +1035,10 @@ const char* status_message(Status status) {
         case Status::DescriptorInvalid: return "invalid USB descriptor";
         case Status::HidKeyboardNotFound: return "USB HID boot keyboard not found";
         case Status::DeviceRegistrationFailed: return "USB device registration failed";
+        case Status::ControllerHaltTimeout:
+            return "xHCI halt timeout; DMA resources quarantined";
+        case Status::ResourceReleaseFailed:
+            return "xHCI resource release failed; ownership retained";
     }
     return "unknown xHCI status";
 }

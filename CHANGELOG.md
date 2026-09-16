@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### xHCI DMA-safe failure cleanup
+
+- Require acknowledged controller halt and verified PCI bus-master disable
+  before releasing published DMA. Halt/readback failures quarantine resources
+  and return typed errors instead of recycling memory still owned by hardware.
+- Retain failed DMA/MMIO cleanup for retry, including partial initial mappings;
+  remove registered USB children on failed claim and successful teardown.
+- Added host fault-injection tests for quarantine, exact-once retry, partial
+  unmap and stale child handles, plus a real empty-controller QEMU runtime gate.
+  This new runtime gate awaits exact-source execution; keyboard enumeration
+  and two F12 press/release cycles passed at `17ca70f4afc9ef3deca770da91a5189f86565c52`
+  in run `35060322848`.
+
 ### HID report failure atomicity
 
 - Stage the bounded keyboard transition before publishing output or decoder

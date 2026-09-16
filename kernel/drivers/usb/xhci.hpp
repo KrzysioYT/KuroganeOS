@@ -25,6 +25,8 @@ enum class Status : uint8_t {
     DescriptorInvalid,
     HidKeyboardNotFound,
     DeviceRegistrationFailed,
+    ControllerHaltTimeout,
+    ResourceReleaseFailed,
 };
 
 Status initialize(
