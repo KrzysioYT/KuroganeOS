@@ -47,7 +47,9 @@ LayoutStatus validate_capability_layout(
 
     const size_t port_bytes = kPortRegisterBase +
         static_cast<size_t>(maximum_ports) * kPortRegisterStride;
-    if (port_bytes > mmio_bytes) {
+    // PORTSC is operational-relative, unlike DBOFF and RTSOFF. Include the
+    // already-validated CAPLENGTH without overflowing the mapped BAR window.
+    if (port_bytes > mmio_bytes - capability_length) {
         return LayoutStatus::PortWindowOutOfRange;
     }
 

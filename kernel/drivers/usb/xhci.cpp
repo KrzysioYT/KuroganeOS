@@ -469,26 +469,34 @@ bool submit_command(
     return completion_ok(*completion);
 }
 
-bool reset_connected_port(Controller& controller) {
-    for (uint8_t port = 1U; port <= controller.maximum_ports; ++port) {
-        const size_t offset = OP_PORTS +
-            static_cast<size_t>(port - 1U) * PORT_STRIDE;
-        uint32_t status = read32(controller.operational, offset);
-        if ((status & PORT_CONNECTED) == 0U) continue;
-        write32(controller.operational, offset, PORT_POWER | PORT_RESET);
-        for (uint32_t attempt = 0U; attempt < POLL_BUDGET; ++attempt) {
-            status = read32(controller.operational, offset);
-            if ((status & PORT_CONNECTED) != 0U &&
-                (status & PORT_RESET) == 0U &&
-                (status & PORT_ENABLED) != 0U) {
-                controller.port_id = port;
-                controller.port_speed = static_cast<uint8_t>(
-                    (status >> 10U) & 0x0FU);
-                return controller.port_speed != 0U;
-            }
-            relax();
+uint8_t first_connected_port(const Controller& controller) {
+    // MaxPorts can be 255: a uint8_t one-based loop would wrap to zero.
+    for (size_t index = 0U; index < controller.maximum_ports; ++index) {
+        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
+             PORT_CONNECTED) != 0U) {
+            return static_cast<uint8_t>(index + 1U);
         }
-        return false;
+    }
+    return 0U;
+}
+
+bool reset_connected_port(Controller& controller) {
+    const uint8_t port = first_connected_port(controller);
+    if (port == 0U) return false;
+    const size_t offset = OP_PORTS +
+        static_cast<size_t>(port - 1U) * PORT_STRIDE;
+    write32(controller.operational, offset, PORT_POWER | PORT_RESET);
+    for (uint32_t attempt = 0U; attempt < POLL_BUDGET; ++attempt) {
+        const uint32_t status = read32(controller.operational, offset);
+        if ((status & PORT_CONNECTED) != 0U &&
+            (status & PORT_RESET) == 0U &&
+            (status & PORT_ENABLED) != 0U) {
+            controller.port_id = port;
+            controller.port_speed = static_cast<uint8_t>(
+                (status >> 10U) & 0x0FU);
+            return controller.port_speed != 0U;
+        }
+        relax();
     }
     return false;
 }
@@ -888,14 +896,7 @@ Status initialize(
         return Status::ControllerStartTimeout;
     }
     if (!reset_connected_port(g_controller)) {
-        const bool any_connected = [&]() {
-            for (uint8_t port = 1U; port <= g_controller.maximum_ports; ++port) {
-                if ((read32(g_controller.operational, OP_PORTS +
-                     static_cast<size_t>(port - 1U) * PORT_STRIDE) &
-                     PORT_CONNECTED) != 0U) return true;
-            }
-            return false;
-        }();
+        const bool any_connected = first_connected_port(g_controller) != 0U;
         release_resources(&g_controller);
         return any_connected ? Status::PortResetTimeout : Status::NoDevice;
     }

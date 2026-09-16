@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### xHCI bounded port access
+
+- Fixed the port-register MMIO bound to include the operational block's
+  CAPLENGTH offset; an exactly one-byte-short window is rejected.
+- Replaced the wrapping 8-bit, one-based port walk with a shared bounded
+  scanner used for reset and no-device diagnostics. MaxPorts=255 terminates.
+- Added host tests for exact MMIO boundaries and the production port scanner,
+  alongside the existing USB descriptor and HID report tests. This does not
+  qualify USB hotplug, hubs or mass storage.
+
 ### APIC routing contract
 
 ### ACPI legacy IRQ routing

@@ -33,6 +33,20 @@ int main() {
     assert(validate_capability_layout(
         0x20U, 0x1000U, 0x2000U, 255U, 4U, mmio) ==
         LayoutStatus::Ok);
+    // PORTSC addresses are relative to the operational register block,
+    // which starts CAPLENGTH bytes after the BAR base.
+    assert(validate_capability_layout(
+        0x20U, 0x0300U, 0x0380U, 1U, 4U, 0x045FU) ==
+        LayoutStatus::PortWindowOutOfRange);
+    assert(validate_capability_layout(
+        0x20U, 0x0300U, 0x0380U, 1U, 4U, 0x0460U) ==
+        LayoutStatus::Ok);
+    assert(validate_capability_layout(
+        0x40U, 0x0300U, 0x0380U, 1U, 255U, 0x142FU) ==
+        LayoutStatus::PortWindowOutOfRange);
+    assert(validate_capability_layout(
+        0x40U, 0x0300U, 0x0380U, 1U, 255U, 0x1430U) ==
+        LayoutStatus::Ok);
     assert(validate_capability_layout(
         0x20U, 0x1000U, 0x2000U, 32U, 4U, 0x3FU) ==
         LayoutStatus::InvalidMmioWindow);

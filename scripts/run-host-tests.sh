@@ -144,6 +144,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_xhci_layout"
 "$OUT_DIR/test_xhci_layout"
 
+# Execute the production port scanner, including MaxPorts=255 and no device,
+# without initializing hardware. Catch an accidental unbounded scan explicitly.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+  -ffunction-sections -fdata-sections tests/test_xhci_ports.cpp \
+  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_ports"
+timeout 10 "$OUT_DIR/test_xhci_ports"
+
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
