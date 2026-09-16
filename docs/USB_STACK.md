@@ -24,6 +24,14 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
 
 ## Kolejność dalszych prac
 
+Workflow `Qualify 5.0 xHCI USB Keyboard` buduje pełny obraz po dodaniu
+wyłącznie diagnostyki do produkcyjnego `handle_keyboard_report()`.
+QEMU udostępnia `qemu-xhci` i `usb-kbd`; dopiero po starcie Login QMP
+wysyła F12, dwukrotnie. PASS wymaga rzeczywistej enumeracji, odebrania raportów
+USB oraz dwóch poprawnie uporządkowanych par press/release opublikowanych
+do kolejki input. Instrumentacja nie tworzy raportów ani backendu USB i nie
+trafia do zwykłego builda. Samo dodanie workflow nie oznacza kwalifikacji.
+
 1. Kwalifikacja xHCI resetu, command/event rings i root-hub enumeration.
 2. USB HID keyboard na QEMU oraz obsługa disconnect/reconnect.
 3. HID mouse i wspólny routing input.

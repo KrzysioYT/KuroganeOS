@@ -1,0 +1,87 @@
+name: Qualify 5.0 xHCI USB Keyboard
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-keyboard.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/keyboard.hpp'
+      - 'kernel/input/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/inject-usb-hid-runtime.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  usb-keyboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify candidate and production isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git status --porcelain)" = ""
+          ! grep -Fq '[TEST] usb_hid_f12_press:' kernel/drivers/usb/xhci.cpp
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Instrument real USB input delivery
+        run: |
+          python3 scripts/qualification/inject-usb-hid-runtime.py
+          git diff --check
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require real xHCI enumeration and repeated HID press release
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-keyboard \
+            --log-dir build/tests/usb-runtime --timeout 120 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --send-key-after-marker-count '[TEST] usb_hid_f12_release: PASS' 1 f12 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_f12_press: PASS' \
+            --require-marker '[TEST] usb_hid_f12_release: PASS' \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 2 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 2
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_f12_.*: FAIL' \
+            build/tests/usb-runtime/serial.log
+
+      - name: Retain serial and QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-keyboard-${{ github.sha }}
+          path: build/tests/usb-runtime
+          if-no-files-found: warn

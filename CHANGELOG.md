@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### xHCI keyboard runtime gate
+
+- Added a real OVMF/QEMU xHCI + USB keyboard gate using the normal driver,
+  full host suite and clean release-media build.
+- Added an opt-in USB keyboard to the existing QEMU smoke harness.
+- The test-only qualifier requires two ordered F12 press/release pairs from
+  actual USB completion reports, accepted by the production input queue.
+  It does not inject reports or replace the transport; logs are retained.
+
 ### xHCI bounded port access
 
 - Fixed the port-register MMIO bound to include the operational block's

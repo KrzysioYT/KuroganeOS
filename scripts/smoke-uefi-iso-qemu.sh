@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-keyboard] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -16,6 +16,7 @@ nic_model="none"
 virtio_vectors=""
 log_dir=""
 audio_model="none"
+usb_keyboard=false
 require_network=false
 require_tls=false
 send_key_after_marker=""
@@ -47,6 +48,7 @@ while (($#)); do
         --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
+        --usb-keyboard) usb_keyboard=true; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
         --send-key-after-marker)
@@ -446,6 +448,16 @@ if [[ "$audio_model" == "ac97" ]]; then
     )
 fi
 
+usb_args=()
+if $usb_keyboard; then
+    # A real emulated xHCI + HID device: guest reset, enumeration, transfer
+    # rings and input decoding run unchanged. This is not a PS/2-only proof.
+    usb_args=(
+        -device qemu-xhci,id=kurogane_xhci
+        -device usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard
+    )
+fi
+
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
     if $persistent_disk; then
@@ -479,6 +491,7 @@ qemu-system-x86_64 \
     -display none \
     "${network_args[@]}" \
     "${audio_args[@]}" \
+    "${usb_args[@]}" \
     -no-reboot \
     -no-shutdown \
     >"$qemu_log" 2>&1 &
