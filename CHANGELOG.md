@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### xHCI transfer completion ownership
+
+- Record the outstanding keyboard transfer's TRB address and require an exact
+  completion match before reading/reusing report DMA. Reject Event Data,
+  misaligned, unrelated and duplicate completions without mutating input state.
+- Added a production-poll host regression that failed before the fix: an event
+  for another TRB prematurely delivered a key and retired the pending report.
+  The fixed test also checks ordered key release and no-outstanding-transfer
+  rejection. Strict host build and ASan/UBSan pass; exact-source QEMU is required.
+
 ### xHCI ring-wrap qualification
 
 - Added host regression of the production producer/event ring paths across

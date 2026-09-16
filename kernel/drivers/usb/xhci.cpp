@@ -118,6 +118,7 @@ struct Controller {
     HidBootKeyboardInterface keyboard_interface;
     KeyboardDecoder keyboard_decoder;
     bool report_queued;
+    uint64_t report_trb;
     bool input_proven;
     bool initialized;
     bool dma_published;
@@ -828,7 +829,7 @@ bool configure_keyboard_endpoint(Controller& controller) {
 bool queue_keyboard_report(Controller& controller) {
     if (controller.report_queued) return true;
     clear_bytes(controller.data_page.virtual_address, 8U);
-    enqueue_trb(
+    controller.report_trb = enqueue_trb(
         controller.interrupt_ring,
         controller.data_page.physical_address,
         controller.interrupt_packet_size,
@@ -866,7 +867,15 @@ bool register_keyboard(Controller& controller) {
 }
 
 void handle_keyboard_report(Controller& controller, const Trb& event) {
+    // Exactly one report is outstanding. Slot/endpoint alone cannot identify
+    // its owner: a stale or malformed completion must not consume new DMA.
+    // We submit Normal TRBs, never Event Data TRBs (ED flag bit 2).
+    if (!controller.report_queued || (event.control & (1U << 2U)) != 0U ||
+        event.parameter != controller.report_trb) {
+        return;
+    }
     controller.report_queued = false;
+    controller.report_trb = 0U;
     const uint32_t remaining = event.status & 0x00FFFFFFU;
     const size_t actual = remaining <= controller.interrupt_packet_size
         ? controller.interrupt_packet_size - remaining

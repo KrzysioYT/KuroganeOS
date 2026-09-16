@@ -37,6 +37,12 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   do rollbacku. Unmap od końca umożliwia ponowienie bez podwójnego zwalniania.
   Host regression sprawdza timeout, odmowę wyłączenia bus mastering, błąd DMA
   release, częściowy unmap, rollback urządzenia i odrzucenie starego uchwytu.
+- Każdy raport HID posiada zapisany adres oczekującego Normal TRB. Zakończenie
+  transferu musi wskazywać dokładnie ten deskryptor; nie wystarcza zgodność
+  slotu i endpointu. Obcy, niewyrównany, zduplikowany oraz Event Data completion
+  nie zmienia dekodera, nie czyści bufora DMA i nie publikuje klawiszy.
+  Host regression wykonuje produkcyjny `poll()` i reprodukuje błędne przedwczesne
+  przetworzenie raportu sprzed poprawki. Osobny pełny QEMU gate pozostaje wymagany.
 
 ## Kolejność dalszych prac
 
