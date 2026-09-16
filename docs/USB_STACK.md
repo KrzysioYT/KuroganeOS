@@ -69,7 +69,7 @@ Nowe rozszerzenie gate wymaga 130 par F12, czyli ponad 260 rzeczywistych
 raportów, oraz obserwacji zmiany cycle bit obu produkcyjnych ringów:
 transferowego (255 wpisów + Link TRB) i eventowego (256 wpisów).
 Każde kolejne naciśnięcie czeka na poprzednie zwolnienie w logu gościa.
-Budżet 300 s obejmuje tę nową liczbę interakcji; nie zastępuje żadnego
+Budżet 240 s obejmuje tę nową liczbę interakcji; nie zastępuje żadnego
 sprawdzenia. Host regression przechodzi przez osiem zawinięć i odrzuca
 nieaktualne eventy. Rozszerzenie runtime oczekuje na wynik własnego commitu.
 

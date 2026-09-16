@@ -73,7 +73,7 @@ jobs:
           done
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --usb-keyboard \
-            --log-dir build/tests/usb-runtime --timeout 300 \
+            --log-dir build/tests/usb-runtime --timeout 240 \
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
             "${key_steps[@]}" \
             --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
