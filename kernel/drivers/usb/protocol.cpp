@@ -3,8 +3,8 @@
 namespace drivers::usb {
 namespace {
 
-bool contains(const uint8_t* keys, uint8_t usage) {
-    for (size_t index = 0U; index < 6U; ++index) {
+bool contains(const uint8_t* keys, uint8_t usage, size_t count = 6U) {
+    for (size_t index = 0U; index < count; ++index) {
         if (keys[index] == usage) return true;
     }
     return false;
@@ -208,7 +208,9 @@ void reset_keyboard_decoder(KeyboardDecoder* decoder) {
     if (decoder != nullptr) *decoder = {};
 }
 
-bool decode_boot_keyboard_report(
+namespace {
+
+bool decode_valid_keyboard_report(
     KeyboardDecoder* decoder,
     const uint8_t* report,
     size_t report_length,
@@ -232,7 +234,8 @@ bool decode_boot_keyboard_report(
     }
     for (size_t index = 0U; index < 6U; ++index) {
         const uint8_t usage = decoder->previous_keys[index];
-        if (usage > 3U && !contains(report + 2U, usage) &&
+        if (usage > 3U && !contains(decoder->previous_keys, usage, index) &&
+            !contains(report + 2U, usage) &&
             !append_event(events, event_capacity, event_count, usage, false,
                           report[0U], decoder->caps_lock)) {
             return false;
@@ -250,7 +253,8 @@ bool decode_boot_keyboard_report(
     }
     for (size_t index = 0U; index < 6U; ++index) {
         const uint8_t usage = report[index + 2U];
-        if (usage <= 3U || contains(decoder->previous_keys, usage)) continue;
+        if (usage <= 3U || contains(decoder->previous_keys, usage) ||
+            contains(report + 2U, usage, index)) continue;
         if (usage == 0x39U) decoder->caps_lock = !decoder->caps_lock;
         if (!append_event(events, event_capacity, event_count, usage, true,
                           report[0U], decoder->caps_lock)) {
@@ -261,6 +265,52 @@ bool decode_boot_keyboard_report(
     for (size_t index = 0U; index < 6U; ++index) {
         decoder->previous_keys[index] = report[index + 2U];
     }
+    return true;
+}
+
+} // namespace
+
+bool decode_boot_keyboard_report(
+    KeyboardDecoder* decoder,
+    const uint8_t* report,
+    size_t report_length,
+    keyboard::KeyEvent* events,
+    size_t event_capacity,
+    size_t* event_count) {
+    if (event_count == nullptr) return false;
+    *event_count = 0U;
+    if (decoder == nullptr || report == nullptr || report_length < 8U ||
+        events == nullptr) return false;
+
+    uint8_t effective[8]{};
+    bool rollover = false;
+    for (size_t index = 2U; index < 8U; ++index) {
+        if (report[index] == 2U || report[index] == 3U) return false;
+        if (report[index] == 1U) rollover = true;
+    }
+    effective[0U] = report[0U];
+    // HID 1.11 Appendix C: phantom arrays do not describe released keys.
+    // Modifiers remain meaningful; retain the last known non-modifier set.
+    for (size_t index = 0U; index < 6U; ++index) {
+        effective[index + 2U] = rollover
+            ? decoder->previous_keys[index] : report[index + 2U];
+    }
+
+    KeyboardDecoder next = *decoder;
+    keyboard::KeyEvent staged[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT]{};
+    size_t staged_count = 0U;
+    if (!decode_valid_keyboard_report(
+            &next, effective, sizeof(effective), staged,
+            MAXIMUM_KEYBOARD_EVENTS_PER_REPORT, &staged_count) ||
+        staged_count > event_capacity) return false;
+
+    // Publish the complete transition together. A failed capacity check must
+    // not emit partial events or toggle Caps Lock before a caller retries.
+    for (size_t index = 0U; index < staged_count; ++index) {
+        events[index] = staged[index];
+    }
+    *decoder = next;
+    *event_count = staged_count;
     return true;
 }
 

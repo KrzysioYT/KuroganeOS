@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### HID report failure atomicity
+
+- Stage the bounded keyboard transition before publishing output or decoder
+  state. Capacity failure no longer toggles Caps Lock or emits partial events.
+- Deduplicate repeated usages and preserve held non-modifier keys during
+  rollover while still updating modifiers; reject keyboard error reports
+  without corrupting cached state.
+- Added retry, rollover, duplicate, malformed-input and maximum 20-event
+  transition regressions. The initial real xHCI keyboard gate passed at
+  `73aba709c535261b99d23182ecb4b2ead091b6e1` (run `35059962106`).
+
 ### xHCI keyboard runtime gate
 
 - Added a real OVMF/QEMU xHCI + USB keyboard gate using the normal driver,

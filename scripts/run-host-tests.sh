@@ -137,6 +137,11 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_keyboard.cpp kernel/drivers/usb/protocol.cpp \
+  -o "$OUT_DIR/test_usb_keyboard"
+"$OUT_DIR/test_usb_keyboard"
+
 # Validate xHCI capability/runtime/doorbell MMIO windows with overflow-safe
 # arithmetic before privileged controller access.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

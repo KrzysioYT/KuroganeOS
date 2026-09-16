@@ -29,6 +29,9 @@ struct KeyboardDecoder {
 constexpr size_t MAXIMUM_KEYBOARD_EVENTS_PER_REPORT = 20U;
 
 void reset_keyboard_decoder(KeyboardDecoder* decoder);
+// Allocation-free, all-or-nothing publication: on failure decoder/events are
+// unchanged and *event_count is zero (when supplied). Rollover preserves the
+// non-modifier set while applying valid modifier changes.
 bool decode_boot_keyboard_report(
     KeyboardDecoder* decoder,
     const uint8_t* report,
