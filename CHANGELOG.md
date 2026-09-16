@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### USB input backpressure
+
+- Retain up to 20 decoded key transitions while the shared input queue is full.
+  Resume publication at the first unaccepted event and defer the next report
+  transfer until the batch is drained; key releases are no longer discarded.
+- Host regression covers partial publication, repeated blocked polls and
+  exact-once key/modifier release. Runtime qualification remains required.
+
 ### xHCI transfer completion ownership
 
 - Record the outstanding keyboard transfer's TRB address and require an exact

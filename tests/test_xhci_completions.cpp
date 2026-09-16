@@ -5,11 +5,13 @@
 
 namespace {
 size_t submitted = 0U;
-drivers::keyboard::KeyEvent delivered[4]{};
+drivers::keyboard::KeyEvent delivered[24]{};
+size_t capacity = 24U;
 }
 namespace input {
 bool submit_key(const drivers::keyboard::KeyEvent& event) {
-    assert(submitted < 4U);
+    if (submitted == capacity) return false;
+    assert(submitted < 24U);
     delivered[submitted++] = event;
     return true;
 }
@@ -75,6 +77,32 @@ int main() {
     complete(0x10020U); // No outstanding transfer: consume event, no mutation.
     assert(submitted == 2U && g_controller.reports == 2U);
     assert(!g_controller.report_queued && g_controller.interrupt_ring.enqueue == 3U);
+
+    assert(queue_keyboard_report(g_controller));
+    report[0] = 2U; // Shift+A creates two ordered events.
+    report[2] = 4U;
+    capacity = submitted + 1U;
+    complete(0x10030U);
+    assert(submitted == 3U && delivered[2].key == drivers::keyboard::KeyCode::LeftShift);
+    assert(g_controller.pending_key_count == 2U && g_controller.pending_key_index == 1U);
+    assert(!g_controller.report_queued && g_controller.interrupt_ring.enqueue == 4U);
+    for (size_t retry = 0U; retry < 4U; ++retry) assert(poll(1U) == 0U);
+    assert(submitted == 3U && g_controller.interrupt_ring.enqueue == 4U);
+    capacity = 24U;
+    assert(poll(1U) == 0U);
+    assert(submitted == 4U && delivered[3].pressed && delivered[3].shift);
+    assert(g_controller.pending_key_count == 0U && g_controller.report_queued);
+    assert(g_controller.interrupt_ring.enqueue == 5U);
+    // Block both releases, then verify retry publishes each exactly once.
+    capacity = submitted;
+    complete(0x10040U);
+    assert(submitted == 4U && !g_controller.report_queued);
+    assert(g_controller.pending_key_count == 2U);
+    capacity = 24U;
+    assert(poll(1U) == 0U);
+    assert(submitted == 6U && !delivered[4].pressed && !delivered[5].pressed);
+    assert(g_controller.interrupt_ring.enqueue == 6U);
     std::puts("xHCI transfer completion ownership regression: PASS");
+    std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     return 0;
 }

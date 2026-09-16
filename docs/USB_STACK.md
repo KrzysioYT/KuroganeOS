@@ -12,6 +12,9 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
 
 ## Stan
 
+- Pełna kolejka input wstrzymuje następny transfer HID. Stały bufor 20 zdarzeń
+  zachowuje nieopublikowaną część raportu; następny poll ponawia ją bez duplikatów.
+  Stan obejmuje również zwolnienia klawiszy i modyfikatorów.
 - Parser konfiguracji USB i wybór HID boot keyboard są zaimplementowane bez alokacji dynamicznej.
 - Walidacja odrzuca niepełne deskryptory, alternatywne interfejsy, EP0, endpointy bez interwału oraz nieprawidłowe rozmiary pakietów.
 - Dekoder raportów HID boot keyboard jest ograniczony do sześciu klawiszy i stałego bufora zdarzeń.

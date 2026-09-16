@@ -4,7 +4,7 @@
 from pathlib import Path
 
 
-ANCHOR = "                static_cast<void>(input::submit_key(events[index]));"
+ANCHOR = "        record_keyboard_input(controller, event);"
 MARKER = "[TEST] usb_hid_f12_press:"
 EMPTY_ANCHOR = "    return cleanup == Status::Ok ? failure : cleanup;"
 EMPTY_INSTRUMENTATION = """    if (failure == Status::NoDevice) {
@@ -18,12 +18,8 @@ EMPTY_INSTRUMENTATION = """    if (failure == Status::NoDevice) {
             : "[TEST] xhci_empty_cleanup: FAIL");
     }
     return cleanup == Status::Ok ? failure : cleanup;"""
-INSTRUMENTATION = """                // Qualification only: require successful publication to the
-                // production input queue and an ordered hardware press/release.
-                if (!input::submit_key(events[index])) {
-                    terminal::println("[TEST] usb_hid_f12_press: FAIL");
-                    continue;
-                }
+INSTRUMENTATION = """        record_keyboard_input(controller, event);
+                // Reached only after successful production input publication.
                 static bool qualification_f12_down = false;
                 static bool qualification_ring_wrap = false;
                 if (!qualification_ring_wrap &&
@@ -33,8 +29,8 @@ INSTRUMENTATION = """                // Qualification only: require successful p
                     qualification_ring_wrap = true;
                     terminal::println("[TEST] usb_hid_ring_wrap: PASS");
                 }
-                if (events[index].key == keyboard::KeyCode::F12) {
-                    if (events[index].pressed) {
+                if (event.key == keyboard::KeyCode::F12) {
+                    if (event.pressed) {
                         terminal::println(qualification_f12_down
                             ? "[TEST] usb_hid_f12_press: FAIL"
                             : "[TEST] usb_hid_f12_press: PASS");

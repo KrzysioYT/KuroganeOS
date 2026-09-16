@@ -117,6 +117,9 @@ struct Controller {
     bool event_cycle;
     HidBootKeyboardInterface keyboard_interface;
     KeyboardDecoder keyboard_decoder;
+    keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
+    size_t pending_key_count;
+    size_t pending_key_index;
     bool report_queued;
     uint64_t report_trb;
     bool input_proven;
@@ -828,6 +831,7 @@ bool configure_keyboard_endpoint(Controller& controller) {
 
 bool queue_keyboard_report(Controller& controller) {
     if (controller.report_queued) return true;
+    if (controller.pending_key_count != 0U) return false;
     clear_bytes(controller.data_page.virtual_address, 8U);
     controller.report_trb = enqueue_trb(
         controller.interrupt_ring,
@@ -866,6 +870,27 @@ bool register_keyboard(Controller& controller) {
     return true;
 }
 
+void record_keyboard_input(Controller& controller, const keyboard::KeyEvent& event) {
+    if (!controller.input_proven && event.pressed) {
+        controller.input_proven = true;
+        log::write(log::Level::Info, "USB",
+                   "hardware xHCI HID keyboard report received");
+        terminal::println("[TEST] usb_hid_keyboard_input: PASS");
+    }
+}
+
+bool flush_keyboard_events(Controller& controller) {
+    while (controller.pending_key_index < controller.pending_key_count) {
+        const auto& event = controller.pending_keys[controller.pending_key_index];
+        if (!input::submit_key(event)) return false;
+        record_keyboard_input(controller, event);
+        ++controller.pending_key_index;
+    }
+    controller.pending_key_index = 0U;
+    controller.pending_key_count = 0U;
+    return true;
+}
+
 void handle_keyboard_report(Controller& controller, const Trb& event) {
     // Exactly one report is outstanding. Slot/endpoint alone cannot identify
     // its owner: a stale or malformed completion must not consume new DMA.
@@ -881,31 +906,20 @@ void handle_keyboard_report(Controller& controller, const Trb& event) {
         ? controller.interrupt_packet_size - remaining
         : 0U;
     if (completion_ok(event) && actual >= 8U) {
-        keyboard::KeyEvent events[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT]{};
-        size_t count = 0U;
         if (decode_boot_keyboard_report(
                 &controller.keyboard_decoder,
                 static_cast<const uint8_t*>(
                     controller.data_page.virtual_address),
                 actual,
-                events,
+                controller.pending_keys,
                 MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
-                &count)) {
+                &controller.pending_key_count)) {
             ++controller.reports;
-            for (size_t index = 0U; index < count; ++index) {
-                static_cast<void>(input::submit_key(events[index]));
-                if (!controller.input_proven && events[index].pressed) {
-                    controller.input_proven = true;
-                    log::write(
-                        log::Level::Info,
-                        "USB",
-                        "hardware xHCI HID keyboard report received");
-                    terminal::println("[TEST] usb_hid_keyboard_input: PASS");
-                }
-            }
         }
     }
-    static_cast<void>(queue_keyboard_report(controller));
+    if (flush_keyboard_events(controller)) {
+        static_cast<void>(queue_keyboard_report(controller));
+    }
 }
 
 } // namespace
@@ -1004,6 +1018,10 @@ Status initialize(
 
 size_t poll(size_t budget) {
     if (!g_controller.initialized || budget == 0U) return 0U;
+    if (g_controller.pending_key_count != 0U) {
+        if (!flush_keyboard_events(g_controller)) return 0U;
+        static_cast<void>(queue_keyboard_report(g_controller));
+    }
     size_t processed = 0U;
     while (processed < budget) {
         Trb event{};
