@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Bounded xHCI keyboard hotplug
+
+- Added disconnect state progression: drain pending input, release held keys,
+  acknowledge Disable Slot, retire the device handle, and wait for replacement.
+- Re-enumerate into bounded existing endpoint/context buffers only after slot
+  retirement; command/event rings stay live. Missed disconnect/reconnect edges
+  are detected through PORTSC connection-change state.
+- Command/MMIO failures stop polling and quarantine resources with typed status.
+- Added host disconnect/backpressure/timeout regressions and a real QMP gate
+  requiring three held-Shift remove/add cycles, stale-handle rejection and
+  working F12 input after each reconnect. Runtime qualification is pending.
+
 ### USB input backpressure
 
 - Retain up to 20 decoded key transitions while the shared input queue is full.

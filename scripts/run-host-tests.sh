@@ -165,9 +165,10 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
 # Reject unrelated/duplicate transfer completions before touching report DMA.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
   -ffunction-sections -fdata-sections tests/test_xhci_completions.cpp \
-  kernel/drivers/usb/protocol.cpp \
+  kernel/drivers/usb/protocol.cpp kernel/drivers/core/device_manager.cpp \
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
+python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,
 # retained ownership on failure, exact-once retry and child-slot rollback.

@@ -49,11 +49,13 @@ constexpr uint8_t TRB_DATA_STAGE = 3U;
 constexpr uint8_t TRB_STATUS_STAGE = 4U;
 constexpr uint8_t TRB_LINK = 6U;
 constexpr uint8_t TRB_ENABLE_SLOT = 9U;
+constexpr uint8_t TRB_DISABLE_SLOT = 10U;
 constexpr uint8_t TRB_ADDRESS_DEVICE = 11U;
 constexpr uint8_t TRB_CONFIGURE_ENDPOINT = 12U;
 constexpr uint8_t TRB_EVALUATE_CONTEXT = 13U;
 constexpr uint8_t TRB_TRANSFER_EVENT = 32U;
 constexpr uint8_t TRB_COMMAND_COMPLETION = 33U;
+constexpr uint8_t TRB_PORT_STATUS_CHANGE = 34U;
 
 constexpr uint8_t COMPLETION_SUCCESS = 1U;
 constexpr uint8_t COMPLETION_SHORT_PACKET = 13U;
@@ -77,6 +79,10 @@ struct ProducerRing {
     storage::dma::Page page;
     size_t enqueue;
     bool cycle;
+};
+
+enum class KeyboardLifecycle : uint8_t {
+    Active, DrainInput, ReleaseKeys, WaitingForDevice, Failed,
 };
 
 struct Controller {
@@ -120,6 +126,8 @@ struct Controller {
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
+    KeyboardLifecycle keyboard_lifecycle;
+    Status runtime_status;
     bool report_queued;
     uint64_t report_trb;
     bool input_proven;
@@ -191,8 +199,8 @@ bool allocate_page(storage::dma::Page* page) {
     return true;
 }
 
-bool initialize_ring(ProducerRing* ring) {
-    if (ring == nullptr || !allocate_page(&ring->page)) return false;
+void reset_ring(ProducerRing* ring) {
+    clear_bytes(ring->page.virtual_address, memory::virtual_memory::PAGE_SIZE);
     ring->enqueue = 0U;
     ring->cycle = true;
     Trb& link = trbs(*ring)[USABLE_RING_TRBS];
@@ -200,6 +208,11 @@ bool initialize_ring(ProducerRing* ring) {
     link.status = 0U;
     link.control = static_cast<uint32_t>(TRB_LINK) << 10U |
         UINT32_C(1) << 1U | UINT32_C(1);
+}
+
+bool initialize_ring(ProducerRing* ring) {
+    if (ring == nullptr || !allocate_page(&ring->page)) return false;
+    reset_ring(ring);
     return true;
 }
 
@@ -307,13 +320,7 @@ Status quiesce_dma(Controller& controller) {
     return Status::Ok;
 }
 
-Status release_resources(Controller* controller) {
-    if (controller == nullptr) return Status::InvalidArgument;
-    controller->initialized = false;
-    controller->cleanup_pending = true;
-    const Status stopped = quiesce_dma(*controller);
-    if (stopped != Status::Ok) return stopped;
-
+Status remove_keyboard_device(Controller* controller) {
     if (controller->keyboard_device != device::INVALID_DEVICE_ID) {
         const auto* child = device::get(controller->keyboard_device);
         if (child != nullptr) {
@@ -328,6 +335,17 @@ Status release_resources(Controller* controller) {
         }
         controller->keyboard_device = device::INVALID_DEVICE_ID;
     }
+    return Status::Ok;
+}
+
+Status release_resources(Controller* controller) {
+    if (controller == nullptr) return Status::InvalidArgument;
+    controller->initialized = false;
+    controller->cleanup_pending = true;
+    const Status stopped = quiesce_dma(*controller);
+    if (stopped != Status::Ok) return stopped;
+    const Status removed = remove_keyboard_device(controller);
+    if (removed != Status::Ok) return removed;
     bool released = true;
     storage::dma::Page* const pages[] = {
         &controller->command_ring.page, &controller->ep0_ring.page,
@@ -572,6 +590,20 @@ bool reset_connected_port(Controller& controller) {
         relax();
     }
     return false;
+}
+
+void acknowledge_port_change(Controller& controller, uint8_t port) {
+    if (port == 0U || port > controller.maximum_ports) return;
+    const size_t offset = OP_PORTS + static_cast<size_t>(port - 1U) * PORT_STRIDE;
+    const uint32_t status = read32(controller.operational, offset);
+    if (status == UINT32_MAX) return;
+    constexpr uint32_t changes = UINT32_C(0x7F) << 17U;
+    constexpr uint32_t preserved = PORT_POWER | (UINT32_C(3) << 14U) |
+        (UINT32_C(7) << 25U);
+    if ((status & changes) != 0U) {
+        // Do not echo PED/PR/LWS: they have side effects, not RW semantics.
+        write32(controller.operational, offset, status & (preserved | changes));
+    }
 }
 
 uint32_t* input_context(Controller& controller, size_t index) {
@@ -922,6 +954,113 @@ void handle_keyboard_report(Controller& controller, const Trb& event) {
     }
 }
 
+Status attach_keyboard(Controller& controller) {
+    if (!reset_connected_port(controller)) {
+        return first_connected_port(controller) != 0U
+            ? Status::PortResetTimeout : Status::NoDevice;
+    }
+    log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
+    if (!address_device(controller)) return Status::CommandFailed;
+    if (!read_descriptors(controller)) return Status::HidKeyboardNotFound;
+    log::write(log::Level::Info, "XHCI", "USB HID descriptors accepted");
+    if (!configure_keyboard_endpoint(controller)) return Status::CommandFailed;
+    reset_keyboard_decoder(&controller.keyboard_decoder);
+    if (!register_keyboard(controller)) return Status::DeviceRegistrationFailed;
+    controller.keyboard_lifecycle = KeyboardLifecycle::Active;
+    controller.runtime_status = Status::Ok;
+    acknowledge_port_change(controller, controller.port_id);
+    static_cast<void>(queue_keyboard_report(controller));
+    log::write(log::Level::Info, "USB", "xHCI USB HID boot keyboard ready");
+    terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
+    return Status::Ok;
+}
+
+void fail_hotplug(Controller& controller, Status reason) {
+    controller.initialized = false;
+    controller.keyboard_lifecycle = KeyboardLifecycle::Failed;
+    controller.cleanup_pending = true;
+    const Status stopped = quiesce_dma(controller);
+    controller.runtime_status = stopped == Status::Ok ? reason : stopped;
+    if (controller.keyboard_device != device::INVALID_DEVICE_ID) {
+        static_cast<void>(device::set_status(controller.keyboard_device,
+                                            device::Status::Failed));
+    }
+    log::write(log::Level::Error, "XHCI", status_message(controller.runtime_status));
+    // Keep all DMA/mapping ownership until explicit initialize/cleanup retry.
+}
+
+bool progress_keyboard_lifecycle(Controller& controller) {
+    if (controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
+        controller.port_id != 0U) {
+        const size_t offset = OP_PORTS +
+            static_cast<size_t>(controller.port_id - 1U) * PORT_STRIDE;
+        const uint32_t port = read32(controller.operational, offset);
+        if (port == UINT32_MAX) {
+            fail_hotplug(controller, Status::MmioUnavailable);
+            return false;
+        }
+        // CSC also catches a disconnect/reconnect completed between polls.
+        // The new physical attachment must never inherit the old slot/handle.
+        if ((port & PORT_CONNECTED) == 0U || (port & (UINT32_C(1) << 17U)) != 0U) {
+            controller.keyboard_lifecycle = KeyboardLifecycle::DrainInput;
+            acknowledge_port_change(controller, controller.port_id);
+        }
+    }
+    if (controller.keyboard_lifecycle == KeyboardLifecycle::DrainInput) {
+        if (!flush_keyboard_events(controller)) return false;
+        const uint8_t released[8]{};
+        static_cast<void>(decode_boot_keyboard_report(
+            &controller.keyboard_decoder, released, sizeof(released),
+            controller.pending_keys, MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
+            &controller.pending_key_count));
+        controller.keyboard_lifecycle = KeyboardLifecycle::ReleaseKeys;
+    }
+    if (controller.keyboard_lifecycle == KeyboardLifecycle::ReleaseKeys) {
+        if (!flush_keyboard_events(controller)) return false;
+        Trb completion{};
+        if (controller.slot_id != 0U) {
+            if (!submit_command(controller, 0U, 0U,
+                    static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
+                    static_cast<uint32_t>(controller.slot_id) << 24U,
+                    &completion)) {
+                fail_hotplug(controller, Status::CommandFailed);
+                return false;
+            }
+            static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)
+                [controller.slot_id] = 0U;
+            barrier();
+            controller.slot_id = 0U;
+        }
+        // Only acknowledged Disable Slot permits reuse of endpoint DMA.
+        controller.report_queued = false;
+        controller.report_trb = 0U;
+        const Status removed = remove_keyboard_device(&controller);
+        if (removed != Status::Ok) {
+            fail_hotplug(controller, removed);
+            return false;
+        }
+        controller.keyboard_lifecycle = KeyboardLifecycle::WaitingForDevice;
+        controller.runtime_status = Status::NoDevice;
+        log::write(log::Level::Info, "USB", "keyboard disconnected; slot retired");
+        return false;
+    }
+    if (controller.keyboard_lifecycle == KeyboardLifecycle::WaitingForDevice) {
+        if (first_connected_port(controller) == 0U) return false;
+        // Command/event rings stay live. Only disabled-slot endpoint/context
+        // pages are reused; no DMA allocation or global controller reset.
+        reset_ring(&controller.ep0_ring);
+        reset_ring(&controller.interrupt_ring);
+        clear_bytes(controller.device_context_page.virtual_address,
+                    memory::virtual_memory::PAGE_SIZE);
+        const Status attached = attach_keyboard(controller);
+        if (attached != Status::Ok) {
+            fail_hotplug(controller, attached);
+            return false;
+        }
+    }
+    return controller.keyboard_lifecycle == KeyboardLifecycle::Active;
+}
+
 } // namespace
 
 Status initialize(
@@ -989,35 +1128,15 @@ Status initialize(
     if (!configure_controller(g_controller)) {
         return fail_initialization(Status::ControllerStartTimeout);
     }
-    if (!reset_connected_port(g_controller)) {
-        const bool any_connected = first_connected_port(g_controller) != 0U;
-        return fail_initialization(
-            any_connected ? Status::PortResetTimeout : Status::NoDevice);
-    }
-    log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
-    if (!address_device(g_controller)) {
-        return fail_initialization(Status::CommandFailed);
-    }
-    if (!read_descriptors(g_controller)) {
-        return fail_initialization(Status::HidKeyboardNotFound);
-    }
-    log::write(log::Level::Info, "XHCI", "USB HID descriptors accepted");
-    if (!configure_keyboard_endpoint(g_controller)) {
-        return fail_initialization(Status::CommandFailed);
-    }
-    reset_keyboard_decoder(&g_controller.keyboard_decoder);
-    if (!register_keyboard(g_controller)) {
-        return fail_initialization(Status::DeviceRegistrationFailed);
-    }
+    const Status attached = attach_keyboard(g_controller);
+    if (attached != Status::Ok) return fail_initialization(attached);
     g_controller.initialized = true;
-    static_cast<void>(queue_keyboard_report(g_controller));
-    log::write(log::Level::Info, "USB", "xHCI USB HID boot keyboard ready");
-    terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
     return Status::Ok;
 }
 
 size_t poll(size_t budget) {
     if (!g_controller.initialized || budget == 0U) return 0U;
+    if (!progress_keyboard_lifecycle(g_controller)) return 0U;
     if (g_controller.pending_key_count != 0U) {
         if (!flush_keyboard_events(g_controller)) return 0U;
         static_cast<void>(queue_keyboard_report(g_controller));
@@ -1027,6 +1146,12 @@ size_t poll(size_t budget) {
         Trb event{};
         if (!next_event(g_controller, &event)) break;
         ++processed;
+        if (trb_type(event) == TRB_PORT_STATUS_CHANGE) {
+            const uint8_t port = static_cast<uint8_t>(event.parameter >> 24U);
+            if (port == g_controller.port_id &&
+                !progress_keyboard_lifecycle(g_controller)) break;
+            acknowledge_port_change(g_controller, port);
+        }
         if (trb_type(event) == TRB_TRANSFER_EVENT &&
             static_cast<uint8_t>(event.control >> 24U) == g_controller.slot_id &&
             static_cast<uint8_t>((event.control >> 16U) & 0x1FU) ==
@@ -1040,8 +1165,10 @@ size_t poll(size_t budget) {
 bool initialized() { return g_controller.initialized; }
 bool keyboard_ready() {
     return g_controller.initialized &&
+        g_controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
         g_controller.keyboard_device != device::INVALID_DEVICE_ID;
 }
+Status runtime_status() { return g_controller.runtime_status; }
 uint64_t reports_received() { return g_controller.reports; }
 
 const char* status_message(Status status) {

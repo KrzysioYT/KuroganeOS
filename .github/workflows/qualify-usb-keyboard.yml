@@ -12,6 +12,7 @@ on:
       - 'kernel/main.cpp'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'scripts/qualification/inject-usb-hid-runtime.py'
+      - 'scripts/qualification/usb-hotplug-qmp.py'
       - 'scripts/run-host-tests.sh'
       - 'tests/test_usb*'
       - 'tests/test_xhci*'
@@ -98,6 +99,27 @@ jobs:
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_empty_cleanup: FAIL' \
             build/tests/usb-empty-runtime/serial.log
 
+      - name: Require repeated real keyboard disconnect and re-enumeration
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-hotplug \
+            --log-dir build/tests/usb-hotplug-runtime --timeout 120 \
+            --require-marker '[TEST] usb_hid_shift_press: PASS' \
+            --require-marker '[TEST] usb_hid_disconnect_release: PASS' \
+            --require-marker '[TEST] usb_hid_disconnect: PASS' \
+            --require-marker '[TEST] usb_hid_reconnect: PASS' \
+            --require-marker '[TEST] usb_hid_f12_press: PASS' \
+            --require-marker '[TEST] usb_hid_f12_release: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL' \
+            build/tests/usb-hotplug-runtime/serial.log
+
       - name: Retain serial and QEMU logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -106,4 +128,5 @@ jobs:
           path: |
             build/tests/usb-runtime
             build/tests/usb-empty-runtime
+            build/tests/usb-hotplug-runtime
           if-no-files-found: warn

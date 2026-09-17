@@ -18,6 +18,9 @@ log_dir=""
 audio_model="none"
 usb_keyboard=false
 usb_controller=false
+usb_hotplug=false
+usb_hotplug_phase=0
+usb_hotplug_cycles=0
 require_network=false
 require_tls=false
 send_key_after_marker=""
@@ -51,6 +54,7 @@ while (($#)); do
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
+        --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
         --send-key-after-marker)
@@ -513,6 +517,34 @@ done
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        if $usb_hotplug; then
+            usb_action=""
+            case "$usb_hotplug_phase" in
+                0) if grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial"; then
+                       usb_action=hold-shift; usb_hotplug_phase=1
+                   fi ;;
+                1) if (( $(marker_occurrences '[TEST] usb_hid_shift_press: PASS') > usb_hotplug_cycles )); then
+                       usb_action=remove; usb_hotplug_phase=2
+                   fi ;;
+                2) if (( $(marker_occurrences '[TEST] usb_hid_disconnect: PASS') > usb_hotplug_cycles )); then
+                       usb_action=add; usb_hotplug_phase=3
+                   fi ;;
+                3) if (( $(marker_occurrences '[TEST] xhci_keyboard_enumeration: PASS') >= usb_hotplug_cycles + 2 )); then
+                       send_qemu_key f12; usb_hotplug_phase=4
+                   fi ;;
+                4) if (( $(marker_occurrences '[TEST] usb_hid_f12_release: PASS') > usb_hotplug_cycles )); then
+                       usb_hotplug_cycles=$((usb_hotplug_cycles + 1))
+                       if (( usb_hotplug_cycles < 3 )); then
+                           usb_action=hold-shift; usb_hotplug_phase=1
+                       else
+                           usb_hotplug_phase=5
+                       fi
+                   fi ;;
+            esac
+            if [[ -n "$usb_action" ]]; then
+                python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/usb-hotplug-qmp.py" "$qmp" "$usb_action"
+            fi
+        fi
         if [[ -n "$send_key_after_marker" && "$send_key_sent" == false ]] &&
            grep -Fq "$send_key_after_marker" "$serial"; then
             send_qemu_key "$send_key_name"

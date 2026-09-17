@@ -18,6 +18,11 @@ bool submit_key(const drivers::keyboard::KeyEvent& event) {
 }
 namespace log {
 void write(Level, const char*, const char*) {}
+void write_u64(Level, const char*, const char*, uint64_t) {}
+}
+namespace pci {
+uint16_t read16(Address, uint8_t) { return 0U; }
+void write16(Address, uint8_t, uint16_t) {}
 }
 namespace terminal {
 void println(const char*) {}
@@ -102,7 +107,60 @@ int main() {
     assert(poll(1U) == 0U);
     assert(submitted == 6U && !delivered[4].pressed && !delivered[5].pressed);
     assert(g_controller.interrupt_ring.enqueue == 6U);
+
+    // Disconnect while Shift+A are down and input can accept only one release.
+    namespace device = drivers::device;
+    assert(device::initialize() == KStatus::Ok);
+    g_controller.parent_device = device::INVALID_DEVICE_ID;
+    g_controller.owner_driver = 7U;
+    assert(register_keyboard(g_controller));
+    const auto old_handle = device::handle_for(g_controller.keyboard_device);
+    alignas(4) uint8_t operational[OP_PORTS + PORT_STRIDE]{};
+    alignas(4096) Trb commands[RING_TRB_COUNT]{};
+    alignas(4096) uint64_t dcbaa[512]{};
+    g_controller.operational = operational;
+    g_controller.port_id = 1U;
+    g_controller.maximum_ports = 1U;
+    g_controller.command_ring.page = {commands, 0x40000U, true};
+    g_controller.command_ring.cycle = true;
+    g_controller.dcbaa_page = {dcbaa, 0x50000U, true};
+    dcbaa[1] = 0x60000U;
+    write32(operational, OP_PORTS, PORT_CONNECTED);
+    report[0] = 2U;
+    report[2] = 4U;
+    complete(0x10050U);
+    assert(submitted == 8U && keyboard_ready());
+    capacity = submitted + 1U;
+    write32(operational, OP_PORTS, 0U);
+    assert(poll(1U) == 0U);
+    assert(!keyboard_ready() && submitted == 9U);
+    assert(g_controller.keyboard_lifecycle == KeyboardLifecycle::ReleaseKeys);
+    assert(g_controller.command_ring.enqueue == 0U && dcbaa[1] == 0x60000U);
+    assert(device::resolve(old_handle) != nullptr);
+    capacity = 24U;
+    events[g_controller.event_dequeue] = {0x40000U, success,
+        static_cast<uint32_t>(TRB_COMMAND_COMPLETION) << 10U | 1U};
+    assert(poll(1U) == 0U);
+    assert(submitted == 10U && !delivered[8].pressed && !delivered[9].pressed);
+    assert(g_controller.keyboard_lifecycle == KeyboardLifecycle::WaitingForDevice);
+    assert(g_controller.command_ring.enqueue == 1U && dcbaa[1] == 0U);
+    assert(trb_type(commands[0]) == TRB_DISABLE_SLOT);
+    assert((commands[0].control >> 24U) == 1U);
+    assert(device::resolve(old_handle) == nullptr && device::active_count() == 0U);
+    assert(!g_controller.report_queued && g_controller.slot_id == 0U);
+    assert(runtime_status() == Status::NoDevice && initialized());
+    assert(poll(1U) == 0U && submitted == 10U);
+
+    // A missing Disable Slot completion must retain DMA and stop polling.
+    g_controller.keyboard_lifecycle = KeyboardLifecycle::ReleaseKeys;
+    g_controller.slot_id = 1U;
+    dcbaa[1] = 0x60000U;
+    assert(poll(1U) == 0U);
+    assert(!initialized() && g_controller.cleanup_pending);
+    assert(runtime_status() == Status::CommandFailed);
+    assert(g_controller.data_page.allocated && dcbaa[1] == 0x60000U);
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
+    std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");
     return 0;
 }

@@ -12,6 +12,16 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
 
 ## Stan
 
+- Hotplug po początkowej enumeracji używa stanów DrainInput → ReleaseKeys →
+  WaitingForDevice → Active. Zmiana połączenia PORTSC wykrywa także krótki cykl
+  odłączenia/podłączenia między pollami. Stare bufory endpointów są ponownie
+  używane dopiero po potwierdzonym Disable Slot; uchwyt starej klawiatury wygasa.
+  Timeout kończy polling i zachowuje zasoby do bezpiecznego cleanupu.
+  `runtime_status()` rozróżnia oczekiwanie NoDevice od błędu kontrolera.
+- Nowy gate hotplug wykonuje trzy rzeczywiste cykle QMP remove/add z trzymanym
+  Shiftem i testem F12 po ponownej enumeracji. Oczekuje na kwalifikację własnego
+  commitu. Nie obejmuje hubów, wielu równoczesnych urządzeń ani podłączenia
+  pierwszego urządzenia do kontrolera pustego już podczas bootu.
 - Pełna kolejka input wstrzymuje następny transfer HID. Stały bufor 20 zdarzeń
   zachowuje nieopublikowaną część raportu; następny poll ponawia ją bez duplikatów.
   Stan obejmuje również zwolnienia klawiszy i modyfikatorów.
