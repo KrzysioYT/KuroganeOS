@@ -192,6 +192,18 @@ including Pre-Steel `35905199805`, are queued, not a fresh full-matrix PASS.
 Next exact USB task: HID mouse, starting with all-or-nothing publication of a
 mouse report into the common input queue. Retaining a report on queue pressure
 must not double-apply pointer movement or publish only part of a button change.
+
+That input prerequisite is implemented at
+`4926de52a29eac3019babf93730a0529cd675855`. A rejected mouse sample leaves the
+queue and pointer/button state unchanged; the PS/2 pump also retains a blocked
+key event or mouse sample for retry. Host coverage includes queue saturation,
+press/release ordering, repeated retry and uint16_t sequence wrap. The focused
+host test passed ASan/UBSan, and local production QEMU/TCG passed Login plus
+DHCP/gateway and two keyboard/mouse-driven Login/Home/Logout cycles. The local
+image was incrementally rebuilt; clean exact-source release media and the full
+host/HID/hotplug/late-attachment regression passed in Actions `35906417389`,
+runtime job `107335121448`, cleanup job `107335121039`. Pre-Steel regression
+`35906417805` remains queued. No USB mouse backend is claimed yet.
 **5.0 remains ACTIVE**, not qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**

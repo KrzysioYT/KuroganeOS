@@ -34,8 +34,12 @@ First keyboard attachment after empty-controller boot is qualified at
 `ad6a19b11d83d0eecaba3599c084321768371e67`: run `35905197560`, runtime job
 `107331023235`, cleanup job `107331023071`. Nine triggered workflows passed;
 six self-hosted workflows including Pre-Steel `35905199805` remain queued.
-The next input slice makes mouse publication all-or-nothing under queue
-pressure; this prerequisite does not claim a USB mouse backend.
+Mouse publication is now all-or-nothing under queue pressure, and the PS/2
+pump retains blocked keyboard/mouse events. The change at `4926de5` passed full
+host, clean release media and the USB matrix in `35906417389` (runtime job
+`107335121448`, cleanup job `107335121039`), plus local ASan/UBSan and two real
+QEMU/TCG Login/Home/Logout cycles. Pre-Steel `35906417805` remains queued.
+This prerequisite does not claim a USB mouse backend.
 
 Single-vector PCI MSI is qualified at exact source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. The production path uses bounded generation-safe vector ownership, validated xAPIC enablement, Local APIC EOI, reversible 32/64-bit MSI programming and ordered route teardown. The runtime proof uses the documented QEMU EDU endpoint to raise and acknowledge a real device MSI; QEMU's 82540EM `e1000` remains on its truthful polling/INTx-compatible path because that emulated model does not expose MSI.
 

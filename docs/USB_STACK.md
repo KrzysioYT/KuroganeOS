@@ -118,8 +118,13 @@ osobny boot i `xhci_empty_cleanup`. Poprzednia próba `35085576426` zatrzymała
 się przed startem QEMU z powodu niedozwolonego parametru timeout 300 s;
 poprawka używa istniejącego limitu 240 s, bez zmniejszenia liczby raportów.
 
-1. Atomowe przyjęcie pełnego raportu myszy przez wspólną kolejkę input,
-   z możliwością ponowienia po braku miejsca (host-tested; nie jest to jeszcze USB mouse).
-2. HID mouse i wspólny routing input.
-3. USB Mass Storage jako `BlockDeviceOps`.
-4. Failure injection i stress testy hotplug.
+Wspólna kolejka input przyjmuje już raport myszy w całości albo odmawia bez
+zmiany pozycji i przycisków. Pump PS/2 zachowuje odrzucone zdarzenie do ponowienia.
+Zmiana `4926de5` przeszła host-suite, ASan/UBSan, lokalne dwa cykle sesji z myszą
+i klawiaturą oraz USB matrix
+[35906417389](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35906417389).
+To przygotowanie wspólnego input, nie sterownik myszy USB.
+
+1. HID mouse i wspólny routing input.
+2. USB Mass Storage jako `BlockDeviceOps`.
+3. Failure injection i stress testy hotplug.
