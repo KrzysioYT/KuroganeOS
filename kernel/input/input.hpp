@@ -38,6 +38,8 @@ constexpr size_t EVENT_QUEUE_CAPACITY = 256U;
 bool initialize(uint32_t screen_width, uint32_t screen_height);
 size_t pump();
 bool submit_key(const drivers::keyboard::KeyEvent& event);
+// Serialized polling context. On false, queue and pointer/button state are
+// unchanged; callers retaining the sample can retry without duplicate events.
 bool submit_mouse(const drivers::mouse::Sample& sample);
 bool try_read(Event* out_event);
 size_t pending_events();

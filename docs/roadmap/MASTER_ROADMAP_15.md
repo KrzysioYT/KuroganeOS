@@ -168,12 +168,22 @@ passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job
 IRQ counts increase during successful gateway traffic. This qualifies one
 production-driver adoption slice, not multi-vector/SMP or the whole milestone.
 
-The next Steel transport slice adds bounded MSI-X route groups (one to eight
+The Steel transport slice adds bounded MSI-X route groups (one to eight
 distinct vectors), whole-group ownership validation, allocation rollback and
 retryable teardown. A separate e1000e group gate requires real delivery on two
 concurrently installed vectors. Implementation and evidence are tracked in
-[`../PCI_MSIX_GROUPS.md`](../PCI_MSIX_GROUPS.md); exact-source Actions
-qualification and production-driver group adoption remain open.
+[`../PCI_MSIX_GROUPS.md`](../PCI_MSIX_GROUPS.md). Exact-source transport
+qualification passed at `d42d9e3` in `34811940628`; production VirtIO RX/TX
+groups passed at `308f2fb` in `34950706350` and `34950706505`.
+
+Bounded xHCI keyboard enumeration, HID input, ring wrap, acknowledged cleanup
+and three real held-key disconnect/reconnect cycles passed at
+`4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c` in `35231888211`. All twenty
+triggered workflows passed, including Pre-Steel regression `35231888631`.
+First attachment after empty-controller boot passed at `ad6a19b` in
+`35905197560` (runtime `107331023235`, cleanup `107331023071`). USB mouse,
+hubs/multiple devices and mass storage remain open;
+see [`../USB_STACK.md`](../USB_STACK.md). These slices do not qualify all of 5.0.
 
 ## 6.0.0-dev — Core Steel
 

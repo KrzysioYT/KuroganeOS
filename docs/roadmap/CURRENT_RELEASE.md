@@ -179,9 +179,19 @@ stale device-handle rejection and F12 input after re-enumeration. All twenty
 triggered workflows passed on this source, including Pre-Steel closeout
 `35231888631`; the queued older regression snapshots above are historical.
 
-Next exact USB task: first keyboard attachment after booting an empty xHCI
-controller, including event-ring draining while waiting. Implementation and
-extended QMP gate are pending exact-source qualification.
+First keyboard attachment after booting an empty xHCI controller is qualified
+at `ad6a19b11d83d0eecaba3599c084321768371e67`, run `35905197560`:
+runtime job `107331023235` and cleanup job `107331023071`. The gate requires
+empty-controller readiness, Login before first QMP attachment, then three
+held-Shift disconnect/reconnect cycles with successful F12 input. Earlier
+130-pair/ring-wrap coverage also passed. Local full host suite, clean release
+IMG/ISO/install.pkg and uninjected OVMF production Login + DHCP/gateway passed.
+Nine triggered workflows passed at this snapshot; six self-hosted workflows,
+including Pre-Steel `35905199805`, are queued, not a fresh full-matrix PASS.
+
+Next exact USB task: HID mouse, starting with all-or-nothing publication of a
+mouse report into the common input queue. Retaining a report on queue pressure
+must not double-apply pointer movement or publish only part of a button change.
 **5.0 remains ACTIVE**, not qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**

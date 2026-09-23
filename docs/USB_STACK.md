@@ -32,7 +32,10 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   a `runtime_status()` NoDevice. Poll opróżnia event ring również bez klawiatury.
   Pierwsze podłączenie używa tej samej enumeracji co ponowne podłączenie.
   Rozszerzony gate dodaje klawiaturę dopiero po Login, po czym wykonuje trzy
-  pełne cykle disconnect/reconnect. Kwalifikacja tego nowego zakresu jest pending.
+  pełne cykle disconnect/reconnect. Zakres przeszedł na SHA
+  `ad6a19b11d83d0eecaba3599c084321768371e67`, run
+  [35905197560](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35905197560),
+  job runtime `107331023235`, job cleanup `107331023071`.
   Osobny wariant `--cleanup-empty` wywołuje rzeczywisty cleanup kontrolera
   zamiast oczekiwania; ta operacja jest wstrzykiwana wyłącznie w build testowy.
 - Pełna kolejka input wstrzymuje następny transfer HID. Stały bufor 20 zdarzeń
@@ -115,7 +118,8 @@ osobny boot i `xhci_empty_cleanup`. Poprzednia próba `35085576426` zatrzymała
 się przed startem QEMU z powodu niedozwolonego parametru timeout 300 s;
 poprawka używa istniejącego limitu 240 s, bez zmniejszenia liczby raportów.
 
-1. Kwalifikacja pierwszego podłączenia po bootowaniu pustego kontrolera.
+1. Atomowe przyjęcie pełnego raportu myszy przez wspólną kolejkę input,
+   z możliwością ponowienia po braku miejsca (host-tested; nie jest to jeszcze USB mouse).
 2. HID mouse i wspólny routing input.
 3. USB Mass Storage jako `BlockDeviceOps`.
 4. Failure injection i stress testy hotplug.

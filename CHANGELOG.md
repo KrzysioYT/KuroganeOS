@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Retryable mouse input publication
+
+- Stage the complete motion/button/wheel batch before publishing it. A full
+  queue now leaves both queued events and pointer/button state unchanged, so
+  callers retaining the sample can retry it without duplicating motion.
+- Reject pre-initialization input without changing button state. Tests cover
+  zero through four available slots, press/release retry and 16-bit queue wrap.
+- The PS/2 input pump retains one blocked key event and one mouse sample,
+  retries before reading another driver event, and preserves press/release
+  ordering. The host test now runs the production pump with driver fixtures.
+- This prepares the shared input contract for USB mouse; it does not add a
+  USB mouse backend. Hardware driver rings remain bounded and can overflow.
+
 ### First USB keyboard attachment after boot
 
 - Keep an empty xHCI controller running with bounded owned DMA/MMIO and a
@@ -10,7 +23,8 @@
   while no keyboard is active. Host coverage exercises three idle ring wraps.
 - Extend QMP qualification with first attachment followed by three held-key
   disconnect/reconnect cycles. A separate cleanup-only test build retains
-  acknowledged halt and DMA/MMIO release coverage. Qualification is pending.
+  acknowledged halt and DMA/MMIO release coverage. Qualified at `ad6a19b`
+  in Actions `35905197560` (runtime and cleanup jobs both passed).
 
 ### Bounded xHCI keyboard hotplug
 
