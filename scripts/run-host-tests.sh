@@ -20,6 +20,15 @@ bash tests/test_network_smoke_state.sh
 
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 
+# Run the production input queue and pump, including whole-report rejection,
+# retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
+# legacy test.sh entry also runs this regression, but all qualification gates
+# using this suite must cover the input contract directly.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_input.cpp kernel/input/input.cpp kernel/drivers/mouse_protocol.cpp \
+  -o "$OUT_DIR/test_input"
+"$OUT_DIR/test_input"
+
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -Isdk/include \
