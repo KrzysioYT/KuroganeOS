@@ -1,6 +1,6 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-16
+Last updated: 2026-09-23
 
 ## COMPILED / RUNTIME VERSION
 
@@ -172,9 +172,17 @@ Pre-Steel matrix. The earlier ring gate `35085576426` failed before QEMU due
 to a timeout argument outside the harness contract; it was corrected to the
 existing 240-second limit without reducing the 130-pair test.
 
-Next exact USB task: Port Status Change handling in `xhci::poll()` with held-key
-release, safe disconnect cleanup and re-enumeration, qualified using real QMP
-device removal/addition. **5.0 remains ACTIVE**, not qualified.
+USB disconnect/reconnect is now qualified at exact source
+`4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c`, run `35231888211`, job
+`105237832241`: three real QMP removal/addition cycles with held-Shift release,
+stale device-handle rejection and F12 input after re-enumeration. All twenty
+triggered workflows passed on this source, including Pre-Steel closeout
+`35231888631`; the queued older regression snapshots above are historical.
+
+Next exact USB task: first keyboard attachment after booting an empty xHCI
+controller, including event-ring draining while waiting. Implementation and
+extended QMP gate are pending exact-source qualification.
+**5.0 remains ACTIVE**, not qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**

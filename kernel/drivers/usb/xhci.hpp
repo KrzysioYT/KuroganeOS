@@ -36,8 +36,8 @@ Status initialize(
 size_t poll(size_t budget);
 bool initialized();
 bool keyboard_ready();
-// Last runtime lifecycle result; NoDevice means a previously active controller
-// is retaining its bounded resources while waiting for a replacement keyboard.
+// Last runtime lifecycle result; NoDevice means a running controller retains
+// bounded resources while waiting for its first or a replacement keyboard.
 Status runtime_status();
 uint64_t reports_received();
 const char* status_message(Status status);

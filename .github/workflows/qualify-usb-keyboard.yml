@@ -23,6 +23,10 @@ permissions:
 
 jobs:
   usb-keyboard:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [runtime, empty-cleanup]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -48,11 +52,16 @@ jobs:
             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
 
       - name: Run full host regression
+        if: matrix.mode == 'runtime'
         run: bash ./scripts/run-host-tests.sh
 
       - name: Instrument real USB input delivery
         run: |
-          python3 scripts/qualification/inject-usb-hid-runtime.py
+          args=()
+          if [[ '${{ matrix.mode }}' == 'empty-cleanup' ]]; then
+            args+=(--cleanup-empty)
+          fi
+          python3 scripts/qualification/inject-usb-hid-runtime.py "${args[@]}"
           git diff --check
 
       - name: Build clean release media
@@ -62,6 +71,7 @@ jobs:
           test -s build/install.pkg
 
       - name: Require real HID delivery through transfer and event ring wrap
+        if: matrix.mode == 'runtime'
         shell: bash
         run: |
           set -euo pipefail
@@ -88,6 +98,7 @@ jobs:
             build/tests/usb-runtime/serial.log
 
       - name: Require empty-controller halt and DMA cleanup
+        if: matrix.mode == 'empty-cleanup'
         shell: bash
         run: |
           set -euo pipefail
@@ -100,6 +111,7 @@ jobs:
             build/tests/usb-empty-runtime/serial.log
 
       - name: Require repeated real keyboard disconnect and re-enumeration
+        if: matrix.mode == 'runtime'
         shell: bash
         run: |
           set -euo pipefail
@@ -120,13 +132,34 @@ jobs:
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL' \
             build/tests/usb-hotplug-runtime/serial.log
 
+      - name: Require first attachment after empty-controller boot
+        if: matrix.mode == 'runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-late-attach \
+            --log-dir build/tests/usb-late-runtime --timeout 120 \
+            --require-marker '[TEST] xhci_empty_waiting: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_shift_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/usb-late-runtime/serial.log
+
       - name: Retain serial and QEMU logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: usb-keyboard-${{ github.sha }}
+          name: usb-keyboard-${{ matrix.mode }}-${{ github.sha }}
           path: |
             build/tests/usb-runtime
             build/tests/usb-empty-runtime
             build/tests/usb-hotplug-runtime
+            build/tests/usb-late-runtime
           if-no-files-found: warn

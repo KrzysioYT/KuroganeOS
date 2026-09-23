@@ -1129,6 +1129,15 @@ Status initialize(
         return fail_initialization(Status::ControllerStartTimeout);
     }
     const Status attached = attach_keyboard(g_controller);
+    if (attached == Status::NoDevice) {
+        // A running empty controller remains owned and polled so its first
+        // device can arrive after boot. No slot or keyboard handle exists yet.
+        g_controller.keyboard_lifecycle = KeyboardLifecycle::WaitingForDevice;
+        g_controller.runtime_status = Status::NoDevice;
+        g_controller.initialized = true;
+        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB keyboard");
+        return Status::Ok;
+    }
     if (attached != Status::Ok) return fail_initialization(attached);
     g_controller.initialized = true;
     return Status::Ok;
@@ -1136,7 +1145,10 @@ Status initialize(
 
 size_t poll(size_t budget) {
     if (!g_controller.initialized || budget == 0U) return 0U;
-    if (!progress_keyboard_lifecycle(g_controller)) return 0U;
+    if (!progress_keyboard_lifecycle(g_controller) &&
+        g_controller.keyboard_lifecycle != KeyboardLifecycle::WaitingForDevice) {
+        return 0U;
+    }
     if (g_controller.pending_key_count != 0U) {
         if (!flush_keyboard_events(g_controller)) return 0U;
         static_cast<void>(queue_keyboard_report(g_controller));
@@ -1152,7 +1164,8 @@ size_t poll(size_t budget) {
                 !progress_keyboard_lifecycle(g_controller)) break;
             acknowledge_port_change(g_controller, port);
         }
-        if (trb_type(event) == TRB_TRANSFER_EVENT &&
+        if (g_controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
+            trb_type(event) == TRB_TRANSFER_EVENT &&
             static_cast<uint8_t>(event.control >> 24U) == g_controller.slot_id &&
             static_cast<uint8_t>((event.control >> 16U) & 0x1FU) ==
                 g_controller.interrupt_dci) {

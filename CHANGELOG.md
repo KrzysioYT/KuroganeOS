@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### First USB keyboard attachment after boot
+
+- Keep an empty xHCI controller running with bounded owned DMA/MMIO and a
+  truthful NoDevice runtime status; the first keyboard can arrive after Login.
+- Drain idle event rings within the poll budget and reject stale transfers
+  while no keyboard is active. Host coverage exercises three idle ring wraps.
+- Extend QMP qualification with first attachment followed by three held-key
+  disconnect/reconnect cycles. A separate cleanup-only test build retains
+  acknowledged halt and DMA/MMIO release coverage. Qualification is pending.
+
 ### Bounded xHCI keyboard hotplug
 
 - Added disconnect state progression: drain pending input, release held keys,
@@ -12,7 +22,8 @@
 - Command/MMIO failures stop polling and quarantine resources with typed status.
 - Added host disconnect/backpressure/timeout regressions and a real QMP gate
   requiring three held-Shift remove/add cycles, stale-handle rejection and
-  working F12 input after each reconnect. Runtime qualification is pending.
+  working F12 input after each reconnect. Qualified at `4b33bfb` by Actions
+  `35231888211`, alongside all nineteen other triggered workflows.
 
 ### USB input backpressure
 

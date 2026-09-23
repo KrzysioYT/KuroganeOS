@@ -151,6 +151,25 @@ int main() {
     assert(runtime_status() == Status::NoDevice && initialized());
     assert(poll(1U) == 0U && submitted == 10U);
 
+    // Empty controllers must drain status events, including ring wrap, while
+    // retaining their ownership for a first/replacement attachment. A stale
+    // transfer cannot revive the retired report or publish keyboard input.
+    const size_t saved_enqueue = g_controller.interrupt_ring.enqueue;
+    for (size_t index = 0U; index < RING_TRB_COUNT * 3U; ++index) {
+        const uint32_t cycle = g_controller.event_cycle ? 1U : 0U;
+        events[g_controller.event_dequeue] = {UINT64_C(1) << 24U, success,
+            static_cast<uint32_t>(TRB_PORT_STATUS_CHANGE) << 10U | cycle};
+        assert(poll(1U) == 1U);
+        assert(initialized() && !keyboard_ready());
+        assert(runtime_status() == Status::NoDevice);
+    }
+    events[g_controller.event_dequeue] = {0x10060U, success,
+        (control & ~UINT32_C(1)) | (g_controller.event_cycle ? 1U : 0U)};
+    assert(poll(1U) == 1U);
+    assert(submitted == 10U && !g_controller.report_queued);
+    assert(g_controller.interrupt_ring.enqueue == saved_enqueue);
+    assert(g_controller.command_ring.enqueue == 1U);
+
     // A missing Disable Slot completion must retain DMA and stop polling.
     g_controller.keyboard_lifecycle = KeyboardLifecycle::ReleaseKeys;
     g_controller.slot_id = 1U;
@@ -162,5 +181,6 @@ int main() {
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");
+    std::puts("xHCI empty controller event drain and stale transfer rejection: PASS");
     return 0;
 }

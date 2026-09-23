@@ -19,9 +19,22 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   Timeout kończy polling i zachowuje zasoby do bezpiecznego cleanupu.
   `runtime_status()` rozróżnia oczekiwanie NoDevice od błędu kontrolera.
 - Nowy gate hotplug wykonuje trzy rzeczywiste cykle QMP remove/add z trzymanym
-  Shiftem i testem F12 po ponownej enumeracji. Oczekuje na kwalifikację własnego
-  commitu. Nie obejmuje hubów, wielu równoczesnych urządzeń ani podłączenia
-  pierwszego urządzenia do kontrolera pustego już podczas bootu.
+  Shiftem i testem F12 po ponownej enumeracji. Przeszedł na SHA
+  `4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c`, run
+  [35231888211](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35231888211),
+  job `105237832241`, razem z host-suite, clean media, 130 parami F12,
+  zawinięciem ringów i cleanupem pustego kontrolera. Wszystkie 20 workflowów
+  uruchomionych dla tego źródła zakończyło się sukcesem, w tym Pre-Steel
+  [35231888631](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35231888631).
+  Nie obejmuje hubów ani wielu równoczesnych urządzeń.
+- Nowy zakres inżynierski: pusty kontroler pozostaje uruchomiony po bootowaniu.
+  `initialize()` zwraca Ok, `initialized()` jest true, `keyboard_ready()` false,
+  a `runtime_status()` NoDevice. Poll opróżnia event ring również bez klawiatury.
+  Pierwsze podłączenie używa tej samej enumeracji co ponowne podłączenie.
+  Rozszerzony gate dodaje klawiaturę dopiero po Login, po czym wykonuje trzy
+  pełne cykle disconnect/reconnect. Kwalifikacja tego nowego zakresu jest pending.
+  Osobny wariant `--cleanup-empty` wywołuje rzeczywisty cleanup kontrolera
+  zamiast oczekiwania; ta operacja jest wstrzykiwana wyłącznie w build testowy.
 - Pełna kolejka input wstrzymuje następny transfer HID. Stały bufor 20 zdarzeń
   zachowuje nieopublikowaną część raportu; następny poll ponawia ją bez duplikatów.
   Stan obejmuje również zwolnienia klawiszy i modyfikatorów.
@@ -39,7 +52,7 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   (0, 254 i 255 portów, brak urządzenia i ostatni port). Porty są adresowane
   względem rejestrów operational: limit uwzględnia CAPLENGTH. Licznik skanera
   nie zawija się przy MaxPorts=255.
-- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Enumeracja i klawiatura przeszły kwalifikację QEMU opisaną poniżej; realny sprzęt, mouse, disconnect/reconnect i Mass Storage pozostają otwarte.
+- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Enumeracja, klawiatura i disconnect/reconnect przeszły kwalifikację QEMU opisaną poniżej; realny sprzęt, mouse i Mass Storage pozostają otwarte.
 - Cleanup stron opublikowanych kontrolerowi wymaga potwierdzenia USBSTS.HCHalted
   i wyłączenia PCI bus mastering z odczytem kontrolnym. Samo skasowanie RUN
   nie pozwala oddać stron DMA. Odczyt rejestru równy wszystkim jedynkom nie
@@ -102,8 +115,7 @@ osobny boot i `xhci_empty_cleanup`. Poprzednia próba `35085576426` zatrzymała
 się przed startem QEMU z powodu niedozwolonego parametru timeout 300 s;
 poprawka używa istniejącego limitu 240 s, bez zmniejszenia liczby raportów.
 
-1. Obsługa Port Status Change w `xhci::poll()`: disconnect, zwolnienie
-   przytrzymanych klawiszy, bezpieczny cleanup i ponowna enumeracja.
+1. Kwalifikacja pierwszego podłączenia po bootowaniu pustego kontrolera.
 2. HID mouse i wspólny routing input.
 3. USB Mass Storage jako `BlockDeviceOps`.
 4. Failure injection i stress testy hotplug.

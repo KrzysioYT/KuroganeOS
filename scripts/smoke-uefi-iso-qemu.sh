@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -55,6 +55,7 @@ while (($#)); do
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
+        --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
         --send-key-after-marker)
@@ -520,6 +521,13 @@ while ((SECONDS < deadline)); do
         if $usb_hotplug; then
             usb_action=""
             case "$usb_hotplug_phase" in
+                -2) if grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial" &&
+                       grep -Fq '[TEST] xhci_empty_waiting: PASS' "$serial"; then
+                        usb_action=add; usb_hotplug_phase=-1
+                    fi ;;
+                -1) if grep -Fq '[TEST] xhci_keyboard_enumeration: PASS' "$serial"; then
+                        usb_action=hold-shift; usb_hotplug_phase=1
+                    fi ;;
                 0) if grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial"; then
                        usb_action=hold-shift; usb_hotplug_phase=1
                    fi ;;

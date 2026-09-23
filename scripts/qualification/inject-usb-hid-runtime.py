@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Instrument actual xHCI HID delivery; no fabricated reports or USB backend."""
 
+import argparse
 from pathlib import Path
 
 
@@ -39,8 +40,21 @@ DETACH_INSTRUMENTATION = DETACH_ANCHOR + """
         qualification_disconnected = released;
         terminal::println(released ? "[TEST] usb_hid_disconnect: PASS"
                                    : "[TEST] usb_hid_disconnect: FAIL");"""
-EMPTY_ANCHOR = "    return cleanup == Status::Ok ? failure : cleanup;"
-EMPTY_INSTRUMENTATION = """    if (failure == Status::NoDevice) {
+EMPTY_ANCHOR = '        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB keyboard");'
+EMPTY_INSTRUMENTATION = EMPTY_ANCHOR + """
+        const bool waiting = g_controller.initialized &&
+            g_controller.dma_published && g_controller.bus_master_enabled &&
+            !g_controller.cleanup_pending && g_controller.slot_id == 0U &&
+            !g_controller.report_queued && g_controller.report_trb == 0U &&
+            g_controller.keyboard_device == device::INVALID_DEVICE_ID &&
+            g_controller.runtime_status == Status::NoDevice;
+        terminal::println(waiting ? "[TEST] xhci_empty_waiting: PASS"
+                                 : "[TEST] xhci_empty_waiting: FAIL");
+"""
+EMPTY_CLEANUP = """
+        // Separate cleanup-only qualification build explicitly retires the
+        // live empty controller; production keeps it for first attachment.
+        const Status cleanup = release_resources(&g_controller);
         const bool released = cleanup == Status::Ok &&
             !g_controller.cleanup_pending && !g_controller.dma_published &&
             !g_controller.bus_master_enabled && !g_controller.initialized &&
@@ -49,8 +63,8 @@ EMPTY_INSTRUMENTATION = """    if (failure == Status::NoDevice) {
         terminal::println(released
             ? "[TEST] xhci_empty_cleanup: PASS"
             : "[TEST] xhci_empty_cleanup: FAIL");
-    }
-    return cleanup == Status::Ok ? failure : cleanup;"""
+        return cleanup == Status::Ok ? Status::NoDevice : cleanup;
+"""
 INSTRUMENTATION = """        record_keyboard_input(controller, event);
                 // Reached only after successful production input publication.
                 if (event.key == keyboard::KeyCode::LeftShift) {
@@ -93,10 +107,11 @@ INSTRUMENTATION = """        record_keyboard_input(controller, event);
                 }"""
 
 
-def inject(source: str) -> str:
+def inject(source: str, cleanup_empty: bool = False) -> str:
     if MARKER in source:
         raise ValueError("USB HID qualifier already injected")
-    replacements = [(ANCHOR, INSTRUMENTATION), (EMPTY_ANCHOR, EMPTY_INSTRUMENTATION),
+    empty = EMPTY_INSTRUMENTATION + (EMPTY_CLEANUP if cleanup_empty else "")
+    replacements = [(ANCHOR, INSTRUMENTATION), (EMPTY_ANCHOR, empty),
                     (STATE_ANCHOR, STATE_INSTRUMENTATION),
                     (ATTACH_ANCHOR, ATTACH_INSTRUMENTATION),
                     (DETACH_ANCHOR, DETACH_INSTRUMENTATION)]
@@ -108,7 +123,10 @@ def inject(source: str) -> str:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cleanup-empty", action="store_true")
+    args = parser.parse_args()
     path = Path("kernel/drivers/usb/xhci.cpp")
-    updated = inject(path.read_text(encoding="utf-8"))
+    updated = inject(path.read_text(encoding="utf-8"), args.cleanup_empty)
     path.write_text(updated, encoding="utf-8")
     print("Instrumented real xHCI HID input-queue publication")
