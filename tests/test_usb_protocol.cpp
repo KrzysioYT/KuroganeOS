@@ -104,6 +104,37 @@ int main() {
     assert(!drivers::usb::find_boot_mouse_interface(
         keyboard_not_mouse, sizeof(keyboard_not_mouse), &mouse_interface));
 
+    uint8_t mouse_alternate[sizeof(mouse_configuration)]{};
+    uint8_t mouse_endpoint_zero[sizeof(mouse_configuration)]{};
+    uint8_t mouse_zero_interval[sizeof(mouse_configuration)]{};
+    uint8_t mouse_short_endpoint[sizeof(mouse_configuration)]{};
+    uint8_t mouse_oversized_endpoint[sizeof(mouse_configuration)]{};
+    for (size_t index = 0U; index < sizeof(mouse_configuration); ++index) {
+        mouse_alternate[index] = mouse_configuration[index];
+        mouse_endpoint_zero[index] = mouse_configuration[index];
+        mouse_zero_interval[index] = mouse_configuration[index];
+        mouse_short_endpoint[index] = mouse_configuration[index];
+        mouse_oversized_endpoint[index] = mouse_configuration[index];
+    }
+    mouse_alternate[12U] = 1U;
+    mouse_endpoint_zero[29U] = 0x80U;
+    mouse_zero_interval[33U] = 0U;
+    mouse_short_endpoint[31U] = 2U;
+    mouse_short_endpoint[32U] = 0U;
+    mouse_oversized_endpoint[31U] = 0x01U;
+    mouse_oversized_endpoint[32U] = 0x04U;
+    assert(!drivers::usb::find_boot_mouse_interface(
+        mouse_alternate, sizeof(mouse_alternate), &mouse_interface));
+    assert(!drivers::usb::find_boot_mouse_interface(
+        mouse_endpoint_zero, sizeof(mouse_endpoint_zero), &mouse_interface));
+    assert(!drivers::usb::find_boot_mouse_interface(
+        mouse_zero_interval, sizeof(mouse_zero_interval), &mouse_interface));
+    assert(!drivers::usb::find_boot_mouse_interface(
+        mouse_short_endpoint, sizeof(mouse_short_endpoint), &mouse_interface));
+    assert(!drivers::usb::find_boot_mouse_interface(
+        mouse_oversized_endpoint, sizeof(mouse_oversized_endpoint),
+        &mouse_interface));
+
     drivers::usb::MouseDecoder mouse_decoder{};
     drivers::mouse::Sample mouse_sample{11, 12, 3, 7U, 7U};
     const uint8_t short_mouse_report[] = {drivers::mouse::Left, 1U};

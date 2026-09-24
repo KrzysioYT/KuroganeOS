@@ -146,19 +146,32 @@ bool append_event(
 
 } // namespace
 
-bool find_boot_keyboard_interface(
+namespace {
+
+struct HidBootInterfaceData {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+};
+
+bool find_boot_interface(
     const uint8_t* descriptors,
     size_t length,
-    HidBootKeyboardInterface* output) {
+    uint8_t protocol,
+    uint16_t minimum_packet_size,
+    HidBootInterfaceData* output) {
     if (descriptors == nullptr || output == nullptr || length < 9U ||
-        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+        descriptors[1U] != 2U || descriptors[0U] < 9U ||
+        minimum_packet_size == 0U || minimum_packet_size > 1024U) {
         return false;
     }
     const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
         static_cast<uint16_t>(descriptors[3U]) << 8U;
     if (total < 9U || total > length || descriptors[5U] == 0U) return false;
     const uint8_t configuration = descriptors[5U];
-    bool keyboard_interface = false;
+    bool matching_interface = false;
     uint8_t interface_number = 0U;
     for (size_t offset = 0U; offset < total;) {
         if (total - offset < 2U) return false;
@@ -169,12 +182,12 @@ bool find_boot_keyboard_interface(
         }
         if (descriptor_type == 4U) {
             if (descriptor_length < 9U) return false;
-            keyboard_interface = descriptors[offset + 3U] == 0U &&
+            matching_interface = descriptors[offset + 3U] == 0U &&
                 descriptors[offset + 5U] == 3U &&
                 descriptors[offset + 6U] == 1U &&
-                descriptors[offset + 7U] == 1U;
+                descriptors[offset + 7U] == protocol;
             interface_number = descriptors[offset + 2U];
-        } else if (descriptor_type == 5U && keyboard_interface) {
+        } else if (descriptor_type == 5U && matching_interface) {
             if (descriptor_length < 7U) return false;
             const uint8_t endpoint = descriptors[offset + 2U];
             const uint8_t attributes = descriptors[offset + 3U];
@@ -182,19 +195,18 @@ bool find_boot_keyboard_interface(
                 static_cast<uint16_t>(descriptors[offset + 4U]) |
                 static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
             const uint16_t packet_size = static_cast<uint16_t>(packet & 0x7FFU);
-            const uint8_t endpoint_number = static_cast<uint8_t>(endpoint & 0x0FU);
+            const uint8_t endpoint_number =
+                static_cast<uint8_t>(endpoint & 0x0FU);
             const uint8_t interval = descriptors[offset + 6U];
-            // Boot keyboards require an interrupt-IN endpoint other than EP0.
-            // Reject malformed descriptors before xHCI context programming.
             if ((endpoint & 0x80U) != 0U && endpoint_number != 0U &&
                 (attributes & 3U) == 3U && interval != 0U &&
-                packet_size >= 8U && packet_size <= 1024U) {
+                packet_size >= minimum_packet_size && packet_size <= 1024U) {
                 *output = {
                     configuration,
                     interface_number,
                     endpoint,
                     packet_size,
-                    descriptors[offset + 6U],
+                    interval,
                 };
                 return true;
             }
@@ -202,6 +214,27 @@ bool find_boot_keyboard_interface(
         offset += descriptor_length;
     }
     return false;
+}
+
+} // namespace
+
+bool find_boot_keyboard_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidBootKeyboardInterface* output) {
+    if (output == nullptr) return false;
+    HidBootInterfaceData found{};
+    if (!find_boot_interface(descriptors, length, 1U, 8U, &found)) {
+        return false;
+    }
+    *output = {
+        found.configuration_value,
+        found.interface_number,
+        found.endpoint_address,
+        found.maximum_packet_size,
+        found.interval,
+    };
+    return true;
 }
 
 void reset_keyboard_decoder(KeyboardDecoder* decoder) {
@@ -318,56 +351,19 @@ bool find_boot_mouse_interface(
     const uint8_t* descriptors,
     size_t length,
     HidBootMouseInterface* output) {
-    if (descriptors == nullptr || output == nullptr || length < 9U ||
-        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+    if (output == nullptr) return false;
+    HidBootInterfaceData found{};
+    if (!find_boot_interface(descriptors, length, 2U, 3U, &found)) {
         return false;
     }
-    const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
-        static_cast<uint16_t>(descriptors[3U]) << 8U;
-    if (total < 9U || total > length || descriptors[5U] == 0U) return false;
-    const uint8_t configuration = descriptors[5U];
-    bool mouse_interface = false;
-    uint8_t interface_number = 0U;
-    for (size_t offset = 0U; offset < total;) {
-        if (total - offset < 2U) return false;
-        const uint8_t descriptor_length = descriptors[offset];
-        const uint8_t descriptor_type = descriptors[offset + 1U];
-        if (descriptor_length < 2U || descriptor_length > total - offset) {
-            return false;
-        }
-        if (descriptor_type == 4U) {
-            if (descriptor_length < 9U) return false;
-            mouse_interface = descriptors[offset + 3U] == 0U &&
-                descriptors[offset + 5U] == 3U &&
-                descriptors[offset + 6U] == 1U &&
-                descriptors[offset + 7U] == 2U;
-            interface_number = descriptors[offset + 2U];
-        } else if (descriptor_type == 5U && mouse_interface) {
-            if (descriptor_length < 7U) return false;
-            const uint8_t endpoint = descriptors[offset + 2U];
-            const uint8_t attributes = descriptors[offset + 3U];
-            const uint16_t packet =
-                static_cast<uint16_t>(descriptors[offset + 4U]) |
-                static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
-            const uint16_t packet_size = static_cast<uint16_t>(packet & 0x7FFU);
-            const uint8_t endpoint_number = static_cast<uint8_t>(endpoint & 0x0FU);
-            const uint8_t interval = descriptors[offset + 6U];
-            if ((endpoint & 0x80U) != 0U && endpoint_number != 0U &&
-                (attributes & 3U) == 3U && interval != 0U &&
-                packet_size >= 3U && packet_size <= 1024U) {
-                *output = {
-                    configuration,
-                    interface_number,
-                    endpoint,
-                    packet_size,
-                    interval,
-                };
-                return true;
-            }
-        }
-        offset += descriptor_length;
-    }
-    return false;
+    *output = {
+        found.configuration_value,
+        found.interface_number,
+        found.endpoint_address,
+        found.maximum_packet_size,
+        found.interval,
+    };
+    return true;
 }
 
 void reset_mouse_decoder(MouseDecoder* decoder) {
