@@ -810,26 +810,41 @@ uint8_t endpoint_interval(uint8_t speed, uint8_t requested) {
     return requested > 0U ? static_cast<uint8_t>(requested - 1U) : 0U;
 }
 
-bool configure_keyboard_endpoint(Controller& controller) {
+struct HidInterruptEndpoint {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+    uint16_t transfer_size;
+};
+
+bool configure_hid_interrupt_endpoint(
+    Controller& controller,
+    const HidInterruptEndpoint& hid) {
     if (!control_transfer(
-            controller, 0x00U, 9U,
-            controller.keyboard_interface.configuration_value,
+            controller, 0x00U, 9U, hid.configuration_value,
             0U, 0U, false)) {
         return false;
     }
+    // Boot protocol keeps report decoding deterministic. SET_IDLE is harmless
+    // for the current keyboard path and remains explicit for later HID kinds.
     static_cast<void>(control_transfer(
         controller, 0x21U, 0x0BU, 0U,
-        controller.keyboard_interface.interface_number, 0U, false));
+        hid.interface_number, 0U, false));
     static_cast<void>(control_transfer(
         controller, 0x21U, 0x0AU, 0U,
-        controller.keyboard_interface.interface_number, 0U, false));
+        hid.interface_number, 0U, false));
 
-    const uint8_t endpoint_number =
-        controller.keyboard_interface.endpoint_address & 0x0FU;
+    const uint8_t endpoint_number = hid.endpoint_address & 0x0FU;
     controller.interrupt_dci = static_cast<uint8_t>(
         endpoint_number * 2U + 1U);
-    if (endpoint_number == 0U || controller.interrupt_dci >= 32U) return false;
-    controller.interrupt_packet_size = 8U;
+    if (endpoint_number == 0U || controller.interrupt_dci >= 32U ||
+        hid.transfer_size == 0U ||
+        hid.transfer_size > hid.maximum_packet_size) {
+        return false;
+    }
+    controller.interrupt_packet_size = hid.transfer_size;
     clear_bytes(controller.input_context_page.virtual_address,
                 memory::virtual_memory::PAGE_SIZE);
     input_context(controller, 0U)[1U] = UINT32_C(1) |
@@ -841,11 +856,10 @@ bool configure_keyboard_endpoint(Controller& controller) {
     slot[0U] |= static_cast<uint32_t>(controller.interrupt_dci) << 27U;
     uint32_t* endpoint = input_context(
         controller, static_cast<size_t>(controller.interrupt_dci) + 1U);
-    endpoint[0U] = static_cast<uint32_t>(endpoint_interval(
-        controller.port_speed, controller.keyboard_interface.interval)) << 16U;
+    endpoint[0U] = static_cast<uint32_t>(
+        endpoint_interval(controller.port_speed, hid.interval)) << 16U;
     endpoint[1U] = UINT32_C(3) << 1U | UINT32_C(7) << 3U |
-        static_cast<uint32_t>(
-            controller.keyboard_interface.maximum_packet_size) << 16U;
+        static_cast<uint32_t>(hid.maximum_packet_size) << 16U;
     endpoint[2U] = static_cast<uint32_t>(
         controller.interrupt_ring.page.physical_address) | 1U;
     endpoint[3U] = static_cast<uint32_t>(
@@ -859,6 +873,18 @@ bool configure_keyboard_endpoint(Controller& controller) {
         static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
             static_cast<uint32_t>(controller.slot_id) << 24U,
         &completion);
+}
+
+bool configure_keyboard_endpoint(Controller& controller) {
+    const HidInterruptEndpoint hid{
+        controller.keyboard_interface.configuration_value,
+        controller.keyboard_interface.interface_number,
+        controller.keyboard_interface.endpoint_address,
+        controller.keyboard_interface.maximum_packet_size,
+        controller.keyboard_interface.interval,
+        8U,
+    };
+    return configure_hid_interrupt_endpoint(controller, hid);
 }
 
 bool queue_keyboard_report(Controller& controller) {
