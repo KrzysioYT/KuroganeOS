@@ -81,6 +81,61 @@ int main() {
     oversized_endpoint[32U] = 0x08U;
     assert(!drivers::usb::find_boot_keyboard_interface(
         oversized_endpoint, sizeof(oversized_endpoint), &interface));
+    const uint8_t mouse_configuration[] = {
+        9, 2, 34, 0, 1, 1, 0, 0x80, 50,
+        9, 4, 2, 0, 1, 3, 1, 2, 0,
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 50, 0,
+        7, 5, 0x82, 3, 4, 0, 5,
+    };
+    drivers::usb::HidBootMouseInterface mouse_interface{};
+    assert(drivers::usb::find_boot_mouse_interface(
+        mouse_configuration, sizeof(mouse_configuration), &mouse_interface));
+    assert(mouse_interface.configuration_value == 1U);
+    assert(mouse_interface.interface_number == 2U);
+    assert(mouse_interface.endpoint_address == 0x82U);
+    assert(mouse_interface.maximum_packet_size == 4U);
+    assert(mouse_interface.interval == 5U);
+
+    uint8_t keyboard_not_mouse[sizeof(mouse_configuration)]{};
+    for (size_t index = 0U; index < sizeof(mouse_configuration); ++index) {
+        keyboard_not_mouse[index] = mouse_configuration[index];
+    }
+    keyboard_not_mouse[16U] = 1U;
+    assert(!drivers::usb::find_boot_mouse_interface(
+        keyboard_not_mouse, sizeof(keyboard_not_mouse), &mouse_interface));
+
+    drivers::usb::MouseDecoder mouse_decoder{};
+    drivers::mouse::Sample mouse_sample{11, 12, 3, 7U, 7U};
+    const uint8_t short_mouse_report[] = {drivers::mouse::Left, 1U};
+    assert(!drivers::usb::decode_boot_mouse_report(
+        &mouse_decoder, short_mouse_report, sizeof(short_mouse_report),
+        &mouse_sample));
+    assert(mouse_decoder.previous_buttons == 0U);
+    assert(mouse_sample.delta_x == 11 && mouse_sample.delta_y == 12 &&
+        mouse_sample.wheel == 3 && mouse_sample.buttons == 7U &&
+        mouse_sample.changed_buttons == 7U);
+
+    const uint8_t press_and_move[] = {drivers::mouse::Left, 5U, 0xFDU};
+    assert(drivers::usb::decode_boot_mouse_report(
+        &mouse_decoder, press_and_move, sizeof(press_and_move), &mouse_sample));
+    assert(mouse_sample.delta_x == 5 && mouse_sample.delta_y == -3);
+    assert(mouse_sample.wheel == 0);
+    assert(mouse_sample.buttons == drivers::mouse::Left);
+    assert(mouse_sample.changed_buttons == drivers::mouse::Left);
+
+    const uint8_t held_and_move[] = {drivers::mouse::Left, 0xFFU, 2U, 0x7FU};
+    assert(drivers::usb::decode_boot_mouse_report(
+        &mouse_decoder, held_and_move, sizeof(held_and_move), &mouse_sample));
+    assert(mouse_sample.delta_x == -1 && mouse_sample.delta_y == 2);
+    assert(mouse_sample.wheel == 0);
+    assert(mouse_sample.changed_buttons == 0U);
+
+    const uint8_t release[] = {0U, 0U, 0U};
+    assert(drivers::usb::decode_boot_mouse_report(
+        &mouse_decoder, release, sizeof(release), &mouse_sample));
+    assert(mouse_sample.buttons == 0U);
+    assert(mouse_sample.changed_buttons == drivers::mouse::Left);
+
     std::cout << "USB descriptor and HID tests: PASS\n";
     return 0;
 }

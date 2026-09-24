@@ -314,4 +314,87 @@ bool decode_boot_keyboard_report(
     return true;
 }
 
+bool find_boot_mouse_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidBootMouseInterface* output) {
+    if (descriptors == nullptr || output == nullptr || length < 9U ||
+        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+        return false;
+    }
+    const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
+        static_cast<uint16_t>(descriptors[3U]) << 8U;
+    if (total < 9U || total > length || descriptors[5U] == 0U) return false;
+    const uint8_t configuration = descriptors[5U];
+    bool mouse_interface = false;
+    uint8_t interface_number = 0U;
+    for (size_t offset = 0U; offset < total;) {
+        if (total - offset < 2U) return false;
+        const uint8_t descriptor_length = descriptors[offset];
+        const uint8_t descriptor_type = descriptors[offset + 1U];
+        if (descriptor_length < 2U || descriptor_length > total - offset) {
+            return false;
+        }
+        if (descriptor_type == 4U) {
+            if (descriptor_length < 9U) return false;
+            mouse_interface = descriptors[offset + 3U] == 0U &&
+                descriptors[offset + 5U] == 3U &&
+                descriptors[offset + 6U] == 1U &&
+                descriptors[offset + 7U] == 2U;
+            interface_number = descriptors[offset + 2U];
+        } else if (descriptor_type == 5U && mouse_interface) {
+            if (descriptor_length < 7U) return false;
+            const uint8_t endpoint = descriptors[offset + 2U];
+            const uint8_t attributes = descriptors[offset + 3U];
+            const uint16_t packet =
+                static_cast<uint16_t>(descriptors[offset + 4U]) |
+                static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
+            const uint16_t packet_size = static_cast<uint16_t>(packet & 0x7FFU);
+            const uint8_t endpoint_number = static_cast<uint8_t>(endpoint & 0x0FU);
+            const uint8_t interval = descriptors[offset + 6U];
+            if ((endpoint & 0x80U) != 0U && endpoint_number != 0U &&
+                (attributes & 3U) == 3U && interval != 0U &&
+                packet_size >= 3U && packet_size <= 1024U) {
+                *output = {
+                    configuration,
+                    interface_number,
+                    endpoint,
+                    packet_size,
+                    interval,
+                };
+                return true;
+            }
+        }
+        offset += descriptor_length;
+    }
+    return false;
+}
+
+void reset_mouse_decoder(MouseDecoder* decoder) {
+    if (decoder != nullptr) *decoder = {};
+}
+
+bool decode_boot_mouse_report(
+    MouseDecoder* decoder,
+    const uint8_t* report,
+    size_t report_length,
+    mouse::Sample* sample) {
+    if (decoder == nullptr || report == nullptr || report_length < 3U ||
+        sample == nullptr) {
+        return false;
+    }
+    const uint8_t buttons = static_cast<uint8_t>(report[0U] & 0x07U);
+    const mouse::Sample next = {
+        static_cast<int16_t>(static_cast<int8_t>(report[1U])),
+        static_cast<int16_t>(static_cast<int8_t>(report[2U])),
+        0,
+        buttons,
+        static_cast<uint8_t>(buttons ^ decoder->previous_buttons),
+    };
+    decoder->previous_buttons = buttons;
+    *sample = next;
+    return true;
+}
+
+
 } // namespace drivers::usb
