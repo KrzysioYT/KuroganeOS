@@ -125,6 +125,17 @@ i klawiaturą oraz USB matrix
 [35906417389](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35906417389).
 To przygotowanie wspólnego input, nie sterownik myszy USB.
 
+Warstwa protokołu ma teraz również bounded parser HID Boot Mouse oraz
+transakcyjny dekoder 3-bajtowego raportu do wspólnego `drivers::mouse::Sample`.
+Zmiana nie aktywuje jeszcze myszy w xHCI: zachowuje boot-protocol X/Y/buttons,
+pozostawia wheel=0 do czasu jawnej obsługi report protocol i nie zmienia ścieżki
+klawiatury. Dokładny SHA `0b369e09b424bc707122babfdf8874e904c30bf3`
+przeszedł workflow `Qualify 5.0 xHCI USB Keyboard` w run `36063735518`:
+pełny host regression, clean release media, 130 par F12 z wrapem transfer/event
+ring, empty-controller cleanup, trzy disconnect/reconnect oraz late attach.
+Jest to kwalifikacja fundamentu protokołu myszy i regresji klawiatury, **nie**
+kwalifikacja USB mouse runtime.
+
 1. HID mouse i wspólny routing input.
 2. USB Mass Storage jako `BlockDeviceOps`.
 3. Failure injection i stress testy hotplug.

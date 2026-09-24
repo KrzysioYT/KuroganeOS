@@ -41,6 +41,14 @@ host, clean release media and the USB matrix in `35906417389` (runtime job
 QEMU/TCG Login/Home/Logout cycles. Pre-Steel `35906417805` remains queued.
 This prerequisite does not claim a USB mouse backend.
 
+HID Boot Mouse protocol parsing and transactional report decoding into the
+shared mouse sample contract are qualified at exact source SHA
+`0b369e09b424bc707122babfdf8874e904c30bf3`. Actions run `36063735518` passed
+full host regression, clean release media, 130 keyboard report pairs with both
+rings wrapped, empty-controller cleanup, repeated disconnect/reconnect and late
+attachment. This evidence proves the protocol foundation is regression-safe; it
+does not claim an xHCI USB mouse transport or simultaneous USB devices.
+
 Single-vector PCI MSI is qualified at exact source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. The production path uses bounded generation-safe vector ownership, validated xAPIC enablement, Local APIC EOI, reversible 32/64-bit MSI programming and ordered route teardown. The runtime proof uses the documented QEMU EDU endpoint to raise and acknowledge a real device MSI; QEMU's 82540EM `e1000` remains on its truthful polling/INTx-compatible path because that emulated model does not expose MSI.
 
 As recorded in the master roadmap, bounded single-vector MSI-X was subsequently qualified at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in Actions run `34358861039`, job `102490389818`, and production VirtIO-net shared RX/TX MSI-X adoption passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job `103527144398`.
