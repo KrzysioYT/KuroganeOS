@@ -1348,7 +1348,12 @@ size_t poll(size_t budget) {
         g_controller.hid_lifecycle != HidLifecycle::WaitingForDevice) {
         return 0U;
     }
-    if (g_controller.hid_lifecycle == HidLifecycle::Active) {
+    const bool input_pending =
+        (g_controller.hid_kind == HidKind::Keyboard &&
+         g_controller.pending_key_count != 0U) ||
+        (g_controller.hid_kind == HidKind::Mouse &&
+         g_controller.pending_mouse_valid);
+    if (g_controller.hid_lifecycle == HidLifecycle::Active && input_pending) {
         if (!flush_hid_input(g_controller)) return 0U;
         static_cast<void>(queue_hid_report(g_controller));
     }
