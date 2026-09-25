@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -17,6 +17,7 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 usb_keyboard=false
+usb_mouse=false
 usb_controller=false
 usb_hotplug=false
 usb_hotplug_phase=0
@@ -54,6 +55,7 @@ while (($#)); do
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
+        --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
@@ -274,8 +276,13 @@ PY
 send_qemu_click() {
     local target_x="$1"
     local target_y="$2"
-    python3 - "$qmp" "$target_x" "$target_y" <<'PY'
+    local pointer_kind="default"
+    if $usb_mouse; then
+        pointer_kind="usb-mouse"
+    fi
+    python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" <<'PY'
 import json
+import re
 import socket
 import sys
 import time
@@ -283,6 +290,7 @@ import time
 path = sys.argv[1]
 target_x = int(sys.argv[2])
 target_y = int(sys.argv[3])
+pointer_kind = sys.argv[4]
 last_error = None
 
 
@@ -308,7 +316,7 @@ def execute(stream, name, arguments=None):
     if arguments is not None:
         payload["arguments"] = arguments
     stream.write(json.dumps(payload).encode("utf-8") + b"\r\n")
-    receive_object(stream, name)
+    return receive_object(stream, name)
 
 
 def relative(stream, dx, dy):
@@ -339,6 +347,21 @@ for _ in range(40):
         if "QMP" not in greeting:
             raise RuntimeError(f"invalid QMP greeting: {greeting}")
         execute(stream, "qmp_capabilities")
+
+        if pointer_kind == "usb-mouse":
+            mice = execute(stream, "human-monitor-command", {
+                "command-line": "info mice"
+            })
+            match = re.search(
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse",
+                mice,
+                re.IGNORECASE,
+            )
+            if match is None:
+                raise RuntimeError(f"QEMU HID/USB Mouse not present in info mice: {mice!r}")
+            execute(stream, "human-monitor-command", {
+                "command-line": f"mouse_set {match.group(1)}"
+            })
 
         # Kurogane's pointer state is clamped. Drive far negative first so the
         # resulting guest coordinate is deterministically (0,0), independent
@@ -464,6 +487,13 @@ if $usb_keyboard; then
     # rings and input decoding run unchanged. This is not a PS/2-only proof.
     usb_args+=(
         -device usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard
+    )
+fi
+if $usb_mouse; then
+    # The smoke helper selects this exact QEMU USB mouse before generating
+    # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
+    usb_args+=(
+        -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
     )
 fi
 

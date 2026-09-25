@@ -81,8 +81,12 @@ struct ProducerRing {
     bool cycle;
 };
 
-enum class KeyboardLifecycle : uint8_t {
-    Active, DrainInput, ReleaseKeys, WaitingForDevice, Failed,
+enum class HidKind : uint8_t {
+    None, Keyboard, Mouse,
+};
+
+enum class HidLifecycle : uint8_t {
+    Active, DrainInput, ReleaseInput, WaitingForDevice, Failed,
 };
 
 struct Controller {
@@ -107,6 +111,7 @@ struct Controller {
     device::DeviceId parent_device;
     device::DriverId owner_driver;
     device::DeviceId keyboard_device;
+    device::DeviceId mouse_device;
     storage::dma::Page dcbaa_page;
     storage::dma::Page event_ring_page;
     storage::dma::Page erst_page;
@@ -121,12 +126,17 @@ struct Controller {
     ProducerRing interrupt_ring;
     size_t event_dequeue;
     bool event_cycle;
+    HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
+    HidBootMouseInterface mouse_interface;
     KeyboardDecoder keyboard_decoder;
+    MouseDecoder mouse_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
-    KeyboardLifecycle keyboard_lifecycle;
+    mouse::Sample pending_mouse;
+    bool pending_mouse_valid;
+    HidLifecycle hid_lifecycle;
     Status runtime_status;
     bool report_queued;
     uint64_t report_trb;
@@ -320,9 +330,15 @@ Status quiesce_dma(Controller& controller) {
     return Status::Ok;
 }
 
-Status remove_keyboard_device(Controller* controller) {
-    if (controller->keyboard_device != device::INVALID_DEVICE_ID) {
-        const auto* child = device::get(controller->keyboard_device);
+Status remove_hid_devices(Controller* controller) {
+    if (controller == nullptr) return Status::InvalidArgument;
+    device::DeviceId* const children[] = {
+        &controller->keyboard_device,
+        &controller->mouse_device,
+    };
+    for (auto* child_id : children) {
+        if (*child_id == device::INVALID_DEVICE_ID) continue;
+        const auto* child = device::get(*child_id);
         if (child != nullptr) {
             if (child->driver != device::INVALID_DRIVER_ID &&
                 (child->driver != controller->owner_driver ||
@@ -330,10 +346,11 @@ Status remove_keyboard_device(Controller* controller) {
                      KStatus::Ok)) {
                 return Status::ResourceReleaseFailed;
             }
-            if (device::remove_device(controller->keyboard_device) !=
-                KStatus::Ok) return Status::ResourceReleaseFailed;
+            if (device::remove_device(*child_id) != KStatus::Ok) {
+                return Status::ResourceReleaseFailed;
+            }
         }
-        controller->keyboard_device = device::INVALID_DEVICE_ID;
+        *child_id = device::INVALID_DEVICE_ID;
     }
     return Status::Ok;
 }
@@ -344,7 +361,7 @@ Status release_resources(Controller* controller) {
     controller->cleanup_pending = true;
     const Status stopped = quiesce_dma(*controller);
     if (stopped != Status::Ok) return stopped;
-    const Status removed = remove_keyboard_device(controller);
+    const Status removed = remove_hid_devices(controller);
     if (removed != Status::Ok) return removed;
     bool released = true;
     storage::dma::Page* const pages[] = {
@@ -379,6 +396,7 @@ Status release_resources(Controller* controller) {
     }
     *controller = {};
     controller->keyboard_device = device::INVALID_DEVICE_ID;
+    controller->mouse_device = device::INVALID_DEVICE_ID;
     return Status::Ok;
 }
 
@@ -790,10 +808,20 @@ bool read_descriptors(Controller& controller) {
     if (!control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, total, true)) {
         return false;
     }
-    return find_boot_keyboard_interface(
-        static_cast<const uint8_t*>(controller.data_page.virtual_address),
-        total,
-        &controller.keyboard_interface);
+    const auto* configuration = static_cast<const uint8_t*>(
+        controller.data_page.virtual_address);
+    controller.hid_kind = HidKind::None;
+    if (find_boot_keyboard_interface(
+            configuration, total, &controller.keyboard_interface)) {
+        controller.hid_kind = HidKind::Keyboard;
+        return true;
+    }
+    if (find_boot_mouse_interface(
+            configuration, total, &controller.mouse_interface)) {
+        controller.hid_kind = HidKind::Mouse;
+        return true;
+    }
+    return false;
 }
 
 uint8_t endpoint_interval(uint8_t speed, uint8_t requested) {
@@ -887,10 +915,35 @@ bool configure_keyboard_endpoint(Controller& controller) {
     return configure_hid_interrupt_endpoint(controller, hid);
 }
 
-bool queue_keyboard_report(Controller& controller) {
+bool configure_mouse_endpoint(Controller& controller) {
+    const HidInterruptEndpoint hid{
+        controller.mouse_interface.configuration_value,
+        controller.mouse_interface.interface_number,
+        controller.mouse_interface.endpoint_address,
+        controller.mouse_interface.maximum_packet_size,
+        controller.mouse_interface.interval,
+        3U,
+    };
+    return configure_hid_interrupt_endpoint(controller, hid);
+}
+
+bool queue_hid_report(Controller& controller) {
     if (controller.report_queued) return true;
-    if (controller.pending_key_count != 0U) return false;
-    clear_bytes(controller.data_page.virtual_address, 8U);
+    if (controller.hid_kind == HidKind::Keyboard &&
+        controller.pending_key_count != 0U) {
+        return false;
+    }
+    if (controller.hid_kind == HidKind::Mouse &&
+        controller.pending_mouse_valid) {
+        return false;
+    }
+    if (controller.hid_kind == HidKind::None ||
+        controller.interrupt_packet_size == 0U) {
+        return false;
+    }
+    clear_bytes(
+        controller.data_page.virtual_address,
+        controller.interrupt_packet_size);
     controller.report_trb = enqueue_trb(
         controller.interrupt_ring,
         controller.data_page.physical_address,
@@ -924,7 +977,30 @@ bool register_keyboard(Controller& controller) {
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
     }
-    controller.keyboard_device = id;
+    return true;
+}
+
+bool register_mouse(Controller& controller) {
+    const device::Descriptor descriptor{
+        device::Type::Input,
+        device::Bus::Usb,
+        "USB HID boot mouse",
+        controller.vendor_id,
+        controller.product_id,
+        3U, 1U, 2U,
+        {0U, 0U, controller.port_id, 0U},
+        controller.parent_device,
+        nullptr,
+        0U,
+    };
+    device::DeviceId id = device::INVALID_DEVICE_ID;
+    if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
+    controller.mouse_device = id;
+    if (device::claim(id, controller.owner_driver, "usb-hid-boot") !=
+            KStatus::Ok ||
+        device::set_status(id, device::Status::Ready) != KStatus::Ok) {
+        return false;
+    }
     return true;
 }
 
@@ -946,6 +1022,35 @@ bool flush_keyboard_events(Controller& controller) {
     }
     controller.pending_key_index = 0U;
     controller.pending_key_count = 0U;
+    return true;
+}
+
+void record_mouse_input(Controller& controller, const mouse::Sample& sample) {
+    if (!controller.input_proven &&
+        (sample.delta_x != 0 || sample.delta_y != 0 || sample.wheel != 0 ||
+         sample.changed_buttons != 0U)) {
+        controller.input_proven = true;
+        log::write(log::Level::Info, "USB",
+                   "hardware xHCI HID mouse report received");
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+    }
+}
+
+bool flush_mouse_sample(Controller& controller) {
+    if (!controller.pending_mouse_valid) return true;
+    if (!input::submit_mouse(controller.pending_mouse)) return false;
+    record_mouse_input(controller, controller.pending_mouse);
+    controller.pending_mouse_valid = false;
+    return true;
+}
+
+bool flush_hid_input(Controller& controller) {
+    if (controller.hid_kind == HidKind::Keyboard) {
+        return flush_keyboard_events(controller);
+    }
+    if (controller.hid_kind == HidKind::Mouse) {
+        return flush_mouse_sample(controller);
+    }
     return true;
 }
 
@@ -976,11 +1081,40 @@ void handle_keyboard_report(Controller& controller, const Trb& event) {
         }
     }
     if (flush_keyboard_events(controller)) {
-        static_cast<void>(queue_keyboard_report(controller));
+        static_cast<void>(queue_hid_report(controller));
     }
 }
 
-Status attach_keyboard(Controller& controller) {
+void handle_mouse_report(Controller& controller, const Trb& event) {
+    if (!controller.report_queued || (event.control & (1U << 2U)) != 0U ||
+        event.parameter != controller.report_trb) {
+        return;
+    }
+    controller.report_queued = false;
+    controller.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual = remaining <= controller.interrupt_packet_size
+        ? controller.interrupt_packet_size - remaining
+        : 0U;
+    if (completion_ok(event) && actual >= 3U) {
+        mouse::Sample sample{};
+        if (decode_boot_mouse_report(
+                &controller.mouse_decoder,
+                static_cast<const uint8_t*>(
+                    controller.data_page.virtual_address),
+                actual,
+                &sample)) {
+            controller.pending_mouse = sample;
+            controller.pending_mouse_valid = true;
+            ++controller.reports;
+        }
+    }
+    if (flush_mouse_sample(controller)) {
+        static_cast<void>(queue_hid_report(controller));
+    }
+}
+
+Status attach_hid_device(Controller& controller) {
     if (!reset_connected_port(controller)) {
         return first_connected_port(controller) != 0U
             ? Status::PortResetTimeout : Status::NoDevice;
@@ -989,21 +1123,42 @@ Status attach_keyboard(Controller& controller) {
     if (!address_device(controller)) return Status::CommandFailed;
     if (!read_descriptors(controller)) return Status::HidKeyboardNotFound;
     log::write(log::Level::Info, "XHCI", "USB HID descriptors accepted");
-    if (!configure_keyboard_endpoint(controller)) return Status::CommandFailed;
-    reset_keyboard_decoder(&controller.keyboard_decoder);
-    if (!register_keyboard(controller)) return Status::DeviceRegistrationFailed;
-    controller.keyboard_lifecycle = KeyboardLifecycle::Active;
+
+    bool configured = false;
+    bool registered = false;
+    if (controller.hid_kind == HidKind::Keyboard) {
+        configured = configure_keyboard_endpoint(controller);
+        if (configured) {
+            reset_keyboard_decoder(&controller.keyboard_decoder);
+            registered = register_keyboard(controller);
+        }
+    } else if (controller.hid_kind == HidKind::Mouse) {
+        configured = configure_mouse_endpoint(controller);
+        if (configured) {
+            reset_mouse_decoder(&controller.mouse_decoder);
+            registered = register_mouse(controller);
+        }
+    }
+    if (!configured) return Status::CommandFailed;
+    if (!registered) return Status::DeviceRegistrationFailed;
+
+    controller.hid_lifecycle = HidLifecycle::Active;
     controller.runtime_status = Status::Ok;
     acknowledge_port_change(controller, controller.port_id);
-    static_cast<void>(queue_keyboard_report(controller));
-    log::write(log::Level::Info, "USB", "xHCI USB HID boot keyboard ready");
-    terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
+    static_cast<void>(queue_hid_report(controller));
+    if (controller.hid_kind == HidKind::Keyboard) {
+        log::write(log::Level::Info, "USB", "xHCI USB HID boot keyboard ready");
+        terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
+    } else {
+        log::write(log::Level::Info, "USB", "xHCI USB HID boot mouse ready");
+        terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+    }
     return Status::Ok;
 }
 
 void fail_hotplug(Controller& controller, Status reason) {
     controller.initialized = false;
-    controller.keyboard_lifecycle = KeyboardLifecycle::Failed;
+    controller.hid_lifecycle = HidLifecycle::Failed;
     controller.cleanup_pending = true;
     const Status stopped = quiesce_dma(controller);
     controller.runtime_status = stopped == Status::Ok ? reason : stopped;
@@ -1011,12 +1166,16 @@ void fail_hotplug(Controller& controller, Status reason) {
         static_cast<void>(device::set_status(controller.keyboard_device,
                                             device::Status::Failed));
     }
+    if (controller.mouse_device != device::INVALID_DEVICE_ID) {
+        static_cast<void>(device::set_status(controller.mouse_device,
+                                            device::Status::Failed));
+    }
     log::write(log::Level::Error, "XHCI", status_message(controller.runtime_status));
     // Keep all DMA/mapping ownership until explicit initialize/cleanup retry.
 }
 
-bool progress_keyboard_lifecycle(Controller& controller) {
-    if (controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
+bool progress_hid_lifecycle(Controller& controller) {
+    if (controller.hid_lifecycle == HidLifecycle::Active &&
         controller.port_id != 0U) {
         const size_t offset = OP_PORTS +
             static_cast<size_t>(controller.port_id - 1U) * PORT_STRIDE;
@@ -1028,21 +1187,32 @@ bool progress_keyboard_lifecycle(Controller& controller) {
         // CSC also catches a disconnect/reconnect completed between polls.
         // The new physical attachment must never inherit the old slot/handle.
         if ((port & PORT_CONNECTED) == 0U || (port & (UINT32_C(1) << 17U)) != 0U) {
-            controller.keyboard_lifecycle = KeyboardLifecycle::DrainInput;
+            controller.hid_lifecycle = HidLifecycle::DrainInput;
             acknowledge_port_change(controller, controller.port_id);
         }
     }
-    if (controller.keyboard_lifecycle == KeyboardLifecycle::DrainInput) {
-        if (!flush_keyboard_events(controller)) return false;
-        const uint8_t released[8]{};
-        static_cast<void>(decode_boot_keyboard_report(
-            &controller.keyboard_decoder, released, sizeof(released),
-            controller.pending_keys, MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
-            &controller.pending_key_count));
-        controller.keyboard_lifecycle = KeyboardLifecycle::ReleaseKeys;
+    if (controller.hid_lifecycle == HidLifecycle::DrainInput) {
+        if (!flush_hid_input(controller)) return false;
+        if (controller.hid_kind == HidKind::Keyboard) {
+            const uint8_t released[8]{};
+            static_cast<void>(decode_boot_keyboard_report(
+                &controller.keyboard_decoder, released, sizeof(released),
+                controller.pending_keys, MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
+                &controller.pending_key_count));
+        } else if (controller.hid_kind == HidKind::Mouse) {
+            const uint8_t released[3]{};
+            mouse::Sample sample{};
+            if (decode_boot_mouse_report(
+                    &controller.mouse_decoder, released, sizeof(released),
+                    &sample)) {
+                controller.pending_mouse = sample;
+                controller.pending_mouse_valid = true;
+            }
+        }
+        controller.hid_lifecycle = HidLifecycle::ReleaseInput;
     }
-    if (controller.keyboard_lifecycle == KeyboardLifecycle::ReleaseKeys) {
-        if (!flush_keyboard_events(controller)) return false;
+    if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
+        if (!flush_hid_input(controller)) return false;
         Trb completion{};
         if (controller.slot_id != 0U) {
             if (!submit_command(controller, 0U, 0U,
@@ -1060,17 +1230,19 @@ bool progress_keyboard_lifecycle(Controller& controller) {
         // Only acknowledged Disable Slot permits reuse of endpoint DMA.
         controller.report_queued = false;
         controller.report_trb = 0U;
-        const Status removed = remove_keyboard_device(&controller);
+        const Status removed = remove_hid_devices(&controller);
         if (removed != Status::Ok) {
             fail_hotplug(controller, removed);
             return false;
         }
-        controller.keyboard_lifecycle = KeyboardLifecycle::WaitingForDevice;
+        controller.hid_kind = HidKind::None;
+        controller.pending_mouse_valid = false;
+        controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         controller.runtime_status = Status::NoDevice;
-        log::write(log::Level::Info, "USB", "keyboard disconnected; slot retired");
+        log::write(log::Level::Info, "USB", "HID device disconnected; slot retired");
         return false;
     }
-    if (controller.keyboard_lifecycle == KeyboardLifecycle::WaitingForDevice) {
+    if (controller.hid_lifecycle == HidLifecycle::WaitingForDevice) {
         if (first_connected_port(controller) == 0U) return false;
         // Command/event rings stay live. Only disabled-slot endpoint/context
         // pages are reused; no DMA allocation or global controller reset.
@@ -1078,13 +1250,13 @@ bool progress_keyboard_lifecycle(Controller& controller) {
         reset_ring(&controller.interrupt_ring);
         clear_bytes(controller.device_context_page.virtual_address,
                     memory::virtual_memory::PAGE_SIZE);
-        const Status attached = attach_keyboard(controller);
+        const Status attached = attach_hid_device(controller);
         if (attached != Status::Ok) {
             fail_hotplug(controller, attached);
             return false;
         }
     }
-    return controller.keyboard_lifecycle == KeyboardLifecycle::Active;
+    return controller.hid_lifecycle == HidLifecycle::Active;
 }
 
 } // namespace
@@ -1106,6 +1278,7 @@ Status initialize(
     }
     g_controller = {};
     g_controller.keyboard_device = device::INVALID_DEVICE_ID;
+    g_controller.mouse_device = device::INVALID_DEVICE_ID;
     g_controller.pci_device = pci_device;
     g_controller.parent_device = parent_device;
     g_controller.owner_driver = owner_driver;
@@ -1154,14 +1327,14 @@ Status initialize(
     if (!configure_controller(g_controller)) {
         return fail_initialization(Status::ControllerStartTimeout);
     }
-    const Status attached = attach_keyboard(g_controller);
+    const Status attached = attach_hid_device(g_controller);
     if (attached == Status::NoDevice) {
         // A running empty controller remains owned and polled so its first
-        // device can arrive after boot. No slot or keyboard handle exists yet.
-        g_controller.keyboard_lifecycle = KeyboardLifecycle::WaitingForDevice;
+        // HID device can arrive after boot. No slot or child handle exists yet.
+        g_controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         g_controller.runtime_status = Status::NoDevice;
         g_controller.initialized = true;
-        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB keyboard");
+        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB HID device");
         return Status::Ok;
     }
     if (attached != Status::Ok) return fail_initialization(attached);
@@ -1171,13 +1344,18 @@ Status initialize(
 
 size_t poll(size_t budget) {
     if (!g_controller.initialized || budget == 0U) return 0U;
-    if (!progress_keyboard_lifecycle(g_controller) &&
-        g_controller.keyboard_lifecycle != KeyboardLifecycle::WaitingForDevice) {
+    if (!progress_hid_lifecycle(g_controller) &&
+        g_controller.hid_lifecycle != HidLifecycle::WaitingForDevice) {
         return 0U;
     }
-    if (g_controller.pending_key_count != 0U) {
-        if (!flush_keyboard_events(g_controller)) return 0U;
-        static_cast<void>(queue_keyboard_report(g_controller));
+    const bool input_pending =
+        (g_controller.hid_kind == HidKind::Keyboard &&
+         g_controller.pending_key_count != 0U) ||
+        (g_controller.hid_kind == HidKind::Mouse &&
+         g_controller.pending_mouse_valid);
+    if (g_controller.hid_lifecycle == HidLifecycle::Active && input_pending) {
+        if (!flush_hid_input(g_controller)) return 0U;
+        static_cast<void>(queue_hid_report(g_controller));
     }
     size_t processed = 0U;
     while (processed < budget) {
@@ -1187,15 +1365,19 @@ size_t poll(size_t budget) {
         if (trb_type(event) == TRB_PORT_STATUS_CHANGE) {
             const uint8_t port = static_cast<uint8_t>(event.parameter >> 24U);
             if (port == g_controller.port_id &&
-                !progress_keyboard_lifecycle(g_controller)) break;
+                !progress_hid_lifecycle(g_controller)) break;
             acknowledge_port_change(g_controller, port);
         }
-        if (g_controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
+        if (g_controller.hid_lifecycle == HidLifecycle::Active &&
             trb_type(event) == TRB_TRANSFER_EVENT &&
             static_cast<uint8_t>(event.control >> 24U) == g_controller.slot_id &&
             static_cast<uint8_t>((event.control >> 16U) & 0x1FU) ==
                 g_controller.interrupt_dci) {
-            handle_keyboard_report(g_controller, event);
+            if (g_controller.hid_kind == HidKind::Keyboard) {
+                handle_keyboard_report(g_controller, event);
+            } else if (g_controller.hid_kind == HidKind::Mouse) {
+                handle_mouse_report(g_controller, event);
+            }
         }
     }
     return processed;
@@ -1204,8 +1386,15 @@ size_t poll(size_t budget) {
 bool initialized() { return g_controller.initialized; }
 bool keyboard_ready() {
     return g_controller.initialized &&
-        g_controller.keyboard_lifecycle == KeyboardLifecycle::Active &&
+        g_controller.hid_lifecycle == HidLifecycle::Active &&
+        g_controller.hid_kind == HidKind::Keyboard &&
         g_controller.keyboard_device != device::INVALID_DEVICE_ID;
+}
+bool mouse_ready() {
+    return g_controller.initialized &&
+        g_controller.hid_lifecycle == HidLifecycle::Active &&
+        g_controller.hid_kind == HidKind::Mouse &&
+        g_controller.mouse_device != device::INVALID_DEVICE_ID;
 }
 Status runtime_status() { return g_controller.runtime_status; }
 uint64_t reports_received() { return g_controller.reports; }
@@ -1226,7 +1415,7 @@ const char* status_message(Status status) {
         case Status::CommandFailed: return "xHCI command failed";
         case Status::TransferFailed: return "USB control transfer failed";
         case Status::DescriptorInvalid: return "invalid USB descriptor";
-        case Status::HidKeyboardNotFound: return "USB HID boot keyboard not found";
+        case Status::HidKeyboardNotFound: return "USB HID boot keyboard/mouse not found";
         case Status::DeviceRegistrationFailed: return "USB device registration failed";
         case Status::ControllerHaltTimeout:
             return "xHCI halt timeout; DMA resources quarantined";
