@@ -4,8 +4,9 @@ namespace drivers::usb::mass_storage {
 namespace {
 
 uint16_t read_le16(const uint8_t* bytes) {
-    return static_cast<uint16_t>(bytes[0]) |
-        static_cast<uint16_t>(static_cast<uint16_t>(bytes[1]) << 8U);
+    return static_cast<uint16_t>(
+        static_cast<uint16_t>(bytes[0]) |
+        static_cast<uint16_t>(static_cast<uint16_t>(bytes[1]) << 8U));
 }
 
 uint32_t read_le32(const uint8_t* bytes) {
@@ -39,10 +40,6 @@ void write_be32(uint8_t* bytes, uint32_t value) {
 void write_be16(uint8_t* bytes, uint16_t value) {
     bytes[0] = static_cast<uint8_t>(value >> 8U);
     bytes[1] = static_cast<uint8_t>(value);
-}
-
-void clear_bytes(uint8_t* bytes, size_t count) {
-    for (size_t index = 0U; index < count; ++index) bytes[index] = 0U;
 }
 
 void copy_bytes(uint8_t* destination, const uint8_t* source, size_t count) {
@@ -84,7 +81,7 @@ bool find_bulk_only_scsi_interface(
 
     const uint16_t total = read_le16(descriptors + 2U);
     if (total < 9U || static_cast<size_t>(total) > length ||
-        descriptors[5] == 0U) {
+        descriptors[4] == 0U || descriptors[5] == 0U) {
         return false;
     }
 
