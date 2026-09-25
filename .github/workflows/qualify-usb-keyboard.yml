@@ -1,6 +1,21 @@
 name: Qualify 5.0 xHCI USB Keyboard
 
 on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-keyboard.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/keyboard.hpp'
+      - 'kernel/input/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/inject-usb-hid-runtime.py'
+      - 'scripts/qualification/usb-hotplug-qmp.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
   push:
     branches:
       - gpt/road-to-15-consolidation
