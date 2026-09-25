@@ -10,13 +10,26 @@ using namespace drivers::usb::mass_storage;
 namespace {
 
 bool same_interface(const BulkOnlyInterface& left, const BulkOnlyInterface& right) {
-    return std::memcmp(&left, &right, sizeof(left)) == 0;
+    return left.configuration_value == right.configuration_value &&
+        left.interface_number == right.interface_number &&
+        left.bulk_in_endpoint == right.bulk_in_endpoint &&
+        left.bulk_in_maximum_packet_size == right.bulk_in_maximum_packet_size &&
+        left.bulk_out_endpoint == right.bulk_out_endpoint &&
+        left.bulk_out_maximum_packet_size == right.bulk_out_maximum_packet_size;
 }
 
 bool same_csw(const CommandStatusWrapper& left, const CommandStatusWrapper& right) {
     return left.tag == right.tag &&
         left.data_residue == right.data_residue &&
         left.status == right.status;
+}
+
+bool same_capacity(
+    const scsi::ReadCapacity10Data& left,
+    const scsi::ReadCapacity10Data& right) {
+    return left.last_logical_block_address == right.last_logical_block_address &&
+        left.block_size == right.block_size &&
+        left.block_count == right.block_count;
 }
 
 void test_interface_parser() {
@@ -61,7 +74,7 @@ void test_interface_parser() {
     assert(same_interface(found, sentinel));
 
     std::memcpy(malformed, configuration, sizeof(configuration));
-    malformed[27] = 0x82U;
+    malformed[20] = 0x82U;
     found = sentinel;
     assert(!find_bulk_only_scsi_interface(
         malformed, sizeof(malformed), &found));
@@ -246,7 +259,7 @@ void test_read_capacity() {
     };
     assert(!scsi::parse_read_capacity10(
         unsupported, sizeof(unsupported), &parsed));
-    assert(std::memcmp(&parsed, &sentinel, sizeof(parsed)) == 0);
+    assert(same_capacity(parsed, sentinel));
 
     uint8_t zero_block[sizeof(capacity)] = {
         0x00, 0x00, 0x00, 0x01,
@@ -254,7 +267,7 @@ void test_read_capacity() {
     };
     assert(!scsi::parse_read_capacity10(
         zero_block, sizeof(zero_block), &parsed));
-    assert(std::memcmp(&parsed, &sentinel, sizeof(parsed)) == 0);
+    assert(same_capacity(parsed, sentinel));
 }
 
 } // namespace
