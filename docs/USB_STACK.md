@@ -55,7 +55,7 @@ USB Core odpowiada za deskryptory, adresację, konfiguracje, endpointy, transfer
   (0, 254 i 255 portów, brak urządzenia i ostatni port). Porty są adresowane
   względem rejestrów operational: limit uwzględnia CAPLENGTH. Licznik skanera
   nie zawija się przy MaxPorts=255.
-- xHCI ma ścieżkę resetu, ringów, enumeracji i HID keyboard; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Enumeracja, klawiatura i disconnect/reconnect przeszły kwalifikację QEMU opisaną poniżej; realny sprzęt, mouse i Mass Storage pozostają otwarte.
+- xHCI ma ścieżkę resetu, ringów, enumeracji i pojedynczego HID Boot keyboard/mouse; walidator capability/runtime/doorbell/port MMIO odrzuca overflow i obcięte okna po mapowaniu, przed dostępem do tych rejestrów. Klawiatura, disconnect/reconnect i pierwszy bounded mouse runtime przeszły kwalifikację QEMU opisaną poniżej; równoczesne urządzenia HID, huby, realny sprzęt i Mass Storage pozostają otwarte.
 - Cleanup stron opublikowanych kontrolerowi wymaga potwierdzenia USBSTS.HCHalted
   i wyłączenia PCI bus mastering z odczytem kontrolnym. Samo skasowanie RUN
   nie pozwala oddać stron DMA. Odczyt rejestru równy wszystkim jedynkom nie
@@ -125,17 +125,36 @@ i klawiaturą oraz USB matrix
 [35906417389](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35906417389).
 To przygotowanie wspólnego input, nie sterownik myszy USB.
 
-Warstwa protokołu ma teraz również bounded parser HID Boot Mouse oraz
-transakcyjny dekoder 3-bajtowego raportu do wspólnego `drivers::mouse::Sample`.
-Zmiana nie aktywuje jeszcze myszy w xHCI: zachowuje boot-protocol X/Y/buttons,
-pozostawia wheel=0 do czasu jawnej obsługi report protocol i nie zmienia ścieżki
-klawiatury. Dokładny SHA `0b369e09b424bc707122babfdf8874e904c30bf3`
-przeszedł workflow `Qualify 5.0 xHCI USB Keyboard` w run `36063735518`:
-pełny host regression, clean release media, 130 par F12 z wrapem transfer/event
-ring, empty-controller cleanup, trzy disconnect/reconnect oraz late attach.
-Jest to kwalifikacja fundamentu protokołu myszy i regresji klawiatury, **nie**
-kwalifikacja USB mouse runtime.
+Warstwa protokołu ma bounded parser HID Boot Mouse oraz transakcyjny
+dekoder 3-bajtowego raportu do wspólnego `drivers::mouse::Sample`. Fundament
+protokołu na `0b369e09b424bc707122babfdf8874e904c30bf3` przeszedł pełną
+macierz klawiatury w run `36063735518`. Boot protocol publikuje X/Y/buttons;
+wheel pozostaje zerem do czasu jawnej obsługi report protocol.
 
-1. HID mouse i wspólny routing input.
-2. USB Mass Storage jako `BlockDeviceOps`.
+Pierwszy bounded runtime myszy xHCI jest teraz **QUALIFIED** w zakresie jednego
+aktywnego urządzenia HID. PR #20 został scalony jako
+`c8db9a080cdc1e6094ec47ed76d68c0e18f5575d`. Candidate run `36121992774`,
+job `108029393842`, przeszedł host-suite, clean release media, regresję
+klawiatury i rzeczywisty boot QEMU z `usb-mouse`. Harness wybiera dokładnie
+QEMU HID/USB Mouse przed ruchem/kliknięciem; guest musi wyemitować
+`xhci_mouse_enumeration` oraz `usb_hid_mouse_input`, więc PS/2 nie może
+fałszywie zaliczyć testu. Post-merge run `36122278967`, job
+`108030300639`, przeszedł ponownie.
+
+Generalizacja HID ujawniła nieaktualne literalne anchor-y wyłącznie w starym
+qualifierze klawiatury. PR #21 naprawił harness i dodał pełną macierz USB
+keyboard także dla pull requestów. Run `36122522577` przeszedł job
+`108031097621` (empty cleanup) i `108031097910` (runtime): 130 par F12,
+wrap ringów transfer/event, cleanup pustego kontrolera, trzy cykle
+disconnect/re-enumeration oraz late attach. Hotfix został scalony jako
+`2516dcb010f61d3ceed25647431d5530db112208`.
+
+Aktualny runtime nadal świadomie obsługuje jeden slot / jedno aktywne urządzenie
+boot HID naraz (keyboard **albo** mouse). Nie jest to kwalifikacja hubów,
+równoczesnej klawiatury i myszy, report-protocol wheel ani fizycznego sprzętu.
+
+1. USB Mass Storage: bounded parser interfejsu Bulk-Only Transport, CBW/CSW i
+   podstawowe SCSI CDB, bez aktywowania runtime.
+2. xHCI bulk transport + adapter do istniejącego `BlockDeviceOps`/block layer,
+   dopiero potem realny QEMU `usb-storage`.
 3. Failure injection i stress testy hotplug.
