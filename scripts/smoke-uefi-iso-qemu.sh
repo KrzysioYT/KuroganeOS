@@ -352,9 +352,13 @@ for _ in range(40):
             mice = execute(stream, "human-monitor-command", {
                 "command-line": "info mice"
             })
-            match = re.search(r"Mouse #(\d+):[^\n]*USB Mouse", mice, re.IGNORECASE)
+            match = re.search(
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse",
+                mice,
+                re.IGNORECASE,
+            )
             if match is None:
-                raise RuntimeError(f"QEMU USB Mouse not present in info mice: {mice!r}")
+                raise RuntimeError(f"QEMU HID/USB Mouse not present in info mice: {mice!r}")
             execute(stream, "human-monitor-command", {
                 "command-line": f"mouse_set {match.group(1)}"
             })
