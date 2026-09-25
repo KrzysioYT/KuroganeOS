@@ -15,6 +15,9 @@ bool submit_key(const drivers::keyboard::KeyEvent& event) {
     delivered[submitted++] = event;
     return true;
 }
+bool submit_mouse(const drivers::mouse::Sample&) {
+    return true;
+}
 }
 namespace log {
 void write(Level, const char*, const char*) {}
@@ -37,6 +40,8 @@ int main() {
     uint32_t doorbells[256]{};
     g_controller = {};
     g_controller.initialized = true;
+    g_controller.hid_kind = HidKind::Keyboard;
+    g_controller.hid_lifecycle = HidLifecycle::Active;
     g_controller.slot_id = 1U;
     g_controller.interrupt_dci = 3U;
     g_controller.interrupt_packet_size = 8U;
@@ -55,7 +60,7 @@ int main() {
         assert(poll(1U) == 1U);
     };
 
-    assert(queue_keyboard_report(g_controller));
+    assert(queue_hid_report(g_controller));
     assert(g_controller.interrupt_ring.enqueue == 1U);
     report[2] = 4U; // Real decoder usage for A; not yet completed by hardware.
     complete(0x10010U); // A different descriptor must not retire this report.
@@ -83,7 +88,7 @@ int main() {
     assert(submitted == 2U && g_controller.reports == 2U);
     assert(!g_controller.report_queued && g_controller.interrupt_ring.enqueue == 3U);
 
-    assert(queue_keyboard_report(g_controller));
+    assert(queue_hid_report(g_controller));
     report[0] = 2U; // Shift+A creates two ordered events.
     report[2] = 4U;
     capacity = submitted + 1U;
@@ -134,7 +139,7 @@ int main() {
     write32(operational, OP_PORTS, 0U);
     assert(poll(1U) == 0U);
     assert(!keyboard_ready() && submitted == 9U);
-    assert(g_controller.keyboard_lifecycle == KeyboardLifecycle::ReleaseKeys);
+    assert(g_controller.hid_lifecycle == HidLifecycle::ReleaseInput);
     assert(g_controller.command_ring.enqueue == 0U && dcbaa[1] == 0x60000U);
     assert(device::resolve(old_handle) != nullptr);
     capacity = 24U;
@@ -142,7 +147,7 @@ int main() {
         static_cast<uint32_t>(TRB_COMMAND_COMPLETION) << 10U | 1U};
     assert(poll(1U) == 0U);
     assert(submitted == 10U && !delivered[8].pressed && !delivered[9].pressed);
-    assert(g_controller.keyboard_lifecycle == KeyboardLifecycle::WaitingForDevice);
+    assert(g_controller.hid_lifecycle == HidLifecycle::WaitingForDevice);
     assert(g_controller.command_ring.enqueue == 1U && dcbaa[1] == 0U);
     assert(trb_type(commands[0]) == TRB_DISABLE_SLOT);
     assert((commands[0].control >> 24U) == 1U);
@@ -171,7 +176,7 @@ int main() {
     assert(g_controller.command_ring.enqueue == 1U);
 
     // A missing Disable Slot completion must retain DMA and stop polling.
-    g_controller.keyboard_lifecycle = KeyboardLifecycle::ReleaseKeys;
+    g_controller.hid_lifecycle = HidLifecycle::ReleaseInput;
     g_controller.slot_id = 1U;
     dcbaa[1] = 0x60000U;
     assert(poll(1U) == 0U);
