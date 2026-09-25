@@ -60,6 +60,9 @@ run_test input -DKUROGANE_HOST_TEST "$root/tests/test_input.cpp" \
     "$root/kernel/drivers/mouse_protocol.cpp"
 run_test usb-protocol "$root/tests/test_usb_protocol.cpp" \
     "$root/kernel/drivers/usb/protocol.cpp"
+run_test usb-mass-storage-protocol \
+    "$root/tests/test_usb_mass_storage_protocol.cpp" \
+    "$root/kernel/drivers/usb/mass_storage_protocol.cpp"
 run_test user-console "$root/tests/test_user_console.cpp" \
     "$root/kernel/user/console.cpp"
 run_test window-manager -DKUROGANE_HOST_TEST \
