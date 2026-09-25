@@ -189,22 +189,40 @@ IMG/ISO/install.pkg and uninjected OVMF production Login + DHCP/gateway passed.
 Nine triggered workflows passed at this snapshot; six self-hosted workflows,
 including Pre-Steel `35905199805`, are queued, not a fresh full-matrix PASS.
 
-Next exact USB task: HID mouse, starting with all-or-nothing publication of a
-mouse report into the common input queue. Retaining a report on queue pressure
-must not double-apply pointer movement or publish only part of a button change.
-
-That input prerequisite is implemented at
+The common-input prerequisite for USB mouse landed at
 `4926de52a29eac3019babf93730a0529cd675855`. A rejected mouse sample leaves the
-queue and pointer/button state unchanged; the PS/2 pump also retains a blocked
-key event or mouse sample for retry. Host coverage includes queue saturation,
-press/release ordering, repeated retry and uint16_t sequence wrap. The focused
-host test passed ASan/UBSan, and local production QEMU/TCG passed Login plus
-DHCP/gateway and two keyboard/mouse-driven Login/Home/Logout cycles. The local
-image was incrementally rebuilt; clean exact-source release media and the full
-host/HID/hotplug/late-attachment regression passed in Actions `35906417389`,
-runtime job `107335121448`, cleanup job `107335121039`. Pre-Steel regression
-`35906417805` remains queued. No USB mouse backend is claimed yet.
-**5.0 remains ACTIVE**, not qualified.
+queue and pointer/button state unchanged; the PS/2 pump also retains blocked
+input for retry. Clean exact-source release media and the full keyboard
+HID/hotplug/late-attachment regression passed in Actions `35906417389`,
+runtime job `107335121448`, cleanup job `107335121039`.
+
+The first bounded xHCI HID Boot Mouse runtime is now **QUALIFIED for its stated
+scope**. PR #20 merged as `c8db9a080cdc1e6094ec47ed76d68c0e18f5575d`.
+Its final candidate gate `36121992774`, job `108029393842`, passed the full
+host suite, clean release-media build, an xHCI keyboard regression and a real
+QEMU `usb-mouse` boot. The harness explicitly selects QEMU's HID/USB mouse
+before generating movement/click input; PASS requires
+`xhci_mouse_enumeration` and `usb_hid_mouse_input` from the guest, so the
+PS/2 path cannot satisfy the proof. The post-merge mouse gate
+`36122278967`, job `108030300639`, passed again on the merge source.
+
+The HID generalization exposed stale literal anchors in the older keyboard
+qualification harness, not a production-kernel failure. PR #21 repaired those
+anchors and made the complete keyboard matrix run on pull requests. Run
+`36122522577` passed both `usb-keyboard (empty-cleanup)` job `108031097621`
+and `usb-keyboard (runtime)` job `108031097910`: full host regression,
+clean media, 130 F12 press/release pairs with transfer/event ring wrap,
+empty-controller halt/cleanup, three disconnect/re-enumeration cycles and
+first attachment after an empty-controller boot. It merged as
+`2516dcb010f61d3ceed25647431d5530db112208`.
+
+This remains deliberately bounded to one active boot HID device in the current
+single-slot xHCI runtime (keyboard **or** mouse). Simultaneous HID devices,
+hubs, report-protocol wheel extensions, USB Mass Storage and physical-hardware
+qualification remain open. The next exact USB task is a bounded USB Mass
+Storage BOT/SCSI foundation feeding the existing block-device contract before
+any production storage runtime is claimed. **5.0 remains ACTIVE**, not
+qualified.
 
 - `3.3.3-dev` — Red Flux — **QUALIFIED**
 - `3.4.0-dev` — System Services — **QUALIFIED**
