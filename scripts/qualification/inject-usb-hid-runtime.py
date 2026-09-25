@@ -14,9 +14,8 @@ bool qualification_shift_down = false;
 bool qualification_shift_released = false;
 bool qualification_disconnected = false;
 """
-ATTACH_ANCHOR = "    controller.keyboard_device = id;\n    return true;"
-ATTACH_INSTRUMENTATION = """    controller.keyboard_device = id;
-    const auto new_handle = device::handle_for(id);
+ATTACH_ANCHOR = "    return true;\n}\n\nbool register_mouse(Controller& controller) {"
+ATTACH_INSTRUMENTATION = """    const auto new_handle = device::handle_for(id);
     if (qualification_disconnected) {
         const bool fresh = new_handle != qualification_keyboard_handle &&
             device::resolve(qualification_keyboard_handle) == nullptr &&
@@ -25,8 +24,11 @@ ATTACH_INSTRUMENTATION = """    controller.keyboard_device = id;
                                 : "[TEST] usb_hid_reconnect: FAIL");
     }
     qualification_keyboard_handle = new_handle;
-    return true;"""
-DETACH_ANCHOR = '        log::write(log::Level::Info, "USB", "keyboard disconnected; slot retired");'
+    return true;
+}
+
+bool register_mouse(Controller& controller) {"""
+DETACH_ANCHOR = '        log::write(log::Level::Info, "USB", "HID device disconnected; slot retired");'
 DETACH_INSTRUMENTATION = DETACH_ANCHOR + """
         bool released = qualification_shift_released && !qualification_shift_down &&
             controller.pending_key_count == 0U && controller.slot_id == 0U &&
@@ -40,13 +42,14 @@ DETACH_INSTRUMENTATION = DETACH_ANCHOR + """
         qualification_disconnected = released;
         terminal::println(released ? "[TEST] usb_hid_disconnect: PASS"
                                    : "[TEST] usb_hid_disconnect: FAIL");"""
-EMPTY_ANCHOR = '        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB keyboard");'
+EMPTY_ANCHOR = '        log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB HID device");'
 EMPTY_INSTRUMENTATION = EMPTY_ANCHOR + """
         const bool waiting = g_controller.initialized &&
             g_controller.dma_published && g_controller.bus_master_enabled &&
             !g_controller.cleanup_pending && g_controller.slot_id == 0U &&
             !g_controller.report_queued && g_controller.report_trb == 0U &&
             g_controller.keyboard_device == device::INVALID_DEVICE_ID &&
+            g_controller.mouse_device == device::INVALID_DEVICE_ID &&
             g_controller.runtime_status == Status::NoDevice;
         terminal::println(waiting ? "[TEST] xhci_empty_waiting: PASS"
                                  : "[TEST] xhci_empty_waiting: FAIL");
@@ -59,7 +62,8 @@ EMPTY_CLEANUP = """
             !g_controller.cleanup_pending && !g_controller.dma_published &&
             !g_controller.bus_master_enabled && !g_controller.initialized &&
             g_controller.mapped_pages == 0U &&
-            g_controller.keyboard_device == device::INVALID_DEVICE_ID;
+            g_controller.keyboard_device == device::INVALID_DEVICE_ID &&
+            g_controller.mouse_device == device::INVALID_DEVICE_ID;
         terminal::println(released
             ? "[TEST] xhci_empty_cleanup: PASS"
             : "[TEST] xhci_empty_cleanup: FAIL");
@@ -75,8 +79,8 @@ INSTRUMENTATION = """        record_keyboard_input(controller, event);
                         qualification_shift_down = true;
                         qualification_shift_released = false;
                     } else {
-                        if (qualification_shift_down && controller.keyboard_lifecycle ==
-                                KeyboardLifecycle::ReleaseKeys) {
+                        if (qualification_shift_down && controller.hid_lifecycle ==
+                                HidLifecycle::ReleaseInput) {
                             qualification_shift_released = true;
                             terminal::println("[TEST] usb_hid_disconnect_release: PASS");
                         }
