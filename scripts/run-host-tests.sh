@@ -153,6 +153,11 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_usb_mass_storage_protocol"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_xhci_bulk.cpp kernel/drivers/usb/xhci_bulk.cpp \
+  -o "$OUT_DIR/test_xhci_bulk"
+"$OUT_DIR/test_xhci_bulk"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_keyboard.cpp kernel/drivers/usb/protocol.cpp \
   -o "$OUT_DIR/test_usb_keyboard"
 "$OUT_DIR/test_usb_keyboard"
