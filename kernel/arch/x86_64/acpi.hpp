@@ -14,6 +14,7 @@ enum class Status : uint8_t {
     InvalidArgument,
     InvalidRsdp,
     InvalidRootTable,
+    TableNotFound,
     MadtNotFound,
     InvalidMadt,
     TooManyEntries,
@@ -38,6 +39,11 @@ struct InterruptOverride {
     uint16_t flags;
 };
 
+struct TableView {
+    const void* address;
+    size_t length;
+};
+
 struct Topology {
     uint64_t local_apic_address;
     uint32_t madt_flags;
@@ -50,9 +56,14 @@ struct Topology {
     bool legacy_pic_present;
 };
 
-// Parses an RSDP and its RSDT/XSDT using the firmware's physical identity
-// mapping. Every referenced ACPI table is checksum- and length-validated
-// before its contents are used.
+// Finds one checksum-valid ACPI SDT through an RSDT/XSDT using the firmware's
+// physical identity mapping. The four-byte signature is matched exactly.
+Status find_table(
+    const void* rsdp,
+    const char signature[4],
+    TableView* output);
+
+// Parses an RSDP and MADT using the same validated table lookup contract.
 Status parse_rsdp(const void* rsdp, Topology* output);
 Status discover(uint64_t rsdp_physical_address);
 bool available();
