@@ -2053,6 +2053,15 @@ bool mouse_ready() {
         g_controller.hid_kind == HidKind::Mouse &&
         g_controller.mouse_device != device::INVALID_DEVICE_ID;
 }
+const storage::block::Device* mass_storage_block_device() {
+    return g_controller.initialized &&
+        g_controller.hid_lifecycle == HidLifecycle::Active &&
+        g_controller.mass_storage_present &&
+        g_controller.mass_storage_block_ready &&
+        g_controller.mass_storage_device != device::INVALID_DEVICE_ID
+        ? &g_controller.mass_storage_block
+        : nullptr;
+}
 Status runtime_status() { return g_controller.runtime_status; }
 uint64_t reports_received() { return g_controller.reports; }
 
