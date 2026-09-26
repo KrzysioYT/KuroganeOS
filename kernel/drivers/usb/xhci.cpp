@@ -1146,6 +1146,7 @@ bool bulk_in_transfer(
 bool probe_mass_storage_bot_transport(Controller& controller) {
     uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cdb: FAIL");
         return false;
     }
 
@@ -1160,26 +1161,46 @@ bool probe_mass_storage_bot_transport(Controller& controller) {
 
     uint8_t cbw[mass_storage::COMMAND_BLOCK_WRAPPER_SIZE]{};
     if (!mass_storage::encode_command_block_wrapper(
-            &wrapper, cbw, sizeof(cbw)) ||
-        !bulk_out_transfer(controller, cbw, sizeof(cbw))) {
+            &wrapper, cbw, sizeof(cbw))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cbw_encode: FAIL");
         return false;
     }
+    if (!bulk_out_transfer(controller, cbw, sizeof(cbw))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: PASS");
 
     uint8_t csw[mass_storage::COMMAND_STATUS_WRAPPER_SIZE]{};
     size_t received = 0U;
-    if (!bulk_in_transfer(controller, csw, sizeof(csw), &received) ||
-        received != sizeof(csw)) {
+    if (!bulk_in_transfer(controller, csw, sizeof(csw), &received)) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: FAIL");
         return false;
     }
+    if (received != sizeof(csw)) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_length: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: PASS");
 
     mass_storage::CommandStatusWrapper status{};
     if (!mass_storage::decode_command_status_wrapper(
             csw, sizeof(csw), tag, 0U, &status) ||
-        status.status != mass_storage::CommandStatus::Passed ||
+        status.status == mass_storage::CommandStatus::PhaseError ||
         status.data_residue != 0U) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_validate: FAIL");
         return false;
     }
 
+    // A valid CSW with Command Failed is still a successful BOT transport
+    // exchange. SCSI readiness is a separate layer: a newly attached device
+    // may legitimately report CHECK CONDITION until REQUEST SENSE is issued.
+    if (status.status == mass_storage::CommandStatus::Passed) {
+        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
+    } else {
+        terminal::println(
+            "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
+    }
     terminal::println("[TEST] xhci_mass_storage_bot_transport: PASS");
     return true;
 }
