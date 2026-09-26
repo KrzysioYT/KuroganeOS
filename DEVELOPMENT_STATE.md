@@ -1,72 +1,107 @@
 # KuroganeOS Development State
 
-Last updated: 2026-09-25
+Last updated: 2026-09-26
 
 ## Integration branch
 
 `gpt/road-to-15-consolidation`
 
-Current integration HEAD after PR #23:
+Current qualified integration HEAD after PR #25:
 
-`559c51000150eed0b9e7127e8fd31ae0118be5f9`
+`0376722a5f0076aca9d117b41552f03499b6ac3d`
 
-## Active release track
+## Formal release track
 
-- `3.3.3-dev — Red Flux`: qualified scoped DEV milestone.
-- `3.4.0-dev — System Services`: qualified.
-- `4.0.0-dev — Pre-Steel`: qualified.
-- `5.0.0-dev — Steel / Hardware`: ACTIVE, not qualified.
-- Target: progress conservatively through later milestones toward `15.0.0 stable`.
+- `3.3.3-dev — Red Flux`: QUALIFIED
+- `3.4.0-dev — System Services`: QUALIFIED
+- `3.5.0-dev — Connected Userspace`: QUALIFIED
+- `3.6.0-dev — Flux Stabilization`: QUALIFIED
+- `4.0.0-dev — Pre-Steel`: QUALIFIED
+- `5.0.0-dev — Steel / Hardware`: ACTIVE, not qualified
+- `6.0.0-dev — Core Steel` through `14.0.0-dev — Forge Desktop / RC`: pending
+- `15.0.0 stable`: target
 
-The embedded runtime version is not to be bumped merely because a subsystem slice lands. Version advancement must follow the release roadmap and qualification evidence.
+The embedded runtime version must not be bumped merely because a subsystem slice
+lands. Version advancement follows the formal roadmap and qualification evidence.
 
-## Recently completed Steel slices
+## Completed Steel USB slices
 
-- bounded xHCI HID keyboard runtime and regression matrix;
+- bounded xHCI HID keyboard runtime and full hotplug/ring-wrap regression;
 - bounded xHCI HID mouse runtime for one active HID device;
-- repaired keyboard qualification after HID generalization;
-- USB Mass Storage protocol foundation:
-  - BOT interface parser;
-  - CBW encoder / CSW decoder;
-  - bounded SCSI CDB builders;
-  - READ CAPACITY(10) parser;
-  - host regression coverage.
+- USB Mass Storage BOT/SCSI protocol foundation — PR #23, merge
+  `559c51000150eed0b9e7127e8fd31ae0118be5f9`;
+- bounded xHCI bulk endpoint/TRB planning — PR #24, merge
+  `6b92d7cd4bf5c48bd7640f784a1565d5fe1e586f`;
+- bounded bulk Endpoint Context encoder with exact host regression — PR #25,
+  merge `0376722a5f0076aca9d117b41552f03499b6ac3d`.
 
-PR #23 was merged into the integration branch as `559c51000150eed0b9e7127e8fd31ae0118be5f9`.
+PR #25 passed CLA, the real xHCI USB Mouse gate and the complete real xHCI USB
+Keyboard qualification matrix before merge.
 
-## Current constraints
-
-The xHCI runtime is intentionally bounded. It does not yet claim:
-
-- simultaneous keyboard + mouse;
-- USB hubs;
-- report-protocol wheel extensions;
-- USB Mass Storage runtime;
-- physical-hardware USB qualification.
-
-The Mass Storage protocol layer exists, but there is no production xHCI bulk endpoint runtime and no registration as `BlockDeviceOps`.
-
-## Current workstream
+## Current Steel workstream
 
 Branch:
 
-`chatgpt/5.0-xhci-bulk-foundation`
+`chatgpt/5.0-usb-storage-enumeration`
 
-Goal: add a small, bounded xHCI bulk-transfer foundation before attempting a complete USB storage driver.
+Goal: prove real USB Mass Storage enumeration and xHCI Bulk IN/OUT endpoint
+configuration before enabling any block I/O.
 
-Planned sequence:
+Current slice intentionally does only:
 
-1. isolate generic transfer-ring completion/accounting needed by non-HID endpoints;
-2. add bounded bulk-IN / bulk-OUT endpoint configuration contracts;
-3. add host-testable validation/accounting before activating production runtime;
-4. qualify the slice;
-5. only then connect BOT/SCSI transactions;
-6. only after transport qualification expose USB storage through the existing `BlockDeviceOps` contract.
+1. recognize the qualified BOT/SCSI-transparent Mass Storage interface;
+2. SET_CONFIGURATION on the real device;
+3. configure independent Bulk IN and Bulk OUT transfer rings through production
+   xHCI Endpoint Contexts;
+4. register the USB child in the Device Model as `Initializing`, never
+   `Ready`;
+5. qualify the path with a real QEMU `qemu-xhci + usb-storage` device.
+
+It does **not** yet send CBW/data/CSW transactions and does not expose a usable
+`storage::block::Device`.
+
+Next dependent slices after this gate passes:
+
+1. bounded synchronous BOT transaction engine with exact transfer completion
+   ownership and residue/status validation;
+2. INQUIRY / TEST UNIT READY / REQUEST SENSE / READ CAPACITY(10) runtime;
+3. read-only `storage::block::Device` qualification;
+4. WRITE(10) + SYNCHRONIZE CACHE with failure recovery;
+5. hot-remove and stale-handle cleanup;
+6. unified storage registry so AHCI, USB Mass Storage and later NVMe feed the
+   same storage/installer path instead of AHCI-specific enumeration.
+
+## Hard 5.0 gaps found by audit
+
+The current source tree does not yet contain complete implementations for:
+
+- NVMe;
+- SMP AP startup, per-CPU stacks/state, SMP scheduling and TLB shootdown;
+- Intel HDA;
+- HPET;
+- USB hubs / simultaneous HID devices / physical-hardware USB qualification.
+
+Existing foundations that should be extended rather than replaced:
+
+- MADT processor discovery;
+- Local APIC and I/O APIC routing;
+- MSI/MSI-X infrastructure;
+- AHCI and the synchronous `storage::block::Device` ABI;
+- E1000, PCnet and VirtIO-net;
+- AC'97 audio;
+- Device/Driver Model.
+
+Steel must not be marked qualified until the formal 5.0 roadmap gates are
+satisfied with runtime evidence.
 
 ## Development policy
 
+- Use `AUDIT -> DESIGN -> IMPLEMENT -> BUILD -> TEST -> FIX -> REGRESSION ->
+  DOCUMENT -> COMMIT -> NEXT`.
 - Work in small reviewable slices.
-- Run available host/CI qualification before merging.
-- Normal commits, pushes and merges are authorized without asking each time.
-- Do not force-push, rewrite history, delete branches/tags/releases, or perform similarly destructive Git operations without explicit user instruction.
+- A real failure blocks dependent work until fixed.
+- Run available host and real runtime qualification before merging.
+- Routine commits, pushes and merges are authorized without asking each time.
+- Do not force-push, rewrite history, delete branches/tags/releases or perform
+  similarly destructive Git operations without explicit user instruction.
 - Keep Windows PowerShell and Oracle VirtualBox support intact.
