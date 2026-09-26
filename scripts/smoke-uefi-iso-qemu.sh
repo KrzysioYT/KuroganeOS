@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -18,6 +18,7 @@ log_dir=""
 audio_model="none"
 usb_keyboard=false
 usb_mouse=false
+usb_storage=false
 usb_controller=false
 usb_hotplug=false
 usb_hotplug_phase=0
@@ -56,6 +57,7 @@ while (($#)); do
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
+        --usb-storage) usb_controller=true; usb_storage=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
@@ -494,6 +496,20 @@ if $usb_mouse; then
     # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
     usb_args+=(
         -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
+    )
+fi
+if $usb_storage; then
+    usb_storage_image="$tmp/usb-storage.img"
+    python3 - "$usb_storage_image" <<'PY'
+import sys
+with open(sys.argv[1], "wb") as image:
+    image.truncate(8 * 1024 * 1024)
+PY
+    # Separate scratch media proves real xHCI Mass Storage enumeration without
+    # exposing the system disk or relying on the IDE boot path.
+    usb_args+=(
+        -drive "if=none,id=kurogane_usb_storage,format=raw,file=$usb_storage_image"
+        -device usb-storage,drive=kurogane_usb_storage,bus=kurogane_xhci.0,id=kurogane_usb_storage
     )
 fi
 
