@@ -92,6 +92,8 @@ run_test ahci "$root/tests/test_ahci.cpp" \
     "$root/kernel/storage/ahci_protocol.cpp" \
     "$root/kernel/storage/dma.cpp" \
     "$root/kernel/memory/physical_memory.cpp"
+run_test nvme-protocol "$root/tests/test_nvme_protocol.cpp" \
+    "$root/kernel/storage/nvme_protocol.cpp"
 run_test ramfs "$root/tests/test_ramfs.cpp" \
     "$root/kernel/fs/ramfs.cpp" "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/core/string.cpp"
