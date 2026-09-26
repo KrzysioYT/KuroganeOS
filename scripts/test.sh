@@ -43,6 +43,8 @@ run_test acpi "$root/tests/test_acpi.cpp" \
     "$root/kernel/arch/x86_64/acpi.cpp"
 run_test hpet-table "$root/tests/test_hpet_table.cpp" \
     "$root/kernel/arch/x86_64/hpet_table.cpp"
+run_test hda-protocol "$root/tests/test_hda_protocol.cpp" \
+    "$root/kernel/drivers/audio/hda_protocol.cpp"
 run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
