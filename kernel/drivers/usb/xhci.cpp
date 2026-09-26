@@ -138,6 +138,9 @@ struct Controller {
     HidBootMouseInterface mouse_interface;
     mass_storage::BulkOnlyInterface mass_storage_interface;
     bool mass_storage_present;
+    uint32_t mass_storage_tag;
+    uint32_t mass_storage_block_size;
+    uint64_t mass_storage_block_count;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
@@ -1143,65 +1146,203 @@ bool bulk_in_transfer(
     return true;
 }
 
-bool probe_mass_storage_bot_transport(Controller& controller) {
-    uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
-    if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
-        terminal::println("[TEST] xhci_mass_storage_bot_cdb: FAIL");
+uint32_t next_mass_storage_tag(Controller& controller) {
+    ++controller.mass_storage_tag;
+    if (controller.mass_storage_tag == 0U) ++controller.mass_storage_tag;
+    return controller.mass_storage_tag;
+}
+
+bool execute_mass_storage_bot(
+    Controller& controller,
+    const uint8_t* cdb,
+    size_t cdb_length,
+    mass_storage::DataDirection direction,
+    void* data,
+    size_t data_length,
+    size_t* data_received,
+    mass_storage::CommandStatusWrapper* output_status) {
+    if (cdb == nullptr || cdb_length == 0U ||
+        cdb_length > mass_storage::MAXIMUM_COMMAND_BLOCK_SIZE ||
+        output_status == nullptr ||
+        (direction == mass_storage::DataDirection::None &&
+         (data != nullptr || data_length != 0U)) ||
+        (direction == mass_storage::DataDirection::In &&
+         (data == nullptr || data_length == 0U || data_received == nullptr)) ||
+        direction == mass_storage::DataDirection::Out) {
         return false;
     }
 
-    constexpr uint32_t tag = UINT32_C(0x4B55524F);
+    const uint32_t tag = next_mass_storage_tag(controller);
     mass_storage::CommandBlockWrapper wrapper{};
     wrapper.tag = tag;
-    wrapper.data_transfer_length = 0U;
-    wrapper.direction = mass_storage::DataDirection::None;
+    wrapper.data_transfer_length = static_cast<uint32_t>(data_length);
+    wrapper.direction = direction;
     wrapper.logical_unit_number = 0U;
-    wrapper.command_length = static_cast<uint8_t>(sizeof(cdb));
-    copy_bytes(wrapper.command, cdb, sizeof(cdb));
+    wrapper.command_length = static_cast<uint8_t>(cdb_length);
+    copy_bytes(wrapper.command, cdb, cdb_length);
 
     uint8_t cbw[mass_storage::COMMAND_BLOCK_WRAPPER_SIZE]{};
     if (!mass_storage::encode_command_block_wrapper(
-            &wrapper, cbw, sizeof(cbw))) {
-        terminal::println("[TEST] xhci_mass_storage_bot_cbw_encode: FAIL");
+            &wrapper, cbw, sizeof(cbw)) ||
+        !bulk_out_transfer(controller, cbw, sizeof(cbw))) {
         return false;
     }
-    if (!bulk_out_transfer(controller, cbw, sizeof(cbw))) {
-        terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: FAIL");
-        return false;
+
+    size_t received = 0U;
+    if (direction == mass_storage::DataDirection::In) {
+        if (!bulk_in_transfer(
+                controller, data, data_length, &received) ||
+            received > data_length) {
+            return false;
+        }
     }
-    terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: PASS");
 
     uint8_t csw[mass_storage::COMMAND_STATUS_WRAPPER_SIZE]{};
-    size_t received = 0U;
-    if (!bulk_in_transfer(controller, csw, sizeof(csw), &received)) {
-        terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: FAIL");
+    size_t csw_received = 0U;
+    if (!bulk_in_transfer(
+            controller, csw, sizeof(csw), &csw_received) ||
+        csw_received != sizeof(csw)) {
         return false;
     }
-    if (received != sizeof(csw)) {
-        terminal::println("[TEST] xhci_mass_storage_bot_csw_length: FAIL");
-        return false;
-    }
-    terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: PASS");
 
     mass_storage::CommandStatusWrapper status{};
     if (!mass_storage::decode_command_status_wrapper(
-            csw, sizeof(csw), tag, 0U, &status) ||
-        status.status == mass_storage::CommandStatus::PhaseError ||
+            csw, sizeof(csw), tag,
+            static_cast<uint32_t>(data_length), &status) ||
+        status.status == mass_storage::CommandStatus::PhaseError) {
+        return false;
+    }
+    if (direction == mass_storage::DataDirection::In &&
+        received + static_cast<size_t>(status.data_residue) != data_length) {
+        return false;
+    }
+    if (data_received != nullptr) *data_received = received;
+    *output_status = status;
+    return true;
+}
+
+bool request_mass_storage_sense(Controller& controller) {
+    constexpr size_t sense_length = 18U;
+    uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
+    if (!mass_storage::scsi::build_request_sense(
+            static_cast<uint8_t>(sense_length), cdb, sizeof(cdb))) {
+        return false;
+    }
+    uint8_t sense[sense_length]{};
+    size_t received = 0U;
+    mass_storage::CommandStatusWrapper status{};
+    return execute_mass_storage_bot(
+               controller, cdb, sizeof(cdb),
+               mass_storage::DataDirection::In,
+               sense, sizeof(sense), &received, &status) &&
+        status.status == mass_storage::CommandStatus::Passed &&
+        received == sizeof(sense) &&
+        status.data_residue == 0U;
+}
+
+bool test_mass_storage_ready(Controller& controller) {
+    uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
+    if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
+        return false;
+    }
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller, cdb, sizeof(cdb),
+            mass_storage::DataDirection::None,
+            nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U) {
-        terminal::println("[TEST] xhci_mass_storage_bot_csw_validate: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_transport: PASS");
+    if (status.status == mass_storage::CommandStatus::Passed) {
+        return true;
+    }
+
+    terminal::println(
+        "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
+    if (!request_mass_storage_sense(controller)) return false;
+
+    status = {};
+    if (!execute_mass_storage_bot(
+            controller, cdb, sizeof(cdb),
+            mass_storage::DataDirection::None,
+            nullptr, 0U, nullptr, &status) ||
+        status.data_residue != 0U ||
+        status.status != mass_storage::CommandStatus::Passed) {
+        return false;
+    }
+    return true;
+}
+
+bool probe_mass_storage_scsi_geometry(Controller& controller) {
+    if (!test_mass_storage_ready(controller)) {
+        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
+
+    constexpr size_t inquiry_length = 36U;
+    uint8_t inquiry_cdb[mass_storage::scsi::CDB6_SIZE]{};
+    if (!mass_storage::scsi::build_inquiry(
+            static_cast<uint8_t>(inquiry_length),
+            inquiry_cdb, sizeof(inquiry_cdb))) {
+        return false;
+    }
+    uint8_t inquiry[inquiry_length]{};
+    size_t inquiry_received = 0U;
+    mass_storage::CommandStatusWrapper inquiry_status{};
+    if (!execute_mass_storage_bot(
+            controller, inquiry_cdb, sizeof(inquiry_cdb),
+            mass_storage::DataDirection::In,
+            inquiry, sizeof(inquiry), &inquiry_received, &inquiry_status) ||
+        inquiry_status.status != mass_storage::CommandStatus::Passed ||
+        inquiry_status.data_residue != 0U ||
+        inquiry_received != sizeof(inquiry)) {
+        terminal::println("[TEST] xhci_mass_storage_inquiry: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_inquiry: PASS");
+
+    uint8_t capacity_cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_read_capacity10(
+            capacity_cdb, sizeof(capacity_cdb))) {
+        return false;
+    }
+    uint8_t capacity[8U]{};
+    size_t capacity_received = 0U;
+    mass_storage::CommandStatusWrapper capacity_status{};
+    if (!execute_mass_storage_bot(
+            controller, capacity_cdb, sizeof(capacity_cdb),
+            mass_storage::DataDirection::In,
+            capacity, sizeof(capacity), &capacity_received, &capacity_status) ||
+        capacity_status.status != mass_storage::CommandStatus::Passed ||
+        capacity_status.data_residue != 0U ||
+        capacity_received != sizeof(capacity)) {
+        terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
         return false;
     }
 
-    // A valid CSW with Command Failed is still a successful BOT transport
-    // exchange. SCSI readiness is a separate layer: a newly attached device
-    // may legitimately report CHECK CONDITION until REQUEST SENSE is issued.
-    if (status.status == mass_storage::CommandStatus::Passed) {
-        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
-    } else {
-        terminal::println(
-            "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
+    mass_storage::scsi::ReadCapacity10Data geometry{};
+    if (!mass_storage::scsi::parse_read_capacity10(
+            capacity, sizeof(capacity), &geometry) ||
+        geometry.block_size < 512U ||
+        geometry.block_size > memory::virtual_memory::PAGE_SIZE ||
+        (memory::virtual_memory::PAGE_SIZE % geometry.block_size) != 0U ||
+        geometry.block_count == 0U) {
+        terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
+        return false;
     }
-    terminal::println("[TEST] xhci_mass_storage_bot_transport: PASS");
+
+    controller.mass_storage_block_size = geometry.block_size;
+    controller.mass_storage_block_count = geometry.block_count;
+    log::write_u64(
+        log::Level::Info, "USB", "Mass Storage logical block bytes=",
+        controller.mass_storage_block_size);
+    log::write_u64(
+        log::Level::Info, "USB", "Mass Storage logical block count=",
+        controller.mass_storage_block_count);
+    terminal::println("[TEST] xhci_mass_storage_read_capacity: PASS");
+    terminal::println("[TEST] xhci_mass_storage_scsi_geometry: PASS");
     return true;
 }
 
@@ -1446,7 +1587,7 @@ Status attach_hid_device(Controller& controller) {
     } else if (controller.mass_storage_present) {
         configured = configure_mass_storage_endpoints(controller);
         if (configured) {
-            configured = probe_mass_storage_bot_transport(controller);
+            configured = probe_mass_storage_scsi_geometry(controller);
         }
         if (configured) {
             registered = register_mass_storage(controller);
