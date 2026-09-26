@@ -6,9 +6,9 @@ Last updated: 2026-09-26
 
 `gpt/road-to-15-consolidation`
 
-Current qualified integration HEAD after PR #27:
+Current qualified integration HEAD after PR #30:
 
-`08d8d76949fc6aa2bf065dff2c42b9aa46affbe8`
+`d1d3d1e1194b01d747932097a0ce79bd44dfeca8`
 
 ## Formal release track
 
@@ -38,7 +38,9 @@ lands. Version advancement follows the formal roadmap and qualification evidence
   configuration — PR #26, merge
   `07ebba7f70d297d3ded1704475bb50f033ccf71c`;
 - exact xHCI Transfer Event ownership validation for bulk traffic — PR #27,
-  merge `08d8d76949fc6aa2bf065dff2c42b9aa46affbe8`.
+  merge `08d8d76949fc6aa2bf065dff2c42b9aa46affbe8`;
+- first real BOT TEST UNIT READY CBW/CSW exchange — PR #28, merge
+  `83658f82b6d8e10f57ed8b22d0127661b3d33b10`.
 
 PR #26 candidate `dc8fbaaed40534cb7346d4e3959f7472057881a1` passed:
 - Mass Storage real-QEMU run `36213602627`;
@@ -52,15 +54,14 @@ The USB child remains `Initializing`; no usable block I/O is claimed.
 
 Branch:
 
-`chatgpt/5.0-xhci-bulk-runtime`
+`chatgpt/5.0-usb-storage-geometry`
 
-Goal: prove the first real production BOT transaction over the qualified xHCI
-Bulk OUT/Bulk IN endpoints.
+Goal: move the proven BOT transport into the first real SCSI device
+qualification without exposing block I/O yet.
 
-Current slice wires exact completion ownership into a bounded synchronous
-single-page bulk primitive, sends a BOT TEST UNIT READY CBW, receives the CSW
-and requires exact tag/residue/status validation on a real QEMU usb-storage
-device.
+Current slice handles a legal initial CHECK CONDITION with REQUEST SENSE,
+retries TEST UNIT READY, requires INQUIRY and READ CAPACITY(10), and publishes
+validated 512..4096-byte geometry only after exact BOT/CSW validation.
 
 Next dependent slices after this gate passes:
 

@@ -69,6 +69,9 @@ jobs:
             --log-dir build/tests/usb-storage-transport --timeout 120 \
             --require-marker '[TEST] xhci_mass_storage_enumeration: PASS' \
             --require-marker '[TEST] xhci_mass_storage_bot_transport: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_inquiry: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_read_capacity: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_scsi_geometry: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' \
             build/tests/usb-storage-transport/serial.log
