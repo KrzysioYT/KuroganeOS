@@ -35,6 +35,52 @@ void test_endpoint_plan() {
     assert(!build_endpoint_plan(0x02U, 1025U, &plan));
 }
 
+void test_endpoint_context() {
+    EndpointPlan out_plan{};
+    assert(build_endpoint_plan(0x02U, 512U, &out_plan));
+
+    EndpointContextImage context{};
+    assert(build_endpoint_context(
+        out_plan, UINT64_C(0x0000001234500000), 512U, &context));
+    assert(context.words[0] == 0U);
+    assert(context.words[1] ==
+        ((UINT32_C(3) << 1U) | (UINT32_C(2) << 3U) |
+         (UINT32_C(512) << 16U)));
+    assert(context.words[2] == UINT32_C(0x34500001));
+    assert(context.words[3] == UINT32_C(0x00000012));
+    assert(context.words[4] == 512U);
+
+    EndpointPlan in_plan{};
+    assert(build_endpoint_plan(0x81U, 1024U, &in_plan));
+    assert(build_endpoint_context(
+        in_plan, UINT64_C(0x00000000ABCDF000), 1024U, &context));
+    assert(((context.words[1] >> 3U) & UINT32_C(0x7)) == 6U);
+    assert((context.words[1] >> 16U) == 1024U);
+    assert(context.words[2] == UINT32_C(0xABCDF001));
+
+    const EndpointContextImage sentinel{{
+        UINT32_C(1), UINT32_C(2), UINT32_C(3), UINT32_C(4), UINT32_C(5)}};
+    context = sentinel;
+    assert(!build_endpoint_context(
+        in_plan, UINT64_C(0xABCDF008), 1024U, &context));
+    for (size_t index = 0U; index < 5U; ++index) {
+        assert(context.words[index] == sentinel.words[index]);
+    }
+
+    EndpointPlan mismatched = in_plan;
+    mismatched.endpoint_type = 2U;
+    assert(!build_endpoint_context(
+        mismatched, UINT64_C(0xABCDF000), 1024U, &context));
+
+    uint8_t entries = 0U;
+    assert(extend_context_entries(1U, out_plan.device_context_index, &entries));
+    assert(entries == out_plan.device_context_index);
+    assert(extend_context_entries(entries, in_plan.device_context_index, &entries));
+    assert(entries == out_plan.device_context_index);
+    assert(!extend_context_entries(32U, 4U, &entries));
+    assert(!extend_context_entries(1U, 0U, &entries));
+}
+
 void test_transfer_chunk() {
     TransferChunk chunk{};
     assert(plan_normal_trb_chunk(UINT64_C(0x100000), 4096U, &chunk));
@@ -92,6 +138,7 @@ void test_full_span_progress() {
 
 int main() {
     test_endpoint_plan();
+    test_endpoint_context();
     test_transfer_chunk();
     test_full_span_progress();
     std::puts("xHCI bulk planning: PASS");
