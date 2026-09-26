@@ -9,6 +9,7 @@
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
 #include "../../storage/dma.hpp"
+#include "../../storage/block_device.hpp"
 #include "../../terminal.hpp"
 
 namespace drivers::usb::xhci {
@@ -123,6 +124,7 @@ struct Controller {
     storage::dma::Page input_context_page;
     storage::dma::Page device_context_page;
     storage::dma::Page data_page;
+    storage::dma::Page storage_io_page;
     storage::dma::Page scratchpad_array_page;
     storage::dma::Page scratchpads[MAXIMUM_SCRATCHPADS];
     size_t scratchpad_count;
@@ -141,6 +143,8 @@ struct Controller {
     uint32_t mass_storage_tag;
     uint32_t mass_storage_block_size;
     uint64_t mass_storage_block_count;
+    storage::block::Device mass_storage_block;
+    bool mass_storage_block_ready;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
@@ -383,7 +387,8 @@ Status release_resources(Controller* controller) {
         &controller->bulk_out_ring.page, &controller->dcbaa_page,
         &controller->event_ring_page, &controller->erst_page,
         &controller->input_context_page, &controller->device_context_page,
-        &controller->data_page, &controller->scratchpad_array_page,
+        &controller->data_page, &controller->storage_io_page,
+        &controller->scratchpad_array_page,
     };
     for (auto* page : pages) {
         if (!release_dma_page(page)) released = false;
@@ -478,7 +483,8 @@ bool allocate_controller_memory(Controller& controller, uint32_t hcsparams2) {
         !initialize_ring(&controller.interrupt_ring) ||
         !initialize_ring(&controller.bulk_in_ring) ||
         !initialize_ring(&controller.bulk_out_ring) ||
-        !allocate_page(&controller.data_page)) {
+        !allocate_page(&controller.data_page) ||
+        !allocate_page(&controller.storage_io_page)) {
         return false;
     }
     controller.scratchpad_count =
@@ -1346,6 +1352,176 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     return true;
 }
 
+storage::block::Status read_mass_storage_blocks(
+    Controller& controller,
+    uint64_t first_block,
+    uint64_t block_count,
+    void* destination) {
+    if (destination == nullptr || block_count == 0U ||
+        controller.mass_storage_block_size == 0U ||
+        controller.mass_storage_block_count == 0U) {
+        return storage::block::Status::InvalidArgument;
+    }
+    if (first_block >= controller.mass_storage_block_count ||
+        block_count > controller.mass_storage_block_count - first_block) {
+        return storage::block::Status::OutOfRange;
+    }
+
+    const size_t blocks_per_transfer =
+        memory::virtual_memory::PAGE_SIZE /
+        controller.mass_storage_block_size;
+    if (blocks_per_transfer == 0U) {
+        return storage::block::Status::InvalidGeometry;
+    }
+
+    auto* output = static_cast<uint8_t*>(destination);
+    uint64_t completed = 0U;
+    while (completed < block_count) {
+        const uint64_t logical_block = first_block + completed;
+        if (logical_block > UINT32_MAX) {
+            return storage::block::Status::AddressNotSupported;
+        }
+
+        uint64_t remaining = block_count - completed;
+        size_t chunk_blocks = blocks_per_transfer;
+        if (remaining < static_cast<uint64_t>(chunk_blocks)) {
+            chunk_blocks = static_cast<size_t>(remaining);
+        }
+        if (chunk_blocks == 0U || chunk_blocks > UINT16_MAX) {
+            return storage::block::Status::InvalidArgument;
+        }
+
+        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+        if (!mass_storage::scsi::build_read10(
+                static_cast<uint32_t>(logical_block),
+                static_cast<uint16_t>(chunk_blocks),
+                cdb,
+                sizeof(cdb))) {
+            return storage::block::Status::InvalidArgument;
+        }
+
+        const size_t transfer_bytes =
+            chunk_blocks *
+            static_cast<size_t>(controller.mass_storage_block_size);
+        size_t received = 0U;
+        mass_storage::CommandStatusWrapper status{};
+        if (!execute_mass_storage_bot(
+                controller,
+                cdb,
+                sizeof(cdb),
+                mass_storage::DataDirection::In,
+                output +
+                    static_cast<size_t>(completed) *
+                        controller.mass_storage_block_size,
+                transfer_bytes,
+                &received,
+                &status)) {
+            return storage::block::Status::IoError;
+        }
+        if (status.status != mass_storage::CommandStatus::Passed ||
+            status.data_residue != 0U ||
+            received != transfer_bytes) {
+            return storage::block::Status::CommandFailed;
+        }
+
+        completed += static_cast<uint64_t>(chunk_blocks);
+    }
+
+    return storage::block::Status::Ok;
+}
+
+storage::block::Status mass_storage_block_read(
+    void* context,
+    uint64_t first_block,
+    uint64_t block_count,
+    void* destination) {
+    auto* controller = static_cast<Controller*>(context);
+    if (controller == nullptr ||
+        controller != &g_controller ||
+        !controller->mass_storage_block_ready ||
+        !controller->mass_storage_present ||
+        controller->hid_lifecycle != HidLifecycle::Active) {
+        return storage::block::Status::NoDevice;
+    }
+    return read_mass_storage_blocks(
+        *controller, first_block, block_count, destination);
+}
+
+storage::block::Status mass_storage_block_write(
+    void* context,
+    uint64_t,
+    uint64_t,
+    const void*) {
+    auto* controller = static_cast<Controller*>(context);
+    if (controller == nullptr ||
+        controller != &g_controller ||
+        !controller->mass_storage_block_ready ||
+        !controller->mass_storage_present) {
+        return storage::block::Status::NoDevice;
+    }
+    return storage::block::Status::ReadOnly;
+}
+
+storage::block::Status mass_storage_block_flush(void* context) {
+    auto* controller = static_cast<Controller*>(context);
+    if (controller == nullptr ||
+        controller != &g_controller ||
+        !controller->mass_storage_block_ready ||
+        !controller->mass_storage_present) {
+        return storage::block::Status::NoDevice;
+    }
+    return storage::block::Status::Ok;
+}
+
+bool initialize_mass_storage_read_only(Controller& controller) {
+    if (controller.mass_storage_block_size == 0U ||
+        controller.mass_storage_block_count == 0U) {
+        return false;
+    }
+
+    controller.mass_storage_block = {
+        &controller,
+        controller.mass_storage_block_size,
+        controller.mass_storage_block_count,
+        mass_storage_block_read,
+        mass_storage_block_write,
+        mass_storage_block_flush,
+    };
+    controller.mass_storage_block_ready = false;
+
+    clear_bytes(
+        controller.storage_io_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    if (read_mass_storage_blocks(
+            controller,
+            0U,
+            1U,
+            controller.storage_io_page.virtual_address) !=
+        storage::block::Status::Ok) {
+        terminal::println("[TEST] xhci_mass_storage_read10: FAIL");
+        controller.mass_storage_block = {};
+        return false;
+    }
+
+    terminal::println("[TEST] xhci_mass_storage_read10: PASS");
+    static constexpr char expected_magic[] = "KUROGANE_USB_READ_V1";
+    const auto* bytes = static_cast<const uint8_t*>(
+        controller.storage_io_page.virtual_address);
+    bool known = true;
+    for (size_t index = 0U; index < sizeof(expected_magic) - 1U; ++index) {
+        if (bytes[index] != static_cast<uint8_t>(expected_magic[index])) {
+            known = false;
+            break;
+        }
+    }
+    if (known) {
+        terminal::println("[TEST] xhci_mass_storage_known_read: PASS");
+    }
+
+    controller.mass_storage_block_ready = true;
+    return true;
+}
+
 bool queue_hid_report(Controller& controller) {
     if (controller.report_queued) return true;
     if (controller.hid_kind == HidKind::Keyboard &&
@@ -1444,7 +1620,11 @@ bool register_mass_storage(Controller& controller) {
     controller.mass_storage_device = id;
     if (device::claim(id, controller.owner_driver, "usb-mass-storage") !=
             KStatus::Ok ||
-        device::set_status(id, device::Status::Initializing) != KStatus::Ok) {
+        device::set_status(
+            id,
+            controller.mass_storage_block_ready
+                ? device::Status::Ready
+                : device::Status::Initializing) != KStatus::Ok) {
         return false;
     }
     return true;
@@ -1590,6 +1770,9 @@ Status attach_hid_device(Controller& controller) {
             configured = probe_mass_storage_scsi_geometry(controller);
         }
         if (configured) {
+            configured = initialize_mass_storage_read_only(controller);
+        }
+        if (configured) {
             registered = register_mass_storage(controller);
         }
     }
@@ -1700,6 +1883,11 @@ bool progress_hid_lifecycle(Controller& controller) {
         }
         controller.hid_kind = HidKind::None;
         controller.mass_storage_present = false;
+        controller.mass_storage_block_ready = false;
+        controller.mass_storage_block = {};
+        controller.mass_storage_block_size = 0U;
+        controller.mass_storage_block_count = 0U;
+        controller.mass_storage_tag = 0U;
         controller.bulk_in_dci = 0U;
         controller.bulk_out_dci = 0U;
         controller.pending_mouse_valid = false;
