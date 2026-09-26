@@ -1,0 +1,78 @@
+name: Qualify 5.0 HPET Main Counter
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-hpet.yml'
+      - 'kernel/arch/x86_64/acpi.*'
+      - 'kernel/arch/x86_64/hpet*'
+      - 'kernel/main.cpp'
+      - 'tests/test_acpi*'
+      - 'tests/test_hpet*'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-hpet.yml'
+      - 'kernel/arch/x86_64/acpi.*'
+      - 'kernel/arch/x86_64/hpet*'
+      - 'kernel/main.cpp'
+      - 'tests/test_acpi*'
+      - 'tests/test_hpet*'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hpet-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify diff hygiene
+        run: git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real HPET main-counter progress
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --log-dir build/tests/hpet-runtime --timeout 120 \
+            --require-marker '[TEST] hpet_main_counter: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR' \
+            build/tests/hpet-runtime/serial.log
+
+      - name: Retain HPET runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hpet-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/hpet-runtime
+          if-no-files-found: warn
