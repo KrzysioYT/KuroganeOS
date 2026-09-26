@@ -107,4 +107,63 @@ bool plan_normal_trb_chunk(
     return true;
 }
 
+
+TransferCompletionStatus classify_transfer_completion(
+    uint64_t expected_trb_physical_address,
+    uint8_t expected_slot_id,
+    uint8_t expected_device_context_index,
+    size_t requested_length,
+    uint64_t event_parameter,
+    uint32_t event_status,
+    uint32_t event_control,
+    TransferCompletion* output) {
+    if (output == nullptr ||
+        expected_trb_physical_address == 0U ||
+        (expected_trb_physical_address & UINT64_C(0x0F)) != 0U ||
+        expected_slot_id == 0U ||
+        expected_device_context_index < 2U ||
+        expected_device_context_index > 31U ||
+        requested_length == 0U ||
+        requested_length > MAXIMUM_NORMAL_TRB_TRANSFER) {
+        return TransferCompletionStatus::InvalidEvent;
+    }
+
+    const bool event_data = (event_control & (UINT32_C(1) << 2U)) != 0U;
+    const uint8_t slot_id = static_cast<uint8_t>(event_control >> 24U);
+    const uint8_t endpoint_id = static_cast<uint8_t>(
+        (event_control >> 16U) & UINT32_C(0x1F));
+    if (event_data ||
+        event_parameter != expected_trb_physical_address ||
+        (event_parameter & UINT64_C(0x0F)) != 0U ||
+        slot_id != expected_slot_id ||
+        endpoint_id != expected_device_context_index) {
+        return TransferCompletionStatus::ForeignEvent;
+    }
+
+    const uint8_t completion_code = static_cast<uint8_t>(event_status >> 24U);
+    const size_t residual = static_cast<size_t>(
+        event_status & UINT32_C(0x00FFFFFF));
+    if (residual > requested_length) {
+        return TransferCompletionStatus::InvalidEvent;
+    }
+
+    constexpr uint8_t completion_success = 1U;
+    constexpr uint8_t completion_short_packet = 13U;
+    if (completion_code == completion_success) {
+        if (residual != 0U) return TransferCompletionStatus::InvalidEvent;
+        const TransferCompletion staged{requested_length, completion_code};
+        *output = staged;
+        return TransferCompletionStatus::Complete;
+    }
+    if (completion_code == completion_short_packet) {
+        const TransferCompletion staged{
+            requested_length - residual,
+            completion_code,
+        };
+        *output = staged;
+        return TransferCompletionStatus::ShortPacket;
+    }
+    return TransferCompletionStatus::TransferFailed;
+}
+
 } // namespace drivers::usb::xhci::bulk
