@@ -53,4 +53,29 @@ bool plan_normal_trb_chunk(
     size_t remaining_length,
     TransferChunk* output);
 
+enum class TransferCompletionStatus : uint8_t {
+    Complete = 0,
+    ShortPacket,
+    ForeignEvent,
+    TransferFailed,
+    InvalidEvent,
+};
+
+struct TransferCompletion {
+    size_t transferred;
+    uint8_t completion_code;
+};
+
+// Validates ownership of one xHCI Transfer Event without consuming any ring.
+// Output is committed only for a successful or explicitly short completion.
+TransferCompletionStatus classify_transfer_completion(
+    uint64_t expected_trb_physical_address,
+    uint8_t expected_slot_id,
+    uint8_t expected_device_context_index,
+    size_t requested_length,
+    uint64_t event_parameter,
+    uint32_t event_status,
+    uint32_t event_control,
+    TransferCompletion* output);
+
 } // namespace drivers::usb::xhci::bulk
