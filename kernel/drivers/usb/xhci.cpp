@@ -1033,6 +1033,178 @@ bool configure_mass_storage_endpoints(Controller& controller) {
         &completion);
 }
 
+bool wait_bulk_transfer(
+    Controller& controller,
+    uint64_t expected_trb,
+    uint8_t endpoint_dci,
+    size_t requested_length,
+    bulk::TransferCompletion* completion) {
+    if (completion == nullptr) return false;
+    for (uint32_t attempt = 0U; attempt < POLL_BUDGET; ++attempt) {
+        Trb event{};
+        if (!next_event(controller, &event)) {
+            relax();
+            continue;
+        }
+        if (trb_type(event) != TRB_TRANSFER_EVENT) {
+            // A port change while a synchronous BOT transaction is active
+            // invalidates the transaction. Do not pretend the transfer survived
+            // a possible disconnect/reconnect boundary.
+            if (trb_type(event) == TRB_PORT_STATUS_CHANGE) return false;
+            continue;
+        }
+        const auto status = bulk::classify_transfer_completion(
+            expected_trb,
+            controller.slot_id,
+            endpoint_dci,
+            requested_length,
+            event.parameter,
+            event.status,
+            event.control,
+            completion);
+        if (status == bulk::TransferCompletionStatus::Complete ||
+            status == bulk::TransferCompletionStatus::ShortPacket) {
+            return true;
+        }
+        // Any other Transfer Event is either foreign, malformed or a device
+        // failure. Consuming it and continuing would hide ownership loss.
+        return false;
+    }
+    return false;
+}
+
+bool bulk_out_transfer(
+    Controller& controller,
+    const void* source,
+    size_t length) {
+    if (source == nullptr || length == 0U ||
+        length > memory::virtual_memory::PAGE_SIZE ||
+        controller.bulk_out_dci < 2U) {
+        return false;
+    }
+
+    bulk::TransferChunk chunk{};
+    if (!bulk::plan_normal_trb_chunk(
+            controller.data_page.physical_address, length, &chunk) ||
+        chunk.length != length) {
+        return false;
+    }
+
+    copy_bytes(controller.data_page.virtual_address, source, length);
+    const uint64_t trb = enqueue_trb(
+        controller.bulk_out_ring,
+        chunk.physical_address,
+        static_cast<uint32_t>(chunk.length),
+        static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
+    controller.doorbells[controller.slot_id] = controller.bulk_out_dci;
+
+    bulk::TransferCompletion completion{};
+    return wait_bulk_transfer(
+               controller, trb, controller.bulk_out_dci, length, &completion) &&
+        completion.transferred == length &&
+        completion.completion_code == COMPLETION_SUCCESS;
+}
+
+bool bulk_in_transfer(
+    Controller& controller,
+    void* destination,
+    size_t capacity,
+    size_t* transferred) {
+    if (destination == nullptr || transferred == nullptr || capacity == 0U ||
+        capacity > memory::virtual_memory::PAGE_SIZE ||
+        controller.bulk_in_dci < 2U) {
+        return false;
+    }
+
+    bulk::TransferChunk chunk{};
+    if (!bulk::plan_normal_trb_chunk(
+            controller.data_page.physical_address, capacity, &chunk) ||
+        chunk.length != capacity) {
+        return false;
+    }
+
+    clear_bytes(controller.data_page.virtual_address, capacity);
+    const uint64_t trb = enqueue_trb(
+        controller.bulk_in_ring,
+        chunk.physical_address,
+        static_cast<uint32_t>(chunk.length),
+        static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
+    controller.doorbells[controller.slot_id] = controller.bulk_in_dci;
+
+    bulk::TransferCompletion completion{};
+    if (!wait_bulk_transfer(
+            controller, trb, controller.bulk_in_dci, capacity, &completion) ||
+        completion.transferred > capacity) {
+        return false;
+    }
+    copy_bytes(destination, controller.data_page.virtual_address,
+               completion.transferred);
+    *transferred = completion.transferred;
+    return true;
+}
+
+bool probe_mass_storage_bot_transport(Controller& controller) {
+    uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
+    if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cdb: FAIL");
+        return false;
+    }
+
+    constexpr uint32_t tag = UINT32_C(0x4B55524F);
+    mass_storage::CommandBlockWrapper wrapper{};
+    wrapper.tag = tag;
+    wrapper.data_transfer_length = 0U;
+    wrapper.direction = mass_storage::DataDirection::None;
+    wrapper.logical_unit_number = 0U;
+    wrapper.command_length = static_cast<uint8_t>(sizeof(cdb));
+    copy_bytes(wrapper.command, cdb, sizeof(cdb));
+
+    uint8_t cbw[mass_storage::COMMAND_BLOCK_WRAPPER_SIZE]{};
+    if (!mass_storage::encode_command_block_wrapper(
+            &wrapper, cbw, sizeof(cbw))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cbw_encode: FAIL");
+        return false;
+    }
+    if (!bulk_out_transfer(controller, cbw, sizeof(cbw))) {
+        terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_cbw_transfer: PASS");
+
+    uint8_t csw[mass_storage::COMMAND_STATUS_WRAPPER_SIZE]{};
+    size_t received = 0U;
+    if (!bulk_in_transfer(controller, csw, sizeof(csw), &received)) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: FAIL");
+        return false;
+    }
+    if (received != sizeof(csw)) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_length: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_csw_transfer: PASS");
+
+    mass_storage::CommandStatusWrapper status{};
+    if (!mass_storage::decode_command_status_wrapper(
+            csw, sizeof(csw), tag, 0U, &status) ||
+        status.status == mass_storage::CommandStatus::PhaseError ||
+        status.data_residue != 0U) {
+        terminal::println("[TEST] xhci_mass_storage_bot_csw_validate: FAIL");
+        return false;
+    }
+
+    // A valid CSW with Command Failed is still a successful BOT transport
+    // exchange. SCSI readiness is a separate layer: a newly attached device
+    // may legitimately report CHECK CONDITION until REQUEST SENSE is issued.
+    if (status.status == mass_storage::CommandStatus::Passed) {
+        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
+    } else {
+        terminal::println(
+            "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
+    }
+    terminal::println("[TEST] xhci_mass_storage_bot_transport: PASS");
+    return true;
+}
+
 bool queue_hid_report(Controller& controller) {
     if (controller.report_queued) return true;
     if (controller.hid_kind == HidKind::Keyboard &&
@@ -1273,6 +1445,9 @@ Status attach_hid_device(Controller& controller) {
         }
     } else if (controller.mass_storage_present) {
         configured = configure_mass_storage_endpoints(controller);
+        if (configured) {
+            configured = probe_mass_storage_bot_transport(controller);
+        }
         if (configured) {
             registered = register_mass_storage(controller);
         }

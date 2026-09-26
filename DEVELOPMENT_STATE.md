@@ -6,9 +6,9 @@ Last updated: 2026-09-26
 
 `gpt/road-to-15-consolidation`
 
-Current qualified integration HEAD after PR #26:
+Current qualified integration HEAD after PR #27:
 
-`07ebba7f70d297d3ded1704475bb50f033ccf71c`
+`08d8d76949fc6aa2bf065dff2c42b9aa46affbe8`
 
 ## Formal release track
 
@@ -36,7 +36,9 @@ lands. Version advancement follows the formal roadmap and qualification evidence
   merge `0376722a5f0076aca9d117b41552f03499b6ac3d`;
 - real xHCI USB Mass Storage enumeration and independent Bulk IN/OUT endpoint
   configuration — PR #26, merge
-  `07ebba7f70d297d3ded1704475bb50f033ccf71c`.
+  `07ebba7f70d297d3ded1704475bb50f033ccf71c`;
+- exact xHCI Transfer Event ownership validation for bulk traffic — PR #27,
+  merge `08d8d76949fc6aa2bf065dff2c42b9aa46affbe8`.
 
 PR #26 candidate `dc8fbaaed40534cb7346d4e3959f7472057881a1` passed:
 - Mass Storage real-QEMU run `36213602627`;
@@ -50,22 +52,22 @@ The USB child remains `Initializing`; no usable block I/O is claimed.
 
 Branch:
 
-`chatgpt/5.0-xhci-bulk-completion`
+`chatgpt/5.0-xhci-bulk-runtime`
 
-Goal: replace loose transfer-event matching with an exact, host-qualified
-ownership contract before the first production BOT transaction.
+Goal: prove the first real production BOT transaction over the qualified xHCI
+Bulk OUT/Bulk IN endpoints.
 
-Current slice validates exact TRB pointer, slot, endpoint DCI, residual length,
-Event Data rejection and xHCI completion code. Foreign/malformed completions
-must not publish a result.
+Current slice wires exact completion ownership into a bounded synchronous
+single-page bulk primitive, sends a BOT TEST UNIT READY CBW, receives the CSW
+and requires exact tag/residue/status validation on a real QEMU usb-storage
+device.
 
 Next dependent slices after this gate passes:
 
-1. wire this exact ownership contract into a bounded synchronous xHCI bulk
-   transfer primitive;
-2. execute BOT CBW/data/CSW with transactional CSW validation;
-2. INQUIRY / TEST UNIT READY / REQUEST SENSE / READ CAPACITY(10) runtime;
-3. read-only `storage::block::Device` qualification;
+1. extend the proven BOT transport with INQUIRY / REQUEST SENSE /
+   READ CAPACITY(10) data stages;
+2. expose qualified read-only `storage::block::Device` geometry and READ(10);
+3. read-only storage qualification against scratch USB media;
 4. WRITE(10) + SYNCHRONIZE CACHE with failure recovery;
 5. hot-remove and stale-handle cleanup;
 6. unified storage registry so AHCI, USB Mass Storage and later NVMe feed the
