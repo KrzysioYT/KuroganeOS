@@ -105,6 +105,113 @@ void test_transfer_chunk() {
     assert(chunk.length == sentinel.length);
 }
 
+
+void test_transfer_completion() {
+    constexpr uint64_t expected_trb = UINT64_C(0x12345000);
+    constexpr uint8_t slot = 7U;
+    constexpr uint8_t dci = 5U;
+    constexpr size_t requested = 512U;
+    const uint32_t base_control =
+        static_cast<uint32_t>(slot) << 24U |
+        static_cast<uint32_t>(dci) << 16U |
+        UINT32_C(1);
+
+    TransferCompletion completion{99U, 0xEEU};
+    auto status = classify_transfer_completion(
+        expected_trb, slot, dci, requested,
+        expected_trb, UINT32_C(1) << 24U, base_control, &completion);
+    assert(status == TransferCompletionStatus::Complete);
+    assert(completion.transferred == requested);
+    assert(completion.completion_code == 1U);
+
+    completion = {99U, 0xEEU};
+    status = classify_transfer_completion(
+        expected_trb, slot, dci, requested,
+        expected_trb,
+        (UINT32_C(13) << 24U) | UINT32_C(128),
+        base_control,
+        &completion);
+    assert(status == TransferCompletionStatus::ShortPacket);
+    assert(completion.transferred == 384U);
+    assert(completion.completion_code == 13U);
+
+    const TransferCompletion sentinel{77U, 0xAAU};
+    auto expect_unchanged = [&](TransferCompletionStatus expected,
+                                uint64_t parameter,
+                                uint32_t event_status,
+                                uint32_t control) {
+        completion = sentinel;
+        const auto result = classify_transfer_completion(
+            expected_trb, slot, dci, requested,
+            parameter, event_status, control, &completion);
+        assert(result == expected);
+        assert(completion.transferred == sentinel.transferred);
+        assert(completion.completion_code == sentinel.completion_code);
+    };
+
+    expect_unchanged(
+        TransferCompletionStatus::ForeignEvent,
+        expected_trb + 16U,
+        UINT32_C(1) << 24U,
+        base_control);
+    expect_unchanged(
+        TransferCompletionStatus::ForeignEvent,
+        expected_trb + 1U,
+        UINT32_C(1) << 24U,
+        base_control);
+    expect_unchanged(
+        TransferCompletionStatus::ForeignEvent,
+        expected_trb,
+        UINT32_C(1) << 24U,
+        base_control | (UINT32_C(1) << 2U));
+    expect_unchanged(
+        TransferCompletionStatus::ForeignEvent,
+        expected_trb,
+        UINT32_C(1) << 24U,
+        (static_cast<uint32_t>(slot + 1U) << 24U) |
+            (static_cast<uint32_t>(dci) << 16U) | UINT32_C(1));
+    expect_unchanged(
+        TransferCompletionStatus::ForeignEvent,
+        expected_trb,
+        UINT32_C(1) << 24U,
+        (static_cast<uint32_t>(slot) << 24U) |
+            (static_cast<uint32_t>(dci + 1U) << 16U) | UINT32_C(1));
+    expect_unchanged(
+        TransferCompletionStatus::TransferFailed,
+        expected_trb,
+        UINT32_C(6) << 24U,
+        base_control);
+    expect_unchanged(
+        TransferCompletionStatus::InvalidEvent,
+        expected_trb,
+        (UINT32_C(1) << 24U) | UINT32_C(1),
+        base_control);
+    expect_unchanged(
+        TransferCompletionStatus::InvalidEvent,
+        expected_trb,
+        (UINT32_C(13) << 24U) | UINT32_C(513),
+        base_control);
+
+    completion = sentinel;
+    assert(classify_transfer_completion(
+        expected_trb + 1U, slot, dci, requested,
+        expected_trb, UINT32_C(1) << 24U, base_control, &completion) ==
+        TransferCompletionStatus::InvalidEvent);
+    assert(completion.transferred == sentinel.transferred);
+    assert(classify_transfer_completion(
+        expected_trb, 0U, dci, requested,
+        expected_trb, UINT32_C(1) << 24U, base_control, &completion) ==
+        TransferCompletionStatus::InvalidEvent);
+    assert(classify_transfer_completion(
+        expected_trb, slot, 1U, requested,
+        expected_trb, UINT32_C(1) << 24U, base_control, &completion) ==
+        TransferCompletionStatus::InvalidEvent);
+    assert(classify_transfer_completion(
+        expected_trb, slot, dci, 0U,
+        expected_trb, UINT32_C(1) << 24U, base_control, &completion) ==
+        TransferCompletionStatus::InvalidEvent);
+}
+
 void test_full_span_progress() {
     uint64_t address = UINT64_C(0x30FFF0);
     size_t remaining = 200000U;
@@ -140,6 +247,7 @@ int main() {
     test_endpoint_plan();
     test_endpoint_context();
     test_transfer_chunk();
+    test_transfer_completion();
     test_full_span_progress();
     std::puts("xHCI bulk planning: PASS");
     return 0;
