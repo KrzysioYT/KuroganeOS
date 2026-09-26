@@ -9,9 +9,11 @@ on:
       - 'kernel/arch/x86_64/acpi.*'
       - 'kernel/arch/x86_64/hpet*'
       - 'kernel/storage/nvme*'
+      - 'kernel/drivers/audio/hda*'
       - 'tests/test_acpi*'
       - 'tests/test_hpet*'
       - 'tests/test_nvme*'
+      - 'tests/test_hda*'
       - 'scripts/run-host-tests.sh'
       - 'scripts/test.sh'
   push:
@@ -22,9 +24,11 @@ on:
       - 'kernel/arch/x86_64/acpi.*'
       - 'kernel/arch/x86_64/hpet*'
       - 'kernel/storage/nvme*'
+      - 'kernel/drivers/audio/hda*'
       - 'tests/test_acpi*'
       - 'tests/test_hpet*'
       - 'tests/test_nvme*'
+      - 'tests/test_hda*'
       - 'scripts/run-host-tests.sh'
       - 'scripts/test.sh'
   workflow_dispatch:
