@@ -97,6 +97,11 @@ bash tests/test_network_smoke_state.sh
 
 "$OUT_DIR/test_pci_bar"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_nvme_protocol.cpp kernel/storage/nvme_protocol.cpp \
+  -o "$OUT_DIR/test_nvme_protocol"
+"$OUT_DIR/test_nvme_protocol"
+
 # Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
 # restore transaction without touching privileged host PCI configuration.
 "$HOST_CXX" \
