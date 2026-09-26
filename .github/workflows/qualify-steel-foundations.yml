@@ -1,0 +1,66 @@
+name: Qualify 5.0 Steel Foundations
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-foundations.yml'
+      - 'kernel/arch/x86_64/acpi.*'
+      - 'kernel/arch/x86_64/hpet*'
+      - 'kernel/storage/nvme*'
+      - 'tests/test_acpi*'
+      - 'tests/test_hpet*'
+      - 'tests/test_nvme*'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-foundations.yml'
+      - 'kernel/arch/x86_64/acpi.*'
+      - 'kernel/arch/x86_64/hpet*'
+      - 'kernel/storage/nvme*'
+      - 'tests/test_acpi*'
+      - 'tests/test_hpet*'
+      - 'tests/test_nvme*'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-and-media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify diff hygiene
+        run: git diff --check
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Record Steel foundation gate
+        run: echo "KuroganeOS 5.0 Steel foundations host/media gate PASS"
