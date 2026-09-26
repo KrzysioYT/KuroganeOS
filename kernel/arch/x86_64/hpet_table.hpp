@@ -28,6 +28,18 @@ TableStatus parse_acpi_table(
     size_t available_length,
     TableInfo* output);
 
+struct Capabilities {
+    uint8_t revision_id;
+    uint8_t timer_count;
+    bool counter_64_bit;
+    bool legacy_replacement;
+    uint16_t vendor_id;
+    uint32_t counter_period_femtoseconds;
+};
+
+// Decodes General Capabilities and ID without touching MMIO.
+bool decode_capabilities(uint64_t raw, Capabilities* output);
+
 const char* table_status_message(TableStatus status);
 
 } // namespace arch::x86_64::hpet

@@ -87,6 +87,32 @@ TableStatus parse_acpi_table(
     return TableStatus::Ok;
 }
 
+
+bool decode_capabilities(uint64_t raw, Capabilities* output) {
+    if (output == nullptr) return false;
+
+    const uint8_t revision = static_cast<uint8_t>(raw);
+    const uint8_t timer_count = static_cast<uint8_t>(((raw >> 8U) & 0x1FU) + 1U);
+    const uint16_t vendor = static_cast<uint16_t>((raw >> 16U) & 0xFFFFU);
+    const uint32_t period = static_cast<uint32_t>(raw >> 32U);
+    if (revision == 0U || timer_count == 0U ||
+        vendor == 0U || vendor == UINT16_MAX ||
+        period == 0U || period > UINT32_C(100000000)) {
+        return false;
+    }
+
+    const Capabilities staged{
+        revision,
+        timer_count,
+        (raw & (UINT64_C(1) << 13U)) != 0U,
+        (raw & (UINT64_C(1) << 15U)) != 0U,
+        vendor,
+        period,
+    };
+    *output = staged;
+    return true;
+}
+
 const char* table_status_message(TableStatus status) {
     switch (status) {
         case TableStatus::Ok: return "ok";

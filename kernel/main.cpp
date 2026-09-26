@@ -4,6 +4,7 @@
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
 #include "arch/x86_64/apic.hpp"
+#include "arch/x86_64/hpet.hpp"
 #include "arch/x86_64/gdt.hpp"
 #include "arch/x86_64/interrupts.hpp"
 #include "arch/x86_64/io.hpp"
@@ -656,6 +657,31 @@ void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
         log::Level::Info, "ACPI", "MADT I/O APICs=",
         topology != nullptr ? topology->io_apic_count : 0U);
     terminal::println("[TEST] acpi_madt: PASS");
+
+    const auto hpet_status = arch::x86_64::hpet::initialize(rsdp);
+    if (hpet_status == arch::x86_64::hpet::Status::Ok &&
+        arch::x86_64::hpet::counter_advances(100000U)) {
+        log::write_u64(
+            log::Level::Info,
+            "HPET",
+            "counter period femtoseconds=",
+            arch::x86_64::hpet::counter_period_femtoseconds());
+        terminal::println("[TEST] hpet_main_counter: PASS");
+    } else {
+        if (hpet_status == arch::x86_64::hpet::Status::Ok) {
+            arch::x86_64::hpet::shutdown();
+            log::write(
+                log::Level::Warn,
+                "HPET",
+                "main counter did not advance within bounded probe");
+        } else {
+            log::write(
+                log::Level::Warn,
+                "HPET",
+                arch::x86_64::hpet::status_message(hpet_status));
+        }
+        terminal::println("[TEST] hpet_main_counter: DEGRADED (PIT fallback)");
+    }
 
     const auto apic_status = topology != nullptr
         ? arch::x86_64::apic::prepare(*topology)
