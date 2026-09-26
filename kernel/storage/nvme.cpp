@@ -301,7 +301,9 @@ Status enable_controller() {
     const uint64_t cap_raw = read64(REG_CAP);
     if (protocol::decode_capabilities(
             cap_raw, &g_controller.capabilities) != protocol::Status::Ok ||
-        g_controller.bar.size < MMIO_REQUIRED_BYTES) {
+        g_controller.bar.size < MMIO_REQUIRED_BYTES ||
+        g_controller.capabilities.doorbell_stride_bytes >
+            MMIO_REQUIRED_BYTES - REG_DOORBELL_BASE - sizeof(uint32_t)) {
         return Status::UnsupportedController;
     }
 
