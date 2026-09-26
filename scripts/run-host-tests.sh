@@ -139,6 +139,11 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_io_apic_irq"
 "$OUT_DIR/test_io_apic_irq"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hpet_table.cpp kernel/arch/x86_64/hpet_table.cpp \
+  -o "$OUT_DIR/test_hpet_table"
+"$OUT_DIR/test_hpet_table"
+
 # Exercise bounded USB configuration-descriptor parsing and HID boot-report
 # decoding without hardware. xHCI runtime qualification remains separate.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
