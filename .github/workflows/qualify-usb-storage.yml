@@ -1,4 +1,4 @@
-name: Qualify 5.0 xHCI USB Mass Storage Enumeration
+name: Qualify 5.0 xHCI USB Mass Storage Transport
 
 on:
   pull_request:
@@ -27,7 +27,7 @@ permissions:
   contents: read
 
 jobs:
-  usb-storage-enumeration:
+  usb-storage-transport:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -60,22 +60,23 @@ jobs:
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
 
-      - name: Require real xHCI Mass Storage enumeration
+      - name: Require real xHCI Mass Storage BOT transport
         shell: bash
         run: |
           set -euo pipefail
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --usb-storage \
-            --log-dir build/tests/usb-storage-enumeration --timeout 120 \
+            --log-dir build/tests/usb-storage-transport --timeout 120 \
             --require-marker '[TEST] xhci_mass_storage_enumeration: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_bot_transport: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' \
-            build/tests/usb-storage-enumeration/serial.log
+            build/tests/usb-storage-transport/serial.log
 
       - name: Retain serial and QEMU logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: usb-storage-enumeration-${{ github.event.pull_request.head.sha || github.sha }}
-          path: build/tests/usb-storage-enumeration
+          name: usb-storage-transport-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/usb-storage-transport
           if-no-files-found: warn
