@@ -111,6 +111,32 @@ int main() {
         table, sizeof(table), &info) == TableStatus::InvalidAddress);
     assert(info.physical_address == sentinel.physical_address);
 
-    std::puts("ACPI HPET table parser: PASS");
+    arch::x86_64::hpet::Capabilities capabilities{};
+    const uint64_t raw_capabilities =
+        UINT64_C(10000000) << 32U |
+        UINT64_C(0x8086) << 16U |
+        UINT64_C(1) << 15U |
+        UINT64_C(1) << 13U |
+        UINT64_C(2) << 8U |
+        UINT64_C(1);
+    assert(arch::x86_64::hpet::decode_capabilities(
+        raw_capabilities, &capabilities));
+    assert(capabilities.revision_id == 1U);
+    assert(capabilities.timer_count == 3U);
+    assert(capabilities.counter_64_bit);
+    assert(capabilities.legacy_replacement);
+    assert(capabilities.vendor_id == 0x8086U);
+    assert(capabilities.counter_period_femtoseconds == 10000000U);
+
+    const auto capability_sentinel = capabilities;
+    assert(!arch::x86_64::hpet::decode_capabilities(
+        raw_capabilities & ~UINT64_C(0xFF), &capabilities));
+    assert(capabilities.vendor_id == capability_sentinel.vendor_id);
+    assert(!arch::x86_64::hpet::decode_capabilities(
+        (UINT64_C(100000001) << 32U) |
+        (UINT64_C(0x8086) << 16U) | UINT64_C(1),
+        &capabilities));
+
+    std::puts("ACPI HPET table parser/capabilities: PASS");
     return 0;
 }
