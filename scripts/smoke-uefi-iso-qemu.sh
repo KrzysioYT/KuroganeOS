@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -16,6 +16,7 @@ nic_model="none"
 virtio_vectors=""
 log_dir=""
 audio_model="none"
+nvme=false
 usb_keyboard=false
 usb_mouse=false
 usb_storage=false
@@ -54,6 +55,7 @@ while (($#)); do
         --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
+        --nvme) nvme=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
@@ -480,6 +482,22 @@ if [[ "$audio_model" == "ac97" ]]; then
     )
 fi
 
+nvme_args=()
+if $nvme; then
+    nvme_image="$tmp/nvme-storage.img"
+    python3 - "$nvme_image" <<'PY'
+import sys
+with open(sys.argv[1], "wb") as image:
+    image.truncate(8 * 1024 * 1024)
+PY
+    # A separate scratch namespace proves the PCI/MMIO/Admin Queue path without
+    # changing the IDE system disk or making NVMe part of boot ordering.
+    nvme_args=(
+        -drive "if=none,id=kurogane_nvme_storage,format=raw,file=$nvme_image"
+        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME"
+    )
+fi
+
 usb_args=()
 if $usb_controller; then
     usb_args=(-device qemu-xhci,id=kurogane_xhci)
@@ -546,6 +564,7 @@ qemu-system-x86_64 \
     -display none \
     "${network_args[@]}" \
     "${audio_args[@]}" \
+    "${nvme_args[@]}" \
     "${usb_args[@]}" \
     -no-reboot \
     -no-shutdown \

@@ -35,6 +35,7 @@
 #include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
+#include "storage/nvme.hpp"
 #include "storage/gpt.hpp"
 #include "storage/scratch_test.hpp"
 #include "task/scheduler.hpp"
@@ -880,6 +881,38 @@ bool handle_installed_first_boot() {
 }
 
 void initialize_storage_probe() {
+    const storage::nvme::Status nvme_status = storage::nvme::initialize();
+    if (nvme_status == storage::nvme::Status::Ok ||
+        nvme_status == storage::nvme::Status::AlreadyInitialized) {
+        const storage::nvme::ControllerInfo* const nvme_info =
+            storage::nvme::controller_info();
+        if (nvme_info != nullptr) {
+            log::write(
+                log::Level::Info,
+                "NVME",
+                nvme_info->model[0] != '\0'
+                    ? nvme_info->model
+                    : "NVMe controller");
+            log::write_u64(
+                log::Level::Info,
+                "NVME",
+                "admin queue entries=",
+                nvme_info->admin_queue_entries);
+            log::write_u64(
+                log::Level::Info,
+                "NVME",
+                "controller version=",
+                nvme_info->version);
+            terminal::println("[TEST] nvme_admin_identify: PASS");
+        }
+    } else if (nvme_status != storage::nvme::Status::NoController) {
+        log::write(
+            log::Level::Warn,
+            "NVME",
+            storage::nvme::status_message(nvme_status));
+        terminal::println("[TEST] nvme_admin_identify: FAIL");
+    }
+
     const storage::ahci::Status ahci_status =
         storage::ahci::initialization_attempted()
         ? storage::ahci::initialization_status()
