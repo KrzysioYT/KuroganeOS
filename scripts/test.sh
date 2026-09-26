@@ -41,6 +41,8 @@ run_test driver-core "$root/tests/test_driver_core.cpp" \
     "$root/kernel/drivers/core/runtime_qualification.cpp"
 run_test acpi "$root/tests/test_acpi.cpp" \
     "$root/kernel/arch/x86_64/acpi.cpp"
+run_test hpet-table "$root/tests/test_hpet_table.cpp" \
+    "$root/kernel/arch/x86_64/hpet_table.cpp"
 run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
