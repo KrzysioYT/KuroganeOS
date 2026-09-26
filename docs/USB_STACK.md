@@ -158,3 +158,29 @@ równoczesnej klawiatury i myszy, report-protocol wheel ani fizycznego sprzętu.
 2. xHCI bulk transport + adapter do istniejącego `BlockDeviceOps`/block layer,
    dopiero potem realny QEMU `usb-storage`.
 3. Failure injection i stress testy hotplug.
+
+
+## USB Mass Storage runtime progression — 2026-09-26
+
+The protocol-only BOT/SCSI foundation from PR #23 was followed by bounded xHCI
+bulk planning (#24) and exact Endpoint Context encoding (#25).
+
+PR #26 activates only the **enumeration/configuration** layer. Candidate
+`dc8fbaaed40534cb7346d4e3959f7472057881a1` passed:
+
+- real QEMU `qemu-xhci + usb-storage` enumeration in run `36213602627`;
+- USB Mouse regression in run `36213602647`;
+- the complete USB Keyboard ring-wrap/hotplug/late-attach matrix in
+  run `36213602671`;
+- CLA in run `36213602651`.
+
+The guest now performs Address Device, reads the real Mass Storage descriptors,
+issues SET_CONFIGURATION, builds independent Bulk IN/OUT Endpoint Contexts and
+executes Configure Endpoint. The Device Model child is deliberately left in
+`Initializing`; no CBW/data/CSW transaction or block read/write is claimed.
+
+The next transport gate is exact transfer-completion ownership. A bulk
+completion must match the exact submitted TRB pointer, slot and endpoint DCI;
+Event Data, foreign, misaligned, malformed-residual and failed completion events
+must not be accepted. Only after that host contract is qualified should BOT
+CBW/data/CSW execution be enabled.

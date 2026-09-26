@@ -6,9 +6,9 @@ Last updated: 2026-09-26
 
 `gpt/road-to-15-consolidation`
 
-Current qualified integration HEAD after PR #25:
+Current qualified integration HEAD after PR #26:
 
-`0376722a5f0076aca9d117b41552f03499b6ac3d`
+`07ebba7f70d297d3ded1704475bb50f033ccf71c`
 
 ## Formal release track
 
@@ -33,37 +33,37 @@ lands. Version advancement follows the formal roadmap and qualification evidence
 - bounded xHCI bulk endpoint/TRB planning — PR #24, merge
   `6b92d7cd4bf5c48bd7640f784a1565d5fe1e586f`;
 - bounded bulk Endpoint Context encoder with exact host regression — PR #25,
-  merge `0376722a5f0076aca9d117b41552f03499b6ac3d`.
+  merge `0376722a5f0076aca9d117b41552f03499b6ac3d`;
+- real xHCI USB Mass Storage enumeration and independent Bulk IN/OUT endpoint
+  configuration — PR #26, merge
+  `07ebba7f70d297d3ded1704475bb50f033ccf71c`.
 
-PR #25 passed CLA, the real xHCI USB Mouse gate and the complete real xHCI USB
-Keyboard qualification matrix before merge.
+PR #26 candidate `dc8fbaaed40534cb7346d4e3959f7472057881a1` passed:
+- Mass Storage real-QEMU run `36213602627`;
+- USB Mouse regression run `36213602647`;
+- complete USB Keyboard regression run `36213602671`;
+- CLA run `36213602651`.
+
+The USB child remains `Initializing`; no usable block I/O is claimed.
 
 ## Current Steel workstream
 
 Branch:
 
-`chatgpt/5.0-usb-storage-enumeration`
+`chatgpt/5.0-xhci-bulk-completion`
 
-Goal: prove real USB Mass Storage enumeration and xHCI Bulk IN/OUT endpoint
-configuration before enabling any block I/O.
+Goal: replace loose transfer-event matching with an exact, host-qualified
+ownership contract before the first production BOT transaction.
 
-Current slice intentionally does only:
-
-1. recognize the qualified BOT/SCSI-transparent Mass Storage interface;
-2. SET_CONFIGURATION on the real device;
-3. configure independent Bulk IN and Bulk OUT transfer rings through production
-   xHCI Endpoint Contexts;
-4. register the USB child in the Device Model as `Initializing`, never
-   `Ready`;
-5. qualify the path with a real QEMU `qemu-xhci + usb-storage` device.
-
-It does **not** yet send CBW/data/CSW transactions and does not expose a usable
-`storage::block::Device`.
+Current slice validates exact TRB pointer, slot, endpoint DCI, residual length,
+Event Data rejection and xHCI completion code. Foreign/malformed completions
+must not publish a result.
 
 Next dependent slices after this gate passes:
 
-1. bounded synchronous BOT transaction engine with exact transfer completion
-   ownership and residue/status validation;
+1. wire this exact ownership contract into a bounded synchronous xHCI bulk
+   transfer primitive;
+2. execute BOT CBW/data/CSW with transactional CSW validation;
 2. INQUIRY / TEST UNIT READY / REQUEST SENSE / READ CAPACITY(10) runtime;
 3. read-only `storage::block::Device` qualification;
 4. WRITE(10) + SYNCHRONIZE CACHE with failure recovery;
