@@ -1,0 +1,81 @@
+name: Qualify 5.0 xHCI USB Mass Storage Enumeration
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-storage.yml'
+      - 'kernel/drivers/usb/**'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-storage.yml'
+      - 'kernel/drivers/usb/**'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  usb-storage-enumeration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify scripts and diff hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require real xHCI Mass Storage enumeration
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-storage \
+            --log-dir build/tests/usb-storage-enumeration --timeout 120 \
+            --require-marker '[TEST] xhci_mass_storage_enumeration: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' \
+            build/tests/usb-storage-enumeration/serial.log
+
+      - name: Retain serial and QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-storage-enumeration-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/usb-storage-enumeration
+          if-no-files-found: warn
