@@ -194,7 +194,7 @@ bool unmap_mmio() {
     return ok;
 }
 
-bool release_page(dma::Page* page) {
+bool release_dma_page_owned(dma::Page* page) {
     return page == nullptr || !page->allocated ||
         dma::release_page(page) == dma::Status::Ok;
 }
@@ -207,9 +207,9 @@ Status release_resources(bool restore_pci) {
     }
 
     bool ok = true;
-    if (!release_page(&g_controller.identify_page)) ok = false;
-    if (!release_page(&g_controller.admin_completion_queue)) ok = false;
-    if (!release_page(&g_controller.admin_submission_queue)) ok = false;
+    if (!release_dma_page_owned(&g_controller.identify_page)) ok = false;
+    if (!release_dma_page_owned(&g_controller.admin_completion_queue)) ok = false;
+    if (!release_dma_page_owned(&g_controller.admin_submission_queue)) ok = false;
     if (!unmap_mmio()) ok = false;
 
     if (restore_pci && g_controller.pci_enabled) {
