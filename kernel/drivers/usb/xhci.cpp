@@ -1,6 +1,8 @@
 #include "xhci.hpp"
 
 #include "protocol.hpp"
+#include "mass_storage_protocol.hpp"
+#include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
 #include "../../core/log.hpp"
 #include "../../input/input.hpp"
@@ -104,6 +106,8 @@ struct Controller {
     uint8_t port_id;
     uint8_t port_speed;
     uint8_t interrupt_dci;
+    uint8_t bulk_in_dci;
+    uint8_t bulk_out_dci;
     uint16_t vendor_id;
     uint16_t product_id;
     uint16_t ep0_packet_size;
@@ -112,6 +116,7 @@ struct Controller {
     device::DriverId owner_driver;
     device::DeviceId keyboard_device;
     device::DeviceId mouse_device;
+    device::DeviceId mass_storage_device;
     storage::dma::Page dcbaa_page;
     storage::dma::Page event_ring_page;
     storage::dma::Page erst_page;
@@ -124,11 +129,15 @@ struct Controller {
     ProducerRing command_ring;
     ProducerRing ep0_ring;
     ProducerRing interrupt_ring;
+    ProducerRing bulk_in_ring;
+    ProducerRing bulk_out_ring;
     size_t event_dequeue;
     bool event_cycle;
     HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
     HidBootMouseInterface mouse_interface;
+    mass_storage::BulkOnlyInterface mass_storage_interface;
+    bool mass_storage_present;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
@@ -335,6 +344,7 @@ Status remove_hid_devices(Controller* controller) {
     device::DeviceId* const children[] = {
         &controller->keyboard_device,
         &controller->mouse_device,
+        &controller->mass_storage_device,
     };
     for (auto* child_id : children) {
         if (*child_id == device::INVALID_DEVICE_ID) continue;
@@ -366,7 +376,8 @@ Status release_resources(Controller* controller) {
     bool released = true;
     storage::dma::Page* const pages[] = {
         &controller->command_ring.page, &controller->ep0_ring.page,
-        &controller->interrupt_ring.page, &controller->dcbaa_page,
+        &controller->interrupt_ring.page, &controller->bulk_in_ring.page,
+        &controller->bulk_out_ring.page, &controller->dcbaa_page,
         &controller->event_ring_page, &controller->erst_page,
         &controller->input_context_page, &controller->device_context_page,
         &controller->data_page, &controller->scratchpad_array_page,
@@ -397,6 +408,7 @@ Status release_resources(Controller* controller) {
     *controller = {};
     controller->keyboard_device = device::INVALID_DEVICE_ID;
     controller->mouse_device = device::INVALID_DEVICE_ID;
+    controller->mass_storage_device = device::INVALID_DEVICE_ID;
     return Status::Ok;
 }
 
@@ -461,6 +473,8 @@ bool allocate_controller_memory(Controller& controller, uint32_t hcsparams2) {
         !allocate_page(&controller.device_context_page) ||
         !initialize_ring(&controller.ep0_ring) ||
         !initialize_ring(&controller.interrupt_ring) ||
+        !initialize_ring(&controller.bulk_in_ring) ||
+        !initialize_ring(&controller.bulk_out_ring) ||
         !allocate_page(&controller.data_page)) {
         return false;
     }
@@ -811,6 +825,7 @@ bool read_descriptors(Controller& controller) {
     const auto* configuration = static_cast<const uint8_t*>(
         controller.data_page.virtual_address);
     controller.hid_kind = HidKind::None;
+    controller.mass_storage_present = false;
     if (find_boot_keyboard_interface(
             configuration, total, &controller.keyboard_interface)) {
         controller.hid_kind = HidKind::Keyboard;
@@ -819,6 +834,11 @@ bool read_descriptors(Controller& controller) {
     if (find_boot_mouse_interface(
             configuration, total, &controller.mouse_interface)) {
         controller.hid_kind = HidKind::Mouse;
+        return true;
+    }
+    if (mass_storage::find_bulk_only_scsi_interface(
+            configuration, total, &controller.mass_storage_interface)) {
+        controller.mass_storage_present = true;
         return true;
     }
     return false;
@@ -927,6 +947,92 @@ bool configure_mouse_endpoint(Controller& controller) {
     return configure_hid_interrupt_endpoint(controller, hid);
 }
 
+
+bool configure_mass_storage_endpoints(Controller& controller) {
+    const auto& interface = controller.mass_storage_interface;
+    if (!controller.mass_storage_present ||
+        !control_transfer(
+            controller, 0x00U, 9U, interface.configuration_value,
+            0U, 0U, false)) {
+        return false;
+    }
+
+    bulk::EndpointPlan bulk_in{};
+    bulk::EndpointPlan bulk_out{};
+    if (!bulk::build_endpoint_plan(
+            interface.bulk_in_endpoint,
+            interface.bulk_in_maximum_packet_size,
+            &bulk_in) ||
+        !bulk::build_endpoint_plan(
+            interface.bulk_out_endpoint,
+            interface.bulk_out_maximum_packet_size,
+            &bulk_out) ||
+        bulk_in.direction != bulk::EndpointDirection::In ||
+        bulk_out.direction != bulk::EndpointDirection::Out ||
+        bulk_in.device_context_index == bulk_out.device_context_index) {
+        return false;
+    }
+
+    bulk::EndpointContextImage in_context{};
+    bulk::EndpointContextImage out_context{};
+    if (!bulk::build_endpoint_context(
+            bulk_in,
+            controller.bulk_in_ring.page.physical_address,
+            interface.bulk_in_maximum_packet_size,
+            &in_context) ||
+        !bulk::build_endpoint_context(
+            bulk_out,
+            controller.bulk_out_ring.page.physical_address,
+            interface.bulk_out_maximum_packet_size,
+            &out_context)) {
+        return false;
+    }
+
+    const uint8_t current_entries = static_cast<uint8_t>(
+        (output_context(controller, 0U)[0U] >> 27U) & UINT32_C(0x1F));
+    uint8_t context_entries = current_entries;
+    if (!bulk::extend_context_entries(
+            context_entries, bulk_in.device_context_index, &context_entries) ||
+        !bulk::extend_context_entries(
+            context_entries, bulk_out.device_context_index, &context_entries)) {
+        return false;
+    }
+
+    controller.bulk_in_dci = bulk_in.device_context_index;
+    controller.bulk_out_dci = bulk_out.device_context_index;
+    clear_bytes(controller.input_context_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+    input_context(controller, 0U)[1U] =
+        UINT32_C(1) |
+        (UINT32_C(1) << controller.bulk_in_dci) |
+        (UINT32_C(1) << controller.bulk_out_dci);
+    copy_bytes(input_context(controller, 1U), output_context(controller, 0U),
+               controller.context_size);
+    uint32_t* slot = input_context(controller, 1U);
+    slot[0U] &= ~(UINT32_C(0x1F) << 27U);
+    slot[0U] |= static_cast<uint32_t>(context_entries) << 27U;
+
+    copy_bytes(
+        input_context(
+            controller, static_cast<size_t>(controller.bulk_in_dci) + 1U),
+        in_context.words,
+        sizeof(in_context.words));
+    copy_bytes(
+        input_context(
+            controller, static_cast<size_t>(controller.bulk_out_dci) + 1U),
+        out_context.words,
+        sizeof(out_context.words));
+
+    Trb completion{};
+    return submit_command(
+        controller,
+        controller.input_context_page.physical_address,
+        0U,
+        static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
+            static_cast<uint32_t>(controller.slot_id) << 24U,
+        &completion);
+}
+
 bool queue_hid_report(Controller& controller) {
     if (controller.report_queued) return true;
     if (controller.hid_kind == HidKind::Keyboard &&
@@ -999,6 +1105,33 @@ bool register_mouse(Controller& controller) {
     if (device::claim(id, controller.owner_driver, "usb-hid-boot") !=
             KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
+        return false;
+    }
+    return true;
+}
+
+
+bool register_mass_storage(Controller& controller) {
+    const device::Descriptor descriptor{
+        device::Type::Block,
+        device::Bus::Usb,
+        "USB Mass Storage",
+        controller.vendor_id,
+        controller.product_id,
+        mass_storage::USB_CLASS_MASS_STORAGE,
+        mass_storage::USB_SUBCLASS_SCSI_TRANSPARENT,
+        mass_storage::USB_PROTOCOL_BULK_ONLY,
+        {0U, 0U, controller.port_id, 0U},
+        controller.parent_device,
+        nullptr,
+        0U,
+    };
+    device::DeviceId id = device::INVALID_DEVICE_ID;
+    if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
+    controller.mass_storage_device = id;
+    if (device::claim(id, controller.owner_driver, "usb-mass-storage") !=
+            KStatus::Ok ||
+        device::set_status(id, device::Status::Initializing) != KStatus::Ok) {
         return false;
     }
     return true;
@@ -1122,7 +1255,7 @@ Status attach_hid_device(Controller& controller) {
     log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
     if (!address_device(controller)) return Status::CommandFailed;
     if (!read_descriptors(controller)) return Status::HidKeyboardNotFound;
-    log::write(log::Level::Info, "XHCI", "USB HID descriptors accepted");
+    log::write(log::Level::Info, "XHCI", "supported USB descriptors accepted");
 
     bool configured = false;
     bool registered = false;
@@ -1138,6 +1271,11 @@ Status attach_hid_device(Controller& controller) {
             reset_mouse_decoder(&controller.mouse_decoder);
             registered = register_mouse(controller);
         }
+    } else if (controller.mass_storage_present) {
+        configured = configure_mass_storage_endpoints(controller);
+        if (configured) {
+            registered = register_mass_storage(controller);
+        }
     }
     if (!configured) return Status::CommandFailed;
     if (!registered) return Status::DeviceRegistrationFailed;
@@ -1149,9 +1287,14 @@ Status attach_hid_device(Controller& controller) {
     if (controller.hid_kind == HidKind::Keyboard) {
         log::write(log::Level::Info, "USB", "xHCI USB HID boot keyboard ready");
         terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
-    } else {
+    } else if (controller.hid_kind == HidKind::Mouse) {
         log::write(log::Level::Info, "USB", "xHCI USB HID boot mouse ready");
         terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+    } else {
+        log::write(
+            log::Level::Info, "USB",
+            "xHCI USB Mass Storage bulk endpoints configured; block I/O pending");
+        terminal::println("[TEST] xhci_mass_storage_enumeration: PASS");
     }
     return Status::Ok;
 }
@@ -1168,6 +1311,10 @@ void fail_hotplug(Controller& controller, Status reason) {
     }
     if (controller.mouse_device != device::INVALID_DEVICE_ID) {
         static_cast<void>(device::set_status(controller.mouse_device,
+                                            device::Status::Failed));
+    }
+    if (controller.mass_storage_device != device::INVALID_DEVICE_ID) {
+        static_cast<void>(device::set_status(controller.mass_storage_device,
                                             device::Status::Failed));
     }
     log::write(log::Level::Error, "XHCI", status_message(controller.runtime_status));
@@ -1236,6 +1383,9 @@ bool progress_hid_lifecycle(Controller& controller) {
             return false;
         }
         controller.hid_kind = HidKind::None;
+        controller.mass_storage_present = false;
+        controller.bulk_in_dci = 0U;
+        controller.bulk_out_dci = 0U;
         controller.pending_mouse_valid = false;
         controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         controller.runtime_status = Status::NoDevice;
@@ -1248,6 +1398,8 @@ bool progress_hid_lifecycle(Controller& controller) {
         // pages are reused; no DMA allocation or global controller reset.
         reset_ring(&controller.ep0_ring);
         reset_ring(&controller.interrupt_ring);
+        reset_ring(&controller.bulk_in_ring);
+        reset_ring(&controller.bulk_out_ring);
         clear_bytes(controller.device_context_page.virtual_address,
                     memory::virtual_memory::PAGE_SIZE);
         const Status attached = attach_hid_device(controller);
@@ -1279,6 +1431,7 @@ Status initialize(
     g_controller = {};
     g_controller.keyboard_device = device::INVALID_DEVICE_ID;
     g_controller.mouse_device = device::INVALID_DEVICE_ID;
+    g_controller.mass_storage_device = device::INVALID_DEVICE_ID;
     g_controller.pci_device = pci_device;
     g_controller.parent_device = parent_device;
     g_controller.owner_driver = owner_driver;
