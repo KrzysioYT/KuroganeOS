@@ -702,7 +702,7 @@ bool submit_command(
     return completion_ok(*completion);
 }
 
-uint8_t first_connected_port(const Controller& controller) {
+[[maybe_unused]] uint8_t first_connected_port(const Controller& controller) {
     // MaxPorts can be 255: a uint8_t one-based loop would wrap to zero.
     for (size_t index = 0U; index < controller.maximum_ports; ++index) {
         if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
