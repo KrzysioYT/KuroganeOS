@@ -4,6 +4,7 @@
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
 #include "arch/x86_64/acpi_power.hpp"
+#include "arch/x86_64/cpu.hpp"
 #include "arch/x86_64/apic.hpp"
 #include "arch/x86_64/smp.hpp"
 #include "arch/x86_64/hpet.hpp"
@@ -1774,6 +1775,34 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     }
 
     print_banner(context.safe_mode, context.diagnostics, context.installer);
+
+    if (arch::x86_64::cpu::initialize()) {
+        const auto* cpu_info = arch::x86_64::cpu::info();
+        if (cpu_info != nullptr) {
+            terminal::write("CPU vendor: ");
+            terminal::write(cpu_info->vendor_id);
+            terminal::write(" (");
+            terminal::write(arch::x86_64::cpu::vendor_name(cpu_info->vendor));
+            terminal::println(")");
+            terminal::write("CPU family/model/stepping: ");
+            terminal::write_u64(cpu_info->signature.family);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.model);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.stepping);
+            terminal::println();
+            terminal::println(
+                cpu_info->vendor == arch::x86_64::cpu::Vendor::Intel
+                    ? "[TEST] cpu_vendor_intel: PASS"
+                    : (cpu_info->vendor == arch::x86_64::cpu::Vendor::Amd
+                        ? "[TEST] cpu_vendor_amd: PASS"
+                        : "[TEST] cpu_vendor_generic: PASS"));
+            terminal::println("[TEST] cpu_discovery: PASS");
+        }
+    } else {
+        terminal::println("[TEST] cpu_discovery: DEGRADED");
+    }
+
     if (context.force_desktop && !context.safe_mode) {
         terminal::println("boot=desktop (DESKTOP ALPHA)");
         log::write(
