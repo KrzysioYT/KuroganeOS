@@ -2356,7 +2356,7 @@ bool register_companion_hid(Controller& controller) {
             : "USB HID boot mouse",
         companion.vendor_id,
         companion.product_id,
-        3U, 1U, keyboard_kind ? 1U : 2U,
+        3U, 1U, static_cast<uint8_t>(keyboard_kind ? 1U : 2U),
         {0U, 0U, companion.port_id, 0U},
         controller.parent_device,
         nullptr,
