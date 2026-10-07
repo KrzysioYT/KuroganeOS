@@ -1,0 +1,77 @@
+name: Qualify 5.0 NVMe Admin Runtime
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-nvme.yml'
+      - 'kernel/storage/nvme*'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_nvme*'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-nvme.yml'
+      - 'kernel/storage/nvme*'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_nvme*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nvme-admin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify scripts and diff hygiene
+        run: |
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require real NVMe Admin Identify
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nvme \
+            --log-dir build/tests/nvme-admin --timeout 120 \
+            --require-marker '[TEST] nvme_admin_identify: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL' \
+            build/tests/nvme-admin/serial.log
+
+      - name: Retain NVMe runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvme-admin-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/nvme-admin
+          if-no-files-found: warn
