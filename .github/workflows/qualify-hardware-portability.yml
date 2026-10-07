@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/qualify-hardware-portability.yml'
       - 'kernel/hardware/**'
+      - 'kernel/drivers/core/**'
       - 'kernel/main.cpp'
       - 'kernel/input/**'
       - 'kernel/drivers/keyboard.*'
@@ -15,6 +16,7 @@ on:
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'scripts/run-host-tests.sh'
       - 'tests/test_hardware_policy.cpp'
+      - 'tests/test_driver_requirement_policy.cpp'
       - 'docs/architecture/HARDWARE_COMPATIBILITY.md'
       - 'docs/roadmap/MASTER_ROADMAP_15.md'
       - 'docs/ROADMAP.md'
@@ -26,6 +28,7 @@ on:
     paths:
       - '.github/workflows/qualify-hardware-portability.yml'
       - 'kernel/hardware/**'
+      - 'kernel/drivers/core/**'
       - 'kernel/main.cpp'
       - 'kernel/input/**'
       - 'kernel/drivers/keyboard.*'
@@ -34,6 +37,7 @@ on:
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'scripts/run-host-tests.sh'
       - 'tests/test_hardware_policy.cpp'
+      - 'tests/test_driver_requirement_policy.cpp'
   workflow_dispatch:
 
 permissions:
