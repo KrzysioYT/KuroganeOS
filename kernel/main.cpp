@@ -2183,6 +2183,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             hardware_capabilities |=
                 hardware::policy::CapabilityMultiprocessor;
             terminal::println("[TEST] smp_ap_startup: PASS");
+            if (arch::x86_64::gdt::loaded_cpu_count() !=
+                arch::x86_64::smp::online_cpu_count()) {
+                terminal::println("[TEST] smp_per_cpu_tss: FAIL");
+                boot_failure("SMP", "per-CPU GDT/TSS state not loaded");
+            }
+            terminal::println("[TEST] smp_per_cpu_tss: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
                 terminal::println("[TEST] smp_cross_cpu_work: FAIL");
                 boot_failure("SMP", "parallel CPU work dispatch failed");
@@ -2195,11 +2201,13 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             terminal::println("[TEST] smp_tlb_shootdown: PASS");
         } else {
             terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
+            terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
             terminal::println("[TEST] smp_cross_cpu_work: SKIP (single CPU)");
             terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
         }
     } else {
         terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
         terminal::println("[TEST] smp_cross_cpu_work: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
     }
