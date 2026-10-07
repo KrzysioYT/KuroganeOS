@@ -68,6 +68,12 @@ bool find_hid_report_interface(
     size_t length,
     HidReportInterface* output);
 
+bool find_hid_report_interface_for_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    uint8_t interface_number,
+    HidReportInterface* output);
+
 struct MouseDecoder {
     uint8_t previous_buttons;
 };
