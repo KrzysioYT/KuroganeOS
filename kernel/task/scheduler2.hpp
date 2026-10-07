@@ -79,6 +79,12 @@ Status pick_next(
     ThreadId excluded,
     ThreadId* out_id);
 
+// Roll back a Ready->Running reservation made by pick_next when the execution
+// layer cannot commit the dispatch. The reservation is released only by the
+// CPU that owns the most recent dispatch, preventing a stale CPU from making a
+// thread runnable while it is already executing elsewhere.
+Status cancel_dispatch(ThreadId id, size_t cpu);
+
 Status stat(ThreadId id, ThreadStat* out_stat);
 Status cpu_stat(size_t cpu, CpuStat* out_stat);
 

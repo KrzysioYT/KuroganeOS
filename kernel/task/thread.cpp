@@ -192,6 +192,8 @@ size_t find_ready(size_t excluded = kInvalidSlot) {
     size_t index = 0U;
     if (!decode_id(selected, &index) || index >= MAX_THREADS ||
         g_slots[index].id != selected || g_slots[index].state != State::Ready) {
+        static_cast<void>(
+            scheduler2::cancel_dispatch(selected, scheduler_cpu_index()));
         return kInvalidSlot;
     }
     return index;

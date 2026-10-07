@@ -25,6 +25,13 @@ int main() {
     ThreadId selected = INVALID_THREAD_ID;
     assert(pick_next(0U, INVALID_THREAD_ID, &selected) == Status::Ok);
     assert(selected == 102U);
+    ThreadStat reserved{};
+    assert(stat(102U, &reserved) == Status::Ok);
+    assert(reserved.state == State::Running && reserved.last_cpu == 0U);
+    assert(cancel_dispatch(102U, 1U) == Status::InvalidArgument);
+    assert(cancel_dispatch(102U, 0U) == Status::Ok);
+    assert(stat(102U, &reserved) == Status::Ok);
+    assert(reserved.state == State::Ready);
 
     assert(set_state(102U, State::Blocked) == Status::Ok);
     assert(pick_next(0U, INVALID_THREAD_ID, &selected) == Status::Ok);
@@ -72,6 +79,9 @@ int main() {
     assert(pick_next(0U, INVALID_THREAD_ID, &second) == Status::Ok);
     assert(pick_next(0U, INVALID_THREAD_ID, &third) == Status::Ok);
     assert(first == 201U && second == 202U && third == 203U);
+    assert(cancel_dispatch(first, 0U) == Status::Ok);
+    assert(cancel_dispatch(second, 0U) == Status::Ok);
+    assert(cancel_dispatch(third, 0U) == Status::Ok);
 
     assert(set_priority(203U, 8U) == Status::Ok);
     assert(pick_next(0U, INVALID_THREAD_ID, &selected) == Status::Ok);

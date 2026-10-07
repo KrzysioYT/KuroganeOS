@@ -340,6 +340,21 @@ Status pick_next(size_t cpu, ThreadId excluded, ThreadId* out_id) {
     return Status::Ok;
 }
 
+Status cancel_dispatch(ThreadId id, size_t cpu) {
+    sync::LockGuard guard(g_policy_lock);
+    if (!g_initialized) return Status::NotInitialized;
+    if (cpu >= g_cpu_count) return Status::InvalidCpu;
+    const size_t index = find_thread(id);
+    if (index == kInvalidIndex) return Status::NotFound;
+
+    ThreadStat& stat = g_threads[index].stat;
+    if (stat.state != State::Running || stat.last_cpu != cpu) {
+        return Status::InvalidArgument;
+    }
+    stat.state = State::Ready;
+    return Status::Ok;
+}
+
 Status stat(ThreadId id, ThreadStat* out_stat) {
     sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
