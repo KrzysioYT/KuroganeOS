@@ -117,6 +117,11 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_nvme_protocol"
 "$OUT_DIR/test_nvme_protocol"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_storage_registry.cpp kernel/storage/device_registry.cpp \
+  -o "$OUT_DIR/test_storage_registry"
+"$OUT_DIR/test_storage_registry"
+
 # Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
 # restore transaction without touching privileged host PCI configuration.
 "$HOST_CXX" \
@@ -239,6 +244,7 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/mass_storage_protocol.cpp \
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
+  kernel/storage/device_registry.cpp \
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
 python3 tests/test_usb_hotplug_qmp.py
@@ -248,6 +254,7 @@ python3 tests/test_usb_hotplug_qmp.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
   -ffunction-sections -fdata-sections tests/test_xhci_cleanup.cpp \
   kernel/drivers/core/device_manager.cpp \
+  kernel/storage/device_registry.cpp \
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_cleanup"
 timeout 10 "$OUT_DIR/test_xhci_cleanup"
 
