@@ -10,6 +10,7 @@
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
 #include "../../storage/dma.hpp"
+#include "../../storage/device_registry.hpp"
 #include "../../storage/block_device.hpp"
 #include "../../terminal.hpp"
 
@@ -398,6 +399,10 @@ Status quiesce_dma(Controller& controller) {
 
 Status remove_hid_devices(Controller* controller) {
     if (controller == nullptr) return Status::InvalidArgument;
+    if (controller->mass_storage_block.context != nullptr) {
+        static_cast<void>(storage::device_registry::unregister_device(
+            &controller->mass_storage_block));
+    }
     device::DeviceId* const children[] = {
         &controller->keyboard_device,
         &controller->mouse_device,
@@ -1875,6 +1880,15 @@ bool initialize_mass_storage_block_device(Controller& controller) {
     }
 
     controller.mass_storage_block_ready = true;
+    if (!storage::device_registry::register_device(
+            storage::device_registry::Backend::UsbMassStorage,
+            0U,
+            &controller.mass_storage_block,
+            "USB Mass Storage")) {
+        controller.mass_storage_block_ready = false;
+        controller.mass_storage_block = {};
+        return false;
+    }
     return true;
 }
 
