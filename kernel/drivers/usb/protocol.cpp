@@ -366,9 +366,13 @@ bool find_boot_mouse_interface(
     return true;
 }
 
-bool find_hid_report_interface(
+namespace {
+
+bool find_hid_report_interface_impl(
     const uint8_t* descriptors,
     size_t length,
+    bool filter_interface,
+    uint8_t required_interface,
     HidReportInterface* output) {
     if (descriptors == nullptr || output == nullptr || length < 9U ||
         descriptors[1U] != 2U || descriptors[0U] < 9U) {
@@ -386,6 +390,22 @@ bool find_hid_report_interface(
     uint16_t packet_size = 0U;
     uint8_t interval = 0U;
 
+    auto publish_current = [&]() -> bool {
+        if (!hid_interface || report_length == 0U ||
+            report_length > 4096U || endpoint == 0U) {
+            return false;
+        }
+        *output = {
+            configuration,
+            interface_number,
+            endpoint,
+            packet_size,
+            interval,
+            report_length,
+        };
+        return true;
+    };
+
     for (size_t offset = 0U; offset < total;) {
         if (total - offset < 2U) return false;
         const uint8_t descriptor_length = descriptors[offset];
@@ -396,20 +416,11 @@ bool find_hid_report_interface(
 
         if (descriptor_type == 4U) {
             if (descriptor_length < 9U) return false;
-            if (hid_interface && report_length != 0U && endpoint != 0U) {
-                *output = {
-                    configuration,
-                    interface_number,
-                    endpoint,
-                    packet_size,
-                    interval,
-                    report_length,
-                };
-                return true;
-            }
-            hid_interface = descriptors[offset + 3U] == 0U &&
-                descriptors[offset + 5U] == 3U;
+            if (publish_current()) return true;
             interface_number = descriptors[offset + 2U];
+            hid_interface = descriptors[offset + 3U] == 0U &&
+                descriptors[offset + 5U] == 3U &&
+                (!filter_interface || interface_number == required_interface);
             report_length = 0U;
             endpoint = 0U;
             packet_size = 0U;
@@ -453,19 +464,26 @@ bool find_hid_report_interface(
         offset += descriptor_length;
     }
 
-    if (hid_interface && report_length != 0U && report_length <= 4096U &&
-        endpoint != 0U) {
-        *output = {
-            configuration,
-            interface_number,
-            endpoint,
-            packet_size,
-            interval,
-            report_length,
-        };
-        return true;
-    }
-    return false;
+    return publish_current();
+}
+
+} // namespace
+
+bool find_hid_report_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidReportInterface* output) {
+    return find_hid_report_interface_impl(
+        descriptors, length, false, 0U, output);
+}
+
+bool find_hid_report_interface_for_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    uint8_t interface_number,
+    HidReportInterface* output) {
+    return find_hid_report_interface_impl(
+        descriptors, length, true, interface_number, output);
 }
 
 void reset_mouse_decoder(MouseDecoder* decoder) {
