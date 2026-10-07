@@ -1171,10 +1171,14 @@ bool execute_mass_storage_bot(
         cdb_length > mass_storage::MAXIMUM_COMMAND_BLOCK_SIZE ||
         output_status == nullptr ||
         (direction == mass_storage::DataDirection::None &&
-         (data != nullptr || data_length != 0U)) ||
+         (data != nullptr || data_length != 0U || data_received != nullptr)) ||
+        ((direction == mass_storage::DataDirection::In ||
+          direction == mass_storage::DataDirection::Out) &&
+         (data == nullptr || data_length == 0U)) ||
         (direction == mass_storage::DataDirection::In &&
-         (data == nullptr || data_length == 0U || data_received == nullptr)) ||
-        direction == mass_storage::DataDirection::Out) {
+         data_received == nullptr) ||
+        (direction == mass_storage::DataDirection::Out &&
+         data_received != nullptr)) {
         return false;
     }
 
@@ -1199,6 +1203,10 @@ bool execute_mass_storage_bot(
         if (!bulk_in_transfer(
                 controller, data, data_length, &received) ||
             received > data_length) {
+            return false;
+        }
+    } else if (direction == mass_storage::DataDirection::Out) {
+        if (!bulk_out_transfer(controller, data, data_length)) {
             return false;
         }
     }
@@ -1430,6 +1438,107 @@ storage::block::Status read_mass_storage_blocks(
     return storage::block::Status::Ok;
 }
 
+storage::block::Status write_mass_storage_blocks(
+    Controller& controller,
+    uint64_t first_block,
+    uint64_t block_count,
+    const void* source) {
+    if (source == nullptr || block_count == 0U ||
+        controller.mass_storage_block_size == 0U ||
+        controller.mass_storage_block_count == 0U) {
+        return storage::block::Status::InvalidArgument;
+    }
+    if (first_block >= controller.mass_storage_block_count ||
+        block_count > controller.mass_storage_block_count - first_block) {
+        return storage::block::Status::OutOfRange;
+    }
+
+    const size_t blocks_per_transfer =
+        memory::virtual_memory::PAGE_SIZE /
+        controller.mass_storage_block_size;
+    if (blocks_per_transfer == 0U) {
+        return storage::block::Status::InvalidGeometry;
+    }
+
+    const auto* input = static_cast<const uint8_t*>(source);
+    uint64_t completed = 0U;
+    while (completed < block_count) {
+        const uint64_t logical_block = first_block + completed;
+        if (logical_block > UINT32_MAX) {
+            return storage::block::Status::AddressNotSupported;
+        }
+
+        uint64_t remaining = block_count - completed;
+        size_t chunk_blocks = blocks_per_transfer;
+        if (remaining < static_cast<uint64_t>(chunk_blocks)) {
+            chunk_blocks = static_cast<size_t>(remaining);
+        }
+        if (chunk_blocks == 0U || chunk_blocks > UINT16_MAX) {
+            return storage::block::Status::InvalidArgument;
+        }
+
+        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+        if (!mass_storage::scsi::build_write10(
+                static_cast<uint32_t>(logical_block),
+                static_cast<uint16_t>(chunk_blocks),
+                cdb,
+                sizeof(cdb))) {
+            return storage::block::Status::InvalidArgument;
+        }
+
+        const size_t transfer_bytes =
+            chunk_blocks *
+            static_cast<size_t>(controller.mass_storage_block_size);
+        mass_storage::CommandStatusWrapper status{};
+        if (!execute_mass_storage_bot(
+                controller,
+                cdb,
+                sizeof(cdb),
+                mass_storage::DataDirection::Out,
+                const_cast<uint8_t*>(
+                    input +
+                    static_cast<size_t>(completed) *
+                        controller.mass_storage_block_size),
+                transfer_bytes,
+                nullptr,
+                &status)) {
+            return storage::block::Status::IoError;
+        }
+        if (status.status != mass_storage::CommandStatus::Passed ||
+            status.data_residue != 0U) {
+            return storage::block::Status::CommandFailed;
+        }
+
+        completed += static_cast<uint64_t>(chunk_blocks);
+    }
+
+    return storage::block::Status::Ok;
+}
+
+storage::block::Status synchronize_mass_storage(Controller& controller) {
+    uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_synchronize_cache10(cdb, sizeof(cdb))) {
+        return storage::block::Status::InvalidArgument;
+    }
+
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller,
+            cdb,
+            sizeof(cdb),
+            mass_storage::DataDirection::None,
+            nullptr,
+            0U,
+            nullptr,
+            &status)) {
+        return storage::block::Status::IoError;
+    }
+    return status.status == mass_storage::CommandStatus::Passed &&
+        status.data_residue == 0U
+        ? storage::block::Status::Ok
+        : storage::block::Status::CommandFailed;
+}
+
 storage::block::Status mass_storage_block_read(
     void* context,
     uint64_t first_block,
@@ -1449,17 +1558,19 @@ storage::block::Status mass_storage_block_read(
 
 storage::block::Status mass_storage_block_write(
     void* context,
-    uint64_t,
-    uint64_t,
-    const void*) {
+    uint64_t first_block,
+    uint64_t block_count,
+    const void* source) {
     auto* controller = static_cast<Controller*>(context);
     if (controller == nullptr ||
         controller != &g_controller ||
         !controller->mass_storage_block_ready ||
-        !controller->mass_storage_present) {
+        !controller->mass_storage_present ||
+        controller->hid_lifecycle != HidLifecycle::Active) {
         return storage::block::Status::NoDevice;
     }
-    return storage::block::Status::ReadOnly;
+    return write_mass_storage_blocks(
+        *controller, first_block, block_count, source);
 }
 
 storage::block::Status mass_storage_block_flush(void* context) {
@@ -1467,13 +1578,14 @@ storage::block::Status mass_storage_block_flush(void* context) {
     if (controller == nullptr ||
         controller != &g_controller ||
         !controller->mass_storage_block_ready ||
-        !controller->mass_storage_present) {
+        !controller->mass_storage_present ||
+        controller->hid_lifecycle != HidLifecycle::Active) {
         return storage::block::Status::NoDevice;
     }
-    return storage::block::Status::Ok;
+    return synchronize_mass_storage(*controller);
 }
 
-bool initialize_mass_storage_read_only(Controller& controller) {
+bool initialize_mass_storage_block_device(Controller& controller) {
     if (controller.mass_storage_block_size == 0U ||
         controller.mass_storage_block_count == 0U) {
         return false;
@@ -1516,6 +1628,60 @@ bool initialize_mass_storage_read_only(Controller& controller) {
     }
     if (known) {
         terminal::println("[TEST] xhci_mass_storage_known_read: PASS");
+    }
+
+    // Never perform a destructive qualification write on arbitrary media.
+    // Only the dedicated 8 MiB / 512-byte-sector QEMU scratch image carries
+    // this signature and exact geometry.
+    const bool qualification_media =
+        known &&
+        controller.mass_storage_block_size == 512U &&
+        controller.mass_storage_block_count == UINT64_C(16384);
+    if (qualification_media) {
+        auto* io = static_cast<uint8_t*>(
+            controller.storage_io_page.virtual_address);
+        for (size_t index = 0U; index < controller.mass_storage_block_size;
+             ++index) {
+            io[index] = static_cast<uint8_t>((index * 29U + 7U) & 0xFFU);
+        }
+        if (write_mass_storage_blocks(
+                controller, 1U, 1U, io) != storage::block::Status::Ok) {
+            terminal::println("[TEST] xhci_mass_storage_write10: FAIL");
+            controller.mass_storage_block = {};
+            return false;
+        }
+        terminal::println("[TEST] xhci_mass_storage_write10: PASS");
+
+        if (synchronize_mass_storage(controller) != storage::block::Status::Ok) {
+            terminal::println("[TEST] xhci_mass_storage_sync_cache: FAIL");
+            controller.mass_storage_block = {};
+            return false;
+        }
+        terminal::println("[TEST] xhci_mass_storage_sync_cache: PASS");
+
+        clear_bytes(io, controller.mass_storage_block_size);
+        if (read_mass_storage_blocks(controller, 1U, 1U, io) !=
+            storage::block::Status::Ok) {
+            terminal::println("[TEST] xhci_mass_storage_write_readback: FAIL");
+            controller.mass_storage_block = {};
+            return false;
+        }
+        bool matches = true;
+        for (size_t index = 0U; index < controller.mass_storage_block_size;
+             ++index) {
+            const uint8_t expected =
+                static_cast<uint8_t>((index * 29U + 7U) & 0xFFU);
+            if (io[index] != expected) {
+                matches = false;
+                break;
+            }
+        }
+        if (!matches) {
+            terminal::println("[TEST] xhci_mass_storage_write_readback: FAIL");
+            controller.mass_storage_block = {};
+            return false;
+        }
+        terminal::println("[TEST] xhci_mass_storage_write_readback: PASS");
     }
 
     controller.mass_storage_block_ready = true;
@@ -1770,7 +1936,7 @@ Status attach_hid_device(Controller& controller) {
             configured = probe_mass_storage_scsi_geometry(controller);
         }
         if (configured) {
-            configured = initialize_mass_storage_read_only(controller);
+            configured = initialize_mass_storage_block_device(controller);
         }
         if (configured) {
             registered = register_mass_storage(controller);
@@ -1792,7 +1958,7 @@ Status attach_hid_device(Controller& controller) {
     } else {
         log::write(
             log::Level::Info, "USB",
-            "xHCI USB Mass Storage bulk endpoints configured; block I/O pending");
+            "xHCI USB Mass Storage read/write block device ready");
         terminal::println("[TEST] xhci_mass_storage_enumeration: PASS");
     }
     return Status::Ok;
