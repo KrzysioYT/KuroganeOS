@@ -25,6 +25,23 @@ int main() {
 
     write32(controller.operational, OP_PORTS, PORT_CONNECTED);
     assert(first_connected_port(controller) == 1U);
+
+    // Multi-HID enumeration must skip a port already owned by the primary
+    // slot and return the second connected device without wrapping/scanning
+    // outside MaxPorts.
+    controller.maximum_ports = 2U;
+    write32(controller.operational, OP_PORTS + PORT_STRIDE, PORT_CONNECTED);
+    controller.slot_id = 1U;
+    controller.port_id = 1U;
+    assert(first_unclaimed_connected_port(controller) == 2U);
+    controller.companion.slot_id = 2U;
+    controller.companion.port_id = 2U;
+    assert(first_unclaimed_connected_port(controller) == 0U);
+    controller.slot_id = 0U;
+    controller.port_id = 0U;
+    controller.companion.slot_id = 0U;
+    controller.companion.port_id = 0U;
+
     controller.maximum_ports = 0U;
     assert(first_connected_port(controller) == 0U);
     assert(!reset_connected_port(controller));
