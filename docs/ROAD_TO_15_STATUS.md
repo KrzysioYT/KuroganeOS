@@ -23,9 +23,9 @@ Native KuroFS runtime persistence was qualified at exact source SHA `6dd9581e79d
 
 ## 5.0 Steel / Hardware
 
-Status: **QUALIFIED**.
+Status: **REOPENED** after runtime coexistence audit.
 
-Authoritative automated candidate:
+Previously qualified automated candidate:
 `90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
 
 Merged through PR #45 as integration commit:
@@ -42,7 +42,7 @@ Qualified Steel scope includes:
   IPI delivery, bounded cross-CPU work rendezvous and synchronous TLB
   shootdown.
 
-Required exact-candidate Actions evidence on 2026-10-07:
+Previous exact-candidate Actions evidence on 2026-10-07:
 - Steel Closeout `37641425299` — PASS;
 - HPET Main Counter `37641425316` — PASS;
 - SMP Runtime `37641425398` — PASS;
@@ -53,11 +53,20 @@ Required exact-candidate Actions evidence on 2026-10-07:
 - xHCI USB Mouse `37641425292` — PASS;
 - Steel Foundations `37641425390` — PASS.
 
+These runs remain valid for their tested configurations but were incomplete as
+a release matrix. A later QEMU audit reproduced:
+- xHCI + VirtIO-net MMIO aliasing, with USB still alive while VirtIO networking
+  fell back to loopback;
+- one-active-slot xHCI behavior preventing simultaneous USB keyboard + mouse.
+
+The repair branch `chatgpt/5.0-audit-fixes` separates VirtIO-net from the xHCI
+MMIO window and introduces a dedicated coexistence gate. Multi-device xHCI is
+still required before Steel can return to QUALIFIED.
+
 The SMP qualification is deliberately limited to the multi-CPU execution
 substrate. Full Scheduler 2.0, per-CPU userspace run queues and process/thread
 load balancing belong to 6.0 Core Steel.
 
-Oracle VirtualBox and physical-machine validation are external evidence. They
-remain unverified until actually run; a real failure reopens the affected Steel
-subsystem. The manual handoff is documented in
-`docs/testing/STEEL_5_0_MANUAL.md`.
+USB Mass Storage, NVMe, SMP and Intel HDA are implemented on the current line;
+the report that listed them as absent inspected the older `2d550f1` baseline.
+Physical-machine/VirtualBox validation remains separate external evidence.
