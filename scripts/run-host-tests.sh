@@ -16,6 +16,7 @@ echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_PYTHON" tests/test_release_version.py
+"$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"
 grep -Fq "KuroganeOS $RELEASE_VERSION" dist/release-notes.txt
 bash tests/test_network_smoke_state.sh

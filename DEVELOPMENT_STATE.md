@@ -21,7 +21,7 @@ Merged through PR #45 as integration commit:
 - `3.5.0-dev — Connected Userspace`: QUALIFIED
 - `3.6.0-dev — Flux Stabilization`: QUALIFIED
 - `4.0.0-dev — Pre-Steel`: QUALIFIED
-- `5.0.0-dev — Steel / Hardware`: QUALIFIED (automated matrix)
+- `5.0.0-dev — Steel / Hardware`: QUALIFIED AFTER COEXISTENCE AUDIT
 - `6.0.0-dev` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
@@ -49,35 +49,53 @@ the explicit 6.0 Core Steel scope.
 
 ## 5.0 authoritative automated evidence
 
-Exact candidate SHA: `90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
+Qualified post-audit runtime candidate:
 
-All required workflows completed successfully:
+`569bae4c33aa0c04db87f0cbe785da1aa45cc084`
 
-- Steel Closeout — Actions run `37641425299`;
-- HPET Main Counter — Actions run `37641425316`;
-- SMP Runtime — Actions run `37641425398`;
-- Intel HDA Runtime — Actions run `37641425368`;
-- NVMe Block Runtime — Actions run `37641425280`;
-- xHCI USB Mass Storage Transport — Actions run `37641425350`;
-- xHCI USB Keyboard — Actions run `37641425387`;
-- xHCI USB Mouse — Actions run `37641425292`;
-- Steel Foundations — Actions run `37641425390`;
-- CLA check — Actions run `37641425461`.
+The original 5.0 closeout matrix was reopened after an external QEMU audit
+found two real configurations that were not covered: xHCI + VirtIO-net and
+simultaneous USB keyboard + mouse. Both issues were fixed before
+requalification.
 
-The exact candidate therefore satisfies the automated 5.0 Steel Definition of
-Done. Oracle VirtualBox and physical-machine checks remain external validation:
-they are not silently converted into PASS, and any real failure reported there
-reopens the affected 5.0 subsystem before Core Steel depends on it.
+Post-audit same-SHA evidence:
 
-## User validation checkpoint
+- Steel Closeout — Actions run `37661212373` — PASS;
+- xHCI + VirtIO coexistence — run `37661212429` — PASS;
+- simultaneous xHCI Multi HID — run `37661212451` — PASS;
+- xHCI USB Keyboard full ring-wrap/hotplug/late-attach — run
+  `37661212449` — PASS;
+- xHCI USB Mouse — run `37661212378` — PASS;
+- xHCI USB Mass Storage — run `37661212361` — PASS;
+- NVMe block runtime — run `37661212483` — PASS;
+- Intel HDA runtime — run `37661212532` — PASS;
+- HPET main counter — run `37661212464` — PASS;
+- Steel Foundations — run `37661212233` — PASS;
+- CLA check — run `37661212400` — PASS.
 
-Use the 5.0 test plan in `docs/testing/STEEL_5_0_MANUAL.md`. The first manual
-round should cover boot, install, persistent reboot, networking, input, audio,
-power/reboot behavior and serial diagnostics on Oracle VirtualBox. Physical
-hardware can then be added as separate evidence.
+The strengthened Steel Closeout itself now requires a four-vCPU SMP/HPET/ACPI
+boot and an audited combined QEMU run with USB keyboard + USB mouse + VirtIO,
+real HID input, DHCP and gateway ICMP. The dedicated coexistence workflow also
+proves keyboard+VirtIO, mouse+VirtIO and VirtIO polling fallback.
 
-Development toward 6.0 may continue after this checkpoint, but test failures
-from 5.0 take priority over dependent Core Steel work.
+## Audit closure
+
+- **xHCI/VirtIO MMIO collision: FIXED.** VirtIO-net now owns a dedicated
+  `0xFFFFB7...` virtual region. A host regression prevents overlap with xHCI
+  and the B3 APIC region.
+- **one-active-HID xHCI limitation: FIXED for simultaneous keyboard + mouse.**
+  xHCI now has an independent companion HID slot with its own contexts, EP0
+  ring, interrupt ring, DMA buffer, decoder and lifecycle. Foreign-slot events
+  are deferred rather than consumed by synchronous transfers.
+- **USB Mass Storage / NVMe / SMP / Intel HDA:** the audit's absence findings
+  referred to older source `2d550f1`; these subsystems had been implemented
+  later and passed again on the post-audit candidate.
+- **mouse wheel:** still a P2 limitation of the Boot Mouse path. Wheel/report
+  protocol support is not falsely claimed by the 5.0 gate.
+
+Oracle VirtualBox and physical-machine validation remain external evidence.
+Any real failure there reopens the affected subsystem; absence of that external
+evidence is never converted into a fake PASS.
 
 ## Development policy
 

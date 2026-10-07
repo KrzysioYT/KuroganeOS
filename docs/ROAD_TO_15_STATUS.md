@@ -23,41 +23,53 @@ Native KuroFS runtime persistence was qualified at exact source SHA `6dd9581e79d
 
 ## 5.0 Steel / Hardware
 
-Status: **QUALIFIED**.
+Status: **QUALIFIED AFTER COEXISTENCE AUDIT**.
 
-Authoritative automated candidate:
-`90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
+Authoritative post-audit runtime candidate:
+`569bae4c33aa0c04db87f0cbe785da1aa45cc084`.
 
-Merged through PR #45 as integration commit:
-`8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
+The first 2026-10-07 closeout matrix was insufficient: an external QEMU audit
+against older source reproduced an xHCI/VirtIO MMIO collision and the
+single-active-HID limitation. The current post-audit candidate fixes and
+qualifies those configurations rather than discarding the audit.
 
-Qualified Steel scope includes:
-- PCI/MSI/MSI-X and bounded I/O APIC routing;
-- ACPI MADT, HPET and firmware-derived FADT/DSDT reset + S5 power;
-- AHCI plus writable NVMe and xHCI USB Mass Storage block backends;
-- xHCI HID keyboard and mouse runtime;
-- Intel HDA PCM DMA with AC'97 compatibility;
-- unified storage/NIC selection;
-- MADT AP discovery, INIT/SIPI AP startup, per-CPU AP state/stacks, Local APIC
-  IPI delivery, bounded cross-CPU work rendezvous and synchronous TLB
-  shootdown.
+Post-audit exact-candidate evidence:
+- Steel Closeout `37661212373` — PASS;
+- xHCI + VirtIO coexistence `37661212429` — PASS;
+- simultaneous xHCI keyboard + mouse `37661212451` — PASS;
+- xHCI USB Keyboard ring-wrap/hotplug/late-attach `37661212449` — PASS;
+- xHCI USB Mouse `37661212378` — PASS;
+- xHCI USB Mass Storage `37661212361` — PASS;
+- NVMe Block Runtime `37661212483` — PASS;
+- Intel HDA Runtime `37661212532` — PASS;
+- HPET Main Counter `37661212464` — PASS;
+- Steel Foundations `37661212233` — PASS;
+- CLA `37661212400` — PASS.
 
-Required exact-candidate Actions evidence on 2026-10-07:
-- Steel Closeout `37641425299` — PASS;
-- HPET Main Counter `37641425316` — PASS;
-- SMP Runtime `37641425398` — PASS;
-- Intel HDA Runtime `37641425368` — PASS;
-- NVMe Block Runtime `37641425280` — PASS;
-- xHCI USB Mass Storage `37641425350` — PASS;
-- xHCI USB Keyboard `37641425387` — PASS;
-- xHCI USB Mouse `37641425292` — PASS;
-- Steel Foundations `37641425390` — PASS.
+The strengthened closeout requires a clean release build, ACPI power, HPET,
+four-vCPU AP startup/cross-CPU work/TLB shootdown and a combined runtime with
+USB keyboard + USB mouse + VirtIO networking, real HID input, DHCP and gateway
+ICMP. The dedicated coexistence workflow additionally qualifies both individual
+HID devices with VirtIO MSI-X and a VirtIO polling fallback.
 
-The SMP qualification is deliberately limited to the multi-CPU execution
-substrate. Full Scheduler 2.0, per-CPU userspace run queues and process/thread
-load balancing belong to 6.0 Core Steel.
+Implementation closure:
+- VirtIO-net no longer aliases the xHCI `0xFFFFB2...` region; it uses a
+  dedicated `0xFFFFB7...` mapping region. Host regression also protects the
+  B3 APIC space from accidental reuse.
+- xHCI has an independent companion HID slot/context with separate EP0 and
+  interrupt rings, DMA/report state, decoder and hotplug lifecycle.
+- unrelated slot events are preserved across synchronous xHCI control/BOT
+  operations instead of being discarded.
+- simultaneous USB keyboard + mouse is proven by real QEMU input delivery.
 
-Oracle VirtualBox and physical-machine validation are external evidence. They
-remain unverified until actually run; a real failure reopens the affected Steel
-subsystem. The manual handoff is documented in
-`docs/testing/STEEL_5_0_MANUAL.md`.
+The audit's statements that USB Mass Storage, NVMe, SMP and Intel HDA were
+absent were correct for its older `2d550f1` source snapshot, not for the
+current integration line. Those implementations remain present and passed the
+post-audit regression.
+
+The SMP scope remains the multi-CPU execution substrate, not Scheduler 2.0.
+Full process/thread multicore scheduling is 6.0 Core Steel.
+
+HID Boot Mouse wheel/report-protocol support remains an explicit P2 limitation
+and is not falsely reported as qualified. Oracle VirtualBox and physical
+hardware remain external validation.
