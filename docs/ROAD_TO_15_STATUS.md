@@ -104,3 +104,68 @@ This section records active engineering only. It must not be treated as a
 qualified 5.1 milestone until the dedicated workflow and required regression
 matrix are green on an exact candidate.
 
+## 5.2 Universal Input
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+The generic input contract now supports relative and absolute pointers.
+USB HID report descriptors are parsed for pointer X/Y, logical ranges, buttons,
+wheel and optional report IDs. xHCI can fetch a HID report descriptor, register
+a report-protocol pointer and route relative reports through the shared mouse
+contract or absolute reports through framebuffer-scaled
+`input::submit_absolute_pointer`.
+
+The dedicated 5.2 runtime gate disables i8042 and combines a real xHCI USB
+keyboard with QEMU's USB tablet. It requires real keyboard delivery, absolute
+pointer delivery, multi-HID enumeration and Red Flux startup. Boot-protocol
+keyboard/mouse remain supported fallbacks.
+
+## 5.3 Universal Storage
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+`storage::device_registry` is now controller-independent. AHCI, NVMe and
+xHCI USB Mass Storage publish the same `storage::block::Device` contract into
+a central fixed-size registry. USB hot-unplug unregisters the device before
+child teardown.
+
+The installer consumes generic input events and enumerates the generic block
+registry instead of requiring PS/2 plus AHCI. GPT/root-volume probing, scratch
+qualification and auxiliary KuroFS probing now consume registry entries rather
+than assuming an AHCI provider. The 5.3 gate combines NVMe and USB Mass Storage
+and requires both to remain visible through the unified runtime.
+
+## 5.4 Platform / Firmware Portability
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+A neutral x86 CPU discovery layer reports CPUID vendor, family/model/stepping
+and baseline TSC/MSR/APIC/x2APIC/SSE2/NX/long-mode capabilities. The kernel
+does not select a different scheduler or SMP architecture by vendor.
+
+The 5.4 gate boots the same UEFI/ACPI/APIC/SMP code with Intel-like
+`GenuineIntel` and AMD-like `AuthenticAMD` CPUID identities, four vCPUs,
+HPET, AP startup, cross-CPU work and TLB shootdown.
+
+## 5.5 Hardware Compatibility Gate
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+Transport-neutral capabilities now distinguish display, keyboard, pointer,
+storage, network, audio, USB host and multiprocessor support. Runtime reports
+one of:
+
+- Tier 0 Boot;
+- Tier 1 Usable;
+- Tier 2 Connected;
+- Tier 3 Extended.
+
+The automated 5.5 gate requires both a PS/2-free Tier 1 profile
+(USB keyboard + report-protocol tablet + NVMe) and a Tier 3 profile
+(4 vCPU + USB + NVMe + E1000 networking + Intel HDA).
+
+Oracle VirtualBox, VMware and physical Intel/AMD machines remain external
+validation, not fabricated automated evidence. They do not block independent
+Kernel Core 2.0 engineering, but any reproduced real-hardware failure reopens
+the affected 5.x portability subsystem. Broad physical qualification remains
+mandatory before the final release-candidate/stable gate.
