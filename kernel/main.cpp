@@ -35,6 +35,7 @@
 #include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
+#include "storage/device_registry.hpp"
 #include "storage/nvme.hpp"
 #include "storage/gpt.hpp"
 #include "storage/scratch_test.hpp"
@@ -1078,6 +1079,108 @@ void initialize_storage_probe() {
         terminal::println(
             "[TEST] ahci_write_flush_readback_restore: FAIL");
         boot_failure("AHCI", "tagged scratch storage test failed");
+    }
+
+    // Probe non-AHCI block backends through the same GPT/root contract.
+    // The registry resolves providers dynamically, so a removed USB device is
+    // never cached here as a permanent raw pointer.
+    for (size_t index = 0U;
+         index < storage::device_registry::device_count();
+         ++index) {
+        storage::device_registry::Entry entry{};
+        if (!storage::device_registry::entry_at(index, &entry) ||
+            entry.device == nullptr ||
+            entry.backend == storage::device_registry::Backend::Ahci) {
+            continue;
+        }
+
+        log::write(
+            log::Level::Info,
+            "STORAGE",
+            entry.model != nullptr ? entry.model : "unnamed block device");
+        log::write(
+            log::Level::Info,
+            "STORAGE",
+            storage::device_registry::backend_name(entry.backend));
+        log::write_u64(
+            log::Level::Info,
+            "STORAGE",
+            "logical sector bytes=",
+            entry.device->sector_size);
+        log::write_u64(
+            log::Level::Info,
+            "STORAGE",
+            "logical sector count=",
+            entry.device->sector_count);
+
+        storage::gpt::Table table{};
+        const storage::gpt::ParseResult gpt_result =
+            storage::gpt::parse_primary(entry.device, &table);
+        if (gpt_result.status == storage::gpt::Status::Ok) {
+            log::write_u64(
+                log::Level::Info,
+                "GPT",
+                "validated primary GPT partitions=",
+                table.partition_count);
+            if (!fs::root_volume::mounted() &&
+                !fs::root_volume::initialization_attempted()) {
+                const fs::root_volume::Status root_status =
+                    fs::root_volume::initialize(entry.device, &table);
+                if (root_status == fs::root_volume::Status::Ok) {
+                    log::write(
+                        log::Level::Info,
+                        "VFS",
+                        "persistent FAT32 root mounted from unified storage");
+                    terminal::println("[TEST] fat32_vfs_read: PASS");
+                    if (!handle_installed_first_boot()) {
+                        terminal::println("[TEST] installed_first_boot: FAIL");
+                        g_required_runtime_test_failed = true;
+                    }
+                    if (!run_fat32_persistence_probe()) {
+                        terminal::println("[TEST] fat32_persistence: FAIL");
+                        g_required_runtime_test_failed = true;
+                    }
+                } else if (root_status !=
+                           fs::root_volume::Status::RootPartitionNotFound) {
+                    log::write(
+                        log::Level::Warn,
+                        "VFS",
+                        fs::root_volume::status_message(root_status));
+                    log::write(
+                        log::Level::Warn,
+                        "VFS",
+                        fs::root_volume::detail_message());
+                    terminal::println("[TEST] fat32_vfs_read: FAIL");
+                    g_required_runtime_test_failed = true;
+                }
+            }
+        }
+
+        const storage::scratch_test::Result scratch_result =
+            storage::scratch_test::run(
+                entry.device, &g_scratch_test_workspace);
+        if (scratch_result.status ==
+            storage::scratch_test::Status::NotTagged) {
+            continue;
+        }
+        if (scratch_result.status == storage::scratch_test::Status::Ok &&
+            scratch_result.write_attempted && scratch_result.restored) {
+            terminal::println(
+                "[TEST] unified_storage_write_flush_readback_restore: PASS");
+            continue;
+        }
+
+        log::write(
+            log::Level::Error,
+            "STORAGE",
+            storage::scratch_test::status_message(scratch_result.status));
+        log::write(
+            log::Level::Error,
+            "STORAGE",
+            storage::block::status_message(scratch_result.block_status));
+        terminal::println(
+            "[TEST] unified_storage_write_flush_readback_restore: FAIL");
+        boot_failure("STORAGE", "tagged unified storage test failed");
     }
 
     // A dedicated raw KuroFS disk is an auxiliary data volume, never a

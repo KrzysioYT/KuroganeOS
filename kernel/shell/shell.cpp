@@ -13,7 +13,7 @@
 #include "../memory/allocator.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
-#include "../storage/ahci.hpp"
+#include "../storage/device_registry.hpp"
 #include "../task/scheduler.hpp"
 #include "../terminal.hpp"
 #include "../../common/version.h"
@@ -560,23 +560,26 @@ void command_driver(size_t count, char** arguments) {
 }
 
 void command_diskinfo() {
+    const size_t count = storage::device_registry::device_count();
     terminal::write("Disks: ");
-    terminal::write_u64(storage::ahci::device_count());
+    terminal::write_u64(count);
     terminal::println();
-    for (size_t index = 0; index < storage::ahci::device_count(); ++index) {
-        const storage::ahci::DeviceInfo* info =
-            storage::ahci::device_info_at(index);
-        if (info == nullptr) {
+    for (size_t index = 0U; index < count; ++index) {
+        storage::device_registry::Entry entry{};
+        if (!storage::device_registry::entry_at(index, &entry) ||
+            entry.device == nullptr) {
             continue;
         }
         terminal::write("Disk ");
         terminal::write_u64(index);
-        terminal::write(" driver=AHCI model=");
-        terminal::write(info->model);
+        terminal::write(" driver=");
+        terminal::write(storage::device_registry::backend_name(entry.backend));
+        terminal::write(" model=");
+        terminal::write(entry.model != nullptr ? entry.model : "unknown");
         terminal::write(" blocks=");
-        terminal::write_u64(info->sector_count);
+        terminal::write_u64(entry.device->sector_count);
         terminal::write(" block_size=");
-        terminal::write_u64(info->sector_size);
+        terminal::write_u64(entry.device->sector_size);
         terminal::println(" status=READY");
     }
     if (fs::root_volume::mounted()) {
