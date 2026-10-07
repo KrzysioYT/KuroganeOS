@@ -1,6 +1,6 @@
 # KuroganeOS active roadmap
 
-Current baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED**.
+Current baseline: **5.0.0-dev — Steel / Hardware — REOPENED**.
 
 The authoritative Road-to-15 plan is
 [`docs/roadmap/MASTER_ROADMAP_15.md`](roadmap/MASTER_ROADMAP_15.md), and the
@@ -12,9 +12,9 @@ old 3.3-era state and had become materially stale. Git history remains the
 source for that historical checklist; milestone qualification now follows the
 Road-to-15 evidence model.
 
-## 5.0 Steel — qualified automated milestone
+## 5.0 Steel — reopened after coexistence audit
 
-The qualified 5.0 scope contains:
+The implemented 5.0 scope contains:
 
 - validated PCI BAR/capability handling, MSI/MSI-X and I/O APIC routing;
 - ACPI MADT, HPET, FADT/DSDT reset and S5 power discovery;
@@ -32,24 +32,25 @@ The `smp_cross_cpu_work` marker is intentionally not named
 Authoritative automated candidate:
 `90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
 
-All required 5.0 gates passed on 2026-10-07, including Steel Closeout,
-HPET, SMP, HDA, NVMe, USB Mass Storage, USB Keyboard and USB Mouse. PR #45
-then merged the candidate into the integration branch as
-`8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
+The previous matrix passed on 2026-10-07, but a later runtime audit exposed two
+missing coexistence cases that were not represented by those gates: xHCI with
+VirtIO-net and simultaneous USB keyboard + mouse. 5.0 is therefore reopened.
 
-Oracle VirtualBox and physical-hardware testing remain external validation.
-A real failure there reopens the affected 5.0 subsystem; lack of external
-hardware evidence is never converted into a fake PASS.
+Current repair order:
+1. isolate xHCI and VirtIO-net kernel MMIO windows and qualify both MSI-X and
+   polling fallback with real USB traffic plus DHCP/gateway;
+2. replace the single active xHCI slot/device state with independent per-device
+   contexts and qualify keyboard + mouse at the same time;
+3. keep HID wheel/report-protocol support as a tracked P2 gap unless it becomes
+   required by the formal Steel acceptance matrix.
 
-## Current checkpoint
-
-The project is intentionally paused at a clean 5.0 validation checkpoint for
-user-side testing before dependent Core Steel work is treated as authoritative.
-Use `docs/testing/STEEL_5_0_MANUAL.md` for the exact manual test sequence.
+USB Mass Storage, NVMe, SMP and Intel HDA are present on the current integration
+line; the audit that reported them absent was run against the older `2d550f1`
+baseline.
 
 ## Road to 15
 
-- 5.0.0-dev — Steel / Hardware — **QUALIFIED**
+- 5.0.0-dev — Steel / Hardware — **REOPENED**
 - 6.0.0-dev — Core Steel — pending
 - 7.0.0-dev — Iron Shield — pending
 - 8.0.0-dev — Connected Steel — pending
