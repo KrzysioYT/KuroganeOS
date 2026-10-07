@@ -20,11 +20,11 @@ smp_trampoline_start:
     .code16
     cli
     cld
-    movw %cs, %ax
+    xorw %ax, %ax
     movw %ax, %ds
     movw %ax, %es
     movw %ax, %ss
-    movw $0x0ff0, %sp
+    movw $0x6ff0, %sp
 
     lgdt KU_SMP_TRAMPOLINE_BASE + (smp_trampoline_gdt_descriptor - smp_trampoline_start)
 
