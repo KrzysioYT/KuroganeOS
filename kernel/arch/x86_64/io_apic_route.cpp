@@ -57,6 +57,15 @@ bool validate(const Route& route) {
         route.trigger == TriggerMode::Level;
 }
 
+bool validate_legacy(const Route& route) {
+    const uint8_t vector = route.vector;
+    if (vector < UINT8_C(0x20) || vector > UINT8_C(0x2F)) {
+        return false;
+    }
+    return route.trigger == TriggerMode::Edge ||
+        route.trigger == TriggerMode::Level;
+}
+
 uint32_t encode_low(const Route& route) {
     if (!validate(route)) return 0U;
     uint32_t value = route.vector;
@@ -68,6 +77,20 @@ uint32_t encode_low(const Route& route) {
 
 uint32_t encode_high(const Route& route) {
     if (!validate(route)) return 0U;
+    return static_cast<uint32_t>(route.destination_apic_id) << 24U;
+}
+
+uint32_t encode_low_legacy(const Route& route) {
+    if (!validate_legacy(route)) return 0U;
+    uint32_t value = route.vector;
+    if (route.polarity == Polarity::ActiveLow) value |= kPolarityBit;
+    if (route.trigger == TriggerMode::Level) value |= kTriggerBit;
+    if (route.masked) value |= kMaskBit;
+    return value;
+}
+
+uint32_t encode_high_legacy(const Route& route) {
+    if (!validate_legacy(route)) return 0U;
     return static_cast<uint32_t>(route.destination_apic_id) << 24U;
 }
 
