@@ -4,6 +4,14 @@
 #include "interrupts.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
 
+extern "C" const uint8_t smp_trampoline_start[];
+extern "C" const uint8_t smp_trampoline_end[];
+extern "C" const uint8_t smp_trampoline_mailbox_cr3[];
+extern "C" const uint8_t smp_trampoline_mailbox_stack[];
+extern "C" const uint8_t smp_trampoline_mailbox_entry[];
+extern "C" const uint8_t smp_trampoline_mailbox_cpu_index[];
+extern "C" const uint8_t smp_trampoline_mailbox_apic_id[];
+
 namespace arch::x86_64::smp {
 namespace {
 
@@ -40,14 +48,6 @@ uint64_t g_work_generation = 0U;
 alignas(1) uint8_t g_tlb_lock = 0U;
 uintptr_t g_tlb_address = 0U;
 uint64_t g_tlb_generation = 0U;
-
-extern "C" const uint8_t smp_trampoline_start[];
-extern "C" const uint8_t smp_trampoline_end[];
-extern "C" const uint8_t smp_trampoline_mailbox_cr3[];
-extern "C" const uint8_t smp_trampoline_mailbox_stack[];
-extern "C" const uint8_t smp_trampoline_mailbox_entry[];
-extern "C" const uint8_t smp_trampoline_mailbox_cpu_index[];
-extern "C" const uint8_t smp_trampoline_mailbox_apic_id[];
 
 void pause_cpu() {
     __asm__ volatile("pause" : : : "memory");
