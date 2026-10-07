@@ -2046,11 +2046,69 @@ void record_mouse_input(Controller& controller, const mouse::Sample& sample) {
     }
 }
 
+int16_t clamp_pointer_delta(int32_t value) {
+    if (value < INT16_MIN) return INT16_MIN;
+    if (value > INT16_MAX) return INT16_MAX;
+    return static_cast<int16_t>(value);
+}
+
+bool submit_pointer_report(const hid::PointerReport& report) {
+    if (report.absolute) {
+        const input::AbsolutePointerSample sample{
+            report.x,
+            report.y,
+            report.logical_minimum_x,
+            report.logical_maximum_x,
+            report.logical_minimum_y,
+            report.logical_maximum_y,
+            report.wheel,
+            report.buttons,
+            report.changed_buttons,
+        };
+        return input::submit_absolute_pointer(sample);
+    }
+    const mouse::Sample sample{
+        clamp_pointer_delta(report.x),
+        clamp_pointer_delta(report.y),
+        report.wheel,
+        report.buttons,
+        report.changed_buttons,
+    };
+    return input::submit_mouse(sample);
+}
+
+void record_report_pointer_input(
+    Controller& controller,
+    const hid::PointerReport& report) {
+    if (!controller.input_proven &&
+        (report.x != 0 || report.y != 0 || report.wheel != 0 ||
+         report.changed_buttons != 0U)) {
+        controller.input_proven = true;
+        log::write(
+            log::Level::Info,
+            "USB",
+            report.absolute
+                ? "hardware xHCI HID absolute pointer report received"
+                : "hardware xHCI HID report-protocol mouse received");
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+        terminal::println("[TEST] usb_hid_report_pointer_input: PASS");
+    }
+}
+
 bool flush_mouse_sample(Controller& controller) {
     if (!controller.pending_mouse_valid) return true;
     if (!input::submit_mouse(controller.pending_mouse)) return false;
     record_mouse_input(controller, controller.pending_mouse);
     controller.pending_mouse_valid = false;
+    return true;
+}
+
+bool flush_pointer_report(Controller& controller) {
+    if (!controller.pending_pointer_valid) return true;
+    if (!submit_pointer_report(controller.pending_pointer)) return false;
+    record_report_pointer_input(
+        controller, controller.pending_pointer);
+    controller.pending_pointer_valid = false;
     return true;
 }
 
@@ -2060,6 +2118,9 @@ bool flush_hid_input(Controller& controller) {
     }
     if (controller.hid_kind == HidKind::Mouse) {
         return flush_mouse_sample(controller);
+    }
+    if (controller.hid_kind == HidKind::ReportPointer) {
+        return flush_pointer_report(controller);
     }
     return true;
 }
@@ -2124,6 +2185,37 @@ void handle_mouse_report(Controller& controller, const Trb& event) {
     }
 }
 
+
+void handle_pointer_report(Controller& controller, const Trb& event) {
+    if (!controller.report_queued || (event.control & (1U << 2U)) != 0U ||
+        event.parameter != controller.report_trb) {
+        return;
+    }
+    controller.report_queued = false;
+    controller.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual = remaining <= controller.interrupt_packet_size
+        ? controller.interrupt_packet_size - remaining
+        : 0U;
+    if (completion_ok(event) &&
+        actual >= controller.pointer_layout.report_bytes) {
+        hid::PointerReport report{};
+        if (hid::decode_pointer_report(
+                controller.pointer_layout,
+                &controller.pointer_decoder,
+                static_cast<const uint8_t*>(
+                    controller.data_page.virtual_address),
+                actual,
+                &report)) {
+            controller.pending_pointer = report;
+            controller.pending_pointer_valid = true;
+            ++controller.reports;
+        }
+    }
+    if (flush_pointer_report(controller)) {
+        static_cast<void>(queue_hid_report(controller));
+    }
+}
 
 uint32_t* companion_input_context(
     Controller& controller,
