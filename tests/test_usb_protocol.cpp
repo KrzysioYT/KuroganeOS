@@ -135,6 +135,27 @@ int main() {
         mouse_oversized_endpoint, sizeof(mouse_oversized_endpoint),
         &mouse_interface));
 
+    // Composite HID: keyboard first, mouse second. Targeted lookup must
+    // return the requested interface rather than the first HID descriptor.
+    const uint8_t composite_hid[] = {
+        9, 2, 59, 0, 2, 1, 0, 0x80, 50,
+        9, 4, 0, 0, 1, 3, 1, 1, 0,
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 8, 0,
+        7, 5, 0x81, 3, 8, 0, 10,
+        9, 4, 1, 0, 1, 3, 1, 2, 0,
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 52, 0,
+        7, 5, 0x82, 3, 8, 0, 5,
+    };
+    drivers::usb::HidReportInterface targeted_mouse{};
+    assert(drivers::usb::find_hid_report_interface_for_interface(
+        composite_hid, sizeof(composite_hid), 1U, &targeted_mouse));
+    assert(targeted_mouse.interface_number == 1U);
+    assert(targeted_mouse.endpoint_address == 0x82U);
+    assert(targeted_mouse.report_descriptor_length == 52U);
+    drivers::usb::HidReportInterface missing_target{};
+    assert(!drivers::usb::find_hid_report_interface_for_interface(
+        composite_hid, sizeof(composite_hid), 2U, &missing_target));
+
     const uint8_t tablet_configuration[] = {
         9, 2, 34, 0, 1, 1, 0, 0x80, 50,
         9, 4, 3, 0, 1, 3, 0, 0, 0,
