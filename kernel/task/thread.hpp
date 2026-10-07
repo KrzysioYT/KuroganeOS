@@ -88,6 +88,11 @@ struct PreemptRunResult {
     bool timed_out;
 };
 
+struct PreemptiveReturnState {
+    uint64_t stack_pointer;
+    uint64_t rflags;
+};
+
 using ListCallback = bool (*)(const Stat& stat, void* context);
 
 Status initialize();
@@ -155,7 +160,9 @@ extern "C" void x86_64_thread_context_switch(
     const uint64_t* next_stack_pointer);
 extern "C" void x86_64_thread_bootstrap();
 extern "C" void x86_64_thread_start_interrupt_frame(
-    arch::x86_64::interrupts::InterruptFrame* frame);
+    arch::x86_64::interrupts::InterruptFrame* frame,
+    threading::PreemptiveReturnState* return_state);
 extern "C" [[noreturn]] void x86_64_thread_resume_interrupt_frame(
     arch::x86_64::interrupts::InterruptFrame* frame);
-extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run();
+extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run(
+    const threading::PreemptiveReturnState* return_state);

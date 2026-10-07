@@ -4,7 +4,7 @@
 #include <cstring>
 
 extern "C" void x86_64_thread_start_interrupt_frame(
-    void*) {
+    void*, void*) {
     __builtin_trap();
 }
 
@@ -13,7 +13,8 @@ extern "C" [[noreturn]] void x86_64_thread_resume_interrupt_frame(
     __builtin_trap();
 }
 
-extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run() {
+extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run(
+    const void*) {
     __builtin_trap();
 }
 

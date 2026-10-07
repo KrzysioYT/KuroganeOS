@@ -2,6 +2,9 @@
 
 #include "../arch/x86_64/gdt.hpp"
 #include "../arch/x86_64/interrupts.hpp"
+#if !defined(KUROGANE_HOST_TEST)
+#include "../arch/x86_64/smp.hpp"
+#endif
 #include "../core/log.hpp"
 #if !defined(KUROGANE_HOST_TEST)
 #include "../memory/kernel_virtual_memory.hpp"
@@ -60,9 +63,34 @@ uint64_t g_preemptive_start_tick = 0U;
 bool g_preemptive_timed_out = false;
 PreDispatchHook g_pre_dispatch_hook = nullptr;
 #if !defined(KUROGANE_HOST_TEST)
-alignas(16) uint8_t g_timeout_return_stack[4096U]{};
-arch::x86_64::interrupts::InterruptFrame g_timeout_return_frame{};
+constexpr size_t kMaximumSchedulerCpus = 64U;
+struct CpuPreemptionState {
+    PreemptiveReturnState return_state;
+    alignas(16) uint8_t timeout_return_stack[4096U];
+    arch::x86_64::interrupts::InterruptFrame timeout_return_frame;
+};
+alignas(64) CpuPreemptionState g_cpu_preemption[kMaximumSchedulerCpus]{};
+
+size_t execution_cpu_index() {
+    if (!arch::x86_64::smp::initialized()) return 0U;
+    const size_t cpu = arch::x86_64::smp::current_cpu_index();
+    return cpu < kMaximumSchedulerCpus ? cpu : 0U;
+}
+
+CpuPreemptionState& current_preemption_state() {
+    return g_cpu_preemption[execution_cpu_index()];
+}
+#else
+PreemptiveReturnState g_host_return_state{};
 #endif
+
+PreemptiveReturnState* current_return_state() {
+#if defined(KUROGANE_HOST_TEST)
+    return &g_host_return_state;
+#else
+    return &current_preemption_state().return_state;
+#endif
+}
 
 uint64_t save_and_disable_interrupts() {
 #if defined(KUROGANE_HOST_TEST)
@@ -266,20 +294,21 @@ arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
     g_current = kInvalidSlot;
     g_preemptive_active = false;
     g_preemptive_timed_out = true;
-    g_timeout_return_frame = {};
+    CpuPreemptionState& cpu_state = current_preemption_state();
+    cpu_state.timeout_return_frame = {};
     uintptr_t top = reinterpret_cast<uintptr_t>(
-        g_timeout_return_stack + sizeof(g_timeout_return_stack));
+        cpu_state.timeout_return_stack + sizeof(cpu_state.timeout_return_stack));
     top &= ~static_cast<uintptr_t>(0xFU);
     const uintptr_t target_stack = top - sizeof(uint64_t);
     *reinterpret_cast<uint64_t*>(target_stack) = 0U;
-    g_timeout_return_frame.rip = reinterpret_cast<uint64_t>(
+    cpu_state.timeout_return_frame.rip = reinterpret_cast<uint64_t>(
         &x86_64_thread_timeout_return);
-    g_timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
-    g_timeout_return_frame.rflags = UINT64_C(0x2);
-    g_timeout_return_frame.rsp = target_stack;
-    g_timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
+    cpu_state.timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
+    cpu_state.timeout_return_frame.rflags = UINT64_C(0x2);
+    cpu_state.timeout_return_frame.rsp = target_stack;
+    cpu_state.timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
     static_cast<void>(activate_slot(kInvalidSlot));
-    return &g_timeout_return_frame;
+    return &cpu_state.timeout_return_frame;
 }
 
 arch::x86_64::interrupts::InterruptFrame* prepare_blocked_return(
@@ -288,21 +317,22 @@ arch::x86_64::interrupts::InterruptFrame* prepare_blocked_return(
     g_current = kInvalidSlot;
     g_preemptive_active = false;
     g_preemptive_timed_out = false;
-    g_timeout_return_frame = {};
+    CpuPreemptionState& cpu_state = current_preemption_state();
+    cpu_state.timeout_return_frame = {};
     uintptr_t top = reinterpret_cast<uintptr_t>(
-        g_timeout_return_stack + sizeof(g_timeout_return_stack));
+        cpu_state.timeout_return_stack + sizeof(cpu_state.timeout_return_stack));
     top &= ~static_cast<uintptr_t>(0xFU);
     const uintptr_t target_stack = top - sizeof(uint64_t);
     *reinterpret_cast<uint64_t*>(target_stack) = 0U;
-    g_timeout_return_frame.rip = reinterpret_cast<uint64_t>(
+    cpu_state.timeout_return_frame.rip = reinterpret_cast<uint64_t>(
         &x86_64_thread_timeout_return);
-    g_timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
-    g_timeout_return_frame.rflags = UINT64_C(0x2);
-    g_timeout_return_frame.rsp = target_stack;
-    g_timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
+    cpu_state.timeout_return_frame.cs = arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
+    cpu_state.timeout_return_frame.rflags = UINT64_C(0x2);
+    cpu_state.timeout_return_frame.rsp = target_stack;
+    cpu_state.timeout_return_frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
     static_cast<void>(old);
     static_cast<void>(activate_slot(kInvalidSlot));
-    return &g_timeout_return_frame;
+    return &cpu_state.timeout_return_frame;
 }
 #endif
 
@@ -626,7 +656,7 @@ Status yield() {
             g_preemptive_active = false;
             static_cast<void>(activate_slot(kInvalidSlot));
             static_cast<void>(flags);
-            x86_64_thread_return_from_preemptive_run();
+            x86_64_thread_return_from_preemptive_run(current_return_state());
         }
         g_slots[next].state = State::Running;
         ++g_slots[next].switches;
@@ -636,7 +666,7 @@ Status yield() {
             g_current = kInvalidSlot;
             g_preemptive_active = false;
             static_cast<void>(activate_slot(kInvalidSlot));
-            x86_64_thread_return_from_preemptive_run();
+            x86_64_thread_return_from_preemptive_run(current_return_state());
         }
         static_cast<void>(flags);
         x86_64_thread_resume_interrupt_frame(
@@ -705,7 +735,8 @@ Status run_preemptive_for(
 
     // Keep interrupts disabled between publishing scheduler state and the
     // synthetic IRET. The new frame enables IF atomically at its entry point.
-    x86_64_thread_start_interrupt_frame(g_slots[first].interrupt_frame);
+    x86_64_thread_start_interrupt_frame(
+        g_slots[first].interrupt_frame, current_return_state());
 
     const uint64_t completed = g_completed_total - g_run_completed_start;
     const uint64_t preemptions = g_preemptions;
@@ -762,22 +793,23 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
         g_preemptive_active = false;
         g_preemptive_timed_out = true;
 #if !defined(KUROGANE_HOST_TEST)
-        g_timeout_return_frame = {};
+        CpuPreemptionState& cpu_state = current_preemption_state();
+    cpu_state.timeout_return_frame = {};
         uintptr_t top = reinterpret_cast<uintptr_t>(
-            g_timeout_return_stack + sizeof(g_timeout_return_stack));
+            cpu_state.timeout_return_stack + sizeof(cpu_state.timeout_return_stack));
         top &= ~static_cast<uintptr_t>(0xFU);
         const uintptr_t target_stack = top - sizeof(uint64_t);
         *reinterpret_cast<uint64_t*>(target_stack) = 0U;
-        g_timeout_return_frame.rip = reinterpret_cast<uint64_t>(
+        cpu_state.timeout_return_frame.rip = reinterpret_cast<uint64_t>(
             &x86_64_thread_timeout_return);
-        g_timeout_return_frame.cs =
+        cpu_state.timeout_return_frame.cs =
             arch::x86_64::gdt::KERNEL_CODE_SELECTOR;
-        g_timeout_return_frame.rflags = UINT64_C(0x2);
-        g_timeout_return_frame.rsp = target_stack;
-        g_timeout_return_frame.ss =
+        cpu_state.timeout_return_frame.rflags = UINT64_C(0x2);
+        cpu_state.timeout_return_frame.rsp = target_stack;
+        cpu_state.timeout_return_frame.ss =
             arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
         static_cast<void>(activate_slot(kInvalidSlot));
-        return &g_timeout_return_frame;
+        return &cpu_state.timeout_return_frame;
 #else
         return &frame;
 #endif
@@ -1114,6 +1146,6 @@ extern "C" [[noreturn]] void x86_64_thread_timeout_return() {
 #if defined(KUROGANE_HOST_TEST)
     __builtin_trap();
 #else
-    x86_64_thread_return_from_preemptive_run();
+    x86_64_thread_return_from_preemptive_run(threading::current_return_state());
 #endif
 }
