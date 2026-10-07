@@ -252,8 +252,10 @@ try {
         $machine -notmatch 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"' -or
         $machine -notmatch '"SATA-0-0"=.*\.vdi"' -or
         $machine -notmatch 'storagecontrollername\d+="IDE"' -or
-        $machine -notmatch [regex]::Escape($isoLeaf)) {
-        throw 'Created VM did not retain the required EFI64 + DVD-first + IntelAHCI HDD + IDE ISO contract.'
+        $machine -notmatch [regex]::Escape($isoLeaf) -or
+        $machine -notmatch 'keyboard="[^"]*PS2[^"]*"' -or
+        $machine -notmatch 'mouse="[^"]*PS2[^"]*"') {
+        throw 'Created VM did not retain the required EFI64 + DVD-first + IntelAHCI HDD + IDE ISO + PS/2 input contract.'
     }
 
     $created = $false
@@ -271,6 +273,7 @@ Write-Host "NIC: $Nic ($nicType), NAT"
 Write-Host 'Graphics: VMSVGA, 128 MiB VRAM'
 Write-Host 'Storage: IntelAHCI/SATA port 0 -> VDI; IDE/PIIX4 -> ISO DVD'
 Write-Host 'Firmware: EFI64; Boot order: DVD -> Disk'
+Write-Host 'Input: PS/2 keyboard + PS/2 mouse'
 
 if ($Start) {
     $startResult = Invoke-VBoxNative -Arguments @(
