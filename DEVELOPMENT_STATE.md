@@ -6,11 +6,13 @@ Last updated: 2026-10-07
 
 `gpt/road-to-15-consolidation`
 
-Integration HEAD after PR #44:
+5.0 Steel closeout candidate:
 
-`653bd33b9611deaaf1330a3e34b3b41c573a9ba9`
+`90d5ffc80f91236e10118324c8e3b5d6f4a1c781`
 
-Closeout branch: `chatgpt/5.0-closeout`.
+Merged through PR #45 as integration commit:
+
+`8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`
 
 ## Formal release track
 
@@ -19,13 +21,15 @@ Closeout branch: `chatgpt/5.0-closeout`.
 - `3.5.0-dev — Connected Userspace`: QUALIFIED
 - `3.6.0-dev — Flux Stabilization`: QUALIFIED
 - `4.0.0-dev — Pre-Steel`: QUALIFIED
-- `5.0.0-dev — Steel / Hardware`: QUALIFICATION CANDIDATE
+- `5.0.0-dev — Steel / Hardware`: QUALIFIED (automated matrix)
 - `6.0.0-dev` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
-## Steel candidate
+`5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
+not mean the 5.0 engineering gate is incomplete; only 15.0.0 is planned as the
+first product-level STABLE release.
 
-Implemented scope:
+## Steel qualified scope
 
 - PCI/MSI/MSI-X and bounded I/O APIC routing with MADT overrides;
 - HPET main-counter runtime;
@@ -43,14 +47,37 @@ cross-CPU work dispatch, not the process/thread scheduler. It is now
 `smp_cross_cpu_work`. Scheduler 2.0 and multicore userspace scheduling are
 the explicit 6.0 Core Steel scope.
 
-## Closeout rule
+## 5.0 authoritative automated evidence
 
-The exact candidate must pass Steel closeout and the retriggered HPET, SMP,
-HDA, NVMe, USB Mass Storage, USB keyboard and USB mouse workflows. Until those
-jobs are green, 5.0 remains a candidate rather than a qualified milestone.
+Exact candidate SHA: `90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
 
-User-side VirtualBox/physical-hardware tests begin from the qualified 5.0
-candidate and are recorded as external evidence.
+All required workflows completed successfully:
+
+- Steel Closeout — Actions run `37641425299`;
+- HPET Main Counter — Actions run `37641425316`;
+- SMP Runtime — Actions run `37641425398`;
+- Intel HDA Runtime — Actions run `37641425368`;
+- NVMe Block Runtime — Actions run `37641425280`;
+- xHCI USB Mass Storage Transport — Actions run `37641425350`;
+- xHCI USB Keyboard — Actions run `37641425387`;
+- xHCI USB Mouse — Actions run `37641425292`;
+- Steel Foundations — Actions run `37641425390`;
+- CLA check — Actions run `37641425461`.
+
+The exact candidate therefore satisfies the automated 5.0 Steel Definition of
+Done. Oracle VirtualBox and physical-machine checks remain external validation:
+they are not silently converted into PASS, and any real failure reported there
+reopens the affected 5.0 subsystem before Core Steel depends on it.
+
+## User validation checkpoint
+
+Use the 5.0 test plan in `docs/testing/STEEL_5_0_MANUAL.md`. The first manual
+round should cover boot, install, persistent reboot, networking, input, audio,
+power/reboot behavior and serial diagnostics on Oracle VirtualBox. Physical
+hardware can then be added as separate evidence.
+
+Development toward 6.0 may continue after this checkpoint, but test failures
+from 5.0 take priority over dependent Core Steel work.
 
 ## Development policy
 
