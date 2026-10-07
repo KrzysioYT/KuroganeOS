@@ -329,6 +329,10 @@ Status pick_next(size_t cpu, ThreadId excluded, ThreadId* out_id) {
     if (selected == kInvalidIndex) return Status::NotFound;
 
     ThreadStat& stat = g_threads[selected].stat;
+    // Selection is also a reservation. Under the policy lock this prevents a
+    // second CPU from selecting the same Ready thread before the thread layer
+    // has finished installing its interrupt frame.
+    stat.state = State::Running;
     stat.last_cpu = cpu;
     ++stat.dispatches;
     ++g_queues[cpu].dispatches;

@@ -172,16 +172,15 @@ scheduler2::State scheduler_state(State state) {
     return scheduler2::State::Terminated;
 }
 
-void sync_scheduler_policy() {
-    for (const Slot& slot : g_slots) {
-        if (slot.state == State::Empty || slot.id == INVALID_THREAD_ID) continue;
+void set_slot_state(Slot& slot, State state) {
+    slot.state = state;
+    if (slot.id != INVALID_THREAD_ID && state != State::Empty) {
         static_cast<void>(
-            scheduler2::set_state(slot.id, scheduler_state(slot.state)));
+            scheduler2::set_state(slot.id, scheduler_state(state)));
     }
 }
 
 size_t find_ready(size_t excluded = kInvalidSlot) {
-    sync_scheduler_policy();
     const ThreadId excluded_id =
         excluded < MAX_THREADS ? g_slots[excluded].id : INVALID_THREAD_ID;
     ThreadId selected = INVALID_THREAD_ID;
@@ -202,7 +201,7 @@ void wake_sleepers() {
     for (Slot& slot : g_slots) {
         if (slot.state == State::Sleeping && slot.wake_tick <= g_timer_ticks) {
             slot.wake_tick = 0U;
-            slot.state = State::Ready;
+            set_slot_state(slot, State::Ready);
         }
     }
 }
@@ -281,15 +280,15 @@ void switch_to(size_t next, bool current_remains_ready) {
     Slot& old = g_slots[previous];
     Slot& destination = g_slots[next];
     if (current_remains_ready) {
-        old.state = State::Ready;
+        set_slot_state(old, State::Ready);
     }
-    destination.state = State::Running;
+    set_slot_state(destination, State::Running);
     ++old.switches;
     ++destination.switches;
     ++g_run_switches;
     g_current = next;
     if (!activate_slot(next)) {
-        destination.state = State::Terminated;
+        set_slot_state(destination, State::Terminated);
     }
     x86_64_thread_context_switch(
         &old.context.stack_pointer,
@@ -300,7 +299,7 @@ void switch_to_boot(bool current_remains_ready) {
     const size_t previous = g_current;
     Slot& old = g_slots[previous];
     if (current_remains_ready) {
-        old.state = State::Ready;
+        set_slot_state(old, State::Ready);
     }
     ++old.switches;
     ++g_run_switches;
@@ -329,7 +328,7 @@ arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
     size_t previous) {
     Slot& old = g_slots[previous];
     if (old.state == State::Running) {
-        old.state = State::Ready;
+        set_slot_state(old, State::Ready);
     }
     g_current = kInvalidSlot;
     g_preemptive_active = false;
@@ -405,7 +404,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
     const bool yield_requested = old.yield_requested;
     old.yield_requested = false;
     if (yield_requested && old.state == State::Running) {
-        old.state = State::Ready;
+        set_slot_state(old, State::Ready);
     }
     if (!yield_requested && old.state == State::Running) {
         return &frame;
@@ -423,21 +422,21 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
         if (next != kInvalidSlot) {
             auto* next_frame = g_slots[next].interrupt_frame;
             if (next_frame == nullptr) {
-                g_slots[next].state = State::Terminated;
+                set_slot_state(g_slots[next], State::Terminated);
                 continue;
             }
             const State old_state = old.state;
-            g_slots[next].state = State::Running;
+            set_slot_state(g_slots[next], State::Running);
             ++old.switches;
             ++g_slots[next].switches;
             g_current = next;
             if (!activate_slot(next)) {
                 g_current = previous;
-                g_slots[next].state = State::Ready;
-                old.state = old_state;
+                set_slot_state(g_slots[next], State::Ready);
+                set_slot_state(old, old_state);
                 static_cast<void>(activate_slot(previous));
                 if (old.state == State::Ready) {
-                    old.state = State::Running;
+                    set_slot_state(old, State::Running);
                     return &frame;
                 }
                 continue;
@@ -450,7 +449,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
         // frame. Once this thread wakes, resume exactly the syscall frame that
         // entered here.
         if (old.state == State::Ready) {
-            old.state = State::Running;
+            set_slot_state(old, State::Running);
             old.wake_tick = 0U;
             g_current = previous;
             static_cast<void>(activate_slot(previous));
@@ -460,7 +459,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
             return &frame;
         }
         if (old.state != State::Sleeping && old.state != State::Blocked) {
-            old.state = State::Running;
+            set_slot_state(old, State::Running);
             g_current = previous;
             static_cast<void>(activate_slot(previous));
             return &frame;
@@ -664,7 +663,7 @@ Status run_until_idle(uint64_t switch_budget, RunResult* result) {
     g_switch_budget = switch_budget;
     g_run_switches = 1U;
     g_run_completed_start = g_completed_total;
-    g_slots[next].state = State::Running;
+    set_slot_state(g_slots[next], State::Running);
     ++g_slots[next].switches;
     g_current = next;
     restore_interrupts(flags);
@@ -731,7 +730,7 @@ Status yield() {
 
     const uint64_t flags = save_and_disable_interrupts();
     const size_t old = g_current;
-    g_slots[old].state = State::Terminated;
+    set_slot_state(g_slots[old], State::Terminated);
     ++g_completed_total;
     if (g_preemptive_active) {
         const size_t next = find_ready(old);
@@ -742,11 +741,11 @@ Status yield() {
             static_cast<void>(flags);
             x86_64_thread_return_from_preemptive_run(current_return_state());
         }
-        g_slots[next].state = State::Running;
+        set_slot_state(g_slots[next], State::Running);
         ++g_slots[next].switches;
         g_current = next;
         if (!activate_slot(next)) {
-            g_slots[next].state = State::Terminated;
+            set_slot_state(g_slots[next], State::Terminated);
             g_current = kInvalidSlot;
             g_preemptive_active = false;
             static_cast<void>(activate_slot(kInvalidSlot));
@@ -806,7 +805,7 @@ Status run_preemptive_for(
     g_preemptive_start_tick = g_timer_ticks;
     g_preemptive_timed_out = false;
     g_run_completed_start = g_completed_total;
-    g_slots[first].state = State::Running;
+    set_slot_state(g_slots[first], State::Running);
     ++g_slots[first].switches;
     g_current = first;
     if (!activate_slot(first)) {
@@ -871,7 +870,7 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
     if (g_preemptive_limit != 0U &&
         g_timer_ticks - g_preemptive_start_tick >= g_preemptive_limit) {
         if (old.state == State::Running) {
-            old.state = State::Ready;
+            set_slot_state(old, State::Ready);
         }
         g_current = kInvalidSlot;
         g_preemptive_active = false;
@@ -906,25 +905,25 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
             return &frame;
         }
         if (old.state != State::Running) {
-            old.state = State::Running;
+            set_slot_state(old, State::Running);
             old.wake_tick = 0U;
         }
         old.yield_requested = false;
         return &frame;
     }
     if (old.state == State::Running) {
-        old.state = State::Ready;
+        set_slot_state(old, State::Ready);
     }
     old.yield_requested = false;
-    g_slots[next].state = State::Running;
+    set_slot_state(g_slots[next], State::Running);
     ++old.switches;
     ++g_slots[next].switches;
     ++g_preemptions;
     g_current = next;
     if (!activate_slot(next)) {
         g_current = previous;
-        old.state = State::Running;
-        g_slots[next].state = State::Ready;
+        set_slot_state(old, State::Running);
+        set_slot_state(g_slots[next], State::Ready);
         static_cast<void>(activate_slot(previous));
         return &frame;
     }
@@ -1069,7 +1068,7 @@ Status block_current() {
     }
     slot.wake_tick = 0U;
     slot.yield_requested = false;
-    slot.state = State::Blocked;
+    set_slot_state(slot, State::Blocked);
     restore_interrupts(flags);
     return Status::Ok;
 }
@@ -1087,7 +1086,7 @@ Status wake_user(ThreadId id, uint64_t accumulator) {
         return Status::NotFound;
     }
     slot.interrupt_frame->rax = accumulator;
-    slot.state = State::Ready;
+    set_slot_state(slot, State::Ready);
     slot.wake_tick = 0U;
     slot.yield_requested = false;
     restore_interrupts(flags);
@@ -1105,7 +1104,7 @@ Status sleep_current(uint64_t timer_count) {
 
     Slot& slot = g_slots[g_current];
     slot.wake_tick = g_timer_ticks + timer_count;
-    slot.state = State::Sleeping;
+    set_slot_state(slot, State::Sleeping);
 
     // Do not schedule from inside the syscall handler. The post-software-
     // interrupt hook owns the complete Ring-3 return frame and either switches
@@ -1134,7 +1133,7 @@ Status redirect_user(
     slot.interrupt_frame->rip = instruction_pointer;
     slot.interrupt_frame->rax = accumulator;
     slot.interrupt_frame->rdi = argument1;
-    slot.state = State::Ready;
+    set_slot_state(slot, State::Ready);
     slot.wake_tick = 0U;
     return Status::Ok;
 }
