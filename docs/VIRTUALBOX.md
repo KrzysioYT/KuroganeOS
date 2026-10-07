@@ -1,11 +1,12 @@
 # KuroganeOS + Oracle VirtualBox
 
-Referencyjny profil Oracle VirtualBox dla KuroganeOS **3.3.3-dev DEV BETA** na
-hoście x86-64 Intel/AMD.
+Referencyjny profil Oracle VirtualBox dla KuroganeOS **5.0.0-dev STEEL DEV** na
+hoście x86-64 Intel/AMD. Automatyczny milestone 5.0 jest zakwalifikowany;
+VirtualBox pozostaje zewnętrzną walidacją sprzętowo-hostową.
 
 ```text
-VirtualBox: dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
-QEMU:       dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+VirtualBox: dist/KuroganeOS-5.0.0-dev-x86_64.iso
+QEMU:       dist/KuroganeOS-5.0.0-dev-<host>-qemu.img
 ```
 
 Nie używaj QEMU `.img` jako napędu optycznego VirtualBox.
@@ -25,7 +26,7 @@ HDD controller:     SATA / Intel AHCI
 SATA port count:    1 dla pojedynczego VDI
 HDD:                VDI >= 2 GiB, SATA 0:0
 Optical controller: IDE / PIIX4
-DVD:                KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+DVD:                KuroganeOS-5.0.0-dev-x86_64.iso
 Boot order:         DVD -> Disk
 Network:            NAT
 NIC:                PCnet-FAST III (Am79C973)
@@ -41,7 +42,7 @@ SATA / IntelAHCI (Port Count = 1)
 └── SATA 0:0 -> KuroganeOS.vdi
 
 IDE / PIIX4
-└── DVD -> KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+└── DVD -> KuroganeOS-5.0.0-dev-x86_64.iso
 ```
 
 Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
@@ -56,8 +57,8 @@ Najprostszy pełny start:
 
 ```powershell
 .\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
-    -Name "KuroganeOS-3.3.3-VB" `
+    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
+    -Name "KuroganeOS-5.0-VB" `
     -Start
 ```
 
@@ -91,7 +92,7 @@ VM musi być całkowicie wyłączona, nie tylko zapisana w saved state.
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso"
+    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso"
 ```
 
 Helper najpierw próbuje dokładnej nazwy. Jeżeli nie istnieje, pobiera
@@ -109,7 +110,7 @@ wypisywana przez helper. Można podać własną:
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS-VB-Test" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
     -SerialLog ".\state\runlogs\virtualbox-manual.log"
 ```
 
@@ -161,7 +162,7 @@ a nie jako „ISO nie bootuje”.
 
 Szczegółowy pipeline i recovery: [`INSTALLATION.md`](INSTALLATION.md).
 
-## Installer 3.3.3-dev — ważne poprawki
+## Installer 5.0.0-dev — ważne poprawki zachowane z wcześniejszych linii
 
 ### Nested package directories
 
@@ -250,7 +251,7 @@ installer stage 9/9: installation complete
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
     -TimeoutSeconds 180
 ```
 
@@ -311,7 +312,7 @@ Oczekiwane zakończenie:
 
 ```bash
 bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso \
+  ./dist/KuroganeOS-5.0.0-dev-x86_64.iso \
   --passes 20
 ```
 
@@ -322,13 +323,13 @@ pełnego runtime smoke.
 
 ### Czarny ekran po utworzeniu VM
 
-Najpierw upewnij się, że używasz bieżącego helpera. Referencyjna konfiguracja to
-`VMSVGA + 128 MiB`, a nie starsze wymuszane `VBoxSVGA`.
+Najpierw upewnij się, że używasz bieżącego helpera. Referencyjna konfiguracja to `VMSVGA + 128 MiB`, a nie starsze wymuszane
+`VBoxSVGA`.
 
 Dla VM utworzonej helperem sprawdź serial bez zgadywania:
 
 ```powershell
-Get-Content "$HOME\VirtualBox VMs\KuroganeOS-3.3.3-VB\kurogane-serial.log" -Tail 100
+Get-Content "$HOME\VirtualBox VMs\KuroganeOS-5.0-VB\kurogane-serial.log" -Tail 100
 ```
 
 Interpretacja:
@@ -379,8 +380,8 @@ ISO -> IDE / PIIX4 DVD
 ### `PACKAGE COPY FAILED`
 
 Jeżeli widzisz wyłącznie ten stary komunikat bez `[INSTALL][COPY] ...` w serial
-logu, VM używa ISO sprzed transactional installer fix. Wykonaj pełny rebuild i
-podepnij świeży canonical ISO.
+logu, VM używa starego ISO. Wykonaj pełny rebuild i podepnij świeży
+`KuroganeOS-5.0.0-dev-x86_64.iso`.
 
 ### Timeout po `installer stage 7/9`
 
