@@ -33,6 +33,9 @@ const char* capability_name(Capability capability) {
         case CapabilityNetwork: return "network";
         case CapabilityAudio: return "audio";
         case CapabilityMultiprocessor: return "multiprocessor";
+        case CapabilityDisplay: return "display";
+        case CapabilityKeyboard: return "keyboard";
+        case CapabilityPointer: return "pointer";
         case CapabilityNone: break;
     }
     return "unknown";
