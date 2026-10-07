@@ -84,6 +84,8 @@ generic x86-64 UEFI systems; hypervisors are qualification targets only.
 
 Initial 5.1 implementation:
 - central `hardware::policy` capability evaluation;
+- Device Model `Optional` / `BootCritical` requirements with Driver Manager
+  isolation of optional bind failures;
 - only timer, timer-scheduling hook and generic input queue are boot-critical
   in the first portability slice;
 - PS/2 keyboard/mouse are optional compatibility backends rather than boot
