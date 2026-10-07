@@ -92,6 +92,54 @@ void test_commands() {
     assert((command.dwords[0] & 0xFFU) == 0U);
     assert((command.dwords[0] >> 16U) == 0x55AAU);
     assert(command.dwords[1] == 3U);
+
+    assert(build_create_io_completion_queue(
+        0x1010U, 1U, 16U, UINT64_C(0x400000), &command) == Status::Ok);
+    assert((command.dwords[0] & 0xFFU) == 0x05U);
+    assert((command.dwords[0] >> 16U) == 0x1010U);
+    assert(command.dwords[6] == UINT32_C(0x00400000));
+    assert(command.dwords[7] == 0U);
+    assert((command.dwords[10] & 0xFFFFU) == 1U);
+    assert((command.dwords[10] >> 16U) == 15U);
+    assert(command.dwords[11] == 1U);
+
+    assert(build_create_io_submission_queue(
+        0x2020U, 1U, 16U, 1U, UINT64_C(0x500000), &command) == Status::Ok);
+    assert((command.dwords[0] & 0xFFU) == 0x01U);
+    assert((command.dwords[10] & 0xFFFFU) == 1U);
+    assert((command.dwords[10] >> 16U) == 15U);
+    assert((command.dwords[11] & 1U) == 1U);
+    assert((command.dwords[11] >> 16U) == 1U);
+
+    assert(build_read(
+        0x3030U, 1U, UINT64_C(0x1122334455667788), 8U,
+        UINT64_C(0x600000), &command) == Status::Ok);
+    assert((command.dwords[0] & 0xFFU) == 0x02U);
+    assert(command.dwords[1] == 1U);
+    assert(command.dwords[10] == UINT32_C(0x55667788));
+    assert(command.dwords[11] == UINT32_C(0x11223344));
+    assert((command.dwords[12] & 0xFFFFU) == 7U);
+
+    assert(build_write(
+        0x4040U, 7U, 9U, 1U, UINT64_C(0x700000), &command) == Status::Ok);
+    assert((command.dwords[0] & 0xFFU) == 0x01U);
+    assert(command.dwords[1] == 7U);
+    assert(command.dwords[10] == 9U);
+    assert((command.dwords[12] & 0xFFFFU) == 0U);
+
+    const Command io_sentinel = command;
+    assert(build_read(
+        1U, 0U, 0U, 1U, UINT64_C(0x600000), &command) ==
+        Status::InvalidArgument);
+    assert(std::memcmp(&command, &io_sentinel, sizeof(command)) == 0);
+    assert(build_write(
+        1U, 1U, 0U, 0U, UINT64_C(0x600000), &command) ==
+        Status::InvalidArgument);
+    assert(std::memcmp(&command, &io_sentinel, sizeof(command)) == 0);
+    assert(build_create_io_completion_queue(
+        1U, 0U, 16U, UINT64_C(0x400000), &command) ==
+        Status::InvalidArgument);
+    assert(std::memcmp(&command, &io_sentinel, sizeof(command)) == 0);
 }
 
 void test_namespace() {
