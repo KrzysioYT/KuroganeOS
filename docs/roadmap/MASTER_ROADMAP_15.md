@@ -271,16 +271,24 @@ Required work:
 
 ## 5.5.0-dev — Hardware Compatibility Gate
 
-- QEMU TCG/KVM;
-- Oracle VirtualBox;
-- VMware;
-- physical Intel desktop/laptop;
-- physical AMD desktop/laptop;
-- Safe Mode and hardware inventory;
-- compatibility-tier reporting and a public supported-hardware matrix.
+Automated engineering gate:
+- QEMU PS/2-free USB-only input profile;
+- report-protocol USB tablet profile;
+- NVMe + USB Mass Storage unified-registry profile;
+- Intel-like and AMD-like four-vCPU UEFI/ACPI/SMP profiles;
+- Tier 1 Usable and Tier 3 Extended compatibility profiles;
+- Safe Mode, structured hardware inventory and clean degradation.
 
-5.5 closes only when the hardware layer is suitable for building the rest of
-Road to 15 without emulator-specific assumptions.
+External validation remains explicitly tracked for Oracle VirtualBox, VMware
+and physical Intel/AMD systems. Those environments are not converted into fake
+PASS results when unavailable. A reproduced external failure reopens the
+affected portability subsystem. Broad multi-machine physical qualification is
+a mandatory 14.0 release-candidate requirement, not a prerequisite for
+independent 6.0 Kernel Core 2.0 development.
+
+5.5 closes its engineering scope when the platform-neutral contracts and
+automated matrix pass on one exact candidate SHA without emulator-specific
+assumptions in higher layers.
 
 ## 6.0.0-dev — Kernel Core 2.0
 
