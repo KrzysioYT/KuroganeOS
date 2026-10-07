@@ -991,6 +991,34 @@ bool read_descriptors(Controller& controller) {
         controller.hid_kind = HidKind::Mouse;
         return true;
     }
+    HidReportInterface report_interface{};
+    if (find_hid_report_interface(
+            configuration, total, &report_interface) &&
+        report_interface.report_descriptor_length <=
+            memory::virtual_memory::PAGE_SIZE) {
+        controller.report_interface = report_interface;
+        if (control_transfer(
+                controller, 0x00U, 9U,
+                report_interface.configuration_value,
+                0U, 0U, false)) {
+            clear_bytes(
+                controller.data_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+            if (control_transfer(
+                    controller, 0x81U, 6U, 0x2200U,
+                    report_interface.interface_number,
+                    report_interface.report_descriptor_length,
+                    true) &&
+                hid::parse_pointer_report_descriptor(
+                    static_cast<const uint8_t*>(
+                        controller.data_page.virtual_address),
+                    report_interface.report_descriptor_length,
+                    &controller.pointer_layout)) {
+                controller.hid_kind = HidKind::ReportPointer;
+                return true;
+            }
+        }
+    }
     if (mass_storage::find_bulk_only_scsi_interface(
             configuration, total, &controller.mass_storage_interface)) {
         controller.mass_storage_present = true;
@@ -2263,6 +2291,35 @@ bool read_companion_descriptors(Controller& controller) {
             configuration, total, &companion.mouse_interface)) {
         companion.hid_kind = HidKind::Mouse;
         return true;
+    }
+
+    HidReportInterface report_interface{};
+    if (find_hid_report_interface(
+            configuration, total, &report_interface) &&
+        report_interface.report_descriptor_length <=
+            memory::virtual_memory::PAGE_SIZE) {
+        companion.report_interface = report_interface;
+        if (companion_control_transfer(
+                controller, 0x00U, 9U,
+                report_interface.configuration_value,
+                0U, 0U, false)) {
+            clear_bytes(
+                companion.data_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+            if (companion_control_transfer(
+                    controller, 0x81U, 6U, 0x2200U,
+                    report_interface.interface_number,
+                    report_interface.report_descriptor_length,
+                    true) &&
+                hid::parse_pointer_report_descriptor(
+                    static_cast<const uint8_t*>(
+                        companion.data_page.virtual_address),
+                    report_interface.report_descriptor_length,
+                    &companion.pointer_layout)) {
+                companion.hid_kind = HidKind::ReportPointer;
+                return true;
+            }
+        }
     }
     return false;
 }
