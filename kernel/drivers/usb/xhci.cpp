@@ -993,6 +993,37 @@ bool read_descriptors(Controller& controller) {
     }
     if (find_boot_mouse_interface(
             configuration, total, &controller.mouse_interface)) {
+        HidReportInterface mouse_report_interface{};
+        if (find_hid_report_interface_for_interface(
+                configuration,
+                total,
+                controller.mouse_interface.interface_number,
+                &mouse_report_interface) &&
+            mouse_report_interface.report_descriptor_length <=
+                memory::virtual_memory::PAGE_SIZE) {
+            controller.report_interface = mouse_report_interface;
+            if (control_transfer(
+                    controller, 0x00U, 9U,
+                    mouse_report_interface.configuration_value,
+                    0U, 0U, false)) {
+                clear_bytes(
+                    controller.data_page.virtual_address,
+                    memory::virtual_memory::PAGE_SIZE);
+                if (control_transfer(
+                        controller, 0x81U, 6U, 0x2200U,
+                        mouse_report_interface.interface_number,
+                        mouse_report_interface.report_descriptor_length,
+                        true) &&
+                    hid::parse_pointer_report_descriptor(
+                        static_cast<const uint8_t*>(
+                            controller.data_page.virtual_address),
+                        mouse_report_interface.report_descriptor_length,
+                        &controller.pointer_layout)) {
+                    controller.hid_kind = HidKind::ReportPointer;
+                    return true;
+                }
+            }
+        }
         controller.hid_kind = HidKind::Mouse;
         return true;
     }
