@@ -366,6 +366,108 @@ bool find_boot_mouse_interface(
     return true;
 }
 
+bool find_hid_report_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidReportInterface* output) {
+    if (descriptors == nullptr || output == nullptr || length < 9U ||
+        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+        return false;
+    }
+    const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
+        static_cast<uint16_t>(descriptors[3U]) << 8U;
+    if (total < 9U || total > length || descriptors[5U] == 0U) return false;
+
+    const uint8_t configuration = descriptors[5U];
+    bool hid_interface = false;
+    uint8_t interface_number = 0U;
+    uint16_t report_length = 0U;
+    uint8_t endpoint = 0U;
+    uint16_t packet_size = 0U;
+    uint8_t interval = 0U;
+
+    for (size_t offset = 0U; offset < total;) {
+        if (total - offset < 2U) return false;
+        const uint8_t descriptor_length = descriptors[offset];
+        const uint8_t descriptor_type = descriptors[offset + 1U];
+        if (descriptor_length < 2U || descriptor_length > total - offset) {
+            return false;
+        }
+
+        if (descriptor_type == 4U) {
+            if (descriptor_length < 9U) return false;
+            if (hid_interface && report_length != 0U && endpoint != 0U) {
+                *output = {
+                    configuration,
+                    interface_number,
+                    endpoint,
+                    packet_size,
+                    interval,
+                    report_length,
+                };
+                return true;
+            }
+            hid_interface = descriptors[offset + 3U] == 0U &&
+                descriptors[offset + 5U] == 3U;
+            interface_number = descriptors[offset + 2U];
+            report_length = 0U;
+            endpoint = 0U;
+            packet_size = 0U;
+            interval = 0U;
+        } else if (descriptor_type == 0x21U && hid_interface) {
+            if (descriptor_length < 9U) return false;
+            const uint8_t descriptor_count = descriptors[offset + 5U];
+            size_t child_offset = offset + 6U;
+            for (uint8_t index = 0U; index < descriptor_count; ++index) {
+                if (child_offset + 3U > offset + descriptor_length) {
+                    return false;
+                }
+                const uint8_t child_type = descriptors[child_offset];
+                const uint16_t child_length =
+                    static_cast<uint16_t>(descriptors[child_offset + 1U]) |
+                    static_cast<uint16_t>(
+                        descriptors[child_offset + 2U]) << 8U;
+                if (child_type == 0x22U) report_length = child_length;
+                child_offset += 3U;
+            }
+        } else if (descriptor_type == 5U && hid_interface) {
+            if (descriptor_length < 7U) return false;
+            const uint8_t candidate = descriptors[offset + 2U];
+            const uint8_t attributes = descriptors[offset + 3U];
+            const uint16_t packet =
+                static_cast<uint16_t>(descriptors[offset + 4U]) |
+                static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
+            const uint16_t candidate_packet =
+                static_cast<uint16_t>(packet & 0x7FFU);
+            const uint8_t endpoint_number =
+                static_cast<uint8_t>(candidate & 0x0FU);
+            const uint8_t candidate_interval = descriptors[offset + 6U];
+            if ((candidate & 0x80U) != 0U && endpoint_number != 0U &&
+                (attributes & 3U) == 3U && candidate_interval != 0U &&
+                candidate_packet != 0U && candidate_packet <= 1024U) {
+                endpoint = candidate;
+                packet_size = candidate_packet;
+                interval = candidate_interval;
+            }
+        }
+        offset += descriptor_length;
+    }
+
+    if (hid_interface && report_length != 0U && report_length <= 4096U &&
+        endpoint != 0U) {
+        *output = {
+            configuration,
+            interface_number,
+            endpoint,
+            packet_size,
+            interval,
+            report_length,
+        };
+        return true;
+    }
+    return false;
+}
+
 void reset_mouse_decoder(MouseDecoder* decoder) {
     if (decoder != nullptr) *decoder = {};
 }
