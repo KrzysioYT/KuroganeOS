@@ -125,9 +125,16 @@ wypisywana przez helper. Można podać własną:
 7. IDE Controller / PIIX4.
 8. Canonical VirtualBox ISO -> IDE DVD.
 9. Boot order `Optical -> Hard Disk`.
-10. Network -> NAT, PCnet-FAST III (Am79C973), Cable Connected.
-11. Audio -> Intel AC'97.
-12. Opcjonalnie COM1: `0x3F8`, IRQ4, file output.
+10. **Input -> Pointing Device: PS/2 Mouse**. Nie używaj `USB Tablet`, `USB Multi-Touch Tablet` ani `USB Mouse` dla referencyjnej VM 5.0.
+11. Keyboard pozostaw jako **PS/2** (helper wymusza `--keyboard ps2`).
+12. Network -> NAT, PCnet-FAST III (Am79C973), Cable Connected.
+13. Audio -> Intel AC'97.
+14. Opcjonalnie COM1: `0x3F8`, IRQ4, file output.
+
+Jeżeli pulpit się renderuje i kursor/kliknięcia nie działają, najpierw całkowicie
+wyłącz VM i sprawdź typ urządzenia wskazującego. Referencyjny desktop 5.0 używa
+produkcyjnego sterownika PS/2; domyślny VirtualBox `USB Tablet` nie jest
+zamiennikiem dla tego profilu.
 
 ## Co oznacza wejście do Red Flux Setup
 
