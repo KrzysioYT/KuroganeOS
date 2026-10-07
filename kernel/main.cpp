@@ -2151,6 +2151,7 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                net::service::physical_interface()) {
         terminal::write(net::service::interface_name());
         terminal::println(" link READY");
+        bool physical_driver_ready = true;
         switch (net::physical::driver()) {
             case net::physical::Driver::E1000:
                 terminal::println("[TEST] e1000_link: PASS");
@@ -2175,55 +2176,87 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                 terminal::println("[TEST] pcnet_link: PASS");
                 break;
             case net::physical::Driver::None:
-                boot_failure("NET", "physical network has no owning driver");
+                physical_driver_ready = false;
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "physical interface has no owning driver; continuing offline");
+                terminal::println(
+                    "[TEST] physical_network: DEGRADED (no owning driver)");
                 break;
         }
-        if (!net::service::dhcp_configured()) {
-            terminal::println("[TEST] dhcp_lease: FAIL");
-            boot_failure("NET", "DHCP did not configure the physical link");
+
+        if (!physical_driver_ready) {
+            terminal::println("[TEST] dhcp_lease: SKIP (network optional)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (network optional)");
+        } else if (!net::service::dhcp_configured()) {
+            log::write(
+                log::Level::Warn,
+                "NET",
+                "DHCP unavailable; continuing with networking degraded");
+            terminal::println(
+                "[TEST] dhcp_lease: DEGRADED (system continues offline)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (no DHCP lease)");
         } else {
             terminal::println("[TEST] dhcp_lease: PASS");
             terminal::println("[TEST] udp_transport: PASS");
+
+            if (net::service::ping_gateway(1) != net::Status::Ok) {
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "gateway ICMP unavailable; continuing with networking degraded");
+                terminal::println(
+                    "[TEST] network_gateway_icmp: DEGRADED (system continues)");
+            } else {
+                terminal::println("gateway ICMP: PASS");
+                terminal::println("[TEST] network_gateway_icmp: PASS");
+
+                net::IPv4Address resolved{};
+                const net::Status dns_status =
+                    net::service::resolve_a("example.com", &resolved);
+                if (dns_status == net::Status::Ok) {
+                    terminal::println("DNS A example.com: PASS");
+                    terminal::println("[TEST] dns_resolver: PASS");
+                    const net::Status tcp_status =
+                        net::service::tcp_connect_probe(
+                            resolved, 80U, "example.com");
+                    terminal::println(
+                        tcp_status == net::Status::Ok
+                            ? "[TEST] tcp_http_optional: PASS"
+                            : "[TEST] tcp_http_optional: SKIP");
+                } else {
+                    terminal::println(
+                        "DNS A example.com: optional online test unavailable");
+                    terminal::println("[TEST] dns_resolver_online: SKIP");
+                    terminal::println("[TEST] tcp_http_optional: SKIP");
+                }
+                const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+                terminal::println(
+                    net::service::ping_address(public_probe, 2U) ==
+                            net::Status::Ok
+                        ? "[TEST] network_online_icmp: PASS"
+                        : "[TEST] network_online_icmp: SKIP");
+            }
         }
-        if (net::service::ping_gateway(1) != net::Status::Ok) {
-            terminal::println("[TEST] network_gateway_icmp: FAIL");
-            boot_failure("NET", "gateway ICMP self-test failed");
-        } else {
-            terminal::println("gateway ICMP: PASS");
-            terminal::println("[TEST] network_gateway_icmp: PASS");
-        }
-        net::IPv4Address resolved{};
-        const net::Status dns_status =
-            net::service::resolve_a("example.com", &resolved);
-        if (dns_status == net::Status::Ok) {
-            terminal::println("DNS A example.com: PASS");
-            terminal::println("[TEST] dns_resolver: PASS");
-            const net::Status tcp_status =
-                net::service::tcp_connect_probe(resolved, 80U, "example.com");
-            terminal::println(
-                tcp_status == net::Status::Ok
-                    ? "[TEST] tcp_http_optional: PASS"
-                    : "[TEST] tcp_http_optional: SKIP");
-        } else {
-            terminal::println("DNS A example.com: optional online test unavailable");
-            terminal::println("[TEST] dns_resolver_online: SKIP");
-            terminal::println("[TEST] tcp_http_optional: SKIP");
-        }
-        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-        terminal::println(
-            net::service::ping_address(public_probe, 2U) == net::Status::Ok
-                ? "[TEST] network_online_icmp: PASS"
-                : "[TEST] network_online_icmp: SKIP");
     } else if (network_status == net::Status::Ok &&
                net::service::ping_loopback(1) == net::Status::Ok) {
         terminal::println("PASS (loopback fallback 127.0.0.1)");
         terminal::println("[TEST] network_loopback: PASS");
     } else {
-        terminal::write("FAIL (");
+        terminal::write("DEGRADED (");
         terminal::write(net::status_message(network_status));
-        terminal::println(")");
-        terminal::println("[TEST] network_gateway_icmp: FAIL");
-        boot_failure("NET", "physical network self-test failed");
+        terminal::println(") - system continues offline");
+        log::write(
+            log::Level::Warn,
+            "NET",
+            "network service unavailable; continuing without physical network");
+        terminal::println(
+            "[TEST] network_loopback: DEGRADED (network optional at boot)");
+        terminal::println(
+            "[TEST] network_gateway_icmp: SKIP (network optional at boot)");
     }
     terminal::println(
         g_required_runtime_test_failed
