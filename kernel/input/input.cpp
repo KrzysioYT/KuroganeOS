@@ -98,46 +98,50 @@ bool submit_key(const drivers::keyboard::KeyEvent& event) {
     });
 }
 
-bool submit_mouse(const drivers::mouse::Sample& sample) {
+namespace {
+
+// Both relative and absolute backends use exactly one transactional
+// publication path. Rejecting a full queue must not change pointer state,
+// button state or publish a partial press/release sequence.
+bool publish_pointer(
+    int32_t next_x,
+    int32_t next_y,
+    int16_t delta_x,
+    int16_t delta_y,
+    int8_t wheel,
+    uint8_t buttons,
+    uint8_t changed_buttons) {
     if (!g_initialized) return false;
-    const int32_t next_x = clamp(
-        static_cast<int64_t>(g_pointer_x) + sample.delta_x, g_max_x);
-    const int32_t next_y = clamp(
-        static_cast<int64_t>(g_pointer_y) + sample.delta_y, g_max_y);
-    // One report can produce motion, three button changes and a wheel event.
-    // Stage the whole batch so a caller may retry an unaccepted report without
-    // duplicating motion or losing the release half of a button transition.
     Event events[5]{};
     size_t count = 0U;
     if (next_x != g_pointer_x || next_y != g_pointer_y) {
         events[count++] = {
             EventType::MouseMove, drivers::keyboard::KeyCode::Unknown, 0,
-            next_x, next_y,
-            sample.delta_x, sample.delta_y, 0, 0U,
-            sample.buttons, false, false, false
+            next_x, next_y, delta_x, delta_y, 0, 0U,
+            buttons, false, false, false
         };
     }
-    constexpr uint8_t buttons[] = {
+    constexpr uint8_t button_masks[] = {
         drivers::mouse::Left,
         drivers::mouse::Right,
         drivers::mouse::Middle
     };
-    for (uint8_t button : buttons) {
-        if ((sample.changed_buttons & button) == 0U) continue;
+    for (uint8_t button : button_masks) {
+        if ((changed_buttons & button) == 0U) continue;
         events[count++] = {
-            (sample.buttons & button) != 0U
+            (buttons & button) != 0U
                 ? EventType::MouseButtonDown
                 : EventType::MouseButtonUp,
             drivers::keyboard::KeyCode::Unknown, 0,
             next_x, next_y, 0, 0, 0, button,
-            sample.buttons, false, false, false
+            buttons, false, false, false
         };
     }
-    if (sample.wheel != 0) {
+    if (wheel != 0) {
         events[count++] = {
             EventType::MouseWheel, drivers::keyboard::KeyCode::Unknown, 0,
-            next_x, next_y, 0, 0, sample.wheel, 0U,
-            sample.buttons, false, false, false
+            next_x, next_y, 0, 0, wheel, 0U,
+            buttons, false, false, false
         };
     }
     const size_t occupied = static_cast<uint16_t>(g_head - g_tail);
@@ -145,16 +149,69 @@ bool submit_mouse(const drivers::mouse::Sample& sample) {
         g_dropped += count;
         return false;
     }
-    // Producers/consumer are serialized by the existing input polling owner.
-    // Publish the head only after every event and its pointer state is ready.
     for (size_t index = 0U; index < count; ++index) {
         g_events[(g_head + index) & QUEUE_MASK] = events[index];
     }
     g_pointer_x = next_x;
     g_pointer_y = next_y;
-    g_buttons = sample.buttons;
+    g_buttons = buttons;
     g_head = static_cast<uint16_t>(g_head + count);
     return true;
+}
+
+int16_t saturate_delta(int64_t value) {
+    if (value < INT16_MIN) return INT16_MIN;
+    if (value > INT16_MAX) return INT16_MAX;
+    return static_cast<int16_t>(value);
+}
+
+int32_t scale_axis(
+    uint32_t raw,
+    uint32_t minimum,
+    uint32_t maximum,
+    int32_t screen_maximum) {
+    if (raw <= minimum) return 0;
+    if (raw >= maximum) return screen_maximum;
+    const uint64_t offset = static_cast<uint64_t>(raw - minimum);
+    const uint64_t extent = static_cast<uint64_t>(maximum - minimum);
+    // At most UINT32_MAX * (INT32_MAX - 1), which fits in uint64_t.
+    return static_cast<int32_t>(
+        (offset * static_cast<uint64_t>(screen_maximum)) / extent);
+}
+
+} // namespace
+
+bool submit_mouse(const drivers::mouse::Sample& sample) {
+    if (!g_initialized) return false;
+    const int32_t next_x = clamp(
+        static_cast<int64_t>(g_pointer_x) + sample.delta_x, g_max_x);
+    const int32_t next_y = clamp(
+        static_cast<int64_t>(g_pointer_y) + sample.delta_y, g_max_y);
+    return publish_pointer(
+        next_x, next_y, sample.delta_x, sample.delta_y,
+        sample.wheel, sample.buttons, sample.changed_buttons);
+}
+
+bool submit_absolute_pointer(const AbsolutePointerSample& sample) {
+    if (!g_initialized ||
+        sample.minimum_x >= sample.maximum_x ||
+        sample.minimum_y >= sample.maximum_y ||
+        (sample.buttons & ~UINT8_C(0x07)) != 0U) {
+        return false;
+    }
+    const int32_t next_x = scale_axis(
+        sample.x, sample.minimum_x, sample.maximum_x, g_max_x);
+    const int32_t next_y = scale_axis(
+        sample.y, sample.minimum_y, sample.maximum_y, g_max_y);
+    return publish_pointer(
+        next_x, next_y,
+        saturate_delta(
+            static_cast<int64_t>(next_x) - g_pointer_x),
+        saturate_delta(
+            static_cast<int64_t>(next_y) - g_pointer_y),
+        sample.wheel,
+        sample.buttons,
+        static_cast<uint8_t>(sample.buttons ^ g_buttons));
 }
 
 bool try_read(Event* out_event) {
