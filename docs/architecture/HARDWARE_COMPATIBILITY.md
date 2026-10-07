@@ -74,10 +74,10 @@ future touchpad ----+
 ```
 
 PS/2 is a compatibility backend, not the definition of keyboard or pointer
-availability. 5.1 begins by removing PS/2 from the boot-critical set. 5.2 must
-extend HID beyond the current boot-protocol devices so USB tablets, report
-protocol mice and other common HID transports can coexist without platform
-special cases.
+availability. USB HID report protocol is now parsed for relative/absolute X/Y,
+buttons, wheel and optional report IDs. Absolute devices are scaled from their
+logical coordinate range into the framebuffer by the generic input layer.
+Boot-protocol keyboard/mouse remain fallback-compatible transports.
 
 ## Storage contract
 
@@ -90,8 +90,9 @@ AHCI/SATA --+--> storage::block::Device --> VFS / filesystems / installer
 USB MSC ----+
 ```
 
-The installer must select from discovered block devices and must not require a
-specific hypervisor controller.
+AHCI, NVMe and xHCI USB Mass Storage register the same generic block-device
+contract. The installer, GPT/root probing and KuroFS data-volume probing
+enumerate that registry and do not require a specific hypervisor controller.
 
 ## Display contract
 
@@ -109,13 +110,19 @@ backend still fail when that backend is explicitly under test.
 
 ## Compatibility tiers
 
-- **Tier 0 — Boot:** x86-64 UEFI, CPU, memory, timer and framebuffer.
-- **Tier 1 — Usable:** keyboard/pointer and persistent block storage.
-- **Tier 2 — Connected:** networking, audio and general USB.
-- **Tier 3 — Extended:** accelerated GPU, Wi-Fi, Bluetooth, touchpad/I2C and
-  vendor-specific laptop hardware.
+The current 5.x runtime tier evaluator is deliberately based only on
+implemented generic capabilities:
 
-A machine may boot at a lower tier when an optional driver is unavailable.
+- **Tier 0 — Boot:** boot-critical timer/scheduling/input infrastructure plus
+  a framebuffer display;
+- **Tier 1 — Usable:** Tier 0 plus a keyboard, pointer and block storage;
+- **Tier 2 — Connected:** Tier 1 plus supported networking and audio;
+- **Tier 3 — Extended:** Tier 2 plus a USB host and multiple online CPUs.
+
+Future GPU acceleration, Wi-Fi, Bluetooth and HID-over-I2C/touchpads extend
+the supported hardware catalog but are not falsely counted as implemented 5.x
+requirements. A machine may boot at a lower tier when optional hardware is
+unsupported.
 
 ## Required test matrix
 
@@ -130,7 +137,7 @@ Portability work is not qualified by one emulator.
 The automated matrix must distinguish a missing optional capability from a
 failure of a capability explicitly being qualified.
 
-## Current 5.1 starting point
+## Current 5.x compatibility foundation
 
 Already available before this refactor: Device Model 2.0, Driver Manager 2.0,
 PCI discovery, MSI/MSI-X, ACPI/APIC/HPET, AHCI, NVMe, xHCI, USB HID boot
@@ -143,6 +150,11 @@ inventory and removes PS/2 keyboard/mouse from the kernel's boot-critical
 condition. A dedicated runtime gate boots QEMU with `q35,i8042=off` and
 requires real xHCI USB keyboard and mouse delivery.
 
-Known follow-up work includes HID report-protocol/absolute pointer support,
-broader PCI NIC coverage, laptop touchpads/I2C HID, Wi-Fi/Bluetooth and wider
-physical-machine qualification.
+Implemented during the compatibility refactor: report-protocol/absolute USB
+pointer support, generic block-device registration, generic installer
+input/storage, Intel/AMD CPUID capability discovery and runtime tier reporting.
+
+Known later hardware-expansion work includes broader PCI NIC coverage, USB
+hubs beyond the current bounded xHCI model, laptop touchpads/HID-over-I2C,
+Wi-Fi/Bluetooth, accelerated GPU drivers and wider physical-machine
+qualification.
