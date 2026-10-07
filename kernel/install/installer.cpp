@@ -5,6 +5,8 @@
 #include "package.hpp"
 #include "../drivers/framebuffer.hpp"
 #include "../drivers/keyboard.hpp"
+#include "../drivers/usb/xhci.hpp"
+#include "../input/input.hpp"
 #include "../fs/fat32.hpp"
 #include "../fs/root_volume.hpp"
 #include "../storage/device_registry.hpp"
@@ -197,10 +199,24 @@ void draw_option(
 
 drivers::keyboard::KeyEvent wait_key() {
     for (;;) {
-        drivers::keyboard::poll();
-        drivers::keyboard::KeyEvent event{};
-        if (drivers::keyboard::try_read_event(event) && event.pressed) {
-            return event;
+        if (drivers::usb::xhci::initialized()) {
+            static_cast<void>(drivers::usb::xhci::poll(32U));
+        }
+        static_cast<void>(input::pump());
+        input::Event event{};
+        while (input::try_read(&event)) {
+            if (event.type != input::EventType::KeyDown) continue;
+            return {
+                event.key,
+                event.character,
+                0U,
+                true,
+                false,
+                event.shift,
+                false,
+                event.control,
+                event.alt,
+            };
         }
         __asm__ volatile("pause");
     }
