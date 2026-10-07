@@ -2671,12 +2671,36 @@ bool flush_companion_mouse(CompanionHid& companion) {
     return true;
 }
 
+void record_companion_pointer_input(
+    CompanionHid& companion,
+    const hid::PointerReport& report) {
+    if (!companion.input_proven &&
+        (report.x != 0 || report.y != 0 || report.wheel != 0 ||
+         report.changed_buttons != 0U)) {
+        companion.input_proven = true;
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+        terminal::println("[TEST] usb_hid_report_pointer_input: PASS");
+    }
+}
+
+bool flush_companion_pointer(CompanionHid& companion) {
+    if (!companion.pending_pointer_valid) return true;
+    if (!submit_pointer_report(companion.pending_pointer)) return false;
+    record_companion_pointer_input(
+        companion, companion.pending_pointer);
+    companion.pending_pointer_valid = false;
+    return true;
+}
+
 bool flush_companion_input(CompanionHid& companion) {
     if (companion.hid_kind == HidKind::Keyboard) {
         return flush_companion_keyboard(companion);
     }
     if (companion.hid_kind == HidKind::Mouse) {
         return flush_companion_mouse(companion);
+    }
+    if (companion.hid_kind == HidKind::ReportPointer) {
+        return flush_companion_pointer(companion);
     }
     return true;
 }
@@ -2744,6 +2768,42 @@ void handle_companion_mouse_report(
         }
     }
     if (flush_companion_mouse(companion)) {
+        static_cast<void>(queue_companion_report(controller));
+    }
+}
+
+void handle_companion_pointer_report(
+    Controller& controller,
+    const Trb& event) {
+    auto& companion = controller.companion;
+    if (!companion.report_queued ||
+        (event.control & (1U << 2U)) != 0U ||
+        event.parameter != companion.report_trb) {
+        return;
+    }
+    companion.report_queued = false;
+    companion.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual =
+        remaining <= companion.interrupt_packet_size
+            ? companion.interrupt_packet_size - remaining
+            : 0U;
+    if (completion_ok(event) &&
+        actual >= companion.pointer_layout.report_bytes) {
+        hid::PointerReport report{};
+        if (hid::decode_pointer_report(
+                companion.pointer_layout,
+                &companion.pointer_decoder,
+                static_cast<const uint8_t*>(
+                    companion.data_page.virtual_address),
+                actual,
+                &report)) {
+            companion.pending_pointer = report;
+            companion.pending_pointer_valid = true;
+            ++companion.reports;
+        }
+    }
+    if (flush_companion_pointer(companion)) {
         static_cast<void>(queue_companion_report(controller));
     }
 }
