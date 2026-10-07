@@ -22,12 +22,32 @@ Merged through PR #45 as integration commit:
 - `3.6.0-dev — Flux Stabilization`: QUALIFIED
 - `4.0.0-dev — Pre-Steel`: QUALIFIED
 - `5.0.0-dev — Steel / Hardware`: QUALIFIED AFTER COEXISTENCE AUDIT
-- `6.0.0-dev` through `14.0.0-rc`: pending
+- `5.1 — HAL / Driver Portability`: IN PROGRESS
+- `5.2–5.5 — Hardware Compatibility Foundation`: pending
+- `6.0.0-dev — Kernel Core 2.0` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
 `5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
 not mean the 5.0 engineering gate is incomplete; only 15.0.0 is planned as the
 first product-level STABLE release.
+
+
+## Active 5.1 portability transition
+
+The qualified 5.0 hardware substrate is now being generalized for physical
+x86-64 UEFI systems. VirtualBox/QEMU/VMware are test targets, not the system
+architecture.
+
+The first 5.1 slice introduces a central hardware capability policy. PS/2
+keyboard and mouse are optional compatibility backends; absence of either no
+longer makes an otherwise valid kernel boot fatal. The generic input queue
+remains the consumer contract for PS/2, xHCI USB HID and future transports.
+
+A dedicated QEMU portability gate disables i8042 entirely and requires real
+xHCI keyboard/mouse input plus Red Flux startup. 5.1 remains **IN PROGRESS**
+until this and subsequent portability work are qualified on an exact candidate.
+
+See `docs/architecture/HARDWARE_COMPATIBILITY.md`.
 
 ## Steel qualified scope
 
