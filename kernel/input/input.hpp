@@ -33,6 +33,19 @@ struct Event {
     bool alt;
 };
 
+// USB tablets, HID-over-I2C touchpads and future absolute pointer backends
+// submit device-local coordinates through this transport-neutral contract.
+struct AbsolutePointerSample {
+    uint32_t x;
+    uint32_t y;
+    uint32_t minimum_x;
+    uint32_t maximum_x;
+    uint32_t minimum_y;
+    uint32_t maximum_y;
+    int8_t wheel;
+    uint8_t buttons;
+};
+
 constexpr size_t EVENT_QUEUE_CAPACITY = 256U;
 
 bool initialize(uint32_t screen_width, uint32_t screen_height);
@@ -41,6 +54,8 @@ bool submit_key(const drivers::keyboard::KeyEvent& event);
 // Serialized polling context. On false, queue and pointer/button state are
 // unchanged; callers retaining the sample can retry without duplicate events.
 bool submit_mouse(const drivers::mouse::Sample& sample);
+// The same atomic event-batch path as relative mice, with full-range scaling.
+bool submit_absolute_pointer(const AbsolutePointerSample& sample);
 bool try_read(Event* out_event);
 size_t pending_events();
 uint64_t dropped_events();
