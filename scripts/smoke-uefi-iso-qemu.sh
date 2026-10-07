@@ -396,12 +396,6 @@ for _ in range(40):
             move_axis(stream, "y", target_y)
 
         # The button event is shared by relative and absolute pointer devices.
-        # resulting guest coordinate is deterministically (0,0), independent
-        # of the firmware/guest cursor history, then walk to the target.
-        for _ in range(50):
-            relative(stream, -100, -100)
-        move_axis(stream, "x", target_x)
-        move_axis(stream, "y", target_y)
         execute(stream, "input-send-event", {"events": [
             {"type": "btn", "data": {"down": True, "button": "left"}}
         ]})
