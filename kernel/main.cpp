@@ -551,6 +551,37 @@ KStatus xhci_driver_attach(
     }
 }
 
+bool print_hardware_inventory_entry(
+    const drivers::device::Device& device,
+    void*) {
+    terminal::write("[HW] id=");
+    terminal::write_u64(device.id);
+    terminal::write(" bus=");
+    terminal::write(drivers::device::bus_name(device.bus));
+    terminal::write(" type=");
+    terminal::write(drivers::device::type_name(device.type));
+    terminal::write(" vendor=");
+    terminal::write_hex(device.vendor_id);
+    terminal::write(" device=");
+    terminal::write_hex(device.device_id);
+    terminal::write(" requirement=");
+    terminal::write(drivers::device::requirement_name(device.requirement));
+    terminal::write(" status=");
+    terminal::write(drivers::device::status_name(device.status));
+    terminal::write(" driver=");
+    terminal::println(
+        device.driver == drivers::device::INVALID_DRIVER_ID
+            ? "<unbound>"
+            : device.driver_name);
+    return true;
+}
+
+void print_hardware_inventory() {
+    terminal::println("hardware inventory:");
+    drivers::device::visit(print_hardware_inventory_entry, nullptr);
+    terminal::println("[TEST] hardware_inventory: PASS");
+}
+
 void initialize_device_framework(bool safe_mode) {
     if (drivers::device::initialize() != KStatus::Ok ||
         drivers::driver::initialize() != KStatus::Ok) {
@@ -641,6 +672,7 @@ void initialize_device_framework(bool safe_mode) {
         "DEVICE",
         "registered devices=",
         drivers::device::count());
+    print_hardware_inventory();
 }
 
 void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
