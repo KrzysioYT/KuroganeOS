@@ -169,3 +169,25 @@ validation, not fabricated automated evidence. They do not block independent
 Kernel Core 2.0 engineering, but any reproduced real-hardware failure reopens
 the affected 5.x portability subsystem. Broad physical qualification remains
 mandatory before the final release-candidate/stable gate.
+
+## 6.0 Core Steel
+
+Status: **ACTIVE FOUNDATION — NOT YET QUALIFIED**.
+
+Development moved onto `chatgpt/6.0-core-steel-foundation` after the 5.x
+hardware-compatibility implementation candidate was separated into PR #51.
+
+The first Core Steel slice adds an affinity-aware per-CPU run-queue engine.
+It supports up to 64 online CPUs, least-loaded eligible placement, explicit
+affinity masks, preferred CPU placement, migration and topology shrink
+validation. Host tests exercise balancing, pinned work, migration, dequeue,
+duplicate rejection and safe failure when a topology change would strand a
+runnable.
+
+The live interrupt-frame dispatcher is intentionally not yet advertised as a
+multicore process scheduler. Its current global `g_current` /
+`g_preemptive_active` ownership must be decomposed into per-CPU state before
+the Scheduler 2.0 queues are connected to real AP timer/IPI dispatch.
+
+Existing process/address-space/shared-memory/event foundations remain in place
+and will be hardened rather than rewritten blindly.
