@@ -64,6 +64,7 @@ jobs:
           grep -Fq 'CapabilityLegacyKeyboard' kernel/hardware/policy.hpp
           grep -Fq 'CapabilityLegacyPointer' kernel/hardware/policy.hpp
           ! grep -Fq 'required timer or PS/2 input unavailable' kernel/main.cpp
+          ! grep -Fq 'boot_failure("NET"' kernel/main.cpp
 
       - name: Install build and QEMU dependencies
         run: |
