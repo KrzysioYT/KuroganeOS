@@ -123,17 +123,27 @@ KStatus hda_attach(
         case drivers::audio::hda::Status::NoController:
         case drivers::audio::hda::Status::NoCodec:
             return KStatus::NoDevice;
+        case drivers::audio::hda::Status::DmaAllocationFailed:
+            return KStatus::NoMemory;
+        case drivers::audio::hda::Status::InvalidArgument:
+            return KStatus::InvalidArgument;
         case drivers::audio::hda::Status::ControllerResetTimeout:
         case drivers::audio::hda::Status::ImmediateCommandTimeout:
             return KStatus::Timeout;
         case drivers::audio::hda::Status::BarUnavailable:
         case drivers::audio::hda::Status::UnsupportedController:
+        case drivers::audio::hda::Status::UnsupportedPcmPath:
             return KStatus::NotSupported;
         case drivers::audio::hda::Status::PciCommandRejected:
         case drivers::audio::hda::Status::InvalidCodecResponse:
         case drivers::audio::hda::Status::MmioMappingFailed:
+        case drivers::audio::hda::Status::DeviceFault:
         case drivers::audio::hda::Status::ResourceReleaseFailed:
             return KStatus::DeviceFault;
+        case drivers::audio::hda::Status::NotInitialized:
+        case drivers::audio::hda::Status::BufferTooLarge:
+        case drivers::audio::hda::Status::DeviceBusy:
+            return KStatus::BadState;
     }
     return KStatus::DeviceFault;
 }
