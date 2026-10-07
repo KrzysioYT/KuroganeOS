@@ -1044,6 +1044,10 @@ void initialize_storage_probe() {
             "logical sector count=",
             info->sector_count);
 
+        // Media probing is transport-neutral below. Keep this loop only for
+        // AHCI device-model publication and controller diagnostics.
+        continue;
+
         storage::gpt::Table table{};
         const storage::gpt::ParseResult gpt_result =
             storage::gpt::parse_primary(device, &table);
@@ -1129,7 +1133,15 @@ void initialize_storage_probe() {
         boot_failure("AHCI", "tagged scratch storage test failed");
     }
 
-    // Probe non-AHCI block backends through the same GPT/root contract.
+    terminal::write("generic block devices: ");
+    terminal::write_u64(storage::device_registry::device_count());
+    terminal::println();
+    terminal::println(
+        storage::device_registry::device_count() != 0U
+            ? "[TEST] generic_storage_registry: PASS"
+            : "[TEST] generic_storage_registry: SKIP (no block device)");
+
+    // Probe every registered block backend through the same GPT/root contract.
     // The registry resolves providers dynamically, so a removed USB device is
     // never cached here as a permanent raw pointer.
     for (size_t index = 0U;
@@ -1137,8 +1149,7 @@ void initialize_storage_probe() {
          ++index) {
         storage::device_registry::Entry entry{};
         if (!storage::device_registry::entry_at(index, &entry) ||
-            entry.device == nullptr ||
-            entry.backend == storage::device_registry::Backend::Ahci) {
+            entry.device == nullptr) {
             continue;
         }
 
@@ -1236,18 +1247,20 @@ void initialize_storage_probe() {
     // the root VFS exists, and never format unknown media implicitly.
     if (fs::root_volume::mounted() && !fs::kurofs_volume::mounted()) {
         for (size_t index = 0U;
-             index < storage::ahci::device_count();
+             index < storage::device_registry::device_count();
              ++index) {
-            const storage::block::Device* const device =
-                storage::ahci::device_at(index);
-            if (device == nullptr) continue;
+            storage::device_registry::Entry entry{};
+            if (!storage::device_registry::entry_at(index, &entry) ||
+                entry.device == nullptr) {
+                continue;
+            }
             storage::gpt::Table table{};
-            if (storage::gpt::parse_primary(device, &table).status ==
+            if (storage::gpt::parse_primary(entry.device, &table).status ==
                 storage::gpt::Status::Ok) {
                 continue;
             }
             const fs::kurofs_volume::Status status =
-                fs::kurofs_volume::mount(device);
+                fs::kurofs_volume::mount(entry.device);
             if (status == fs::kurofs_volume::Status::Ok) {
                 log::write(
                     log::Level::Info,
