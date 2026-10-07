@@ -18,9 +18,6 @@ on:
       - 'tests/test_driver_mmio_windows.py'
       - 'kernel/drivers/usb/**'
       - 'kernel/net/virtio_net.*'
-      - 'tests/test_driver_mmio_windows.py'
-      - 'kernel/drivers/usb/**'
-      - 'kernel/net/virtio_net.*'
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -35,6 +32,9 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'tests/test_acpi*'
+      - 'tests/test_driver_mmio_windows.py'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/net/virtio_net.*'
   workflow_dispatch:
 
 permissions:
