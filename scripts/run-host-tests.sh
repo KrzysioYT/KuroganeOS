@@ -24,6 +24,11 @@ bash tests/test_network_smoke_state.sh
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 "$HOST_PYTHON" tests/test_virtualbox_input_profile.py
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hardware_policy.cpp kernel/hardware/policy.cpp \
+  -o "$OUT_DIR/test_hardware_policy"
+"$OUT_DIR/test_hardware_policy"
+
 # Run the production input queue and pump, including whole-report rejection,
 # retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
 # legacy test.sh entry also runs this regression, but all qualification gates
