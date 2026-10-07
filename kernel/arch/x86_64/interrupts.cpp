@@ -45,6 +45,8 @@ static IrqHandler g_irq_handlers[IRQ_COUNT];
 alignas(2) static uint16_t g_apic_legacy_irq_mask = 0U;
 static IrqScheduleHook g_irq_schedule_hook = nullptr;
 static SoftwareScheduleHook g_software_schedule_hook = nullptr;
+static FixedScheduleHook g_fixed_schedule_hook = nullptr;
+static uint8_t g_fixed_schedule_vector = 0U;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
 alignas(8) static uint8_t g_hardware_vector_lock = 0U;
 
@@ -133,6 +135,8 @@ void initialize() {
     __atomic_store_n(&g_apic_legacy_irq_mask, uint16_t{0U}, __ATOMIC_RELEASE);
     g_irq_schedule_hook = nullptr;
     g_software_schedule_hook = nullptr;
+    g_fixed_schedule_hook = nullptr;
+    g_fixed_schedule_vector = 0U;
 
     g_last_exception_vector = 0xFF;
     g_last_exception_error_code = 0;
@@ -330,6 +334,27 @@ void unregister_software_schedule_hook(SoftwareScheduleHook hook) {
     }
 }
 
+bool register_fixed_schedule_hook(uint8_t vector, FixedScheduleHook hook) {
+    if (!g_initialized || hook == nullptr ||
+        vector < kFirstSoftwareVector ||
+        vector == apic::SPURIOUS_VECTOR ||
+        hardware_vectors::is_allocatable(vector) ||
+        __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE) == nullptr ||
+        g_fixed_schedule_hook != nullptr) {
+        return false;
+    }
+    g_fixed_schedule_vector = vector;
+    g_fixed_schedule_hook = hook;
+    return true;
+}
+
+void unregister_fixed_schedule_hook(FixedScheduleHook hook) {
+    if (hook != nullptr && g_fixed_schedule_hook == hook) {
+        g_fixed_schedule_hook = nullptr;
+        g_fixed_schedule_vector = 0U;
+    }
+}
+
 void enable() {
     __asm__ volatile("sti" : : : "memory");
 }
@@ -473,6 +498,14 @@ x86_64_interrupt_dispatch(
         __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
     if (handler != nullptr) {
         handler(*frame);
+    }
+
+    FixedScheduleHook fixed_hook = g_fixed_schedule_hook;
+    if (fixed_hook != nullptr && vector == g_fixed_schedule_vector) {
+        arch::x86_64::apic::send_eoi();
+        disable();
+        InterruptFrame* selected = fixed_hook(vector, *frame);
+        return selected != nullptr ? selected : frame;
     }
 
     // User-callable software gates are trap gates, so IF can remain set while
