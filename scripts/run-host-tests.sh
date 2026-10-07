@@ -45,6 +45,13 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_scheduler2.cpp kernel/task/scheduler2.cpp \
   -o "$OUT_DIR/test_scheduler2"
+
+# Core Steel synchronization foundation. Ticket locks serialize short global
+# kernel critical sections across processors; cli alone cannot do that.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+  tests/test_sync_spinlock.cpp \
+  -o "$OUT_DIR/test_sync_spinlock"
+"$OUT_DIR/test_sync_spinlock"
 "$OUT_DIR/test_scheduler2"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
