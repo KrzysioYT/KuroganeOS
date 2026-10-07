@@ -22,7 +22,7 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `3.5.0-dev` | Connected Userspace | QUALIFIED |
 | `3.6.0-dev` | Flux Stabilization | QUALIFIED |
 | `4.0.0-dev` | Pre-Steel | QUALIFIED |
-| `5.0.0-dev` | Steel / Hardware | QUALIFIED |
+| `5.0.0-dev` | Steel / Hardware | REOPENED |
 | `6.0.0-dev` | Core Steel | PENDING |
 | `7.0.0-dev` | Iron Shield | PENDING |
 | `8.0.0-dev` | Connected Steel | PENDING |
@@ -154,7 +154,7 @@ The authoritative same-SHA closeout is Actions run `34260827773`; final job `102
 
 ## 5.0.0-dev — Steel / Hardware
 
-Status: **QUALIFIED**.
+Status: **REOPENED** after coexistence audit.
 
 Steel's code-complete scope is the bounded hardware substrate required before
 Core Steel: PCI/PCIe BAR and capability validation, MSI/MSI-X and I/O APIC
@@ -185,12 +185,20 @@ candidate to pass full host regression, a clean release-media build, ACPI
 power discovery, HPET and four-vCPU SMP boot. The shared host-test change also
 retriggers HDA, NVMe, USB Mass Storage, USB keyboard and USB mouse gates.
 
-The exact candidate `90d5ffc80f91236e10118324c8e3b5d6f4a1c781` passed the full required automated matrix on 2026-10-07: Steel Closeout (`37641425299`), HPET (`37641425316`), SMP (`37641425398`), HDA (`37641425368`), NVMe (`37641425280`), USB Mass Storage (`37641425350`), USB Keyboard (`37641425387`) and USB Mouse (`37641425292`). PR #45 merged that candidate into the Road-to-15 integration branch as `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
+The exact candidate `90d5ffc80f91236e10118324c8e3b5d6f4a1c781` passed the then-required automated matrix on 2026-10-07: Steel Closeout (`37641425299`), HPET (`37641425316`), SMP (`37641425398`), HDA (`37641425368`), NVMe (`37641425280`), USB Mass Storage (`37641425350`), USB Keyboard (`37641425387`) and USB Mouse (`37641425292`). PR #45 merged that candidate into the Road-to-15 integration branch as `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
+
+A later QEMU coexistence audit found two release-matrix holes: xHCI and VirtIO-net
+shared a fixed virtual MMIO window, and xHCI still modelled only one active USB
+slot/device context. Those are real 5.0 blockers even though the isolated driver
+gates passed. Steel is reopened until xHCI+VirtIO and simultaneous keyboard+mouse
+runtime tests are green on the same exact candidate.
+
+The same audit was run against older source `2d550f1`; its observations that
+USB Mass Storage, NVMe, SMP and Intel HDA were absent do not describe the current
+integration line, where those implementations landed later.
 
 Physical-machine/VirtualBox checks remain external validation and are not
-silently converted into automated PASS markers. Any real failure discovered
-there reopens the affected 5.0 subsystem before dependent Core Steel work is
-considered authoritative.
+silently converted into automated PASS markers.
 
 ## 6.0.0-dev — Core Steel
 
