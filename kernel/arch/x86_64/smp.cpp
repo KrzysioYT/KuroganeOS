@@ -7,7 +7,7 @@
 namespace arch::x86_64::smp {
 namespace {
 
-constexpr uintptr_t kTrampolinePhysical = UINTPTR_C(0x7000);
+constexpr uintptr_t kTrampolinePhysical = static_cast<uintptr_t>(0x7000U);
 constexpr size_t kTrampolineCapacity = 4096U;
 constexpr uint8_t kStartupVector =
     static_cast<uint8_t>(kTrampolinePhysical >> 12U);
