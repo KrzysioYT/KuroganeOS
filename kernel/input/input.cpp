@@ -42,6 +42,84 @@ int32_t clamp(int64_t value, int32_t maximum) {
     return static_cast<int32_t>(value);
 }
 
+bool publish_pointer_batch(
+    int32_t next_x,
+    int32_t next_y,
+    int16_t delta_x,
+    int16_t delta_y,
+    int8_t wheel,
+    uint8_t buttons_state,
+    uint8_t changed_buttons) {
+    Event events[5]{};
+    size_t count = 0U;
+    if (next_x != g_pointer_x || next_y != g_pointer_y) {
+        events[count++] = {
+            EventType::MouseMove, drivers::keyboard::KeyCode::Unknown, 0,
+            next_x, next_y, delta_x, delta_y, 0, 0U,
+            buttons_state, false, false, false
+        };
+    }
+    constexpr uint8_t buttons[] = {
+        drivers::mouse::Left,
+        drivers::mouse::Right,
+        drivers::mouse::Middle
+    };
+    for (uint8_t button : buttons) {
+        if ((changed_buttons & button) == 0U) continue;
+        events[count++] = {
+            (buttons_state & button) != 0U
+                ? EventType::MouseButtonDown
+                : EventType::MouseButtonUp,
+            drivers::keyboard::KeyCode::Unknown, 0,
+            next_x, next_y, 0, 0, 0, button,
+            buttons_state, false, false, false
+        };
+    }
+    if (wheel != 0) {
+        events[count++] = {
+            EventType::MouseWheel, drivers::keyboard::KeyCode::Unknown, 0,
+            next_x, next_y, 0, 0, wheel, 0U,
+            buttons_state, false, false, false
+        };
+    }
+
+    const size_t occupied = static_cast<uint16_t>(g_head - g_tail);
+    if (count > EVENT_QUEUE_CAPACITY - occupied) {
+        g_dropped += count;
+        return false;
+    }
+    for (size_t index = 0U; index < count; ++index) {
+        g_events[(g_head + index) & QUEUE_MASK] = events[index];
+    }
+    g_pointer_x = next_x;
+    g_pointer_y = next_y;
+    g_buttons = buttons_state;
+    g_head = static_cast<uint16_t>(g_head + count);
+    return true;
+}
+
+bool scale_absolute(
+    int32_t value,
+    int32_t logical_minimum,
+    int32_t logical_maximum,
+    int32_t screen_maximum,
+    int32_t* output) {
+    if (output == nullptr || logical_maximum <= logical_minimum ||
+        screen_maximum < 0) {
+        return false;
+    }
+    int64_t bounded = value;
+    if (bounded < logical_minimum) bounded = logical_minimum;
+    if (bounded > logical_maximum) bounded = logical_maximum;
+    const int64_t numerator =
+        (bounded - static_cast<int64_t>(logical_minimum)) *
+        static_cast<int64_t>(screen_maximum);
+    const int64_t denominator =
+        static_cast<int64_t>(logical_maximum) - logical_minimum;
+    *output = static_cast<int32_t>(numerator / denominator);
+    return true;
+}
+
 } // namespace
 
 bool initialize(uint32_t screen_width, uint32_t screen_height) {
@@ -104,57 +182,42 @@ bool submit_mouse(const drivers::mouse::Sample& sample) {
         static_cast<int64_t>(g_pointer_x) + sample.delta_x, g_max_x);
     const int32_t next_y = clamp(
         static_cast<int64_t>(g_pointer_y) + sample.delta_y, g_max_y);
-    // One report can produce motion, three button changes and a wheel event.
-    // Stage the whole batch so a caller may retry an unaccepted report without
-    // duplicating motion or losing the release half of a button transition.
-    Event events[5]{};
-    size_t count = 0U;
-    if (next_x != g_pointer_x || next_y != g_pointer_y) {
-        events[count++] = {
-            EventType::MouseMove, drivers::keyboard::KeyCode::Unknown, 0,
-            next_x, next_y,
-            sample.delta_x, sample.delta_y, 0, 0U,
-            sample.buttons, false, false, false
-        };
-    }
-    constexpr uint8_t buttons[] = {
-        drivers::mouse::Left,
-        drivers::mouse::Right,
-        drivers::mouse::Middle
-    };
-    for (uint8_t button : buttons) {
-        if ((sample.changed_buttons & button) == 0U) continue;
-        events[count++] = {
-            (sample.buttons & button) != 0U
-                ? EventType::MouseButtonDown
-                : EventType::MouseButtonUp,
-            drivers::keyboard::KeyCode::Unknown, 0,
-            next_x, next_y, 0, 0, 0, button,
-            sample.buttons, false, false, false
-        };
-    }
-    if (sample.wheel != 0) {
-        events[count++] = {
-            EventType::MouseWheel, drivers::keyboard::KeyCode::Unknown, 0,
-            next_x, next_y, 0, 0, sample.wheel, 0U,
-            sample.buttons, false, false, false
-        };
-    }
-    const size_t occupied = static_cast<uint16_t>(g_head - g_tail);
-    if (count > EVENT_QUEUE_CAPACITY - occupied) {
-        g_dropped += count;
+    return publish_pointer_batch(
+        next_x, next_y, sample.delta_x, sample.delta_y, sample.wheel,
+        sample.buttons, sample.changed_buttons);
+}
+
+bool submit_absolute_pointer(const AbsolutePointerSample& sample) {
+    if (!g_initialized) return false;
+    int32_t next_x = 0;
+    int32_t next_y = 0;
+    if (!scale_absolute(
+            sample.x,
+            sample.logical_minimum_x,
+            sample.logical_maximum_x,
+            g_max_x,
+            &next_x) ||
+        !scale_absolute(
+            sample.y,
+            sample.logical_minimum_y,
+            sample.logical_maximum_y,
+            g_max_y,
+            &next_y)) {
         return false;
     }
-    // Producers/consumer are serialized by the existing input polling owner.
-    // Publish the head only after every event and its pointer state is ready.
-    for (size_t index = 0U; index < count; ++index) {
-        g_events[(g_head + index) & QUEUE_MASK] = events[index];
-    }
-    g_pointer_x = next_x;
-    g_pointer_y = next_y;
-    g_buttons = sample.buttons;
-    g_head = static_cast<uint16_t>(g_head + count);
-    return true;
+    const int64_t delta_x_wide =
+        static_cast<int64_t>(next_x) - g_pointer_x;
+    const int64_t delta_y_wide =
+        static_cast<int64_t>(next_y) - g_pointer_y;
+    const int16_t delta_x = static_cast<int16_t>(
+        delta_x_wide < INT16_MIN ? INT16_MIN :
+        delta_x_wide > INT16_MAX ? INT16_MAX : delta_x_wide);
+    const int16_t delta_y = static_cast<int16_t>(
+        delta_y_wide < INT16_MIN ? INT16_MIN :
+        delta_y_wide > INT16_MAX ? INT16_MAX : delta_y_wide);
+    return publish_pointer_batch(
+        next_x, next_y, delta_x, delta_y, sample.wheel,
+        sample.buttons, sample.changed_buttons);
 }
 
 bool try_read(Event* out_event) {
