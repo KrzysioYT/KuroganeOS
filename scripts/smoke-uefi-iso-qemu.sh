@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -11,6 +11,7 @@ media=""
 media_kind="iso"
 persistent_disk=false
 accel_model="tcg"
+cpu_model_override=""
 smp_cpus=1
 timeout_seconds=60
 nic_model="none"
@@ -53,6 +54,7 @@ while (($#)); do
         --disk) media_kind="disk"; shift ;;
         --persistent-disk) persistent_disk=true; shift ;;
         --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
+        --cpu-model) [[ $# -ge 2 && -n "$2" ]] || usage; cpu_model_override="$2"; shift 2 ;;
         --smp) [[ $# -ge 2 ]] || usage; smp_cpus="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
@@ -138,6 +140,13 @@ case "$accel_model" in
         ;;
     *) echo "invalid accelerator: $accel_model" >&2; usage ;;
 esac
+if [[ -n "$cpu_model_override" ]]; then
+    [[ "$cpu_model_override" =~ ^[A-Za-z0-9_.=,+:-]+$ ]] || {
+        echo "invalid CPU model string: $cpu_model_override" >&2
+        exit 2
+    }
+    cpu_model="$cpu_model_override"
+fi
 case "$audio_model" in
     none|ac97|hda) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
