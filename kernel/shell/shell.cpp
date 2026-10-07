@@ -3,6 +3,7 @@
 #include "../apps/framework.hpp"
 #include "../abi/service.hpp"
 #include "../arch/x86_64/io.hpp"
+#include "../arch/x86_64/acpi_power.hpp"
 #include "../core/string.hpp"
 #include "../drivers/pci.hpp"
 #include "../drivers/core/device_manager.hpp"
@@ -1024,6 +1025,11 @@ void reboot_delay() {
 void command_reboot() {
     terminal::println("rebooting...");
 
+    if (arch::x86_64::acpi_power::reset_available()) {
+        arch::x86_64::acpi_power::request_reset();
+        reboot_delay();
+    }
+
     size_t spin = 0;
     while ((arch::in8(0x64) & 0x02u) != 0 && spin < 100000) {
         arch::pause();
@@ -1052,6 +1058,12 @@ void command_reboot() {
 
 void command_poweroff() {
     terminal::println("powering off...");
+    if (arch::x86_64::acpi_power::shutdown_available()) {
+        arch::x86_64::acpi_power::request_poweroff();
+    }
+
+    // Last-resort emulator compatibility when firmware ACPI power data is
+    // unavailable or the platform ignores the ACPI S5 request.
     arch::out16(0x604, 0x2000);
     arch::out16(0xB004, 0x2000);
     print_error("poweroff", "emulator power-off ports returned");

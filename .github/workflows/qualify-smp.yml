@@ -61,13 +61,13 @@ jobs:
           bash ./scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
 
-      - name: Require four-CPU AP startup scheduler and TLB shootdown
+      - name: Require four-CPU AP startup cross-CPU work and TLB shootdown
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
             --log-dir build/tests/smp-runtime --timeout 120 \
             --require-marker '[TEST] smp_ap_startup: PASS' \
-            --require-marker '[TEST] smp_scheduler: PASS' \
+            --require-marker '[TEST] smp_cross_cpu_work: PASS' \
             --require-marker '[TEST] smp_tlb_shootdown: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|smp_.*: FAIL' \
