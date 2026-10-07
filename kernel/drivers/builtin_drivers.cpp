@@ -1,4 +1,5 @@
 #include "audio/ac97.hpp"
+#include "audio/hda.hpp"
 #include "video/display_adapter.hpp"
 #include "core/driver_manager.hpp"
 #include "../core/log.hpp"
@@ -9,6 +10,8 @@ constexpr uint16_t kIntelVendor = 0x8086U;
 constexpr uint16_t kIchAc97Device = 0x2415U;
 
 drivers::device::DriverId g_ac97_driver =
+    drivers::device::INVALID_DRIVER_ID;
+drivers::device::DriverId g_hda_driver =
     drivers::device::INVALID_DRIVER_ID;
 drivers::device::DriverId g_display_driver =
     drivers::device::INVALID_DRIVER_ID;
@@ -71,6 +74,70 @@ KStatus ac97_attach(
     return KStatus::DeviceFault;
 }
 
+bool hda_match(const drivers::device::Device& device, void*) {
+    return device.bus == drivers::device::Bus::Pci &&
+        device.class_code == UINT8_C(0x04) &&
+        device.subclass == UINT8_C(0x03);
+}
+
+KStatus hda_probe(
+    const drivers::device::Device& device,
+    uint32_t timeout_ticks,
+    void*) {
+    return timeout_ticks != 0U && hda_match(device, nullptr)
+        ? KStatus::Ok
+        : KStatus::NotSupported;
+}
+
+KStatus hda_attach(
+    const drivers::device::Device&,
+    uint32_t timeout_ticks,
+    void*) {
+    if (timeout_ticks == 0U) return KStatus::InvalidArgument;
+    const auto status = drivers::audio::hda::initialize();
+    if (status == drivers::audio::hda::Status::Ok ||
+        status == drivers::audio::hda::Status::AlreadyInitialized) {
+        const auto* info = drivers::audio::hda::controller_info();
+        if (info != nullptr) {
+            log::write_u64(
+                log::Level::Info,
+                "HDA",
+                "codec vendor/device=",
+                info->codec_vendor_id);
+        }
+        log::write(
+            log::Level::Info,
+            "HDA",
+            "Intel HDA controller + codec command path ready");
+        return KStatus::Ok;
+    }
+
+    log::write(
+        log::Level::Warn,
+        "HDA",
+        drivers::audio::hda::status_message(status));
+    switch (status) {
+        case drivers::audio::hda::Status::Ok:
+        case drivers::audio::hda::Status::AlreadyInitialized:
+            return KStatus::Ok;
+        case drivers::audio::hda::Status::NoController:
+        case drivers::audio::hda::Status::NoCodec:
+            return KStatus::NoDevice;
+        case drivers::audio::hda::Status::ControllerResetTimeout:
+        case drivers::audio::hda::Status::ImmediateCommandTimeout:
+            return KStatus::Timeout;
+        case drivers::audio::hda::Status::BarUnavailable:
+        case drivers::audio::hda::Status::UnsupportedController:
+            return KStatus::NotSupported;
+        case drivers::audio::hda::Status::PciCommandRejected:
+        case drivers::audio::hda::Status::InvalidCodecResponse:
+        case drivers::audio::hda::Status::MmioMappingFailed:
+        case drivers::audio::hda::Status::ResourceReleaseFailed:
+            return KStatus::DeviceFault;
+    }
+    return KStatus::DeviceFault;
+}
+
 bool display_match(const drivers::device::Device& device, void*) {
     return device.bus == drivers::device::Bus::Pci &&
         device.class_code == UINT8_C(0x03);
@@ -126,6 +193,22 @@ extern "C" KStatus kurogane_register_builtin_drivers() {
     KStatus status = drivers::driver::register_driver(
         ac97_driver, &g_ac97_driver);
     if (status != KStatus::Ok && status != KStatus::AlreadyExists) return status;
+
+    const drivers::driver::Descriptor hda_driver{
+        "hda",
+        95,
+        500,
+        hda_match,
+        hda_probe,
+        hda_attach,
+        nullptr,
+        nullptr,
+    };
+    status = drivers::driver::register_driver(
+        hda_driver, &g_hda_driver);
+    if (status != KStatus::Ok && status != KStatus::AlreadyExists) {
+        return status;
+    }
 
     const drivers::driver::Descriptor display_driver{
         "redflux-display",
