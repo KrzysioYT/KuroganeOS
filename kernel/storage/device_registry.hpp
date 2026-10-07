@@ -7,7 +7,7 @@
 
 namespace storage::device_registry {
 
-constexpr size_t MAXIMUM_BLOCK_DEVICES = 32U;
+constexpr size_t MAXIMUM_BLOCK_DEVICES = 64U;
 
 enum class Backend : uint8_t {
     Ahci = 0,
