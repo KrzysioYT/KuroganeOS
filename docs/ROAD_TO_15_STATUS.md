@@ -169,3 +169,32 @@ validation, not fabricated automated evidence. They do not block independent
 Kernel Core 2.0 engineering, but any reproduced real-hardware failure reopens
 the affected 5.x portability subsystem. Broad physical qualification remains
 mandatory before the final release-candidate/stable gate.
+
+
+## 6.0 Core Steel / Kernel Core 2.0
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA CLOSEOUT**.
+
+The active 6.0 line introduces Scheduler 2.0 as a real policy layer instead of
+renaming the older SMP work-dispatch proof. The current implementation provides
+per-CPU run queues, affinity masks, priorities, round-robin selection for equal
+priority, bounded work stealing, topology expansion after AP discovery and
+serialized policy mutation.
+
+Runnable selection is an atomic Ready -> Running reservation under the policy
+lock. A CPU-owned cancellation path now rolls back that reservation when the
+thread execution layer cannot commit the dispatch, preventing a failed handoff
+from silently stranding a runnable thread. The live thread layer mirrors
+Ready/Running/Blocked/Sleeping/Terminated transitions into Scheduler 2.0 and
+selects using the current SMP CPU identity.
+
+The x86-64 execution side contains per-CPU preemption return state plus a
+dedicated Local APIC scheduling interrupt path. Existing four-vCPU AP startup,
+cross-CPU work rendezvous and synchronous TLB shootdown remain part of the
+required runtime substrate.
+
+6.0 is not marked QUALIFIED until one exact source SHA passes the dedicated
+Core Steel closeout: full host regression, kernel/process/thread regression,
+clean release media build, four-vCPU Scheduler 2.0 topology, kernel preemption,
+Ring-3 preemption, AP startup, cross-CPU work and TLB shootdown. VirtualBox,
+VMware and physical hardware remain external evidence.

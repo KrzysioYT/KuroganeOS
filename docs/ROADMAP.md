@@ -1,7 +1,11 @@
 # KuroganeOS active roadmap
 
 Qualified baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED AFTER AUDIT**.  
-Active engineering track: **5.1 — HAL / Driver Portability**.
+Active engineering track: **6.0.0-dev — Core Steel / Kernel Core 2.0**.
+
+The 5.1–5.5 portability bridge remains part of the current source line and its
+automated exact-SHA qualification is still tracked separately; 6.0 development
+does not erase those external/hardware validation obligations.
 
 The authoritative Road-to-15 plan is
 [`docs/roadmap/MASTER_ROADMAP_15.md`](roadmap/MASTER_ROADMAP_15.md), and the
@@ -75,11 +79,24 @@ turns that hardware substrate into a generic x86-64 UEFI platform:
 The architectural contract is documented in
 [`docs/architecture/HARDWARE_COMPATIBILITY.md`](architecture/HARDWARE_COMPATIBILITY.md).
 
+## 6.0 Core Steel — active candidate
+
+Core Steel now contains Scheduler 2.0 with per-CPU queues, affinity, priorities,
+round-robin fairness, work stealing, topology expansion and CPU-owned atomic
+dispatch reservations. The live thread layer mirrors lifecycle transitions into
+the policy and uses the SMP CPU identity for scheduling decisions. x86-64 also
+has per-CPU preemption return state and a dedicated Local APIC scheduling
+interrupt path.
+
+The milestone is intentionally still a **candidate** until an exact-SHA
+closeout proves the host suite, clean release build and four-vCPU runtime
+markers. Broad VirtualBox/VMware/physical-hardware evidence remains external.
+
 ## Road to 15
 
 - 5.0.0-dev — Steel / Hardware — **QUALIFIED AFTER AUDIT**
-- 5.1–5.5 — Hardware Compatibility Foundation — active/pending
-- 6.0.0-dev — Kernel Core 2.0 — pending
+- 5.1–5.5 — Hardware Compatibility Foundation — implemented candidates / qualification pending
+- 6.0.0-dev — Kernel Core 2.0 — **IMPLEMENTED CANDIDATE / QUALIFICATION PENDING**
 - 7.0.0-dev — Driver & Device Expansion — pending
 - 8.0.0-dev — Flux Desktop Platform — pending
 - 9.0.0-dev — Networking & Services — pending
