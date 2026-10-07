@@ -91,6 +91,8 @@ Initial 5.1 implementation:
 - PS/2 keyboard/mouse are optional compatibility backends rather than boot
   requirements;
 - xHCI USB HID continues to feed the same generic input queue;
+- network driver/DHCP/gateway failure degrades networking instead of halting
+  an otherwise usable system;
 - QEMU smoke tooling gained an `--no-ps2` mode using an i8042-disabled q35
   machine;
 - a dedicated portability gate requires Red Flux plus real USB keyboard and
