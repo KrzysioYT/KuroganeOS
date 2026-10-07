@@ -30,6 +30,11 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_hardware_policy"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
+  -o "$OUT_DIR/test_cpu_info"
+"$OUT_DIR/test_cpu_info"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_driver_requirement_policy.cpp \
   kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
   -o "$OUT_DIR/test_driver_requirement_policy"
