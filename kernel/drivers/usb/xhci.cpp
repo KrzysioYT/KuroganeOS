@@ -2873,7 +2873,8 @@ void mark_multi_hid_if_ready(Controller& controller) {
         controller.hid_kind == HidKind::Keyboard;
     const bool primary_mouse =
         controller.hid_lifecycle == HidLifecycle::Active &&
-        controller.hid_kind == HidKind::Mouse;
+        (controller.hid_kind == HidKind::Mouse ||
+         controller.hid_kind == HidKind::ReportPointer);
     const bool companion_keyboard =
         controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
@@ -2881,7 +2882,8 @@ void mark_multi_hid_if_ready(Controller& controller) {
     const bool companion_mouse =
         controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
-        controller.companion.hid_kind == HidKind::Mouse;
+        (controller.companion.hid_kind == HidKind::Mouse ||
+         controller.companion.hid_kind == HidKind::ReportPointer);
     if ((primary_keyboard && companion_mouse) ||
         (primary_mouse && companion_keyboard)) {
         controller.multi_hid_proven = true;
@@ -2922,8 +2924,10 @@ bool attach_companion_hid(Controller& controller) {
 
     if (companion.hid_kind == HidKind::Keyboard) {
         reset_keyboard_decoder(&companion.keyboard_decoder);
-    } else {
+    } else if (companion.hid_kind == HidKind::Mouse) {
         reset_mouse_decoder(&companion.mouse_decoder);
+    } else {
+        hid::reset_pointer_decoder(&companion.pointer_decoder);
     }
     companion.hid_lifecycle = HidLifecycle::Active;
     acknowledge_port_change(controller, companion.port_id);
@@ -2933,6 +2937,9 @@ bool attach_companion_hid(Controller& controller) {
         terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
     } else {
         terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+        if (companion.hid_kind == HidKind::ReportPointer) {
+            terminal::println("[TEST] xhci_report_pointer_enumeration: PASS");
+        }
     }
     mark_multi_hid_if_ready(controller);
     return true;
@@ -3028,6 +3035,12 @@ Status attach_hid_device(Controller& controller) {
             reset_mouse_decoder(&controller.mouse_decoder);
             registered = register_mouse(controller);
         }
+    } else if (controller.hid_kind == HidKind::ReportPointer) {
+        configured = configure_report_pointer_endpoint(controller);
+        if (configured) {
+            hid::reset_pointer_decoder(&controller.pointer_decoder);
+            registered = register_report_pointer(controller);
+        }
     } else if (controller.mass_storage_present) {
         configured = configure_mass_storage_endpoints(controller);
         if (configured) {
@@ -3053,6 +3066,12 @@ Status attach_hid_device(Controller& controller) {
     } else if (controller.hid_kind == HidKind::Mouse) {
         log::write(log::Level::Info, "USB", "xHCI USB HID boot mouse ready");
         terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+    } else if (controller.hid_kind == HidKind::ReportPointer) {
+        log::write(
+            log::Level::Info, "USB",
+            "xHCI USB HID report-protocol pointer ready");
+        terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+        terminal::println("[TEST] xhci_report_pointer_enumeration: PASS");
     } else {
         log::write(
             log::Level::Info, "USB",
@@ -3283,7 +3302,9 @@ size_t poll(size_t budget) {
         (g_controller.hid_kind == HidKind::Keyboard &&
          g_controller.pending_key_count != 0U) ||
         (g_controller.hid_kind == HidKind::Mouse &&
-         g_controller.pending_mouse_valid);
+         g_controller.pending_mouse_valid) ||
+        (g_controller.hid_kind == HidKind::ReportPointer &&
+         g_controller.pending_pointer_valid);
     if (g_controller.hid_lifecycle == HidLifecycle::Active && input_pending) {
         if (!flush_hid_input(g_controller)) return 0U;
         static_cast<void>(queue_hid_report(g_controller));
@@ -3294,7 +3315,9 @@ size_t poll(size_t budget) {
         (companion.hid_kind == HidKind::Keyboard &&
          companion.pending_key_count != 0U) ||
         (companion.hid_kind == HidKind::Mouse &&
-         companion.pending_mouse_valid);
+         companion.pending_mouse_valid) ||
+        (companion.hid_kind == HidKind::ReportPointer &&
+         companion.pending_pointer_valid);
     if (companion.hid_lifecycle == HidLifecycle::Active &&
         companion_pending) {
         if (!flush_companion_input(companion)) return 0U;
@@ -3347,6 +3370,8 @@ size_t poll(size_t budget) {
                 handle_keyboard_report(g_controller, event);
             } else if (g_controller.hid_kind == HidKind::Mouse) {
                 handle_mouse_report(g_controller, event);
+            } else if (g_controller.hid_kind == HidKind::ReportPointer) {
+                handle_pointer_report(g_controller, event);
             }
             continue;
         }
@@ -3359,6 +3384,9 @@ size_t poll(size_t budget) {
                     g_controller, event);
             } else if (companion.hid_kind == HidKind::Mouse) {
                 handle_companion_mouse_report(
+                    g_controller, event);
+            } else if (companion.hid_kind == HidKind::ReportPointer) {
+                handle_companion_pointer_report(
                     g_controller, event);
             }
         }
@@ -3392,12 +3420,14 @@ bool mouse_ready() {
     if (!g_controller.initialized) return false;
     const bool primary =
         g_controller.hid_lifecycle == HidLifecycle::Active &&
-        g_controller.hid_kind == HidKind::Mouse &&
+        (g_controller.hid_kind == HidKind::Mouse ||
+         g_controller.hid_kind == HidKind::ReportPointer) &&
         g_controller.mouse_device != device::INVALID_DEVICE_ID;
     const bool companion =
         g_controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
-        g_controller.companion.hid_kind == HidKind::Mouse &&
+        (g_controller.companion.hid_kind == HidKind::Mouse ||
+         g_controller.companion.hid_kind == HidKind::ReportPointer) &&
         g_controller.companion.child_device !=
             device::INVALID_DEVICE_ID;
     return primary || companion;
