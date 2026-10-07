@@ -1,6 +1,6 @@
 # KuroganeOS active roadmap
 
-Current baseline: **5.0.0-dev — Steel / Hardware — REOPENED**.
+Current baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED AFTER AUDIT**.
 
 The authoritative Road-to-15 plan is
 [`docs/roadmap/MASTER_ROADMAP_15.md`](roadmap/MASTER_ROADMAP_15.md), and the
@@ -12,7 +12,7 @@ old 3.3-era state and had become materially stale. Git history remains the
 source for that historical checklist; milestone qualification now follows the
 Road-to-15 evidence model.
 
-## 5.0 Steel — reopened after coexistence audit
+## 5.0 Steel — qualified after coexistence audit
 
 The implemented 5.0 scope contains:
 
@@ -29,28 +29,40 @@ The `smp_cross_cpu_work` marker is intentionally not named
 `smp_scheduler`. Full Scheduler 2.0 and multicore userspace scheduling are
 6.0 Core Steel tasks.
 
-Authoritative automated candidate:
-`90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
+Authoritative post-audit runtime candidate:
+`569bae4c33aa0c04db87f0cbe785da1aa45cc084`.
 
-The previous matrix passed on 2026-10-07, but a later runtime audit exposed two
-missing coexistence cases that were not represented by those gates: xHCI with
-VirtIO-net and simultaneous USB keyboard + mouse. 5.0 is therefore reopened.
+The external QEMU audit correctly found two matrix holes in the earlier
+candidate: xHCI/VirtIO shared a fixed virtual MMIO region and xHCI exposed only
+one active HID slot. The post-audit candidate closes both:
 
-Current repair order:
-1. isolate xHCI and VirtIO-net kernel MMIO windows and qualify both MSI-X and
-   polling fallback with real USB traffic plus DHCP/gateway;
-2. replace the single active xHCI slot/device state with independent per-device
-   contexts and qualify keyboard + mouse at the same time;
-3. keep HID wheel/report-protocol support as a tracked P2 gap unless it becomes
-   required by the formal Steel acceptance matrix.
+1. VirtIO-net uses dedicated `0xFFFFB7...` virtual space and is protected by
+   a host overlap regression against xHCI and APIC;
+2. xHCI supports an independent companion HID context so USB keyboard and USB
+   mouse can enumerate, queue transfers, deliver input and hotplug independently;
+3. the final Steel Closeout now directly requires keyboard + mouse + VirtIO
+   networking together, not merely isolated driver gates.
 
-USB Mass Storage, NVMe, SMP and Intel HDA are present on the current integration
-line; the audit that reported them absent was run against the older `2d550f1`
-baseline.
+Authoritative post-audit runs:
+- Steel Closeout `37661212373` — PASS;
+- xHCI/VirtIO coexistence `37661212429` — PASS;
+- xHCI Multi HID `37661212451` — PASS;
+- USB Keyboard `37661212449` — PASS;
+- USB Mouse `37661212378` — PASS;
+- USB Mass Storage `37661212361` — PASS;
+- NVMe `37661212483` — PASS;
+- Intel HDA `37661212532` — PASS;
+- HPET `37661212464` — PASS;
+- Steel Foundations `37661212233` — PASS.
+
+USB Mass Storage, NVMe, SMP and Intel HDA were absent in the older audited
+`2d550f1` source but are implemented and requalified on the current line.
+Mouse wheel/report-protocol support remains an explicit P2 limitation and is
+not claimed as part of the Boot Mouse qualification.
 
 ## Road to 15
 
-- 5.0.0-dev — Steel / Hardware — **REOPENED**
+- 5.0.0-dev — Steel / Hardware — **QUALIFIED AFTER AUDIT**
 - 6.0.0-dev — Core Steel — pending
 - 7.0.0-dev — Iron Shield — pending
 - 8.0.0-dev — Connected Steel — pending
