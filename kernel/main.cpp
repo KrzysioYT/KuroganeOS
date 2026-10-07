@@ -2179,6 +2179,14 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             "online CPUs=",
             arch::x86_64::smp::online_cpu_count());
 
+        if (threading::configure_processors(
+                arch::x86_64::smp::online_cpu_count()) !=
+            threading::Status::Ok) {
+            terminal::println("[TEST] scheduler2_topology: FAIL");
+            boot_failure("SCHED", "Scheduler 2.0 topology configuration failed");
+        }
+        terminal::println("[TEST] scheduler2_topology: PASS");
+
         if (arch::x86_64::smp::online_cpu_count() > 1U) {
             hardware_capabilities |=
                 hardware::policy::CapabilityMultiprocessor;
