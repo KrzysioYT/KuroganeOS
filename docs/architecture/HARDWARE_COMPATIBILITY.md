@@ -103,7 +103,8 @@ for reaching a usable desktop.
 
 Networking and audio are optional at boot. Supported adapters/codecs may come
 online after discovery; unsupported hardware leaves the subsystem unavailable
-without taking down the kernel. Qualification jobs for a specific NIC or audio
+without taking down the kernel. DHCP or gateway failure may degrade networking,
+but must not halt the kernel. Qualification jobs for a specific NIC or audio
 backend still fail when that backend is explicitly under test.
 
 ## Compatibility tiers
