@@ -504,6 +504,9 @@ if $usb_storage; then
 import sys
 with open(sys.argv[1], "wb") as image:
     image.truncate(8 * 1024 * 1024)
+    image.seek(0)
+    image.write(b"KUROGANE_USB_READ_V1")
+    image.write(bytes((index * 37 + 11) & 0xFF for index in range(512 - 20)))
 PY
     # Separate scratch media proves real xHCI Mass Storage enumeration without
     # exposing the system disk or relying on the IDE boot path.

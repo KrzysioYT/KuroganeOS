@@ -5,6 +5,7 @@
 
 #include "../core/device_manager.hpp"
 #include "../pci.hpp"
+#include "../../storage/block_device.hpp"
 
 namespace drivers::usb::xhci {
 
@@ -37,6 +38,7 @@ size_t poll(size_t budget);
 bool initialized();
 bool keyboard_ready();
 bool mouse_ready();
+const storage::block::Device* mass_storage_block_device();
 // Last runtime lifecycle result; NoDevice means a running controller retains
 // bounded resources while waiting for its first or a replacement HID device.
 Status runtime_status();
