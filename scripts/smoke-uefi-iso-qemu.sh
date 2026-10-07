@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -18,6 +18,7 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 nvme=false
+no_ps2=false
 usb_keyboard=false
 usb_mouse=false
 usb_storage=false
@@ -58,6 +59,7 @@ while (($#)); do
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --nvme) nvme=true; shift ;;
+        --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
@@ -571,8 +573,13 @@ else
     )
 fi
 
+machine_model="q35,accel=$accel_model"
+if $no_ps2; then
+    machine_model+=",i8042=off"
+fi
+
 qemu-system-x86_64 \
-    -machine "q35,accel=$accel_model" \
+    -machine "$machine_model" \
     -cpu "$cpu_model" \
     -smp "$smp_cpus" \
     -m 1024 \
