@@ -92,6 +92,8 @@ enum class GateType : uint8_t {
 // Loads a complete 256-entry IDT and leaves maskable interrupts disabled.
 void initialize();
 bool initialized();
+// Loads the already-built shared IDT on another processor without resetting handlers.
+bool load_current_cpu();
 
 bool register_handler(uint8_t vector, InterruptHandler handler);
 void unregister_handler(uint8_t vector);
