@@ -1,4 +1,4 @@
-# KuroganeOS 3.3.3-dev — DEV BETA
+# KuroganeOS 5.0.0-dev — STEEL DEV
 
 KuroganeOS to eksperymentalny, 64-bitowy system operacyjny rozwijany od zera
 dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
@@ -12,7 +12,7 @@ dla **x86-64 + UEFI**. Nie jest dystrybucją Linuxa i nie używa kernela Linux.
 > Ten poradnik prowadzi krok po kroku przez uruchomienie, VirtualBox, instalację,
 > Windows, macOS, Linux i pierwszą aplikację.
 
-`3.3.3-dev` jest wydaniem **DEV BETA**. Używaj go przede wszystkim w QEMU albo
+`5.0.0-dev` jest kandydatem **STEEL DEV** do zamknięcia kamienia milowego 5.0. Używaj go przede wszystkim w QEMU albo
 VirtualBox i na pustych dyskach testowych.
 
 ---
@@ -24,7 +24,7 @@ VirtualBox i na pustych dyskach testowych.
 Użyj:
 
 ```text
-KuroganeOS-3.3.3-dev-x86_64.iso
+KuroganeOS-5.0.0-dev-x86_64.iso
 ```
 
 Najważniejsze ustawienia VM:
@@ -52,7 +52,7 @@ Linux/macOS na obsługiwanym hoście x86-64:
 
 ```bash
 bash ./scripts/create-virtualbox-vm.sh \
-  --iso ./dist/KuroganeOS-3.3.3-dev-x86_64.iso
+  --iso ./dist/KuroganeOS-5.0.0-dev-x86_64.iso
 ```
 
 Windows:
@@ -60,7 +60,7 @@ Windows:
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\create-virtualbox-vm.ps1 `
-  -Iso .\dist\KuroganeOS-3.3.3-dev-x86_64.iso
+  -Iso .\dist\KuroganeOS-5.0.0-dev-x86_64.iso
 ```
 
 ### Mac z Apple Silicon
@@ -74,7 +74,7 @@ Zobacz: [docs/MACOS_DEVELOPMENT.md](docs/MACOS_DEVELOPMENT.md).
 
 ## Co zobaczę po starcie ISO/IMG?
 
-Nośnik 3.3.3-dev uruchamia Red Flux Setup:
+Nośnik 5.0.0-dev uruchamia Red Flux Setup:
 
 ```text
 UEFI
@@ -130,7 +130,7 @@ Ręczna weryfikacja:
 
 ```bash
 bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-3.3.3-dev-x86_64.iso \
+  ./dist/KuroganeOS-5.0.0-dev-x86_64.iso \
   --passes 20
 ```
 
@@ -208,10 +208,10 @@ bash ./scripts/build-media-linux.sh \
 ### Wyniki
 
 ```text
-dist/KuroganeOS-3.3.3-dev-windows-qemu.img
-dist/KuroganeOS-3.3.3-dev-macos-qemu.img
-dist/KuroganeOS-3.3.3-dev-linux-qemu.img
-dist/KuroganeOS-3.3.3-dev-x86_64.iso
+dist/KuroganeOS-5.0.0-dev-windows-qemu.img
+dist/KuroganeOS-5.0.0-dev-macos-qemu.img
+dist/KuroganeOS-5.0.0-dev-linux-qemu.img
+dist/KuroganeOS-5.0.0-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 

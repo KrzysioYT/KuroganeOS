@@ -16,6 +16,8 @@ echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_PYTHON" tests/test_release_version.py
+RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"
+grep -Fq "KuroganeOS $RELEASE_VERSION" dist/release-notes.txt
 bash tests/test_network_smoke_state.sh
 
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
@@ -143,6 +145,20 @@ bash tests/test_network_smoke_state.sh
   tests/test_io_apic_irq.cpp kernel/arch/x86_64/io_apic_irq.cpp \
   -o "$OUT_DIR/test_io_apic_irq"
 "$OUT_DIR/test_io_apic_irq"
+
+# Validate the common ACPI RSDT/XSDT + MADT parser directly.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_acpi.cpp kernel/arch/x86_64/acpi.cpp \
+  -o "$OUT_DIR/test_acpi"
+"$OUT_DIR/test_acpi"
+
+# Validate FADT reset/control discovery, strict byte-wide RESET_REG handling,
+# HW-reduced rejection, bounded _S5_ AML decoding and PM1 composition.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_acpi_power.cpp kernel/arch/x86_64/acpi.cpp \
+  kernel/arch/x86_64/acpi_power.cpp \
+  -o "$OUT_DIR/test_acpi_power"
+"$OUT_DIR/test_acpi_power"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hpet_table.cpp kernel/arch/x86_64/hpet_table.cpp \

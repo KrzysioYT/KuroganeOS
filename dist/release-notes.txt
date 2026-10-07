@@ -1,12 +1,26 @@
-KuroganeOS 1.0 live preview
+KuroganeOS 5.0.0-dev — Steel / Hardware qualification candidate
 
-This is a bootable UEFI kernel demonstration, not an installable desktop
-release. It was tested with QEMU q35 and EDK2 at 256 MiB RAM.
+This media is the Road-to-15 Steel closeout candidate. It is intended for
+automated QEMU qualification first and user-side VirtualBox/physical-hardware
+testing after the exact candidate matrix is green.
 
-Verified: UEFI loader, PIE kernel, framebuffer terminal, allocator self-test,
-IDT/PIC/PIT, PS/2 keyboard, PCI enumeration, RAMFS shell, loopback network
-algorithms and kernel-resident GUI applications.
+Implemented Steel scope:
+- PCI BAR/capability hardening, MSI/MSI-X groups and I/O APIC routing;
+- ACPI MADT discovery, HPET and firmware-derived FADT/DSDT reset + S5 power;
+- AHCI plus writable NVMe and xHCI USB Mass Storage block backends;
+- xHCI HID keyboard/mouse with bounded keyboard hotplug/ring-wrap coverage;
+- Intel HDA PCM DMA with AC'97 compatibility;
+- unified storage/NIC selection;
+- four-vCPU AP startup, per-CPU AP state/stacks, Local APIC IPI delivery,
+  cross-CPU work rendezvous and synchronous TLB shootdown.
 
-Not implemented: user mode, process isolation, persistent storage, VFS,
-storage/NIC/audio drivers, installer, first boot, package manager, updates,
-recovery and Secure Boot.
+Scope boundary:
+The 5.0 SMP gate proves the multi-CPU execution substrate, not Scheduler 2.0.
+Full multicore process/thread scheduling, per-CPU run queues and the wider
+kernel-core redesign are 6.0 Core Steel work.
+
+Qualification:
+Do not treat this candidate as qualified 5.0 unless the exact-source Steel
+Closeout, HPET, SMP, HDA, NVMe, USB Mass Storage, USB Keyboard and USB Mouse
+workflows pass. VirtualBox and physical-machine observations are external
+validation and must be recorded truthfully.

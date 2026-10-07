@@ -3,6 +3,7 @@
 #include "apps/builtin.hpp"
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
+#include "arch/x86_64/acpi_power.hpp"
 #include "arch/x86_64/apic.hpp"
 #include "arch/x86_64/smp.hpp"
 #include "arch/x86_64/hpet.hpp"
@@ -660,6 +661,19 @@ void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
         log::Level::Info, "ACPI", "MADT I/O APICs=",
         topology != nullptr ? topology->io_apic_count : 0U);
     terminal::println("[TEST] acpi_madt: PASS");
+
+    const auto power_status = arch::x86_64::acpi_power::initialize(rsdp);
+    if (power_status == arch::x86_64::acpi_power::Status::Ok &&
+        arch::x86_64::acpi_power::shutdown_available() &&
+        arch::x86_64::acpi_power::reset_available()) {
+        terminal::println("[TEST] acpi_power_discovery: PASS");
+    } else {
+        log::write(
+            log::Level::Warn,
+            "ACPI",
+            arch::x86_64::acpi_power::status_message(power_status));
+        terminal::println("[TEST] acpi_power_discovery: DEGRADED");
+    }
 
     const auto hpet_status = arch::x86_64::hpet::initialize(rsdp);
     if (hpet_status == arch::x86_64::hpet::Status::Ok &&
@@ -1990,10 +2004,10 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         if (arch::x86_64::smp::online_cpu_count() > 1U) {
             terminal::println("[TEST] smp_ap_startup: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
-                terminal::println("[TEST] smp_scheduler: FAIL");
+                terminal::println("[TEST] smp_cross_cpu_work: FAIL");
                 boot_failure("SMP", "parallel CPU work dispatch failed");
             }
-            terminal::println("[TEST] smp_scheduler: PASS");
+            terminal::println("[TEST] smp_cross_cpu_work: PASS");
             if (!arch::x86_64::smp::qualify_tlb_shootdown()) {
                 terminal::println("[TEST] smp_tlb_shootdown: FAIL");
                 boot_failure("SMP", "cross-CPU TLB shootdown failed");
@@ -2001,12 +2015,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             terminal::println("[TEST] smp_tlb_shootdown: PASS");
         } else {
             terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
-            terminal::println("[TEST] smp_scheduler: SKIP (single CPU)");
+            terminal::println("[TEST] smp_cross_cpu_work: SKIP (single CPU)");
             terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
         }
     } else {
         terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
-        terminal::println("[TEST] smp_scheduler: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_cross_cpu_work: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
     }
 

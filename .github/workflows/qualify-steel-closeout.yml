@@ -1,0 +1,86 @@
+name: Qualify 5.0 Steel Closeout
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-closeout.yml'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'docs/ROADMAP.md'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/main.cpp'
+      - 'kernel/shell/shell.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'tests/test_acpi*'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-steel-closeout.yml'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'docs/ROADMAP.md'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/main.cpp'
+      - 'kernel/shell/shell.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'tests/test_acpi*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  steel-closeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify candidate identity and truthful SMP marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "5.0.0-dev"
+          ! grep -R -Fq '[TEST] smp_scheduler:'             kernel/main.cpp .github/workflows/qualify-smp.yml
+          grep -Fq '[TEST] smp_cross_cpu_work: PASS'             .github/workflows/qualify-smp.yml
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean 5.0 candidate media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require ACPI power HPET and four-CPU SMP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --smp 4             --log-dir build/tests/steel-closeout --timeout 120             --require-marker '[TEST] acpi_madt: PASS'             --require-marker '[TEST] acpi_power_discovery: PASS'             --require-marker '[TEST] hpet_main_counter: PASS'             --require-marker '[TEST] smp_ap_startup: PASS'             --require-marker '[TEST] smp_cross_cpu_work: PASS'             --require-marker '[TEST] smp_tlb_shootdown: PASS'             --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|smp_.*: FAIL'             build/tests/steel-closeout/serial.log
+
+      - name: Retain Steel closeout logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steel-closeout-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/steel-closeout
+          if-no-files-found: warn

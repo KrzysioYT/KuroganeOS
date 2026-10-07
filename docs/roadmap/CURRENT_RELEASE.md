@@ -1,14 +1,15 @@
 # KuroganeOS — Current Release State
 
-Last updated: 2026-09-23
+Last updated: 2026-10-07
 
 ## COMPILED / RUNTIME VERSION
 
-**3.3.3-dev — Red Flux**
+**5.0.0-dev — Steel / Hardware**
 
-The embedded runtime version string intentionally remains `3.3.3-dev`. Road-to-15 engineering milestones are qualified independently and do not silently relabel already-built media.
+The closeout branch now embeds `5.0.0-dev` so the exact media being qualified
+identifies itself as Steel. This is a **qualification candidate**, not a claim
+that user-side VirtualBox/physical tests have already passed.
 
-`3.3.3-dev` remains **QUALIFIED** for its scoped Red Flux UEFI/installer/FAT32/Ring-3/network/TLS/desktop/audio/GOP definition. Oracle VirtualBox remains optional external validation and is not a milestone percentage or release blocker.
 
 ---
 
@@ -102,141 +103,16 @@ Authoritative same-SHA evidence:
 
 **5.0.0-dev — Steel / Hardware**
 
-Status: **ACTIVE**
+Status: **QUALIFICATION CANDIDATE**
 
-Bounded single-vector MSI is qualified at `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X is qualified at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` by run `34358861039`, job `102490389818`: real QEMU Intel 82574L delivery through the mapped MSI-X table, generation-owned vector, Local APIC and production IDT, followed by ordered teardown. Pre-Steel regression closeout also passed on that source in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and the remaining hardware matrix stay open; legacy PIC/PIT remains the fallback during migration.
+The candidate contains the completed Steel hardware scope: MSI/MSI-X and I/O
+APIC routing, HPET, ACPI FADT/DSDT power/reset, AHCI/NVMe/USB storage, xHCI HID
+keyboard/mouse, Intel HDA/AC'97 compatibility, unified storage/NIC selection,
+and the SMP execution substrate with AP startup, per-CPU state/stacks,
+cross-CPU work and TLB shootdown.
 
-### Road to 15 status
+The previous `smp_scheduler` test label was corrected to
+`smp_cross_cpu_work`; full Scheduler 2.0 remains a 6.0 Core Steel task.
 
-Current verified source `308f2fb75205dfa265c8a620cf88e84d0627742d` passed the VirtIO Steel qualification matrix. Network Cleanup run `34950706350` / job `104320726734` and MSI-X Runtime run `34950706505` / jobs `104320726926`, `104320727235` passed. The matrix covers malformed used-ring completion rejection without partial ownership mutation, legal 16-bit completion wrap, active-queue reset/cleanup, real queue IRQ delivery, two-vector RX/TX delivery, and truthful no-MSI-X polling fallback. Clean release-media builds passed in both workflows.
-
-Bounded MSI-X groups are therefore qualified for the production VirtIO transport scope. Full 5.0 qualification is not claimed: SMP, PCIe/ACPI/APIC/HPET hardening, NVMe, USB/xHCI, Intel HDA and real-hardware coverage remain open.
-
-Current regression evidence at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`:
-all eleven triggered workflows passed, including VirtIO active-queue reset/
-cleanup/retry (`34546210440`), Pre-Steel closeout (`34546210640`), System
-Services regression (`34546210434`) and Fatal Diagnostic (`34546210350`).
-VirtIO-net now has production shared RX/TX MSI-X notification and typed polling
-fallback, with host-tested cleanup and a dedicated delivery/teardown runtime
-gate. Shared-vector delivery and cleanup are **QUALIFIED** at
-`6898c72f273207dbfd526f78a640433932e2291c` by QEMU run `34683815908`, job
-`103527144398`. This source also passed 3.4 regression `34683815923`, real
-TLS/HTTPS `34683815909` and PCI MSI/MSI-X transport `34683815912`/`34683815880`.
-Production boot with MSI-X absent passed at `cb352b7` in `34684091876` and
-again at `d42d9e3` in `34811940595`. Full 5.0 qualification and SMP remain open.
-
-The current Steel engineering slice implements bounded MSI-X route groups and
-a two-vector e1000e runtime gate. Host ownership/rollback tests and three local
-two-vector QEMU boots passed, alongside a single-vector regression;
-exact-source Actions run `34811940628` subsequently qualified both modes. See
-[PCI_MSIX_GROUPS.md](../PCI_MSIX_GROUPS.md) for the API contract and evidence.
-
-The APIC routing foundation now also resolves ISA legacy IRQs through ACPI MADT overrides before GSI programming. Invalid reserved flags and conflicting overrides are rejected deterministically; the host contract passed as `[test_io_apic_irq] PASS` in current-head run `34953615582`, job `104330260616`. This remains a routing foundation: firmware I/O APIC delivery, SMP interrupt routing and the broader hardware matrix are still open. Redirection span validation now rejects zero-length, overflowing and overlapping controller GSI ranges before they are accepted.
-
-### USB keyboard and cleanup evidence
-
-The bounded xHCI keyboard path now has real OVMF/QEMU evidence at
-`648b9d38cabf8fcabb66ab3e5071f676f18ad98a`: run
-[`35085130775`](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35085130775),
-job `104758052878`, passed the full host suite, clean release-media build,
-enumeration, two ordered hardware HID press/release pairs accepted by the
-input queue, and an empty-controller boot requiring acknowledged halt and
-DMA/MMIO cleanup. Host fault injection additionally covers timeout quarantine,
-failed release retry and stale device handles. It does not establish hotplug,
-multiple keyboards, hubs, mouse, mass storage or physical hardware support.
-
-Same-source regressions passed: System Services closeout `35085130746`,
-3.4 sweep `35085130828`, Settings persistence `35085130736`, Notifications
-`35085130766`, Socket Core `35085130731`, DNS `35085130759`, Fatal Diagnostic
-`35085130812`, MSI `35085130779`, MSI-X `35085130744`, VirtIO cleanup
-`35085130849` and VirtIO MSI-X `35085130851`. Pre-Steel closeout `35085131514`
-and some self-hosted component jobs are still queued; historical qualification
-is preserved but a complete current-source matrix is not yet claimed.
-
-The extended USB gate is now **PASS** at production source
-`d96c9c8b631c1c60799aed1a9b80f85e0fb81865`, run
-[`35086010272`](https://github.com/KrzysioYT/KuroganeOS/actions/runs/35086010272),
-job `104760879337`: full host suite, clean release IMG/ISO/install.pkg,
-130 real F12 press/release pairs, transfer/event ring cycle wrap and empty
-controller halt/cleanup. This source also rejects malformed and duplicate
-completion pointers before report DMA reuse; the host regression reproduced
-the previous premature retirement and now passes, including ASan/UBSan.
-
-Latest same-source regressions passed: 3.4 sweep `35086010366`, Socket Core
-`35086010286`, DNS `35086010335`, Fatal Diagnostic `35086010379`, MSI
-`35086010325`, MSI-X `35086010292`, VirtIO cleanup `35086010369`.
-Pre-Steel closeout `35086010691`, KuroFS `35086010340`, Device/Driver
-`35086010345` and Unified Status `35086010311` remain queued at this update.
-No completed current-source job failed, but this is not a complete fresh
-Pre-Steel matrix. The earlier ring gate `35085576426` failed before QEMU due
-to a timeout argument outside the harness contract; it was corrected to the
-existing 240-second limit without reducing the 130-pair test.
-
-USB disconnect/reconnect is now qualified at exact source
-`4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c`, run `35231888211`, job
-`105237832241`: three real QMP removal/addition cycles with held-Shift release,
-stale device-handle rejection and F12 input after re-enumeration. All twenty
-triggered workflows passed on this source, including Pre-Steel closeout
-`35231888631`; the queued older regression snapshots above are historical.
-
-First keyboard attachment after booting an empty xHCI controller is qualified
-at `ad6a19b11d83d0eecaba3599c084321768371e67`, run `35905197560`:
-runtime job `107331023235` and cleanup job `107331023071`. The gate requires
-empty-controller readiness, Login before first QMP attachment, then three
-held-Shift disconnect/reconnect cycles with successful F12 input. Earlier
-130-pair/ring-wrap coverage also passed. Local full host suite, clean release
-IMG/ISO/install.pkg and uninjected OVMF production Login + DHCP/gateway passed.
-Nine triggered workflows passed at this snapshot; six self-hosted workflows,
-including Pre-Steel `35905199805`, are queued, not a fresh full-matrix PASS.
-
-The common-input prerequisite for USB mouse landed at
-`4926de52a29eac3019babf93730a0529cd675855`. A rejected mouse sample leaves the
-queue and pointer/button state unchanged; the PS/2 pump also retains blocked
-input for retry. Clean exact-source release media and the full keyboard
-HID/hotplug/late-attachment regression passed in Actions `35906417389`,
-runtime job `107335121448`, cleanup job `107335121039`.
-
-The first bounded xHCI HID Boot Mouse runtime is now **QUALIFIED for its stated
-scope**. PR #20 merged as `c8db9a080cdc1e6094ec47ed76d68c0e18f5575d`.
-Its final candidate gate `36121992774`, job `108029393842`, passed the full
-host suite, clean release-media build, an xHCI keyboard regression and a real
-QEMU `usb-mouse` boot. The harness explicitly selects QEMU's HID/USB mouse
-before generating movement/click input; PASS requires
-`xhci_mouse_enumeration` and `usb_hid_mouse_input` from the guest, so the
-PS/2 path cannot satisfy the proof. The post-merge mouse gate
-`36122278967`, job `108030300639`, passed again on the merge source.
-
-The HID generalization exposed stale literal anchors in the older keyboard
-qualification harness, not a production-kernel failure. PR #21 repaired those
-anchors and made the complete keyboard matrix run on pull requests. Run
-`36122522577` passed both `usb-keyboard (empty-cleanup)` job `108031097621`
-and `usb-keyboard (runtime)` job `108031097910`: full host regression,
-clean media, 130 F12 press/release pairs with transfer/event ring wrap,
-empty-controller halt/cleanup, three disconnect/re-enumeration cycles and
-first attachment after an empty-controller boot. It merged as
-`2516dcb010f61d3ceed25647431d5530db112208`.
-
-This remains deliberately bounded to one active boot HID device in the current
-single-slot xHCI runtime (keyboard **or** mouse). Simultaneous HID devices,
-hubs, report-protocol wheel extensions, USB Mass Storage and physical-hardware
-qualification remain open. The next exact USB task is a bounded USB Mass
-Storage BOT/SCSI foundation feeding the existing block-device contract before
-any production storage runtime is claimed. **5.0 remains ACTIVE**, not
-qualified.
-
-- `3.3.3-dev` — Red Flux — **QUALIFIED**
-- `3.4.0-dev` — System Services — **QUALIFIED**
-- `3.5.0-dev` — Connected Userspace — **QUALIFIED**
-- `3.6.0-dev` — Flux Stabilization — **QUALIFIED**
-- `4.0.0-dev` — Pre-Steel — **QUALIFIED**
-- `5.0.0-dev` — Steel / Hardware — **ACTIVE**
-- `6.0.0-dev` — Core Steel — pending
-- `7.0.0-dev` — Iron Shield — pending
-- `8.0.0-dev` — Connected Steel — pending
-- `9.0.0-dev` — Forge Graphics — pending
-- `10.0.0-dev` — Steel Applications — pending
-- `11.0.0-dev` — Anvil — pending
-- `12.0.0-dev` — Platform / Web — pending
-- `13.0.0-dev` — Forge Design — pending
-- `14.0.0-rc` — Forge Desktop / release candidate — pending
-- `15.0.0` — STABLE — final target
+5.0 is not marked QUALIFIED until the exact closeout SHA passes the Steel
+closeout plus the retriggered HPET/SMP/HDA/NVMe/USB qualification matrix.

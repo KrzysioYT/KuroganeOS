@@ -154,36 +154,40 @@ The authoritative same-SHA closeout is Actions run `34260827773`; final job `102
 
 ## 5.0.0-dev — Steel / Hardware
 
-Status: **ACTIVE**.
+Status: **QUALIFICATION CANDIDATE**.
 
-PCI/PCIe BAR/capabilities/MSI/MSI-X, ACPI/APIC/HPET/power/interrupt routing, AHCI/block hardening, NVMe, USB Core/xHCI/enumeration, USB HID/mass storage, Intel HDA/AC'97 compatibility and unified NIC interface.
+Steel's code-complete scope is the bounded hardware substrate required before
+Core Steel: PCI/PCIe BAR and capability validation, MSI/MSI-X and I/O APIC
+routing, ACPI table discovery, HPET, firmware-derived ACPI reset/S5 power,
+AHCI/NVMe/USB block I/O, xHCI HID keyboard/mouse, Intel HDA with AC'97
+compatibility, unified storage/NIC selection, and the first multi-CPU kernel
+execution substrate.
 
-Bounded single-vector PCI MSI passed at `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`. Bounded single-vector MSI-X passed at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in run `34358861039`, job `102490389818`, including validated BAR/table/PBA regions, real QEMU Intel 82574L delivery through the Local APIC and production IDT, and ordered teardown. Same-source Pre-Steel regression closeout passed in run `34358861380`. Multi-vector routing, production-driver adoption, SMP and broader hardware qualification remain required.
+The SMP scope is intentionally precise: MADT CPU discovery, INIT/SIPI AP
+startup, per-CPU AP stacks/state, shared IDT + Local APIC IPI delivery,
+bounded cross-CPU work rendezvous, synchronous TLB shootdown and a real
+four-vCPU runtime gate. The marker is `smp_cross_cpu_work`; it must never be
+reported as a full process scheduler. **Scheduler 2.0, userspace load balancing,
+per-CPU run queues and the wider thread/process redesign belong to 6.0 Core
+Steel.**
 
-SMP is complete only when ACPI/MADT CPU discovery, AP startup, per-CPU state/stacks, interrupt routing, synchronization/locking, SMP scheduler, TLB shootdown, per-CPU kernel data and multi-CPU runtime qualification all work. MADT enumeration alone is not SMP.
+Qualified component evidence before closeout includes MSI/MSI-X transport,
+production VirtIO-net interrupt adoption, xHCI keyboard hotplug/ring-wrap,
+xHCI mouse, writable USB Mass Storage, NVMe namespace read/write/flush, HPET
+main-counter progress and Intel HDA PCM DMA. PR #44 added the four-vCPU
+AP/cross-CPU/TLB runtime and merged as
+`653bd33b9611deaaf1330a3e34b3b41c573a9ba9`.
 
-Production VirtIO-net shared RX/TX MSI-X notification and ordered cleanup
-passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job
-`103527144398`. Four real queue resets release DMA/MMIO/vector ownership; real
-IRQ counts increase during successful gateway traffic. This qualifies one
-production-driver adoption slice, not multi-vector/SMP or the whole milestone.
+The final 5.0 candidate adds FADT/DSDT power discovery and routes shell
+reboot/poweroff through ACPI before the existing platform fallbacks. The
+`Qualify 5.0 Steel Closeout` workflow requires the exact `5.0.0-dev`
+candidate to pass full host regression, a clean release-media build, ACPI
+power discovery, HPET and four-vCPU SMP boot. The shared host-test change also
+retriggers HDA, NVMe, USB Mass Storage, USB keyboard and USB mouse gates.
 
-The Steel transport slice adds bounded MSI-X route groups (one to eight
-distinct vectors), whole-group ownership validation, allocation rollback and
-retryable teardown. A separate e1000e group gate requires real delivery on two
-concurrently installed vectors. Implementation and evidence are tracked in
-[`../PCI_MSIX_GROUPS.md`](../PCI_MSIX_GROUPS.md). Exact-source transport
-qualification passed at `d42d9e3` in `34811940628`; production VirtIO RX/TX
-groups passed at `308f2fb` in `34950706350` and `34950706505`.
-
-Bounded xHCI keyboard enumeration, HID input, ring wrap, acknowledged cleanup
-and three real held-key disconnect/reconnect cycles passed at
-`4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c` in `35231888211`. All twenty
-triggered workflows passed, including Pre-Steel regression `35231888631`.
-First attachment after empty-controller boot passed at `ad6a19b` in
-`35905197560` (runtime `107331023235`, cleanup `107331023071`). USB mouse,
-hubs/multiple devices and mass storage remain open;
-see [`../USB_STACK.md`](../USB_STACK.md). These slices do not qualify all of 5.0.
+5.0 may be marked **QUALIFIED** only after that exact candidate is green.
+Physical-machine/VirtualBox checks remain external validation and are not
+silently converted into automated PASS markers.
 
 ## 6.0.0-dev — Core Steel
 
