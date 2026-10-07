@@ -8,16 +8,38 @@ on:
     paths:
       - '.github/workflows/qualify-core-steel-scheduler.yml'
       - 'kernel/task/scheduler2.*'
+      - 'kernel/task/thread.*'
+      - 'kernel/task/process.*'
+      - 'kernel/task/job.*'
+      - 'kernel/sync/**'
+      - 'kernel/ipc/**'
+      - 'kernel/arch/x86_64/gdt.*'
+      - 'kernel/arch/x86_64/context_switch.asm'
+      - 'kernel/arch/x86_64/smp.*'
       - 'tests/test_scheduler2.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_process.cpp'
       - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
   push:
     branches:
       - chatgpt/6.0-core-steel
     paths:
       - '.github/workflows/qualify-core-steel-scheduler.yml'
       - 'kernel/task/scheduler2.*'
+      - 'kernel/task/thread.*'
+      - 'kernel/task/process.*'
+      - 'kernel/task/job.*'
+      - 'kernel/sync/**'
+      - 'kernel/ipc/**'
+      - 'kernel/arch/x86_64/gdt.*'
+      - 'kernel/arch/x86_64/context_switch.asm'
+      - 'kernel/arch/x86_64/smp.*'
       - 'tests/test_scheduler2.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_process.cpp'
       - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
   workflow_dispatch:
 
 permissions:
@@ -45,3 +67,6 @@ jobs:
 
       - name: Run full host regression including Scheduler 2.0
         run: bash ./scripts/run-host-tests.sh
+
+      - name: Run kernel thread, process and IPC regression suite
+        run: bash ./scripts/test.sh
