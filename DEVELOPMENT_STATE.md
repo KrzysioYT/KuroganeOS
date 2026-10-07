@@ -133,3 +133,25 @@ Routine commits, pushes and merges are authorized. Do not force-push, rewrite
 history, delete branches/tags/releases or perform similarly destructive Git
 operations without explicit instruction. Keep Windows PowerShell and Oracle
 VirtualBox support intact.
+
+## 6.0 Core Steel active branch
+
+Branch: `chatgpt/6.0-core-steel-foundation`
+
+This branch is intentionally based on the current 5.x portability candidate,
+while PR #51 remains independently qualified/merged. Its compiled identity is
+`6.0.0-dev / CORE STEEL DEV`.
+
+First Scheduler 2.0 slice:
+- explicit `scheduler2::RunQueueSet` with up to 64 CPUs;
+- affinity masks and preferred-CPU placement;
+- least-loaded eligible CPU assignment;
+- per-CPU queue ownership;
+- runnable migration with rollback;
+- online-CPU shrink validation and migration;
+- deterministic host regression.
+
+This is a Scheduler 2.0 **foundation**, not a claim that Ring-3 threads are
+already executing concurrently on multiple CPUs. The existing interrupt-frame
+thread runtime still owns live dispatch until its global run/current state is
+split per CPU and the new run queues are integrated safely.
