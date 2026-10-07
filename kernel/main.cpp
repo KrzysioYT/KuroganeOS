@@ -4,6 +4,7 @@
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
 #include "arch/x86_64/acpi_power.hpp"
+#include "arch/x86_64/cpu.hpp"
 #include "arch/x86_64/apic.hpp"
 #include "arch/x86_64/smp.hpp"
 #include "arch/x86_64/hpet.hpp"
@@ -15,6 +16,7 @@
 #include "drivers/keyboard.hpp"
 #include "drivers/mouse.hpp"
 #include "drivers/framebuffer.hpp"
+#include "drivers/audio/audio_backend.hpp"
 #include "drivers/core/device_manager.hpp"
 #include "drivers/core/driver_manager.hpp"
 #include "drivers/pci.hpp"
@@ -26,6 +28,8 @@
 #include "fs/kurofs_volume.hpp"
 #include "fs/root_volume.hpp"
 #include "fs/ramfs.hpp"
+#include "hardware/policy.hpp"
+#include "hardware/compatibility.hpp"
 #include "memory/allocator.hpp"
 #include "memory/kernel_virtual_memory.hpp"
 #include "memory/physical_memory.hpp"
@@ -550,6 +554,37 @@ KStatus xhci_driver_attach(
     }
 }
 
+bool print_hardware_inventory_entry(
+    const drivers::device::Device& device,
+    void*) {
+    terminal::write("[HW] id=");
+    terminal::write_u64(device.id);
+    terminal::write(" bus=");
+    terminal::write(drivers::device::bus_name(device.bus));
+    terminal::write(" type=");
+    terminal::write(drivers::device::type_name(device.type));
+    terminal::write(" vendor=");
+    terminal::write_hex(device.vendor_id);
+    terminal::write(" device=");
+    terminal::write_hex(device.device_id);
+    terminal::write(" requirement=");
+    terminal::write(drivers::device::requirement_name(device.requirement));
+    terminal::write(" status=");
+    terminal::write(drivers::device::status_name(device.status));
+    terminal::write(" driver=");
+    terminal::println(
+        device.driver == drivers::device::INVALID_DRIVER_ID
+            ? "<unbound>"
+            : device.driver_name);
+    return true;
+}
+
+void print_hardware_inventory() {
+    terminal::println("hardware inventory:");
+    drivers::device::visit(print_hardware_inventory_entry, nullptr);
+    terminal::println("[TEST] hardware_inventory: PASS");
+}
+
 void initialize_device_framework(bool safe_mode) {
     if (drivers::device::initialize() != KStatus::Ok ||
         drivers::driver::initialize() != KStatus::Ok) {
@@ -640,6 +675,7 @@ void initialize_device_framework(bool safe_mode) {
         "DEVICE",
         "registered devices=",
         drivers::device::count());
+    print_hardware_inventory();
 }
 
 void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
@@ -1011,92 +1047,17 @@ void initialize_storage_probe() {
             "logical sector count=",
             info->sector_count);
 
-        storage::gpt::Table table{};
-        const storage::gpt::ParseResult gpt_result =
-            storage::gpt::parse_primary(device, &table);
-        if (gpt_result.status == storage::gpt::Status::Ok) {
-            log::write_u64(
-                log::Level::Info,
-                "GPT",
-                "validated primary GPT partitions=",
-                table.partition_count);
-            if (!fs::root_volume::mounted() &&
-                !fs::root_volume::initialization_attempted()) {
-                const fs::root_volume::Status root_status =
-                    fs::root_volume::initialize(device, &table);
-                if (root_status == fs::root_volume::Status::Ok) {
-                    log::write(
-                        log::Level::Info,
-                        "VFS",
-                        "persistent FAT32 root mounted read-write");
-                    log::write_u64(
-                        log::Level::Info,
-                        "VFS",
-                        "/etc/system.cfg bytes=",
-                        fs::root_volume::configuration_size());
-                    terminal::println("[TEST] fat32_vfs_read: PASS");
-                    if (!handle_installed_first_boot()) {
-                        terminal::println("[TEST] installed_first_boot: FAIL");
-                        g_required_runtime_test_failed = true;
-                    }
-                    if (!run_fat32_persistence_probe()) {
-                        terminal::println(
-                            "[TEST] fat32_persistence: FAIL");
-                        g_required_runtime_test_failed = true;
-                    }
-                } else if (root_status !=
-                           fs::root_volume::Status::RootPartitionNotFound) {
-                    log::write(
-                        log::Level::Warn,
-                        "VFS",
-                        fs::root_volume::status_message(root_status));
-                    log::write(
-                        log::Level::Warn,
-                        "VFS",
-                        fs::root_volume::detail_message());
-                    terminal::println("[TEST] fat32_vfs_read: FAIL");
-                    g_required_runtime_test_failed = true;
-                }
-            }
-        } else {
-            log::write(
-                log::Level::Info,
-                "GPT",
-                storage::gpt::status_message(gpt_result.status));
-        }
-
-        const storage::scratch_test::Result scratch_result =
-            storage::scratch_test::run(
-                device, &g_scratch_test_workspace);
-        if (scratch_result.status ==
-            storage::scratch_test::Status::NotTagged) {
-            continue;
-        }
-        if (scratch_result.status == storage::scratch_test::Status::Ok &&
-            scratch_result.write_attempted && scratch_result.restored) {
-            log::write(
-                log::Level::Info,
-                "AHCI",
-                "tagged scratch write/flush/readback/restore passed");
-            terminal::println(
-                "[TEST] ahci_write_flush_readback_restore: PASS");
-            continue;
-        }
-
-        log::write(
-            log::Level::Error,
-            "AHCI",
-            storage::scratch_test::status_message(scratch_result.status));
-        log::write(
-            log::Level::Error,
-            "AHCI",
-            storage::block::status_message(scratch_result.block_status));
-        terminal::println(
-            "[TEST] ahci_write_flush_readback_restore: FAIL");
-        boot_failure("AHCI", "tagged scratch storage test failed");
     }
 
-    // Probe non-AHCI block backends through the same GPT/root contract.
+    terminal::write("generic block devices: ");
+    terminal::write_u64(storage::device_registry::device_count());
+    terminal::println();
+    terminal::println(
+        storage::device_registry::device_count() != 0U
+            ? "[TEST] generic_storage_registry: PASS"
+            : "[TEST] generic_storage_registry: SKIP (no block device)");
+
+    // Probe every registered block backend through the same GPT/root contract.
     // The registry resolves providers dynamically, so a removed USB device is
     // never cached here as a permanent raw pointer.
     for (size_t index = 0U;
@@ -1104,8 +1065,7 @@ void initialize_storage_probe() {
          ++index) {
         storage::device_registry::Entry entry{};
         if (!storage::device_registry::entry_at(index, &entry) ||
-            entry.device == nullptr ||
-            entry.backend == storage::device_registry::Backend::Ahci) {
+            entry.device == nullptr) {
             continue;
         }
 
@@ -1203,18 +1163,20 @@ void initialize_storage_probe() {
     // the root VFS exists, and never format unknown media implicitly.
     if (fs::root_volume::mounted() && !fs::kurofs_volume::mounted()) {
         for (size_t index = 0U;
-             index < storage::ahci::device_count();
+             index < storage::device_registry::device_count();
              ++index) {
-            const storage::block::Device* const device =
-                storage::ahci::device_at(index);
-            if (device == nullptr) continue;
+            storage::device_registry::Entry entry{};
+            if (!storage::device_registry::entry_at(index, &entry) ||
+                entry.device == nullptr) {
+                continue;
+            }
             storage::gpt::Table table{};
-            if (storage::gpt::parse_primary(device, &table).status ==
+            if (storage::gpt::parse_primary(entry.device, &table).status ==
                 storage::gpt::Status::Ok) {
                 continue;
             }
             const fs::kurofs_volume::Status status =
-                fs::kurofs_volume::mount(device);
+                fs::kurofs_volume::mount(entry.device);
             if (status == fs::kurofs_volume::Status::Ok) {
                 log::write(
                     log::Level::Info,
@@ -1680,24 +1642,158 @@ void initialize_exception_handling() {
     log::write(log::Level::Info, "KERNEL", "CPU exception handlers installed");
 }
 
-bool initialize_hardware_interrupts() {
+hardware::policy::CapabilityMask initialize_hardware_interrupts() {
+    using namespace hardware::policy;
+
+    CapabilityMask available = CapabilityNone;
     drivers::pic::initialize();
     const bool timer_ready = drivers::pit::initialize(100);
+    if (timer_ready) available |= CapabilityTimer;
     log::write(
         timer_ready ? log::Level::Info : log::Level::Error,
         "TIME",
         timer_ready ? "PIT monotonic clock ready"
                     : "PIT initialization failed");
+
     const bool schedule_hook_ready =
         arch::x86_64::interrupts::register_irq_schedule_hook(
             threading::timer_irq_schedule);
+    if (schedule_hook_ready) available |= CapabilitySchedulerInterrupt;
+
+    // Legacy i8042 devices are compatibility backends, not a platform
+    // requirement. USB HID and future input transports feed the same input
+    // queue, so a machine without PS/2 must still be allowed to boot.
     const bool keyboard_ready = drivers::keyboard::initialize();
+    if (keyboard_ready) available |= CapabilityLegacyKeyboard;
     const bool mouse_ready = drivers::mouse::initialize();
+    if (mouse_ready) available |= CapabilityLegacyPointer;
+
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        available |= CapabilityDisplay;
+    }
+    if (keyboard_ready || drivers::usb::xhci::keyboard_ready()) {
+        available |= CapabilityKeyboard;
+    }
+    if (mouse_ready || drivers::usb::xhci::mouse_ready()) {
+        available |= CapabilityPointer;
+    }
+
     const bool input_ready = input::initialize(
         graphics::width(), graphics::height());
+    if (input_ready) available |= CapabilityInputQueue;
+
+    if (drivers::usb::xhci::initialized()) {
+        available |= CapabilityUsbHost;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        available |= CapabilityStorage;
+    }
+    if (drivers::audio::initialized()) {
+        available |= CapabilityAudio;
+    }
+
     arch::x86_64::interrupts::enable();
-    return timer_ready && schedule_hook_ready && keyboard_ready &&
-        mouse_ready && input_ready;
+    return available;
+}
+
+hardware::policy::CapabilityMask refresh_runtime_capabilities(
+    hardware::policy::CapabilityMask capabilities) {
+    using namespace hardware::policy;
+
+    const CapabilityMask dynamic =
+        CapabilityDisplay |
+        CapabilityKeyboard |
+        CapabilityPointer |
+        CapabilityStorage |
+        CapabilityNetwork |
+        CapabilityAudio |
+        CapabilityUsbHost |
+        CapabilityMultiprocessor;
+
+    capabilities &= ~dynamic;
+
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        capabilities |= CapabilityDisplay;
+    }
+    if (drivers::keyboard::initialized() ||
+        drivers::usb::xhci::keyboard_ready()) {
+        capabilities |= CapabilityKeyboard;
+    }
+    if (drivers::mouse::initialized() ||
+        drivers::usb::xhci::mouse_ready()) {
+        capabilities |= CapabilityPointer;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        capabilities |= CapabilityStorage;
+    }
+    if (drivers::usb::xhci::initialized()) {
+        capabilities |= CapabilityUsbHost;
+    }
+    if (drivers::audio::initialized()) {
+        capabilities |= CapabilityAudio;
+    }
+    if (net::service::physical_interface() &&
+        net::physical::driver() != net::physical::Driver::None) {
+        capabilities |= CapabilityNetwork;
+    }
+    if (arch::x86_64::smp::online_cpu_count() > 1U) {
+        capabilities |= CapabilityMultiprocessor;
+    }
+    return capabilities;
+}
+
+void print_compatibility_report(
+    hardware::policy::CapabilityMask capabilities) {
+    using hardware::compatibility::Tier;
+    using hardware::policy::Capability;
+    const auto result = hardware::compatibility::evaluate(capabilities);
+    terminal::write("hardware compatibility: ");
+    terminal::println(hardware::compatibility::tier_name(result.tier));
+
+    static constexpr Capability ordered[] = {
+        hardware::policy::CapabilityDisplay,
+        hardware::policy::CapabilityKeyboard,
+        hardware::policy::CapabilityPointer,
+        hardware::policy::CapabilityStorage,
+        hardware::policy::CapabilityNetwork,
+        hardware::policy::CapabilityAudio,
+        hardware::policy::CapabilityUsbHost,
+        hardware::policy::CapabilityMultiprocessor,
+    };
+    if (result.missing_for_next_tier != hardware::policy::CapabilityNone) {
+        terminal::write("next tier missing:");
+        for (Capability capability : ordered) {
+            if ((result.missing_for_next_tier &
+                 static_cast<hardware::policy::CapabilityMask>(capability)) == 0U) {
+                continue;
+            }
+            terminal::write(" ");
+            terminal::write(hardware::policy::capability_name(capability));
+        }
+        terminal::println();
+    }
+
+    switch (result.tier) {
+        case Tier::Extended:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 3 EXTENDED)");
+            break;
+        case Tier::Connected:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 2 CONNECTED)");
+            break;
+        case Tier::Usable:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 1 USABLE)");
+            break;
+        case Tier::Boot:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 0 BOOT)");
+            break;
+        case Tier::Unsupported:
+            terminal::println("[TEST] hardware_compatibility_tier: FAIL");
+            break;
+    }
 }
 
 void restore_shell_after_application() {
@@ -1794,6 +1890,34 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     }
 
     print_banner(context.safe_mode, context.diagnostics, context.installer);
+
+    if (arch::x86_64::cpu::initialize()) {
+        const auto* cpu_info = arch::x86_64::cpu::info();
+        if (cpu_info != nullptr) {
+            terminal::write("CPU vendor: ");
+            terminal::write(cpu_info->vendor_id);
+            terminal::write(" (");
+            terminal::write(arch::x86_64::cpu::vendor_name(cpu_info->vendor));
+            terminal::println(")");
+            terminal::write("CPU family/model/stepping: ");
+            terminal::write_u64(cpu_info->signature.family);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.model);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.stepping);
+            terminal::println();
+            terminal::println(
+                cpu_info->vendor == arch::x86_64::cpu::Vendor::Intel
+                    ? "[TEST] cpu_vendor_intel: PASS"
+                    : (cpu_info->vendor == arch::x86_64::cpu::Vendor::Amd
+                        ? "[TEST] cpu_vendor_amd: PASS"
+                        : "[TEST] cpu_vendor_generic: PASS"));
+            terminal::println("[TEST] cpu_discovery: PASS");
+        }
+    } else {
+        terminal::println("[TEST] cpu_discovery: DEGRADED");
+    }
+
     if (context.force_desktop && !context.safe_mode) {
         terminal::println("boot=desktop (DESKTOP ALPHA)");
         log::write(
@@ -1863,14 +1987,34 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (context.installer) {
         pci::scan();
         initialize_device_framework(false);
-        const storage::ahci::Status ahci_status = storage::ahci::initialize();
-        if (ahci_status != storage::ahci::Status::Ok &&
-            ahci_status != storage::ahci::Status::AlreadyInitialized) {
-            boot_failure("INSTALL", storage::ahci::status_message(ahci_status));
+
+        const storage::nvme::Status nvme_status = storage::nvme::initialize();
+        if (nvme_status != storage::nvme::Status::Ok &&
+            nvme_status != storage::nvme::Status::AlreadyInitialized &&
+            nvme_status != storage::nvme::Status::NoController) {
+            log::write(
+                log::Level::Warn,
+                "INSTALL",
+                storage::nvme::status_message(nvme_status));
         }
-        if (!drivers::keyboard::initialize()) {
-            boot_failure("INSTALL", "PS/2 keyboard initialization failed");
+
+        // PS/2 is only a compatibility producer. The installer consumes the
+        // generic input queue, which can be fed by PS/2 or xHCI USB HID.
+        static_cast<void>(drivers::keyboard::initialize());
+        if (!input::initialize(graphics::width(), graphics::height())) {
+            boot_failure("INSTALL", "generic input queue initialization failed");
         }
+        if (storage::device_registry::device_count() == 0U) {
+            boot_failure(
+                "INSTALL",
+                "no supported block device discovered for installation");
+        }
+        terminal::write("installer block devices: ");
+        terminal::write_u64(storage::device_registry::device_count());
+        terminal::println();
+        terminal::println("[TEST] installer_generic_storage: PASS");
+        terminal::println("[TEST] installer_generic_input: PASS");
+
         install::installer::run_interactive(
             context.boot_info->installation_package,
             static_cast<size_t>(
@@ -1954,30 +2098,64 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         boot_failure("APPS", "built-in application registration failed");
     }
 
-    const bool hardware_ready = initialize_hardware_interrupts();
+    hardware::policy::CapabilityMask hardware_capabilities =
+        initialize_hardware_interrupts();
+    if (network_status == net::Status::Ok &&
+        net::service::physical_interface()) {
+        hardware_capabilities |= hardware::policy::CapabilityNetwork;
+    }
+    const hardware::policy::Evaluation hardware_evaluation =
+        hardware::policy::evaluate(hardware_capabilities);
+
     log::write(
-        hardware_ready ? log::Level::Info : log::Level::Warn,
-        "INTERRUPTS",
-        hardware_ready ? "PIC, PIT, keyboard, mouse and input queue ready"
-                       : "hardware input degraded; polling fallback active");
-    terminal::write("interrupts/timer/input: ");
-    terminal::println(hardware_ready ? "READY" : "DEGRADED (polling enabled)");
-    terminal::write("PS/2 controller: ");
+        hardware_evaluation.bootable() ? log::Level::Info : log::Level::Error,
+        "HARDWARE",
+        hardware_evaluation.bootable()
+            ? "boot-critical hardware capabilities ready"
+            : "boot-critical hardware capability missing");
+    terminal::write("hardware boot policy: ");
     terminal::println(
-        drivers::keyboard::controller_configured() ? "configured" : "fallback");
+        hardware_evaluation.bootable()
+            ? "READY"
+            : "FAILED (boot-critical capability missing)");
+    terminal::println(
+        hardware_evaluation.bootable()
+            ? "[TEST] hardware_boot_policy: PASS"
+            : "[TEST] hardware_boot_policy: FAIL");
+
+    terminal::write("PS/2 keyboard: ");
+    terminal::println(
+        drivers::keyboard::controller_configured()
+            ? "configured (optional compatibility backend)"
+            : "unavailable (optional)");
+    terminal::println(
+        drivers::keyboard::initialized()
+            ? "[TEST] ps2_keyboard: PASS"
+            : "[TEST] ps2_keyboard: SKIP (optional backend unavailable)");
+
     terminal::write("PS/2 mouse: ");
     terminal::println(
         drivers::mouse::controller_configured()
             ? (drivers::mouse::wheel_enabled()
-                ? "configured (wheel)"
-                : "configured (3-button)")
-            : "unavailable");
+                ? "configured (wheel, optional compatibility backend)"
+                : "configured (3-button, optional compatibility backend)")
+            : "unavailable (optional)");
     terminal::println(
         drivers::mouse::initialized()
             ? "[TEST] ps2_mouse: PASS"
-            : "[TEST] ps2_mouse: FAIL");
-    if (!hardware_ready) {
-        boot_failure("INTERRUPTS", "required timer or PS/2 input unavailable");
+            : "[TEST] ps2_mouse: SKIP (optional backend unavailable)");
+
+    terminal::write("USB host: ");
+    terminal::println(
+        hardware::policy::available(
+            hardware_capabilities, hardware::policy::CapabilityUsbHost)
+            ? "READY"
+            : "unavailable (optional)");
+
+    if (!hardware_evaluation.bootable()) {
+        boot_failure(
+            "HARDWARE",
+            "required timer, scheduler interrupt hook or input queue unavailable");
     }
 
     const auto* smp_topology = arch::x86_64::acpi::topology();
@@ -2002,6 +2180,8 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             arch::x86_64::smp::online_cpu_count());
 
         if (arch::x86_64::smp::online_cpu_count() > 1U) {
+            hardware_capabilities |=
+                hardware::policy::CapabilityMultiprocessor;
             terminal::println("[TEST] smp_ap_startup: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
                 terminal::println("[TEST] smp_cross_cpu_work: FAIL");
@@ -2095,6 +2275,7 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                net::service::physical_interface()) {
         terminal::write(net::service::interface_name());
         terminal::println(" link READY");
+        bool physical_driver_ready = true;
         switch (net::physical::driver()) {
             case net::physical::Driver::E1000:
                 terminal::println("[TEST] e1000_link: PASS");
@@ -2119,56 +2300,91 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                 terminal::println("[TEST] pcnet_link: PASS");
                 break;
             case net::physical::Driver::None:
-                boot_failure("NET", "physical network has no owning driver");
+                physical_driver_ready = false;
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "physical interface has no owning driver; continuing offline");
+                terminal::println(
+                    "[TEST] physical_network: DEGRADED (no owning driver)");
                 break;
         }
-        if (!net::service::dhcp_configured()) {
-            terminal::println("[TEST] dhcp_lease: FAIL");
-            boot_failure("NET", "DHCP did not configure the physical link");
+
+        if (!physical_driver_ready) {
+            terminal::println("[TEST] dhcp_lease: SKIP (network optional)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (network optional)");
+        } else if (!net::service::dhcp_configured()) {
+            log::write(
+                log::Level::Warn,
+                "NET",
+                "DHCP unavailable; continuing with networking degraded");
+            terminal::println(
+                "[TEST] dhcp_lease: DEGRADED (system continues offline)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (no DHCP lease)");
         } else {
             terminal::println("[TEST] dhcp_lease: PASS");
             terminal::println("[TEST] udp_transport: PASS");
+
+            if (net::service::ping_gateway(1) != net::Status::Ok) {
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "gateway ICMP unavailable; continuing with networking degraded");
+                terminal::println(
+                    "[TEST] network_gateway_icmp: DEGRADED (system continues)");
+            } else {
+                terminal::println("gateway ICMP: PASS");
+                terminal::println("[TEST] network_gateway_icmp: PASS");
+
+                net::IPv4Address resolved{};
+                const net::Status dns_status =
+                    net::service::resolve_a("example.com", &resolved);
+                if (dns_status == net::Status::Ok) {
+                    terminal::println("DNS A example.com: PASS");
+                    terminal::println("[TEST] dns_resolver: PASS");
+                    const net::Status tcp_status =
+                        net::service::tcp_connect_probe(
+                            resolved, 80U, "example.com");
+                    terminal::println(
+                        tcp_status == net::Status::Ok
+                            ? "[TEST] tcp_http_optional: PASS"
+                            : "[TEST] tcp_http_optional: SKIP");
+                } else {
+                    terminal::println(
+                        "DNS A example.com: optional online test unavailable");
+                    terminal::println("[TEST] dns_resolver_online: SKIP");
+                    terminal::println("[TEST] tcp_http_optional: SKIP");
+                }
+                const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+                terminal::println(
+                    net::service::ping_address(public_probe, 2U) ==
+                            net::Status::Ok
+                        ? "[TEST] network_online_icmp: PASS"
+                        : "[TEST] network_online_icmp: SKIP");
+            }
         }
-        if (net::service::ping_gateway(1) != net::Status::Ok) {
-            terminal::println("[TEST] network_gateway_icmp: FAIL");
-            boot_failure("NET", "gateway ICMP self-test failed");
-        } else {
-            terminal::println("gateway ICMP: PASS");
-            terminal::println("[TEST] network_gateway_icmp: PASS");
-        }
-        net::IPv4Address resolved{};
-        const net::Status dns_status =
-            net::service::resolve_a("example.com", &resolved);
-        if (dns_status == net::Status::Ok) {
-            terminal::println("DNS A example.com: PASS");
-            terminal::println("[TEST] dns_resolver: PASS");
-            const net::Status tcp_status =
-                net::service::tcp_connect_probe(resolved, 80U, "example.com");
-            terminal::println(
-                tcp_status == net::Status::Ok
-                    ? "[TEST] tcp_http_optional: PASS"
-                    : "[TEST] tcp_http_optional: SKIP");
-        } else {
-            terminal::println("DNS A example.com: optional online test unavailable");
-            terminal::println("[TEST] dns_resolver_online: SKIP");
-            terminal::println("[TEST] tcp_http_optional: SKIP");
-        }
-        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-        terminal::println(
-            net::service::ping_address(public_probe, 2U) == net::Status::Ok
-                ? "[TEST] network_online_icmp: PASS"
-                : "[TEST] network_online_icmp: SKIP");
     } else if (network_status == net::Status::Ok &&
                net::service::ping_loopback(1) == net::Status::Ok) {
         terminal::println("PASS (loopback fallback 127.0.0.1)");
         terminal::println("[TEST] network_loopback: PASS");
     } else {
-        terminal::write("FAIL (");
+        terminal::write("DEGRADED (");
         terminal::write(net::status_message(network_status));
-        terminal::println(")");
-        terminal::println("[TEST] network_gateway_icmp: FAIL");
-        boot_failure("NET", "physical network self-test failed");
+        terminal::println(") - system continues offline");
+        log::write(
+            log::Level::Warn,
+            "NET",
+            "network service unavailable; continuing without physical network");
+        terminal::println(
+            "[TEST] network_loopback: DEGRADED (network optional at boot)");
+        terminal::println(
+            "[TEST] network_gateway_icmp: SKIP (network optional at boot)");
     }
+    hardware_capabilities =
+        refresh_runtime_capabilities(hardware_capabilities);
+    print_compatibility_report(hardware_capabilities);
     terminal::println(
         g_required_runtime_test_failed
             ? "[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL"

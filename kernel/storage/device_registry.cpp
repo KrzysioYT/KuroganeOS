@@ -1,73 +1,65 @@
 #include "device_registry.hpp"
 
-#include "ahci.hpp"
-#include "nvme.hpp"
-#include "../drivers/usb/xhci.hpp"
-
 namespace storage::device_registry {
+namespace {
 
-size_t device_count() {
-    size_t count = ahci::device_count();
-    if (nvme::block_device() != nullptr) ++count;
-    if (drivers::usb::xhci::mass_storage_block_device() != nullptr) ++count;
-    return count;
+Entry g_entries[MAXIMUM_BLOCK_DEVICES]{};
+size_t g_count = 0U;
+
+bool valid_model(const char* model) {
+    return model != nullptr && model[0] != '\0';
 }
 
-bool entry_at(size_t index, Entry* output) {
-    if (output == nullptr) return false;
-    *output = {};
+} // namespace
 
-    const size_t ahci_count = ahci::device_count();
-    if (index < ahci_count) {
-        const block::Device* device = ahci::device_at(index);
-        const ahci::DeviceInfo* info = ahci::device_info_at(index);
-        if (device == nullptr) return false;
-        *output = {
-            Backend::Ahci,
-            index,
-            device,
-            info != nullptr && info->model[0] != '\0'
-                ? info->model
-                : "SATA/AHCI disk",
-        };
+bool register_device(
+    Backend backend,
+    size_t backend_index,
+    const block::Device* device,
+    const char* model) {
+    if (device == nullptr || block::validate(device) != block::Status::Ok ||
+        !valid_model(model)) {
+        return false;
+    }
+    for (size_t index = 0U; index < g_count; ++index) {
+        if (g_entries[index].device != device) continue;
+        g_entries[index] = {backend, backend_index, device, model};
         return true;
     }
-    index -= ahci_count;
+    if (g_count >= MAXIMUM_BLOCK_DEVICES) return false;
+    g_entries[g_count++] = {backend, backend_index, device, model};
+    return true;
+}
 
-    const block::Device* nvme_device = nvme::block_device();
-    if (nvme_device != nullptr) {
-        if (index == 0U) {
-            const nvme::ControllerInfo* info = nvme::controller_info();
-            *output = {
-                Backend::Nvme,
-                0U,
-                nvme_device,
-                info != nullptr && info->model[0] != '\0'
-                    ? info->model
-                    : "NVMe namespace",
-            };
-            return true;
+bool unregister_device(const block::Device* device) {
+    if (device == nullptr) return false;
+    for (size_t index = 0U; index < g_count; ++index) {
+        if (g_entries[index].device != device) continue;
+        for (size_t move = index + 1U; move < g_count; ++move) {
+            g_entries[move - 1U] = g_entries[move];
         }
-        --index;
-    }
-
-    const block::Device* usb =
-        drivers::usb::xhci::mass_storage_block_device();
-    if (usb != nullptr && index == 0U) {
-        *output = {
-            Backend::UsbMassStorage,
-            0U,
-            usb,
-            "USB Mass Storage",
-        };
+        --g_count;
+        if (g_count < MAXIMUM_BLOCK_DEVICES) g_entries[g_count] = {};
         return true;
     }
     return false;
 }
 
+void reset() {
+    for (size_t index = 0U; index < g_count; ++index) g_entries[index] = {};
+    g_count = 0U;
+}
+
+size_t device_count() { return g_count; }
+
+bool entry_at(size_t index, Entry* output) {
+    if (output == nullptr || index >= g_count) return false;
+    *output = g_entries[index];
+    return output->device != nullptr;
+}
+
 const block::Device* device_at(size_t index) {
-    Entry entry{};
-    return entry_at(index, &entry) ? entry.device : nullptr;
+    return index < g_count ? g_entries[index].device : nullptr;
 }
 
 const char* backend_name(Backend backend) {
@@ -75,6 +67,8 @@ const char* backend_name(Backend backend) {
         case Backend::Ahci: return "AHCI";
         case Backend::Nvme: return "NVMe";
         case Backend::UsbMassStorage: return "USB";
+        case Backend::VirtioBlock: return "VirtIO";
+        case Backend::Other: return "OTHER";
     }
     return "UNKNOWN";
 }

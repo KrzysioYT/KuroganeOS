@@ -73,3 +73,99 @@ Full process/thread multicore scheduling is 6.0 Core Steel.
 HID Boot Mouse wheel/report-protocol support remains an explicit P2 limitation
 and is not falsely reported as qualified. Oracle VirtualBox and physical
 hardware remain external validation.
+
+## 5.1 HAL / Driver Portability
+
+Status: **IN PROGRESS — NOT YET QUALIFIED**.
+
+The project direction changed after real VirtualBox testing exposed the cost of
+treating one VM profile as the hardware contract. KuroganeOS now targets
+generic x86-64 UEFI systems; hypervisors are qualification targets only.
+
+Initial 5.1 implementation:
+- central `hardware::policy` capability evaluation;
+- Device Model `Optional` / `BootCritical` requirements with Driver Manager
+  isolation of optional bind failures;
+- structured boot-time hardware inventory including bus, type, PCI IDs,
+  requirement, status and owning driver;
+- only timer, timer-scheduling hook and generic input queue are boot-critical
+  in the first portability slice;
+- PS/2 keyboard/mouse are optional compatibility backends rather than boot
+  requirements;
+- xHCI USB HID continues to feed the same generic input queue;
+- network driver/DHCP/gateway failure degrades networking instead of halting
+  an otherwise usable system;
+- QEMU smoke tooling gained an `--no-ps2` mode using an i8042-disabled q35
+  machine;
+- a dedicated portability gate requires Red Flux plus real USB keyboard and
+  mouse input with PS/2 absent.
+
+This section records active engineering only. It must not be treated as a
+qualified 5.1 milestone until the dedicated workflow and required regression
+matrix are green on an exact candidate.
+
+## 5.2 Universal Input
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+The generic input contract now supports relative and absolute pointers.
+USB HID report descriptors are parsed for pointer X/Y, logical ranges, buttons,
+wheel and optional report IDs. xHCI can fetch a HID report descriptor, register
+a report-protocol pointer and route relative reports through the shared mouse
+contract or absolute reports through framebuffer-scaled
+`input::submit_absolute_pointer`.
+
+The dedicated 5.2 runtime gate disables i8042 and combines a real xHCI USB
+keyboard with QEMU's USB tablet. It requires real keyboard delivery, absolute
+pointer delivery, multi-HID enumeration and Red Flux startup. Boot-protocol
+keyboard/mouse remain supported fallbacks.
+
+## 5.3 Universal Storage
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+`storage::device_registry` is now controller-independent. AHCI, NVMe and
+xHCI USB Mass Storage publish the same `storage::block::Device` contract into
+a central fixed-size registry. USB hot-unplug unregisters the device before
+child teardown.
+
+The installer consumes generic input events and enumerates the generic block
+registry instead of requiring PS/2 plus AHCI. GPT/root-volume probing, scratch
+qualification and auxiliary KuroFS probing now consume registry entries rather
+than assuming an AHCI provider. The 5.3 gate combines NVMe and USB Mass Storage
+and requires both to remain visible through the unified runtime.
+
+## 5.4 Platform / Firmware Portability
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+A neutral x86 CPU discovery layer reports CPUID vendor, family/model/stepping
+and baseline TSC/MSR/APIC/x2APIC/SSE2/NX/long-mode capabilities. The kernel
+does not select a different scheduler or SMP architecture by vendor.
+
+The 5.4 gate boots the same UEFI/ACPI/APIC/SMP code with Intel-like
+`GenuineIntel` and AMD-like `AuthenticAMD` CPUID identities, four vCPUs,
+HPET, AP startup, cross-CPU work and TLB shootdown.
+
+## 5.5 Hardware Compatibility Gate
+
+Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA QUALIFICATION**.
+
+Transport-neutral capabilities now distinguish display, keyboard, pointer,
+storage, network, audio, USB host and multiprocessor support. Runtime reports
+one of:
+
+- Tier 0 Boot;
+- Tier 1 Usable;
+- Tier 2 Connected;
+- Tier 3 Extended.
+
+The automated 5.5 gate requires both a PS/2-free Tier 1 profile
+(USB keyboard + report-protocol tablet + NVMe) and a Tier 3 profile
+(4 vCPU + USB + NVMe + E1000 networking + Intel HDA).
+
+Oracle VirtualBox, VMware and physical Intel/AMD machines remain external
+validation, not fabricated automated evidence. They do not block independent
+Kernel Core 2.0 engineering, but any reproduced real-hardware failure reopens
+the affected 5.x portability subsystem. Broad physical qualification remains
+mandatory before the final release-candidate/stable gate.

@@ -298,8 +298,10 @@ KStatus bind_all() {
         if (target == nullptr || target->driver != device::INVALID_DRIVER_ID) {
             continue;
         }
+        const device::Requirement requirement = target->requirement;
         const KStatus status = bind_device(id);
-        if (status != KStatus::Ok && status != KStatus::NotFound) {
+        if (status != KStatus::Ok &&
+            requirement == device::Requirement::BootCritical) {
             aggregate = status;
         }
     }

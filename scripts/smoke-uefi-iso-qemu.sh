@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -11,6 +11,7 @@ media=""
 media_kind="iso"
 persistent_disk=false
 accel_model="tcg"
+cpu_model_override=""
 smp_cpus=1
 timeout_seconds=60
 nic_model="none"
@@ -18,8 +19,10 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 nvme=false
+no_ps2=false
 usb_keyboard=false
 usb_mouse=false
+usb_tablet=false
 usb_storage=false
 usb_controller=false
 usb_hotplug=false
@@ -51,6 +54,7 @@ while (($#)); do
         --disk) media_kind="disk"; shift ;;
         --persistent-disk) persistent_disk=true; shift ;;
         --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
+        --cpu-model) [[ $# -ge 2 && -n "$2" ]] || usage; cpu_model_override="$2"; shift 2 ;;
         --smp) [[ $# -ge 2 ]] || usage; smp_cpus="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
@@ -58,9 +62,11 @@ while (($#)); do
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --nvme) nvme=true; shift ;;
+        --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
+        --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
         --usb-storage) usb_controller=true; usb_storage=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
@@ -134,6 +140,13 @@ case "$accel_model" in
         ;;
     *) echo "invalid accelerator: $accel_model" >&2; usage ;;
 esac
+if [[ -n "$cpu_model_override" ]]; then
+    [[ "$cpu_model_override" =~ ^[A-Za-z0-9_.=,+:-]+$ ]] || {
+        echo "invalid CPU model string: $cpu_model_override" >&2
+        exit 2
+    }
+    cpu_model="$cpu_model_override"
+fi
 case "$audio_model" in
     none|ac97|hda) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
@@ -285,7 +298,9 @@ send_qemu_click() {
     local target_x="$1"
     local target_y="$2"
     local pointer_kind="default"
-    if $usb_mouse; then
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
         pointer_kind="usb-mouse"
     fi
     python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" <<'PY'
@@ -356,28 +371,40 @@ for _ in range(40):
             raise RuntimeError(f"invalid QMP greeting: {greeting}")
         execute(stream, "qmp_capabilities")
 
-        if pointer_kind == "usb-mouse":
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
             mice = execute(stream, "human-monitor-command", {
                 "command-line": "info mice"
             })
-            match = re.search(
-                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse",
-                mice,
-                re.IGNORECASE,
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU USB Tablet"
             )
+            match = re.search(pattern, mice, re.IGNORECASE)
             if match is None:
-                raise RuntimeError(f"QEMU HID/USB Mouse not present in info mice: {mice!r}")
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
             execute(stream, "human-monitor-command", {
                 "command-line": f"mouse_set {match.group(1)}"
             })
 
-        # Kurogane's pointer state is clamped. Drive far negative first so the
-        # resulting guest coordinate is deterministically (0,0), independent
-        # of the firmware/guest cursor history, then walk to the target.
-        for _ in range(50):
-            relative(stream, -100, -100)
-        move_axis(stream, "x", target_x)
-        move_axis(stream, "y", target_y)
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        # The button event is shared by relative and absolute pointer devices.
         execute(stream, "input-send-event", {"events": [
             {"type": "btn", "data": {"down": True, "button": "left"}}
         ]})
@@ -533,6 +560,13 @@ if $usb_mouse; then
         -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
     )
 fi
+if $usb_tablet; then
+    # Absolute HID report-protocol device. This deliberately does not satisfy
+    # the boot-mouse interface matcher.
+    usb_args+=(
+        -device usb-tablet,bus=kurogane_xhci.0,id=kurogane_usb_tablet
+    )
+fi
 if $usb_storage; then
     usb_storage_image="$tmp/usb-storage.img"
     python3 - "$usb_storage_image" <<'PY'
@@ -571,8 +605,13 @@ else
     )
 fi
 
+machine_model="q35,accel=$accel_model"
+if $no_ps2; then
+    machine_model+=",i8042=off"
+fi
+
 qemu-system-x86_64 \
-    -machine "q35,accel=$accel_model" \
+    -machine "$machine_model" \
     -cpu "$cpu_model" \
     -smp "$smp_cpus" \
     -m 1024 \

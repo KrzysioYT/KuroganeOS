@@ -1,0 +1,91 @@
+name: Qualify 5.3 Universal Storage
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-universal-storage.yml'
+      - 'kernel/storage/**'
+      - 'kernel/install/**'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_storage_registry.cpp'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-universal-storage.yml'
+      - 'kernel/storage/**'
+      - 'kernel/install/**'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_storage_registry.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  universal-storage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify controller-independent registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          ! grep -Eq '#include "(ahci|nvme)\.hpp"|drivers/usb/xhci' kernel/storage/device_registry.cpp
+          grep -Fq 'installer_generic_storage' kernel/main.cpp
+          grep -Fq 'input::try_read' kernel/install/installer.cpp
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require NVMe and USB storage through generic registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --nvme --usb-storage --nic none \
+            --log-dir build/tests/universal-storage --timeout 190 \
+            --require-marker '[TEST] generic_storage_registry: PASS' \
+            --require-marker '[TEST] nvme_admin_identify: PASS' \
+            --require-marker '[TEST] nvme_namespace_read: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_enumeration: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_read10: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|xhci_mass_storage_.*: FAIL|unified_storage_.*: FAIL' \
+            build/tests/universal-storage/serial.log
+
+      - name: Retain Universal Storage logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-storage-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/universal-storage
+          if-no-files-found: warn

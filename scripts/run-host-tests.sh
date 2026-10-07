@@ -24,6 +24,28 @@ bash tests/test_network_smoke_state.sh
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 "$HOST_PYTHON" tests/test_virtualbox_input_profile.py
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hardware_policy.cpp kernel/hardware/policy.cpp \
+  -o "$OUT_DIR/test_hardware_policy"
+"$OUT_DIR/test_hardware_policy"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hardware_compatibility.cpp \
+  kernel/hardware/policy.cpp kernel/hardware/compatibility.cpp \
+  -o "$OUT_DIR/test_hardware_compatibility"
+"$OUT_DIR/test_hardware_compatibility"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
+  -o "$OUT_DIR/test_cpu_info"
+"$OUT_DIR/test_cpu_info"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_driver_requirement_policy.cpp \
+  kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
+  -o "$OUT_DIR/test_driver_requirement_policy"
+"$OUT_DIR/test_driver_requirement_policy"
+
 # Run the production input queue and pump, including whole-report rejection,
 # retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
 # legacy test.sh entry also runs this regression, but all qualification gates
@@ -106,6 +128,11 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_nvme_protocol"
 "$OUT_DIR/test_nvme_protocol"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_storage_registry.cpp kernel/storage/device_registry.cpp \
+  -o "$OUT_DIR/test_storage_registry"
+"$OUT_DIR/test_storage_registry"
+
 # Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
 # restore transaction without touching privileged host PCI configuration.
 "$HOST_CXX" \
@@ -180,6 +207,11 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_usb_protocol"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
+  -o "$OUT_DIR/test_usb_hid_report"
+"$OUT_DIR/test_usb_hid_report"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_mass_storage_protocol.cpp \
   kernel/drivers/usb/mass_storage_protocol.cpp \
   -o "$OUT_DIR/test_usb_mass_storage_protocol"
@@ -219,9 +251,11 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
   -ffunction-sections -fdata-sections tests/test_xhci_completions.cpp \
   kernel/drivers/usb/protocol.cpp \
+  kernel/drivers/usb/hid_report.cpp \
   kernel/drivers/usb/mass_storage_protocol.cpp \
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
+  kernel/storage/device_registry.cpp \
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
 python3 tests/test_usb_hotplug_qmp.py
@@ -231,6 +265,7 @@ python3 tests/test_usb_hotplug_qmp.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
   -ffunction-sections -fdata-sections tests/test_xhci_cleanup.cpp \
   kernel/drivers/core/device_manager.cpp \
+  kernel/storage/device_registry.cpp \
   -Wl,--gc-sections -o "$OUT_DIR/test_xhci_cleanup"
 timeout 10 "$OUT_DIR/test_xhci_cleanup"
 

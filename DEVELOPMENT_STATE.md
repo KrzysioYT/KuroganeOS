@@ -22,12 +22,39 @@ Merged through PR #45 as integration commit:
 - `3.6.0-dev — Flux Stabilization`: QUALIFIED
 - `4.0.0-dev — Pre-Steel`: QUALIFIED
 - `5.0.0-dev — Steel / Hardware`: QUALIFIED AFTER COEXISTENCE AUDIT
-- `6.0.0-dev` through `14.0.0-rc`: pending
+- `5.1 — HAL / Driver Portability`: implemented candidate, qualification pending
+- `5.2 — Universal Input`: implemented candidate, qualification pending
+- `5.3 — Universal Storage`: implemented candidate, qualification pending
+- `5.4 — Platform / Firmware Portability`: implemented candidate, qualification pending
+- `5.5 — Hardware Compatibility Gate`: implemented candidate, qualification pending
+- `6.0.0-dev — Kernel Core 2.0` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
 `5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
 not mean the 5.0 engineering gate is incomplete; only 15.0.0 is planned as the
 first product-level STABLE release.
+
+
+## Active 5.x hardware compatibility transition
+
+The qualified 5.0 hardware substrate is now being generalized for physical
+x86-64 UEFI systems. VirtualBox/QEMU/VMware are test targets, not the system
+architecture.
+
+The 5.x compatibility line now includes the central hardware capability
+policy, optional/boot-critical Device Model semantics, HID report-protocol
+absolute pointers, controller-independent block-device registration,
+transport-neutral installer input/storage, x86 vendor/capability discovery and
+runtime compatibility tiers.
+
+Dedicated QEMU gates cover PS/2-free USB input, USB tablet report protocol,
+NVMe + USB storage coexistence, Intel-like and AMD-like four-vCPU firmware/SMP
+paths, and Tier 1/Tier 3 compatibility profiles. These are implemented
+candidates until the exact branch SHA completes the full regression matrix.
+Physical systems and non-QEMU hypervisors remain external validation rather
+than invented PASS evidence.
+
+See `docs/architecture/HARDWARE_COMPATIBILITY.md`.
 
 ## Steel qualified scope
 

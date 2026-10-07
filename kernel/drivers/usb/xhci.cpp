@@ -1,6 +1,7 @@
 #include "xhci.hpp"
 
 #include "protocol.hpp"
+#include "hid_report.hpp"
 #include "mass_storage_protocol.hpp"
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
@@ -9,6 +10,7 @@
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
 #include "../../storage/dma.hpp"
+#include "../../storage/device_registry.hpp"
 #include "../../storage/block_device.hpp"
 #include "../../terminal.hpp"
 
@@ -86,7 +88,7 @@ struct ProducerRing {
 };
 
 enum class HidKind : uint8_t {
-    None, Keyboard, Mouse,
+    None, Keyboard, Mouse, ReportPointer,
 };
 
 enum class HidLifecycle : uint8_t {
@@ -112,13 +114,18 @@ struct CompanionHid {
     HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
     HidBootMouseInterface mouse_interface;
+    HidReportInterface report_interface;
+    hid::PointerReportLayout pointer_layout;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
+    hid::PointerDecoder pointer_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
     mouse::Sample pending_mouse;
     bool pending_mouse_valid;
+    hid::PointerReport pending_pointer;
+    bool pending_pointer_valid;
     HidLifecycle hid_lifecycle;
     bool report_queued;
     uint64_t report_trb;
@@ -173,6 +180,8 @@ struct Controller {
     HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
     HidBootMouseInterface mouse_interface;
+    HidReportInterface report_interface;
+    hid::PointerReportLayout pointer_layout;
     mass_storage::BulkOnlyInterface mass_storage_interface;
     bool mass_storage_present;
     uint32_t mass_storage_tag;
@@ -182,11 +191,14 @@ struct Controller {
     bool mass_storage_block_ready;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
+    hid::PointerDecoder pointer_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
     mouse::Sample pending_mouse;
     bool pending_mouse_valid;
+    hid::PointerReport pending_pointer;
+    bool pending_pointer_valid;
     HidLifecycle hid_lifecycle;
     Status runtime_status;
     bool report_queued;
@@ -387,6 +399,10 @@ Status quiesce_dma(Controller& controller) {
 
 Status remove_hid_devices(Controller* controller) {
     if (controller == nullptr) return Status::InvalidArgument;
+    if (controller->mass_storage_block.context != nullptr) {
+        static_cast<void>(storage::device_registry::unregister_device(
+            &controller->mass_storage_block));
+    }
     device::DeviceId* const children[] = {
         &controller->keyboard_device,
         &controller->mouse_device,
@@ -977,8 +993,67 @@ bool read_descriptors(Controller& controller) {
     }
     if (find_boot_mouse_interface(
             configuration, total, &controller.mouse_interface)) {
+        HidReportInterface mouse_report_interface{};
+        if (find_hid_report_interface_for_interface(
+                configuration,
+                total,
+                controller.mouse_interface.interface_number,
+                &mouse_report_interface) &&
+            mouse_report_interface.report_descriptor_length <=
+                memory::virtual_memory::PAGE_SIZE) {
+            controller.report_interface = mouse_report_interface;
+            if (control_transfer(
+                    controller, 0x00U, 9U,
+                    mouse_report_interface.configuration_value,
+                    0U, 0U, false)) {
+                clear_bytes(
+                    controller.data_page.virtual_address,
+                    memory::virtual_memory::PAGE_SIZE);
+                if (control_transfer(
+                        controller, 0x81U, 6U, 0x2200U,
+                        mouse_report_interface.interface_number,
+                        mouse_report_interface.report_descriptor_length,
+                        true) &&
+                    hid::parse_pointer_report_descriptor(
+                        static_cast<const uint8_t*>(
+                            controller.data_page.virtual_address),
+                        mouse_report_interface.report_descriptor_length,
+                        &controller.pointer_layout)) {
+                    controller.hid_kind = HidKind::ReportPointer;
+                    return true;
+                }
+            }
+        }
         controller.hid_kind = HidKind::Mouse;
         return true;
+    }
+    HidReportInterface report_interface{};
+    if (find_hid_report_interface(
+            configuration, total, &report_interface) &&
+        report_interface.report_descriptor_length <=
+            memory::virtual_memory::PAGE_SIZE) {
+        controller.report_interface = report_interface;
+        if (control_transfer(
+                controller, 0x00U, 9U,
+                report_interface.configuration_value,
+                0U, 0U, false)) {
+            clear_bytes(
+                controller.data_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+            if (control_transfer(
+                    controller, 0x81U, 6U, 0x2200U,
+                    report_interface.interface_number,
+                    report_interface.report_descriptor_length,
+                    true) &&
+                hid::parse_pointer_report_descriptor(
+                    static_cast<const uint8_t*>(
+                        controller.data_page.virtual_address),
+                    report_interface.report_descriptor_length,
+                    &controller.pointer_layout)) {
+                controller.hid_kind = HidKind::ReportPointer;
+                return true;
+            }
+        }
     }
     if (mass_storage::find_bulk_only_scsi_interface(
             configuration, total, &controller.mass_storage_interface)) {
@@ -1089,6 +1164,19 @@ bool configure_mouse_endpoint(Controller& controller) {
         3U,
     };
     return configure_hid_interrupt_endpoint(controller, hid);
+}
+
+bool configure_report_pointer_endpoint(Controller& controller) {
+    const HidInterruptEndpoint hid_endpoint{
+        controller.report_interface.configuration_value,
+        controller.report_interface.interface_number,
+        controller.report_interface.endpoint_address,
+        controller.report_interface.maximum_packet_size,
+        controller.report_interface.interval,
+        controller.pointer_layout.report_bytes,
+    };
+    return controller.pointer_layout.valid &&
+        configure_hid_interrupt_endpoint(controller, hid_endpoint);
 }
 
 
@@ -1823,6 +1911,15 @@ bool initialize_mass_storage_block_device(Controller& controller) {
     }
 
     controller.mass_storage_block_ready = true;
+    if (!storage::device_registry::register_device(
+            storage::device_registry::Backend::UsbMassStorage,
+            0U,
+            &controller.mass_storage_block,
+            "USB Mass Storage")) {
+        controller.mass_storage_block_ready = false;
+        controller.mass_storage_block = {};
+        return false;
+    }
     return true;
 }
 
@@ -1834,6 +1931,10 @@ bool queue_hid_report(Controller& controller) {
     }
     if (controller.hid_kind == HidKind::Mouse &&
         controller.pending_mouse_valid) {
+        return false;
+    }
+    if (controller.hid_kind == HidKind::ReportPointer &&
+        controller.pending_pointer_valid) {
         return false;
     }
     if (controller.hid_kind == HidKind::None ||
@@ -1896,6 +1997,30 @@ bool register_mouse(Controller& controller) {
     if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
     controller.mouse_device = id;
     if (device::claim(id, controller.owner_driver, "usb-hid-boot") !=
+            KStatus::Ok ||
+        device::set_status(id, device::Status::Ready) != KStatus::Ok) {
+        return false;
+    }
+    return true;
+}
+
+bool register_report_pointer(Controller& controller) {
+    const device::Descriptor descriptor{
+        device::Type::Input,
+        device::Bus::Usb,
+        "USB HID report pointer",
+        controller.vendor_id,
+        controller.product_id,
+        3U, 0U, 0U,
+        {0U, 0U, controller.port_id, 0U},
+        controller.parent_device,
+        nullptr,
+        0U,
+    };
+    device::DeviceId id = device::INVALID_DEVICE_ID;
+    if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
+    controller.mouse_device = id;
+    if (device::claim(id, controller.owner_driver, "usb-hid-report") !=
             KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
@@ -1966,11 +2091,69 @@ void record_mouse_input(Controller& controller, const mouse::Sample& sample) {
     }
 }
 
+int16_t clamp_pointer_delta(int32_t value) {
+    if (value < INT16_MIN) return INT16_MIN;
+    if (value > INT16_MAX) return INT16_MAX;
+    return static_cast<int16_t>(value);
+}
+
+bool submit_pointer_report(const hid::PointerReport& report) {
+    if (report.absolute) {
+        const input::AbsolutePointerSample sample{
+            report.x,
+            report.y,
+            report.logical_minimum_x,
+            report.logical_maximum_x,
+            report.logical_minimum_y,
+            report.logical_maximum_y,
+            report.wheel,
+            report.buttons,
+            report.changed_buttons,
+        };
+        return input::submit_absolute_pointer(sample);
+    }
+    const mouse::Sample sample{
+        clamp_pointer_delta(report.x),
+        clamp_pointer_delta(report.y),
+        report.wheel,
+        report.buttons,
+        report.changed_buttons,
+    };
+    return input::submit_mouse(sample);
+}
+
+void record_report_pointer_input(
+    Controller& controller,
+    const hid::PointerReport& report) {
+    if (!controller.input_proven &&
+        (report.x != 0 || report.y != 0 || report.wheel != 0 ||
+         report.changed_buttons != 0U)) {
+        controller.input_proven = true;
+        log::write(
+            log::Level::Info,
+            "USB",
+            report.absolute
+                ? "hardware xHCI HID absolute pointer report received"
+                : "hardware xHCI HID report-protocol mouse received");
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+        terminal::println("[TEST] usb_hid_report_pointer_input: PASS");
+    }
+}
+
 bool flush_mouse_sample(Controller& controller) {
     if (!controller.pending_mouse_valid) return true;
     if (!input::submit_mouse(controller.pending_mouse)) return false;
     record_mouse_input(controller, controller.pending_mouse);
     controller.pending_mouse_valid = false;
+    return true;
+}
+
+bool flush_pointer_report(Controller& controller) {
+    if (!controller.pending_pointer_valid) return true;
+    if (!submit_pointer_report(controller.pending_pointer)) return false;
+    record_report_pointer_input(
+        controller, controller.pending_pointer);
+    controller.pending_pointer_valid = false;
     return true;
 }
 
@@ -1980,6 +2163,9 @@ bool flush_hid_input(Controller& controller) {
     }
     if (controller.hid_kind == HidKind::Mouse) {
         return flush_mouse_sample(controller);
+    }
+    if (controller.hid_kind == HidKind::ReportPointer) {
+        return flush_pointer_report(controller);
     }
     return true;
 }
@@ -2044,6 +2230,37 @@ void handle_mouse_report(Controller& controller, const Trb& event) {
     }
 }
 
+
+void handle_pointer_report(Controller& controller, const Trb& event) {
+    if (!controller.report_queued || (event.control & (1U << 2U)) != 0U ||
+        event.parameter != controller.report_trb) {
+        return;
+    }
+    controller.report_queued = false;
+    controller.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual = remaining <= controller.interrupt_packet_size
+        ? controller.interrupt_packet_size - remaining
+        : 0U;
+    if (completion_ok(event) &&
+        actual >= controller.pointer_layout.report_bytes) {
+        hid::PointerReport report{};
+        if (hid::decode_pointer_report(
+                controller.pointer_layout,
+                &controller.pointer_decoder,
+                static_cast<const uint8_t*>(
+                    controller.data_page.virtual_address),
+                actual,
+                &report)) {
+            controller.pending_pointer = report;
+            controller.pending_pointer_valid = true;
+            ++controller.reports;
+        }
+    }
+    if (flush_pointer_report(controller)) {
+        static_cast<void>(queue_hid_report(controller));
+    }
+}
 
 uint32_t* companion_input_context(
     Controller& controller,
@@ -2253,6 +2470,35 @@ bool read_companion_descriptors(Controller& controller) {
         companion.hid_kind = HidKind::Mouse;
         return true;
     }
+
+    HidReportInterface report_interface{};
+    if (find_hid_report_interface(
+            configuration, total, &report_interface) &&
+        report_interface.report_descriptor_length <=
+            memory::virtual_memory::PAGE_SIZE) {
+        companion.report_interface = report_interface;
+        if (companion_control_transfer(
+                controller, 0x00U, 9U,
+                report_interface.configuration_value,
+                0U, 0U, false)) {
+            clear_bytes(
+                companion.data_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+            if (companion_control_transfer(
+                    controller, 0x81U, 6U, 0x2200U,
+                    report_interface.interface_number,
+                    report_interface.report_descriptor_length,
+                    true) &&
+                hid::parse_pointer_report_descriptor(
+                    static_cast<const uint8_t*>(
+                        companion.data_page.virtual_address),
+                    report_interface.report_descriptor_length,
+                    &companion.pointer_layout)) {
+                companion.hid_kind = HidKind::ReportPointer;
+                return true;
+            }
+        }
+    }
     return false;
 }
 
@@ -2276,6 +2522,15 @@ bool configure_companion_hid_endpoint(Controller& controller) {
             companion.mouse_interface.maximum_packet_size,
             companion.mouse_interface.interval,
             3U,
+        };
+    } else if (companion.hid_kind == HidKind::ReportPointer) {
+        hid = {
+            companion.report_interface.configuration_value,
+            companion.report_interface.interface_number,
+            companion.report_interface.endpoint_address,
+            companion.report_interface.maximum_packet_size,
+            companion.report_interface.interval,
+            companion.pointer_layout.report_bytes,
         };
     } else {
         return false;
@@ -2343,20 +2598,28 @@ bool configure_companion_hid_endpoint(Controller& controller) {
 bool register_companion_hid(Controller& controller) {
     auto& companion = controller.companion;
     if (companion.hid_kind != HidKind::Keyboard &&
-        companion.hid_kind != HidKind::Mouse) {
+        companion.hid_kind != HidKind::Mouse &&
+        companion.hid_kind != HidKind::ReportPointer) {
         return false;
     }
     const bool keyboard_kind =
         companion.hid_kind == HidKind::Keyboard;
+    const bool report_pointer =
+        companion.hid_kind == HidKind::ReportPointer;
     const device::Descriptor descriptor{
         device::Type::Input,
         device::Bus::Usb,
         keyboard_kind
             ? "USB HID boot keyboard"
-            : "USB HID boot mouse",
+            : (report_pointer
+                ? "USB HID report pointer"
+                : "USB HID boot mouse"),
         companion.vendor_id,
         companion.product_id,
-        3U, 1U, static_cast<uint8_t>(keyboard_kind ? 1U : 2U),
+        3U,
+        static_cast<uint8_t>(report_pointer ? 0U : 1U),
+        static_cast<uint8_t>(keyboard_kind ? 1U :
+            (report_pointer ? 0U : 2U)),
         {0U, 0U, companion.port_id, 0U},
         controller.parent_device,
         nullptr,
@@ -2368,7 +2631,8 @@ bool register_companion_hid(Controller& controller) {
     }
     companion.child_device = id;
     if (device::claim(
-            id, controller.owner_driver, "usb-hid-boot") != KStatus::Ok ||
+            id, controller.owner_driver,
+            report_pointer ? "usb-hid-report" : "usb-hid-boot") != KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
     }
@@ -2384,6 +2648,10 @@ bool queue_companion_report(Controller& controller) {
     }
     if (companion.hid_kind == HidKind::Mouse &&
         companion.pending_mouse_valid) {
+        return false;
+    }
+    if (companion.hid_kind == HidKind::ReportPointer &&
+        companion.pending_pointer_valid) {
         return false;
     }
     if (companion.hid_kind == HidKind::None ||
@@ -2448,12 +2716,36 @@ bool flush_companion_mouse(CompanionHid& companion) {
     return true;
 }
 
+void record_companion_pointer_input(
+    CompanionHid& companion,
+    const hid::PointerReport& report) {
+    if (!companion.input_proven &&
+        (report.x != 0 || report.y != 0 || report.wheel != 0 ||
+         report.changed_buttons != 0U)) {
+        companion.input_proven = true;
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+        terminal::println("[TEST] usb_hid_report_pointer_input: PASS");
+    }
+}
+
+bool flush_companion_pointer(CompanionHid& companion) {
+    if (!companion.pending_pointer_valid) return true;
+    if (!submit_pointer_report(companion.pending_pointer)) return false;
+    record_companion_pointer_input(
+        companion, companion.pending_pointer);
+    companion.pending_pointer_valid = false;
+    return true;
+}
+
 bool flush_companion_input(CompanionHid& companion) {
     if (companion.hid_kind == HidKind::Keyboard) {
         return flush_companion_keyboard(companion);
     }
     if (companion.hid_kind == HidKind::Mouse) {
         return flush_companion_mouse(companion);
+    }
+    if (companion.hid_kind == HidKind::ReportPointer) {
+        return flush_companion_pointer(companion);
     }
     return true;
 }
@@ -2525,6 +2817,42 @@ void handle_companion_mouse_report(
     }
 }
 
+void handle_companion_pointer_report(
+    Controller& controller,
+    const Trb& event) {
+    auto& companion = controller.companion;
+    if (!companion.report_queued ||
+        (event.control & (1U << 2U)) != 0U ||
+        event.parameter != companion.report_trb) {
+        return;
+    }
+    companion.report_queued = false;
+    companion.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual =
+        remaining <= companion.interrupt_packet_size
+            ? companion.interrupt_packet_size - remaining
+            : 0U;
+    if (completion_ok(event) &&
+        actual >= companion.pointer_layout.report_bytes) {
+        hid::PointerReport report{};
+        if (hid::decode_pointer_report(
+                companion.pointer_layout,
+                &companion.pointer_decoder,
+                static_cast<const uint8_t*>(
+                    companion.data_page.virtual_address),
+                actual,
+                &report)) {
+            companion.pending_pointer = report;
+            companion.pending_pointer_valid = true;
+            ++companion.reports;
+        }
+    }
+    if (flush_companion_pointer(companion)) {
+        static_cast<void>(queue_companion_report(controller));
+    }
+}
+
 bool retire_companion_slot(Controller& controller) {
     auto& companion = controller.companion;
     if (companion.slot_id != 0U) {
@@ -2559,12 +2887,17 @@ bool retire_companion_slot(Controller& controller) {
     companion.hid_kind = HidKind::None;
     companion.keyboard_interface = {};
     companion.mouse_interface = {};
+    companion.report_interface = {};
+    companion.pointer_layout = {};
     companion.keyboard_decoder = {};
     companion.mouse_decoder = {};
+    companion.pointer_decoder = {};
     companion.pending_key_count = 0U;
     companion.pending_key_index = 0U;
     companion.pending_mouse = {};
     companion.pending_mouse_valid = false;
+    companion.pending_pointer = {};
+    companion.pending_pointer_valid = false;
     companion.report_queued = false;
     companion.report_trb = 0U;
     companion.input_proven = false;
@@ -2590,7 +2923,8 @@ void mark_multi_hid_if_ready(Controller& controller) {
         controller.hid_kind == HidKind::Keyboard;
     const bool primary_mouse =
         controller.hid_lifecycle == HidLifecycle::Active &&
-        controller.hid_kind == HidKind::Mouse;
+        (controller.hid_kind == HidKind::Mouse ||
+         controller.hid_kind == HidKind::ReportPointer);
     const bool companion_keyboard =
         controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
@@ -2598,7 +2932,8 @@ void mark_multi_hid_if_ready(Controller& controller) {
     const bool companion_mouse =
         controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
-        controller.companion.hid_kind == HidKind::Mouse;
+        (controller.companion.hid_kind == HidKind::Mouse ||
+         controller.companion.hid_kind == HidKind::ReportPointer);
     if ((primary_keyboard && companion_mouse) ||
         (primary_mouse && companion_keyboard)) {
         controller.multi_hid_proven = true;
@@ -2639,8 +2974,10 @@ bool attach_companion_hid(Controller& controller) {
 
     if (companion.hid_kind == HidKind::Keyboard) {
         reset_keyboard_decoder(&companion.keyboard_decoder);
-    } else {
+    } else if (companion.hid_kind == HidKind::Mouse) {
         reset_mouse_decoder(&companion.mouse_decoder);
+    } else {
+        hid::reset_pointer_decoder(&companion.pointer_decoder);
     }
     companion.hid_lifecycle = HidLifecycle::Active;
     acknowledge_port_change(controller, companion.port_id);
@@ -2650,6 +2987,9 @@ bool attach_companion_hid(Controller& controller) {
         terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
     } else {
         terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+        if (companion.hid_kind == HidKind::ReportPointer) {
+            terminal::println("[TEST] xhci_report_pointer_enumeration: PASS");
+        }
     }
     mark_multi_hid_if_ready(controller);
     return true;
@@ -2703,6 +3043,15 @@ bool progress_companion_lifecycle(Controller& controller) {
                 companion.pending_mouse_valid = true;
             }
         }
+        else if (companion.hid_kind == HidKind::ReportPointer) {
+            const uint8_t changed = companion.pointer_decoder.previous_buttons;
+            companion.pointer_decoder.previous_buttons = 0U;
+            companion.pending_pointer = {
+                false, 0, 0, 0, 0, 0, 0, 0,
+                0U, changed
+            };
+            companion.pending_pointer_valid = changed != 0U;
+        }
         companion.hid_lifecycle =
             HidLifecycle::ReleaseInput;
     }
@@ -2745,6 +3094,12 @@ Status attach_hid_device(Controller& controller) {
             reset_mouse_decoder(&controller.mouse_decoder);
             registered = register_mouse(controller);
         }
+    } else if (controller.hid_kind == HidKind::ReportPointer) {
+        configured = configure_report_pointer_endpoint(controller);
+        if (configured) {
+            hid::reset_pointer_decoder(&controller.pointer_decoder);
+            registered = register_report_pointer(controller);
+        }
     } else if (controller.mass_storage_present) {
         configured = configure_mass_storage_endpoints(controller);
         if (configured) {
@@ -2770,6 +3125,12 @@ Status attach_hid_device(Controller& controller) {
     } else if (controller.hid_kind == HidKind::Mouse) {
         log::write(log::Level::Info, "USB", "xHCI USB HID boot mouse ready");
         terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+    } else if (controller.hid_kind == HidKind::ReportPointer) {
+        log::write(
+            log::Level::Info, "USB",
+            "xHCI USB HID report-protocol pointer ready");
+        terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+        terminal::println("[TEST] xhci_report_pointer_enumeration: PASS");
     } else {
         log::write(
             log::Level::Info, "USB",
@@ -2836,6 +3197,15 @@ bool progress_hid_lifecycle(Controller& controller) {
                 controller.pending_mouse_valid = true;
             }
         }
+        else if (controller.hid_kind == HidKind::ReportPointer) {
+            const uint8_t changed = controller.pointer_decoder.previous_buttons;
+            controller.pointer_decoder.previous_buttons = 0U;
+            controller.pending_pointer = {
+                false, 0, 0, 0, 0, 0, 0, 0,
+                0U, changed
+            };
+            controller.pending_pointer_valid = changed != 0U;
+        }
         controller.hid_lifecycle = HidLifecycle::ReleaseInput;
     }
     if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
@@ -2874,6 +3244,11 @@ bool progress_hid_lifecycle(Controller& controller) {
         controller.port_id = 0U;
         controller.port_speed = 0U;
         controller.pending_mouse_valid = false;
+        controller.pending_pointer = {};
+        controller.pending_pointer_valid = false;
+        controller.report_interface = {};
+        controller.pointer_layout = {};
+        controller.pointer_decoder = {};
         controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         controller.runtime_status = Status::NoDevice;
         log::write(log::Level::Info, "USB", "HID device disconnected; slot retired");
@@ -3000,7 +3375,9 @@ size_t poll(size_t budget) {
         (g_controller.hid_kind == HidKind::Keyboard &&
          g_controller.pending_key_count != 0U) ||
         (g_controller.hid_kind == HidKind::Mouse &&
-         g_controller.pending_mouse_valid);
+         g_controller.pending_mouse_valid) ||
+        (g_controller.hid_kind == HidKind::ReportPointer &&
+         g_controller.pending_pointer_valid);
     if (g_controller.hid_lifecycle == HidLifecycle::Active && input_pending) {
         if (!flush_hid_input(g_controller)) return 0U;
         static_cast<void>(queue_hid_report(g_controller));
@@ -3011,7 +3388,9 @@ size_t poll(size_t budget) {
         (companion.hid_kind == HidKind::Keyboard &&
          companion.pending_key_count != 0U) ||
         (companion.hid_kind == HidKind::Mouse &&
-         companion.pending_mouse_valid);
+         companion.pending_mouse_valid) ||
+        (companion.hid_kind == HidKind::ReportPointer &&
+         companion.pending_pointer_valid);
     if (companion.hid_lifecycle == HidLifecycle::Active &&
         companion_pending) {
         if (!flush_companion_input(companion)) return 0U;
@@ -3064,6 +3443,8 @@ size_t poll(size_t budget) {
                 handle_keyboard_report(g_controller, event);
             } else if (g_controller.hid_kind == HidKind::Mouse) {
                 handle_mouse_report(g_controller, event);
+            } else if (g_controller.hid_kind == HidKind::ReportPointer) {
+                handle_pointer_report(g_controller, event);
             }
             continue;
         }
@@ -3076,6 +3457,9 @@ size_t poll(size_t budget) {
                     g_controller, event);
             } else if (companion.hid_kind == HidKind::Mouse) {
                 handle_companion_mouse_report(
+                    g_controller, event);
+            } else if (companion.hid_kind == HidKind::ReportPointer) {
+                handle_companion_pointer_report(
                     g_controller, event);
             }
         }
@@ -3109,12 +3493,14 @@ bool mouse_ready() {
     if (!g_controller.initialized) return false;
     const bool primary =
         g_controller.hid_lifecycle == HidLifecycle::Active &&
-        g_controller.hid_kind == HidKind::Mouse &&
+        (g_controller.hid_kind == HidKind::Mouse ||
+         g_controller.hid_kind == HidKind::ReportPointer) &&
         g_controller.mouse_device != device::INVALID_DEVICE_ID;
     const bool companion =
         g_controller.companion.hid_lifecycle ==
             HidLifecycle::Active &&
-        g_controller.companion.hid_kind == HidKind::Mouse &&
+        (g_controller.companion.hid_kind == HidKind::Mouse ||
+         g_controller.companion.hid_kind == HidKind::ReportPointer) &&
         g_controller.companion.child_device !=
             device::INVALID_DEVICE_ID;
     return primary || companion;
