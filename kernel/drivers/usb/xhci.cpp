@@ -1130,6 +1130,19 @@ bool configure_mouse_endpoint(Controller& controller) {
     return configure_hid_interrupt_endpoint(controller, hid);
 }
 
+bool configure_report_pointer_endpoint(Controller& controller) {
+    const HidInterruptEndpoint hid_endpoint{
+        controller.report_interface.configuration_value,
+        controller.report_interface.interface_number,
+        controller.report_interface.endpoint_address,
+        controller.report_interface.maximum_packet_size,
+        controller.report_interface.interval,
+        controller.pointer_layout.report_bytes,
+    };
+    return controller.pointer_layout.valid &&
+        configure_hid_interrupt_endpoint(controller, hid_endpoint);
+}
+
 
 bool configure_mass_storage_endpoints(Controller& controller) {
     const auto& interface = controller.mass_storage_interface;
@@ -1875,6 +1888,10 @@ bool queue_hid_report(Controller& controller) {
         controller.pending_mouse_valid) {
         return false;
     }
+    if (controller.hid_kind == HidKind::ReportPointer &&
+        controller.pending_pointer_valid) {
+        return false;
+    }
     if (controller.hid_kind == HidKind::None ||
         controller.interrupt_packet_size == 0U) {
         return false;
@@ -1935,6 +1952,30 @@ bool register_mouse(Controller& controller) {
     if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
     controller.mouse_device = id;
     if (device::claim(id, controller.owner_driver, "usb-hid-boot") !=
+            KStatus::Ok ||
+        device::set_status(id, device::Status::Ready) != KStatus::Ok) {
+        return false;
+    }
+    return true;
+}
+
+bool register_report_pointer(Controller& controller) {
+    const device::Descriptor descriptor{
+        device::Type::Input,
+        device::Bus::Usb,
+        "USB HID report pointer",
+        controller.vendor_id,
+        controller.product_id,
+        3U, 0U, 0U,
+        {0U, 0U, controller.port_id, 0U},
+        controller.parent_device,
+        nullptr,
+        0U,
+    };
+    device::DeviceId id = device::INVALID_DEVICE_ID;
+    if (device::register_device(descriptor, &id) != KStatus::Ok) return false;
+    controller.mouse_device = id;
+    if (device::claim(id, controller.owner_driver, "usb-hid-report") !=
             KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
@@ -2345,6 +2386,15 @@ bool configure_companion_hid_endpoint(Controller& controller) {
             companion.mouse_interface.interval,
             3U,
         };
+    } else if (companion.hid_kind == HidKind::ReportPointer) {
+        hid = {
+            companion.report_interface.configuration_value,
+            companion.report_interface.interface_number,
+            companion.report_interface.endpoint_address,
+            companion.report_interface.maximum_packet_size,
+            companion.report_interface.interval,
+            companion.pointer_layout.report_bytes,
+        };
     } else {
         return false;
     }
@@ -2411,20 +2461,28 @@ bool configure_companion_hid_endpoint(Controller& controller) {
 bool register_companion_hid(Controller& controller) {
     auto& companion = controller.companion;
     if (companion.hid_kind != HidKind::Keyboard &&
-        companion.hid_kind != HidKind::Mouse) {
+        companion.hid_kind != HidKind::Mouse &&
+        companion.hid_kind != HidKind::ReportPointer) {
         return false;
     }
     const bool keyboard_kind =
         companion.hid_kind == HidKind::Keyboard;
+    const bool report_pointer =
+        companion.hid_kind == HidKind::ReportPointer;
     const device::Descriptor descriptor{
         device::Type::Input,
         device::Bus::Usb,
         keyboard_kind
             ? "USB HID boot keyboard"
-            : "USB HID boot mouse",
+            : (report_pointer
+                ? "USB HID report pointer"
+                : "USB HID boot mouse"),
         companion.vendor_id,
         companion.product_id,
-        3U, 1U, static_cast<uint8_t>(keyboard_kind ? 1U : 2U),
+        3U,
+        static_cast<uint8_t>(report_pointer ? 0U : 1U),
+        static_cast<uint8_t>(keyboard_kind ? 1U :
+            (report_pointer ? 0U : 2U)),
         {0U, 0U, companion.port_id, 0U},
         controller.parent_device,
         nullptr,
@@ -2436,7 +2494,8 @@ bool register_companion_hid(Controller& controller) {
     }
     companion.child_device = id;
     if (device::claim(
-            id, controller.owner_driver, "usb-hid-boot") != KStatus::Ok ||
+            id, controller.owner_driver,
+            report_pointer ? "usb-hid-report" : "usb-hid-boot") != KStatus::Ok ||
         device::set_status(id, device::Status::Ready) != KStatus::Ok) {
         return false;
     }
@@ -2452,6 +2511,10 @@ bool queue_companion_report(Controller& controller) {
     }
     if (companion.hid_kind == HidKind::Mouse &&
         companion.pending_mouse_valid) {
+        return false;
+    }
+    if (companion.hid_kind == HidKind::ReportPointer &&
+        companion.pending_pointer_valid) {
         return false;
     }
     if (companion.hid_kind == HidKind::None ||
