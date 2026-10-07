@@ -37,8 +37,15 @@ int main() {
     assert(pick_next(0U, INVALID_THREAD_ID, &selected) == Status::Ok);
     assert(selected == 101U);
 
-    // CPU1 starts empty. Thread 101 is affinity-eligible there, so the idle
-    // queue steals it from CPU0 and records a real migration.
+    // A dispatch reservation is exclusive across CPUs. CPU1 must not steal
+    // thread 101 while CPU0 owns its Ready -> Running reservation.
+    assert(stat(101U, &reserved) == Status::Ok);
+    assert(reserved.state == State::Running && reserved.last_cpu == 0U);
+    assert(pick_next(1U, INVALID_THREAD_ID, &selected) == Status::NotFound);
+
+    // Once CPU0 abandons the dispatch, CPU1 may steal the now-Ready thread and
+    // the migration must be recorded exactly once.
+    assert(cancel_dispatch(101U, 0U) == Status::Ok);
     assert(pick_next(1U, INVALID_THREAD_ID, &selected) == Status::Ok);
     assert(selected == 101U);
     ThreadStat migrated{};
