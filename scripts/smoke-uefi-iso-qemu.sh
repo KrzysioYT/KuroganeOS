@@ -487,11 +487,15 @@ if $nvme; then
     nvme_image="$tmp/nvme-storage.img"
     python3 - "$nvme_image" <<'PY'
 import sys
+magic = b"KUROGANE_NVME_RW_V1"
 with open(sys.argv[1], "wb") as image:
     image.truncate(8 * 1024 * 1024)
+    image.seek(0)
+    image.write(magic)
+    image.write(bytes((index * 31 + 5) & 0xFF for index in range(512 - len(magic))))
 PY
-    # A separate scratch namespace proves the PCI/MMIO/Admin Queue path without
-    # changing the IDE system disk or making NVMe part of boot ordering.
+    # A separate signed scratch namespace proves PCI/MMIO/Admin + NVM I/O
+    # without changing the IDE system disk or auto-writing arbitrary media.
     nvme_args=(
         -drive "if=none,id=kurogane_nvme_storage,format=raw,file=$nvme_image"
         -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME"
