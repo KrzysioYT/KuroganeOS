@@ -1696,6 +1696,52 @@ hardware::policy::CapabilityMask initialize_hardware_interrupts() {
     return available;
 }
 
+hardware::policy::CapabilityMask refresh_runtime_capabilities(
+    hardware::policy::CapabilityMask capabilities) {
+    using namespace hardware::policy;
+
+    const CapabilityMask dynamic =
+        CapabilityDisplay |
+        CapabilityKeyboard |
+        CapabilityPointer |
+        CapabilityStorage |
+        CapabilityNetwork |
+        CapabilityAudio |
+        CapabilityUsbHost |
+        CapabilityMultiprocessor;
+
+    capabilities &= ~dynamic;
+
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        capabilities |= CapabilityDisplay;
+    }
+    if (drivers::keyboard::initialized() ||
+        drivers::usb::xhci::keyboard_ready()) {
+        capabilities |= CapabilityKeyboard;
+    }
+    if (drivers::mouse::initialized() ||
+        drivers::usb::xhci::mouse_ready()) {
+        capabilities |= CapabilityPointer;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        capabilities |= CapabilityStorage;
+    }
+    if (drivers::usb::xhci::initialized()) {
+        capabilities |= CapabilityUsbHost;
+    }
+    if (drivers::audio::initialized()) {
+        capabilities |= CapabilityAudio;
+    }
+    if (net::service::physical_interface() &&
+        net::physical::driver() != net::physical::Driver::None) {
+        capabilities |= CapabilityNetwork;
+    }
+    if (arch::x86_64::smp::online_cpu_count() > 1U) {
+        capabilities |= CapabilityMultiprocessor;
+    }
+    return capabilities;
+}
+
 void print_compatibility_report(
     hardware::policy::CapabilityMask capabilities) {
     using hardware::compatibility::Tier;
@@ -2336,6 +2382,8 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         terminal::println(
             "[TEST] network_gateway_icmp: SKIP (network optional at boot)");
     }
+    hardware_capabilities =
+        refresh_runtime_capabilities(hardware_capabilities);
     print_compatibility_report(hardware_capabilities);
     terminal::println(
         g_required_runtime_test_failed
