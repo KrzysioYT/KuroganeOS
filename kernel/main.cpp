@@ -16,6 +16,7 @@
 #include "drivers/keyboard.hpp"
 #include "drivers/mouse.hpp"
 #include "drivers/framebuffer.hpp"
+#include "drivers/audio/audio_backend.hpp"
 #include "drivers/core/device_manager.hpp"
 #include "drivers/core/driver_manager.hpp"
 #include "drivers/pci.hpp"
@@ -28,6 +29,7 @@
 #include "fs/root_volume.hpp"
 #include "fs/ramfs.hpp"
 #include "hardware/policy.hpp"
+#include "hardware/compatibility.hpp"
 #include "memory/allocator.hpp"
 #include "memory/kernel_virtual_memory.hpp"
 #include "memory/physical_memory.hpp"
@@ -1666,6 +1668,16 @@ hardware::policy::CapabilityMask initialize_hardware_interrupts() {
     const bool mouse_ready = drivers::mouse::initialize();
     if (mouse_ready) available |= CapabilityLegacyPointer;
 
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        available |= CapabilityDisplay;
+    }
+    if (keyboard_ready || drivers::usb::xhci::keyboard_ready()) {
+        available |= CapabilityKeyboard;
+    }
+    if (mouse_ready || drivers::usb::xhci::mouse_ready()) {
+        available |= CapabilityPointer;
+    }
+
     const bool input_ready = input::initialize(
         graphics::width(), graphics::height());
     if (input_ready) available |= CapabilityInputQueue;
@@ -1676,9 +1688,66 @@ hardware::policy::CapabilityMask initialize_hardware_interrupts() {
     if (storage::device_registry::device_count() != 0U) {
         available |= CapabilityStorage;
     }
+    if (drivers::audio::initialized()) {
+        available |= CapabilityAudio;
+    }
 
     arch::x86_64::interrupts::enable();
     return available;
+}
+
+void print_compatibility_report(
+    hardware::policy::CapabilityMask capabilities) {
+    using hardware::compatibility::Tier;
+    using hardware::policy::Capability;
+    const auto result = hardware::compatibility::evaluate(capabilities);
+    terminal::write("hardware compatibility: ");
+    terminal::println(hardware::compatibility::tier_name(result.tier));
+
+    static constexpr Capability ordered[] = {
+        hardware::policy::CapabilityDisplay,
+        hardware::policy::CapabilityKeyboard,
+        hardware::policy::CapabilityPointer,
+        hardware::policy::CapabilityStorage,
+        hardware::policy::CapabilityNetwork,
+        hardware::policy::CapabilityAudio,
+        hardware::policy::CapabilityUsbHost,
+        hardware::policy::CapabilityMultiprocessor,
+    };
+    if (result.missing_for_next_tier != hardware::policy::CapabilityNone) {
+        terminal::write("next tier missing:");
+        for (Capability capability : ordered) {
+            if ((result.missing_for_next_tier &
+                 static_cast<hardware::policy::CapabilityMask>(capability)) == 0U) {
+                continue;
+            }
+            terminal::write(" ");
+            terminal::write(hardware::policy::capability_name(capability));
+        }
+        terminal::println();
+    }
+
+    switch (result.tier) {
+        case Tier::Extended:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 3 EXTENDED)");
+            break;
+        case Tier::Connected:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 2 CONNECTED)");
+            break;
+        case Tier::Usable:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 1 USABLE)");
+            break;
+        case Tier::Boot:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 0 BOOT)");
+            break;
+        case Tier::Unsupported:
+            terminal::println("[TEST] hardware_compatibility_tier: FAIL");
+            break;
+    }
 }
 
 void restore_shell_after_application() {
@@ -2065,6 +2134,8 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             arch::x86_64::smp::online_cpu_count());
 
         if (arch::x86_64::smp::online_cpu_count() > 1U) {
+            hardware_capabilities |=
+                hardware::policy::CapabilityMultiprocessor;
             terminal::println("[TEST] smp_ap_startup: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
                 terminal::println("[TEST] smp_cross_cpu_work: FAIL");
@@ -2265,6 +2336,7 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         terminal::println(
             "[TEST] network_gateway_icmp: SKIP (network optional at boot)");
     }
+    print_compatibility_report(hardware_capabilities);
     terminal::println(
         g_required_runtime_test_failed
             ? "[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL"
