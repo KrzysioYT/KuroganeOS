@@ -4,6 +4,7 @@
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
 #include "arch/x86_64/apic.hpp"
+#include "arch/x86_64/smp.hpp"
 #include "arch/x86_64/hpet.hpp"
 #include "arch/x86_64/gdt.hpp"
 #include "arch/x86_64/interrupts.hpp"
@@ -1964,6 +1965,51 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (!hardware_ready) {
         boot_failure("INTERRUPTS", "required timer or PS/2 input unavailable");
     }
+
+    const auto* smp_topology = arch::x86_64::acpi::topology();
+    if (smp_topology != nullptr && arch::x86_64::apic::local_enabled()) {
+        const auto smp_status = arch::x86_64::smp::initialize(*smp_topology);
+        if (smp_status != arch::x86_64::smp::Status::Ok &&
+            smp_status != arch::x86_64::smp::Status::AlreadyInitialized) {
+            terminal::println("[TEST] smp_ap_startup: FAIL");
+            boot_failure(
+                "SMP",
+                arch::x86_64::smp::status_message(smp_status));
+        }
+        log::write_u64(
+            log::Level::Info,
+            "SMP",
+            "discovered CPUs=",
+            arch::x86_64::smp::discovered_cpu_count());
+        log::write_u64(
+            log::Level::Info,
+            "SMP",
+            "online CPUs=",
+            arch::x86_64::smp::online_cpu_count());
+
+        if (arch::x86_64::smp::online_cpu_count() > 1U) {
+            terminal::println("[TEST] smp_ap_startup: PASS");
+            if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
+                terminal::println("[TEST] smp_scheduler: FAIL");
+                boot_failure("SMP", "parallel CPU work dispatch failed");
+            }
+            terminal::println("[TEST] smp_scheduler: PASS");
+            if (!arch::x86_64::smp::qualify_tlb_shootdown()) {
+                terminal::println("[TEST] smp_tlb_shootdown: FAIL");
+                boot_failure("SMP", "cross-CPU TLB shootdown failed");
+            }
+            terminal::println("[TEST] smp_tlb_shootdown: PASS");
+        } else {
+            terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
+            terminal::println("[TEST] smp_scheduler: SKIP (single CPU)");
+            terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
+        }
+    } else {
+        terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_scheduler: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
+    }
+
     if (net::e1000::msi_configured()) {
         const bool msi_delivered =
             net::e1000::qualify_msi_delivery(UINT32_C(1000000));

@@ -15,7 +15,15 @@ constexpr size_t LOCAL_VERSION_REGISTER = 0x30U;
 constexpr size_t LOCAL_TASK_PRIORITY_REGISTER = 0x80U;
 constexpr size_t LOCAL_EOI_REGISTER = 0xB0U;
 constexpr size_t LOCAL_SPURIOUS_REGISTER = 0xF0U;
+constexpr size_t LOCAL_INTERRUPT_COMMAND_LOW_REGISTER = 0x300U;
+constexpr size_t LOCAL_INTERRUPT_COMMAND_HIGH_REGISTER = 0x310U;
 constexpr uint32_t LOCAL_SPURIOUS_SOFTWARE_ENABLE = UINT32_C(1) << 8U;
+constexpr uint32_t ICR_DELIVERY_PENDING = UINT32_C(1) << 12U;
+constexpr uint32_t ICR_LEVEL_ASSERT = UINT32_C(1) << 14U;
+constexpr uint32_t ICR_TRIGGER_LEVEL = UINT32_C(1) << 15U;
+constexpr uint32_t ICR_DELIVERY_MODE_INIT = UINT32_C(5) << 8U;
+constexpr uint32_t ICR_DELIVERY_MODE_STARTUP = UINT32_C(6) << 8U;
+constexpr uint32_t ICR_WAIT_BUDGET = UINT32_C(1000000);
 constexpr uint32_t CPUID_APIC_BIT = UINT32_C(1) << 9U;
 constexpr uint32_t MAXIMUM_IO_APIC_REDIRECTIONS = 120U;
 constexpr uint32_t IA32_APIC_BASE_MSR = 0x1BU;
@@ -110,6 +118,31 @@ uint32_t local_read(size_t offset) {
 void local_write(size_t offset, uint32_t value) {
     g_local_registers[offset / sizeof(uint32_t)] = value;
     __asm__ volatile("mfence" : : : "memory");
+}
+
+bool wait_icr_idle() {
+    for (uint32_t attempt = 0U; attempt < ICR_WAIT_BUDGET; ++attempt) {
+        if ((local_read(LOCAL_INTERRUPT_COMMAND_LOW_REGISTER) &
+             ICR_DELIVERY_PENDING) == 0U) {
+            return true;
+        }
+        __asm__ volatile("pause");
+    }
+    return false;
+}
+
+Status send_icr(uint32_t destination_apic_id, uint32_t low) {
+    if (!g_prepared || g_local_registers == nullptr || !local_enabled()) {
+        return Status::NotPrepared;
+    }
+    if (destination_apic_id > UINT32_C(0xFF) || !wait_icr_idle()) {
+        return Status::IpiTimeout;
+    }
+    local_write(
+        LOCAL_INTERRUPT_COMMAND_HIGH_REGISTER,
+        destination_apic_id << 24U);
+    local_write(LOCAL_INTERRUPT_COMMAND_LOW_REGISTER, low);
+    return wait_icr_idle() ? Status::Ok : Status::IpiTimeout;
 }
 
 } // namespace
@@ -225,7 +258,34 @@ void send_eoi() {
     local_write(LOCAL_EOI_REGISTER, 0U);
 }
 uint32_t local_apic_id() { return g_local_id; }
+uint32_t current_apic_id() {
+    if (!g_prepared || g_local_registers == nullptr) return UINT32_MAX;
+    return local_read(LOCAL_ID_REGISTER) >> 24U;
+}
 uint32_t local_apic_version() { return g_local_version; }
+
+Status send_ipi(uint32_t destination_apic_id, uint8_t vector) {
+    if (vector < UINT8_C(0x20) || vector == SPURIOUS_VECTOR) {
+        return Status::InvalidRoute;
+    }
+    return send_icr(destination_apic_id, static_cast<uint32_t>(vector));
+}
+
+Status send_init(uint32_t destination_apic_id) {
+    Status status = send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_INIT | ICR_LEVEL_ASSERT | ICR_TRIGGER_LEVEL);
+    if (status != Status::Ok) return status;
+    return send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_INIT | ICR_TRIGGER_LEVEL);
+}
+
+Status send_startup(uint32_t destination_apic_id, uint8_t startup_vector) {
+    return send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_STARTUP | static_cast<uint32_t>(startup_vector));
+}
 size_t io_apic_count() { return g_io_count; }
 uint32_t io_apic_version(size_t index) {
     return index < g_io_count ? g_io_versions[index] : 0U;
@@ -277,7 +337,34 @@ Status route_legacy_irq(uint8_t legacy_irq, const io_apic::Route& route) {
     io_apic::Route effective = route;
     effective.trigger = legacy.trigger;
     effective.polarity = legacy.polarity;
-    return route_gsi(legacy.global_system_interrupt, effective);
+    if (!io_apic::validate_legacy(effective)) return Status::InvalidRoute;
+
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (legacy.global_system_interrupt >= base &&
+            legacy.global_system_interrupt - base < count) {
+            selected = index;
+            pin = legacy.global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+
+    io_apic::Route masked = effective;
+    masked.masked = true;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(
+        registers,
+        static_cast<uint8_t>(low_index + 1U),
+        io_apic::encode_high_legacy(effective));
+    io_write(registers, low_index, io_apic::encode_low_legacy(masked));
+    io_write(registers, low_index, io_apic::encode_low_legacy(effective));
+    return Status::Ok;
 }
 
 Status clear_gsi(uint32_t global_system_interrupt) {
@@ -318,6 +405,7 @@ const char* status_message(Status status) {
         case Status::InvalidRoute: return "invalid I/O APIC route";
         case Status::InvalidLegacyIrq: return "invalid legacy IRQ override";
         case Status::GsiOutOfRange: return "GSI is outside every I/O APIC";
+        case Status::IpiTimeout: return "Local APIC IPI delivery timed out";
     }
     return "unknown APIC status";
 }

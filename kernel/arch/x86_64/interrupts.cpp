@@ -42,6 +42,7 @@ constexpr uint8_t kFirstSoftwareVector = IRQ_VECTOR_BASE + IRQ_COUNT;
 alignas(16) static IdtEntry g_idt[IDT_ENTRY_COUNT];
 static InterruptHandler g_handlers[IDT_ENTRY_COUNT];
 static IrqHandler g_irq_handlers[IRQ_COUNT];
+alignas(2) static uint16_t g_apic_legacy_irq_mask = 0U;
 static IrqScheduleHook g_irq_schedule_hook = nullptr;
 static SoftwareScheduleHook g_software_schedule_hook = nullptr;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
@@ -129,6 +130,7 @@ void initialize() {
     for (size_t i = 0; i < IRQ_COUNT; ++i) {
         g_irq_handlers[i] = nullptr;
     }
+    __atomic_store_n(&g_apic_legacy_irq_mask, uint16_t{0U}, __ATOMIC_RELEASE);
     g_irq_schedule_hook = nullptr;
     g_software_schedule_hook = nullptr;
 
@@ -141,6 +143,13 @@ void initialize() {
 
 bool initialized() {
     return g_initialized;
+}
+
+bool load_current_cpu() {
+    if (!g_initialized) return false;
+    disable();
+    load_idt();
+    return true;
 }
 
 bool register_handler(uint8_t vector, InterruptHandler handler) {
@@ -272,6 +281,27 @@ void unregister_irq_handler(uint8_t irq) {
     }
 }
 
+bool set_legacy_irq_apic_delivery(uint8_t irq, bool enabled) {
+    if (!g_initialized || irq >= IRQ_COUNT) return false;
+    const uint16_t bit = static_cast<uint16_t>(UINT16_C(1) << irq);
+    if (enabled) {
+        __atomic_fetch_or(&g_apic_legacy_irq_mask, bit, __ATOMIC_ACQ_REL);
+    } else {
+        __atomic_fetch_and(
+            &g_apic_legacy_irq_mask,
+            static_cast<uint16_t>(~bit),
+            __ATOMIC_ACQ_REL);
+    }
+    return true;
+}
+
+bool legacy_irq_uses_apic(uint8_t irq) {
+    if (irq >= IRQ_COUNT) return false;
+    const uint16_t mask =
+        __atomic_load_n(&g_apic_legacy_irq_mask, __ATOMIC_ACQUIRE);
+    return (mask & static_cast<uint16_t>(UINT16_C(1) << irq)) != 0U;
+}
+
 bool register_irq_schedule_hook(IrqScheduleHook hook) {
     if (!g_initialized || hook == nullptr || g_irq_schedule_hook != nullptr) {
         return false;
@@ -395,7 +425,8 @@ x86_64_interrupt_dispatch(
     if (vector < IRQ_VECTOR_BASE + IRQ_COUNT) {
         const uint8_t irq =
             static_cast<uint8_t>(vector - IRQ_VECTOR_BASE);
-        if (!drivers::pic::begin_irq(irq)) {
+        const bool via_apic = legacy_irq_uses_apic(irq);
+        if (!via_apic && !drivers::pic::begin_irq(irq)) {
             return frame;
         }
 
@@ -404,7 +435,11 @@ x86_64_interrupt_dispatch(
             handler();
         }
 
-        drivers::pic::send_eoi(irq);
+        if (via_apic) {
+            arch::x86_64::apic::send_eoi();
+        } else {
+            drivers::pic::send_eoi(irq);
+        }
         IrqScheduleHook schedule_hook = g_irq_schedule_hook;
         if (schedule_hook != nullptr) {
             InterruptFrame* selected = schedule_hook(irq, *frame);

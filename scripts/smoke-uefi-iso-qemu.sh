@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -11,6 +11,7 @@ media=""
 media_kind="iso"
 persistent_disk=false
 accel_model="tcg"
+smp_cpus=1
 timeout_seconds=60
 nic_model="none"
 virtio_vectors=""
@@ -50,6 +51,7 @@ while (($#)); do
         --disk) media_kind="disk"; shift ;;
         --persistent-disk) persistent_disk=true; shift ;;
         --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
+        --smp) [[ $# -ge 2 ]] || usage; smp_cpus="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
         --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
@@ -113,6 +115,8 @@ if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
     echo "--persistent-disk requires --disk" >&2
     exit 2
 fi
+[[ "$smp_cpus" =~ ^[1-9][0-9]*$ ]] && ((smp_cpus <= 64)) || {
+    echo "invalid SMP CPU count (expected 1..64)" >&2; exit 2; }
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 240)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
@@ -570,6 +574,7 @@ fi
 qemu-system-x86_64 \
     -machine "q35,accel=$accel_model" \
     -cpu "$cpu_model" \
+    -smp "$smp_cpus" \
     -m 1024 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$firmware_code" \
     -drive if=pflash,format=raw,unit=1,file="$firmware_vars" \

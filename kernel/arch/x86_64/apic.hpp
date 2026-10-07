@@ -22,6 +22,7 @@ enum class Status : uint8_t {
     InvalidRoute,
     InvalidLegacyIrq,
     GsiOutOfRange,
+    IpiTimeout,
 };
 
 constexpr uint8_t SPURIOUS_VECTOR = 0xFFU;
@@ -32,7 +33,11 @@ bool prepared();
 bool local_enabled();
 void send_eoi();
 uint32_t local_apic_id();
+uint32_t current_apic_id();
 uint32_t local_apic_version();
+Status send_ipi(uint32_t destination_apic_id, uint8_t vector);
+Status send_init(uint32_t destination_apic_id);
+Status send_startup(uint32_t destination_apic_id, uint8_t startup_vector);
 size_t io_apic_count();
 uint32_t io_apic_version(size_t index);
 size_t io_apic_redirection_count(size_t index);

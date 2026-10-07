@@ -1,6 +1,7 @@
 #include "kernel_virtual_memory.hpp"
 
 #include "physical_memory.hpp"
+#include "../arch/x86_64/smp.hpp"
 
 namespace memory::kernel_virtual_memory {
 
@@ -85,6 +86,18 @@ void* physical_to_virtual(void*, uint64_t physical_address) {
 }
 
 void invalidate_page(void*, uint64_t virtual_address) {
+    if (arch::x86_64::smp::initialized()) {
+        if (arch::x86_64::smp::shootdown_page(
+                static_cast<uintptr_t>(virtual_address)) ==
+            arch::x86_64::smp::Status::Ok) {
+            return;
+        }
+        // Reusing a page-table page after an incomplete shootdown can expose
+        // stale translations on another CPU. Fail closed instead of continuing.
+        for (;;) {
+            __asm__ volatile("cli; hlt" : : : "memory");
+        }
+    }
     __asm__ volatile(
         "invlpg (%0)"
         :

@@ -45,8 +45,13 @@ bool spans_overlap(const RedirectionSpan& left, const RedirectionSpan& right);
 bool validate_non_overlapping(const RedirectionSpan* spans, size_t count);
 
 bool validate(const Route& route);
+// Legacy PIC-compatible vectors remain reserved from the dynamic hardware pool,
+// but I/O APIC migration may deliberately route IRQ0..IRQ15 to 0x20..0x2f.
+bool validate_legacy(const Route& route);
 uint32_t encode_low(const Route& route);
 uint32_t encode_high(const Route& route);
+uint32_t encode_low_legacy(const Route& route);
+uint32_t encode_high_legacy(const Route& route);
 bool decode(uint32_t low, uint32_t high, Route* output);
 const char* status_message(Status status);
 
