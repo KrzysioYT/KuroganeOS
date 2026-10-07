@@ -31,7 +31,7 @@ smp_trampoline_start:
     movl %cr0, %eax
     orl $0x00000001, %eax
     movl %eax, %cr0
-    ljmpl $0x08, $(KU_SMP_TRAMPOLINE_BASE + (smp_trampoline_pm32 - smp_trampoline_start))
+    ljmpl $0x18, $(KU_SMP_TRAMPOLINE_BASE + (smp_trampoline_pm32 - smp_trampoline_start))
 
     .code32
 smp_trampoline_pm32:
@@ -57,7 +57,7 @@ smp_trampoline_pm32:
     orl $0x80010023, %eax               /* PG | WP | NE | MP | PE */
     movl %eax, %cr0
 
-    ljmpl $0x18, $(KU_SMP_TRAMPOLINE_BASE + (smp_trampoline_lm64 - smp_trampoline_start))
+    ljmpl $0x08, $(KU_SMP_TRAMPOLINE_BASE + (smp_trampoline_lm64 - smp_trampoline_start))
 
     .code64
 smp_trampoline_lm64:
@@ -93,9 +93,9 @@ smp_trampoline_mailbox_apic_id:
     .balign 8
 smp_trampoline_gdt:
     .quad 0x0000000000000000
-    .quad 0x00cf9a000000ffff       /* 0x08: flat 32-bit code */
-    .quad 0x00cf92000000ffff       /* 0x10: flat data */
-    .quad 0x00af9a000000ffff       /* 0x18: flat 64-bit code */
+    .quad 0x00af9a000000ffff       /* 0x08: flat 64-bit kernel code (matches IDT) */
+    .quad 0x00cf92000000ffff       /* 0x10: flat kernel data */
+    .quad 0x00cf9a000000ffff       /* 0x18: temporary 32-bit startup code */
 smp_trampoline_gdt_end:
 
 smp_trampoline_gdt_descriptor:
