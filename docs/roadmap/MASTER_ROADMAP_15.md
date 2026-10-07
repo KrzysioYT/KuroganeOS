@@ -224,45 +224,159 @@ a claimed Steel capability.
 Physical-machine/VirtualBox checks remain external validation and are not
 silently converted into automated PASS markers.
 
-## 6.0.0-dev — Core Steel
+## 5.1.0-dev — HAL / Driver Portability
 
-Kernel Core 2.0, PMM/VMM/address spaces, Scheduler 2.0, threads, processes/jobs, IPC 2.0, shared memory/synchronization, VFS 2.0 and syscall ABI qualification.
+Status: **IN PROGRESS**.
 
-## 7.0.0-dev — Iron Shield
+Turn the qualified 5.0 hardware substrate into a platform-neutral hardware
+layer. QEMU, VirtualBox and VMware are qualification targets rather than kernel
+architectures.
 
-Security architecture, user/kernel memory validation, process isolation, users/groups, permissions/ACL, secure credential store, Argon2id or equivalent secure KDF replacing `FNV1A64-DEV`, application permissions/capabilities, watchdog/crash recovery and security fuzz/stress qualification.
+Required work:
+- central boot-capability policy separating boot-critical infrastructure from
+  optional hardware;
+- PS/2 keyboard/mouse demoted to compatibility backends;
+- USB HID and future transports feed the same generic input queue;
+- driver failures isolated to their device/subsystem whenever continuing is
+  memory/DMA/storage safe;
+- no hypervisor-specific logic above concrete device backends;
+- structured hardware inventory and degraded-mode diagnostics;
+- USB-only boot qualification with i8042 disabled.
 
-## 8.0.0-dev — Connected Steel
+## 5.2.0-dev — Universal Input
 
-Network Service 2.0, async sockets hardening, IPv4 hardening, IPv6, DHCP/DNS service, routing/configuration, TLS 1.3, CA store/certificate validation, HTTPS API and firewall foundation.
+- USB HID report-protocol parsing, not only boot protocol;
+- relative mouse, absolute USB tablet and wheel support;
+- multiple keyboards and pointers simultaneously;
+- hotplug/unplug without losing the session;
+- PS/2 fallback retained;
+- groundwork for HID-over-I2C/touchpads without exposing transport details to
+  Flux or applications.
 
-## 9.0.0-dev — Forge Graphics
+## 5.3.0-dev — Universal Storage
 
-Forge Graphics API/device/resources, buffers/textures, command buffers, queues/fences, swapchain/presentation, shader foundation, real software 3D rasterizer, hardware GPU backend foundation and compositor/telemetry integration. GPU/D3D may never be marked working without real backend execution.
+- AHCI, NVMe and USB Mass Storage behind one block-device contract;
+- controller-independent installer selection;
+- removable-media lifecycle and safe detach;
+- no storage backend assumed from hypervisor identity;
+- qualification on SATA/AHCI, NVMe and USB media combinations.
 
-## 10.0.0-dev — Steel Applications
+## 5.4.0-dev — Platform / Firmware Portability
 
-Application Runtime 2.0, manifests/permissions/lifecycle, Kurosh 2.0, Vault, Performance, Forge Control foundation, Pulse backend, Kurogane Web shell and application crash/restart qualification.
+- UEFI/GOP baseline;
+- ACPI/APIC/IOAPIC/HPET fallbacks and diagnostics;
+- Intel and AMD SMP qualification;
+- firmware quirks handled in bounded platform code rather than consumers;
+- optional device absence never converted into a kernel-wide fatal condition.
 
-## 11.0.0-dev — Anvil
+## 5.5.0-dev — Hardware Compatibility Gate
 
-Package format/manifests/versioning/repository metadata, sync/search/info/install/remove, dependency resolution, SHA-256/signatures, transactional install/rollback, update/upgrade/system updates and SDK commands `kurogane new/build/run/package`.
+- QEMU TCG/KVM;
+- Oracle VirtualBox;
+- VMware;
+- physical Intel desktop/laptop;
+- physical AMD desktop/laptop;
+- Safe Mode and hardware inventory;
+- compatibility-tier reporting and a public supported-hardware matrix.
 
-## 12.0.0-dev — Platform / Web
+5.5 closes only when the hardware layer is suitable for building the rest of
+Road to 15 without emulator-specific assumptions.
 
-Web Engine architecture, HTTP/HTTPS navigation, HTML/DOM, CSS/layout, Flexbox, Grid/text, images/media, JavaScript foundation, JS↔DOM/cookies/storage/history/tabs and browser security/developer console qualification.
+## 6.0.0-dev — Kernel Core 2.0
 
-## 13.0.0-dev — Forge Design
+PMM/VMM and independent address spaces, Scheduler 2.0, threads, processes/jobs,
+per-CPU run queues, CPU affinity, preemption, IPC 2.0, shared memory,
+synchronization primitives, VFS-facing process resource ownership and syscall
+ABI qualification.
 
-Design tokens, palette, typography, spacing/layout, blade/steel geometry, controls, lists/trees/tabs/context menus, window/component styling, icons/motion and migration of applications to the unified Forge Design system.
+## 7.0.0-dev — Driver & Device Expansion
 
-## 14.0.0-rc — Forge Desktop
+Broaden real hardware coverage while preserving the 5.x contracts:
+- Intel E1000/E1000e;
+- Realtek RTL8111/8168 class;
+- VirtIO net/block;
+- PCnet as legacy VM coverage;
+- Intel HDA plus AC'97 fallback;
+- USB hubs, hotplug and wider HID classes;
+- device power-management foundation.
 
-Final Forge shell, Kurogane Spine, Blade Launcher, Pulse, Vault + Forge Control, Anvil/Kurosh/Web integration, notifications/login/lock/power/session/workspace UX, feature freeze, release-candidate hardening, security/install/update/recovery/uptime/stress evidence and final release media/docs.
+Adding a driver must not require changes in the network, storage, UI or
+application layers that consume the generic interface.
+
+## 8.0.0-dev — Flux Desktop Platform
+
+Window Manager 2.0, compositor hardening, damage tracking, dynamic
+resolutions, absolute/relative pointer support, scaling, clipboard, drag/drop,
+desktop shell, dock/task switching, notifications, settings and stable GUI API.
+UEFI GOP remains a valid software-rendered fallback; GPU acceleration is not a
+requirement for desktop availability.
+
+## 9.0.0-dev — Networking & Services
+
+Network Service 2.0, hardened IPv4, IPv6, DHCP/DNS service, routing and
+configuration, sockets, TLS 1.3, trust store/certificate validation, HTTPS API,
+firewall foundation, reconnect/reconfiguration and clean operation when no
+supported NIC exists.
+
+## 10.0.0-dev — Storage & VFS 2.0
+
+VFS 2.0, mount manager, production KuroFS evolution, FAT compatibility,
+permissions, timestamps, symlinks, file locking, caching, journaling/recovery,
+fsck, removable media and safe unmount. Filesystems consume generic block
+devices and must not depend on AHCI/NVMe/USB controller details.
+
+## 11.0.0-dev — Application Platform
+
+Stable SDK/libc/libui, application manifests and lifecycle, package format,
+permissions, launcher, file associations, process sandboxing, terminal, file
+manager, settings, system utilities and the package-management client surface.
+
+## 12.0.0-dev — Security, Updates & Recovery
+
+Users/groups, permission enforcement, kernel/user validation, secure credential
+storage, package/update signatures, atomic system updates, rollback, recovery
+environment, repair mode, boot recovery, watchdog, crash dumps and production
+Safe Mode.
+
+## 13.0.0-dev — Performance & Power
+
+Scheduler tuning, multicore scaling, memory pressure/page cache, async I/O,
+interrupt balancing, MSI/MSI-X adoption, reduced polling, ACPI power lifecycle,
+CPU idle/power states where supported, battery/thermal reporting and boot-time
+optimization.
+
+## 14.0.0-rc — Compatibility / Release Qualification
+
+Feature freeze and product-level qualification:
+- no core feature may depend on QEMU/VirtualBox/VMware identity;
+- install/upgrade/reinstall/recovery matrices;
+- storage interruption/corruption tests;
+- USB hotplug and input churn;
+- network disconnect/reconnect;
+- long-running stress/uptime;
+- multiple physical Intel and AMD systems;
+- QEMU, VirtualBox and VMware regression;
+- release-blocker list reduced to zero.
 
 ## 15.0.0 — STABLE
 
-15.0.0 must be a system that can **BOOT, INSTALL, USE, SECURE, UPDATE, RECOVER and DEVELOP FOR**. Required capabilities include stable UEFI boot, Login→Forge Desktop, Try/install/persistence, updater/recovery, isolation/security/watchdog, SMP, AHCI/NVMe/USB, audio, IPv4+IPv6, TLS/HTTPS, Forge Graphics/compositor, core apps, Anvil, Web, SDK and package repositories. No critical fake implementation is acceptable.
+15.0.0 is the first product-level stable release. It must **BOOT, INSTALL, USE,
+SECURE, UPDATE, RECOVER and DEVELOP FOR** on supported x86-64 UEFI hardware.
+
+Minimum product contract:
+- generic UEFI/GOP boot without hypervisor dependency;
+- usable keyboard/pointer through supported USB HID or PS/2 fallback;
+- persistent AHCI/SATA and NVMe storage, plus supported USB storage;
+- SMP and stable kernel/userspace scheduling;
+- framebuffer desktop with optional accelerated backends;
+- networking and audio on documented supported devices;
+- stable application/SDK/package interfaces;
+- signed updates and recovery;
+- a public hardware-support matrix and compatibility tiers.
+
+No critical fake implementation and no claim of universal hardware support are
+acceptable. Unsupported optional hardware must degrade cleanly rather than
+taking down an otherwise usable system.
 
 ## Workflow
 
