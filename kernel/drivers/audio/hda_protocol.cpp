@@ -127,6 +127,25 @@ Status build_verb_12(
     return Status::Ok;
 }
 
+Status build_verb_4(
+    uint8_t codec_address,
+    uint8_t node_id,
+    uint8_t verb,
+    uint16_t payload,
+    uint32_t* output) {
+    if (output == nullptr || codec_address > 15U || verb > 0x0FU) {
+        return Status::InvalidArgument;
+    }
+
+    const uint32_t staged =
+        static_cast<uint32_t>(codec_address) << 28U |
+        static_cast<uint32_t>(node_id) << 20U |
+        static_cast<uint32_t>(verb) << 16U |
+        static_cast<uint32_t>(payload);
+    *output = staged;
+    return Status::Ok;
+}
+
 Status parse_rirb_entry(
     uint64_t raw_entry,
     RirbResponse* output) {

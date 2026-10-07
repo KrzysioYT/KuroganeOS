@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -131,7 +131,7 @@ case "$accel_model" in
     *) echo "invalid accelerator: $accel_model" >&2; usage ;;
 esac
 case "$audio_model" in
-    none|ac97) ;;
+    none|ac97|hda) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
 esac
 if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
@@ -479,6 +479,15 @@ if [[ "$audio_model" == "ac97" ]]; then
     audio_args=(
         -audiodev none,id=kurogane_audio
         -device AC97,audiodev=kurogane_audio
+    )
+fi
+if [[ "$audio_model" == "hda" ]]; then
+    # Headless backend: controller/codec/DMA traffic remains real while CI
+    # does not depend on a host sound device.
+    audio_args=(
+        -audiodev none,id=kurogane_hda_audio
+        -device intel-hda,id=kurogane_hda
+        -device hda-output,bus=kurogane_hda.0,audiodev=kurogane_hda_audio
     )
 fi
 
