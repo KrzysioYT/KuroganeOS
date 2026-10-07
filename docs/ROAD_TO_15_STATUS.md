@@ -73,3 +73,28 @@ Full process/thread multicore scheduling is 6.0 Core Steel.
 HID Boot Mouse wheel/report-protocol support remains an explicit P2 limitation
 and is not falsely reported as qualified. Oracle VirtualBox and physical
 hardware remain external validation.
+
+## 5.1 HAL / Driver Portability
+
+Status: **IN PROGRESS — NOT YET QUALIFIED**.
+
+The project direction changed after real VirtualBox testing exposed the cost of
+treating one VM profile as the hardware contract. KuroganeOS now targets
+generic x86-64 UEFI systems; hypervisors are qualification targets only.
+
+Initial 5.1 implementation:
+- central `hardware::policy` capability evaluation;
+- only timer, timer-scheduling hook and generic input queue are boot-critical
+  in the first portability slice;
+- PS/2 keyboard/mouse are optional compatibility backends rather than boot
+  requirements;
+- xHCI USB HID continues to feed the same generic input queue;
+- QEMU smoke tooling gained an `--no-ps2` mode using an i8042-disabled q35
+  machine;
+- a dedicated portability gate requires Red Flux plus real USB keyboard and
+  mouse input with PS/2 absent.
+
+This section records active engineering only. It must not be treated as a
+qualified 5.1 milestone until the dedicated workflow and required regression
+matrix are green on an exact candidate.
+
