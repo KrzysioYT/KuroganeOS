@@ -143,6 +143,13 @@ bool initialized() {
     return g_initialized;
 }
 
+bool load_current_cpu() {
+    if (!g_initialized) return false;
+    disable();
+    load_idt();
+    return true;
+}
+
 bool register_handler(uint8_t vector, InterruptHandler handler) {
     if (handler == nullptr || hardware_vectors::is_allocatable(vector)) {
         return false;
