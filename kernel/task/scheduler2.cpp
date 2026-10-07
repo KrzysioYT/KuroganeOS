@@ -1,5 +1,7 @@
 #include "scheduler2.hpp"
 
+#include "../sync/spinlock.hpp"
+
 namespace threading::scheduler2 {
 namespace {
 
@@ -22,6 +24,7 @@ ThreadSlot g_threads[MAX_SCHEDULABLE_THREADS]{};
 RunQueue g_queues[MAX_CPUS]{};
 size_t g_cpu_count = 0U;
 bool g_initialized = false;
+sync::TicketSpinLock g_policy_lock{};
 
 void clear_bytes(void* destination, size_t size) {
     auto* bytes = static_cast<uint8_t*>(destination);
@@ -30,6 +33,13 @@ void clear_bytes(void* destination, size_t size) {
 
 CpuMask mask_for_cpu(size_t cpu) {
     return cpu < MAX_CPUS ? (UINT64_C(1) << cpu) : CpuMask{0U};
+}
+
+CpuMask online_mask_unlocked() {
+    if (!g_initialized || g_cpu_count == 0U) return 0U;
+    return g_cpu_count == MAX_CPUS
+        ? UINT64_MAX
+        : ((UINT64_C(1) << g_cpu_count) - UINT64_C(1));
 }
 
 bool cpu_allowed(CpuMask affinity, size_t cpu) {
@@ -168,15 +178,18 @@ Status configure(size_t online_cpus) {
 } // namespace
 
 Status initialize(size_t online_cpus) {
+    sync::LockGuard guard(g_policy_lock);
     if (g_initialized) return Status::AlreadyInitialized;
     return configure(online_cpus);
 }
 
 Status reset(size_t online_cpus) {
+    sync::LockGuard guard(g_policy_lock);
     return configure(online_cpus);
 }
 
 Status expand_cpu_count(size_t online_cpus) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (online_cpus == 0U || online_cpus > MAX_CPUS ||
         online_cpus < g_cpu_count) {
@@ -195,11 +208,12 @@ Status register_thread(
     uint8_t priority,
     CpuMask affinity,
     size_t preferred_cpu) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (id == INVALID_THREAD_ID || priority > MAX_PRIORITY) {
         return Status::InvalidArgument;
     }
-    const CpuMask valid_affinity = affinity & online_mask();
+    const CpuMask valid_affinity = affinity & online_mask_unlocked();
     if (valid_affinity == 0U || valid_affinity != affinity) {
         return Status::InvalidAffinity;
     }
@@ -231,6 +245,7 @@ Status register_thread(
 }
 
 Status unregister_thread(ThreadId id) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     const size_t index = find_thread(id);
     if (index == kInvalidIndex) return Status::NotFound;
@@ -240,6 +255,7 @@ Status unregister_thread(ThreadId id) {
 }
 
 Status set_state(ThreadId id, State state) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     const size_t index = find_thread(id);
     if (index == kInvalidIndex) return Status::NotFound;
@@ -248,8 +264,9 @@ Status set_state(ThreadId id, State state) {
 }
 
 Status set_affinity(ThreadId id, CpuMask affinity) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
-    const CpuMask valid_affinity = affinity & online_mask();
+    const CpuMask valid_affinity = affinity & online_mask_unlocked();
     if (valid_affinity == 0U || valid_affinity != affinity) {
         return Status::InvalidAffinity;
     }
@@ -275,6 +292,7 @@ Status set_affinity(ThreadId id, CpuMask affinity) {
 }
 
 Status set_priority(ThreadId id, uint8_t priority) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (priority > MAX_PRIORITY) return Status::InvalidArgument;
     const size_t index = find_thread(id);
@@ -284,6 +302,7 @@ Status set_priority(ThreadId id, uint8_t priority) {
 }
 
 Status pick_next(size_t cpu, ThreadId excluded, ThreadId* out_id) {
+    sync::LockGuard guard(g_policy_lock);
     if (out_id != nullptr) *out_id = INVALID_THREAD_ID;
     if (!g_initialized) return Status::NotInitialized;
     if (out_id == nullptr) return Status::InvalidArgument;
@@ -318,6 +337,7 @@ Status pick_next(size_t cpu, ThreadId excluded, ThreadId* out_id) {
 }
 
 Status stat(ThreadId id, ThreadStat* out_stat) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (out_stat == nullptr) return Status::InvalidArgument;
     const size_t index = find_thread(id);
@@ -330,6 +350,7 @@ Status stat(ThreadId id, ThreadStat* out_stat) {
 }
 
 Status cpu_stat(size_t cpu, CpuStat* out_stat) {
+    sync::LockGuard guard(g_policy_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (out_stat == nullptr) return Status::InvalidArgument;
     if (cpu >= g_cpu_count) return Status::InvalidCpu;
@@ -352,14 +373,13 @@ Status cpu_stat(size_t cpu, CpuStat* out_stat) {
 }
 
 size_t cpu_count() {
+    sync::LockGuard guard(g_policy_lock);
     return g_initialized ? g_cpu_count : 0U;
 }
 
 CpuMask online_mask() {
-    if (!g_initialized || g_cpu_count == 0U) return 0U;
-    return g_cpu_count == MAX_CPUS
-        ? UINT64_MAX
-        : ((UINT64_C(1) << g_cpu_count) - UINT64_C(1));
+    sync::LockGuard guard(g_policy_lock);
+    return online_mask_unlocked();
 }
 
 const char* status_message(Status status) {
