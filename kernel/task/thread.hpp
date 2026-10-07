@@ -14,6 +14,7 @@ struct OwnedAddressSpace;
 namespace threading {
 
 using ThreadId = uint64_t;
+using CpuMask = uint64_t;
 using Entry = void (*)(void* argument);
 using PreDispatchHook = void (*)();
 
@@ -48,7 +49,8 @@ enum class Status : uint8_t {
     NotRunning,
     Busy,
     BudgetExhausted,
-    CorruptContext
+    CorruptContext,
+    SchedulerPolicyFailed
 };
 
 enum class State : uint8_t {
@@ -73,6 +75,10 @@ struct Stat {
     uint64_t address_space_root;
     uint64_t wake_tick;
     uint8_t priority;
+    CpuMask affinity;
+    size_t home_cpu;
+    size_t last_cpu;
+    uint64_t migrations;
 };
 
 struct RunResult {
@@ -96,6 +102,7 @@ struct PreemptiveReturnState {
 using ListCallback = bool (*)(const Stat& stat, void* context);
 
 Status initialize();
+Status configure_processors(size_t online_cpus);
 Status set_pre_dispatch_hook(PreDispatchHook hook);
 Status create(
     const char* name,
@@ -139,6 +146,8 @@ Status bind_address_space(
 // stale user frame can never be selected after its runtime Context is gone.
 Status retire_current_user_frame();
 Status request_yield();
+Status set_affinity(ThreadId id, CpuMask affinity);
+Status set_priority(ThreadId id, uint8_t priority);
 Status block_current();
 Status wake_user(ThreadId id, uint64_t accumulator);
 Status sleep_current(uint64_t timer_ticks);

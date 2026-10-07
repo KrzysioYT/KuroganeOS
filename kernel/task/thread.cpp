@@ -1,4 +1,5 @@
 #include "thread.hpp"
+#include "scheduler2.hpp"
 
 #include "../arch/x86_64/gdt.hpp"
 #include "../arch/x86_64/interrupts.hpp"
@@ -37,6 +38,7 @@ struct Slot {
     uint64_t address_space_root;
     uintptr_t user_stack;
     uint8_t priority;
+    bool affinity_explicit;
     bool started;
     bool yield_requested;
 #if !defined(KUROGANE_HOST_TEST)
@@ -50,7 +52,6 @@ Context g_boot_context{};
 bool g_initialized = false;
 bool g_run_active = false;
 size_t g_current = kInvalidSlot;
-size_t g_cursor = 0U;
 uint64_t g_switch_budget = 0U;
 uint64_t g_run_switches = 0U;
 uint64_t g_completed_total = 0U;
@@ -150,15 +151,51 @@ bool decode_id(ThreadId id, size_t* index) {
     return true;
 }
 
-size_t find_ready(size_t excluded = kInvalidSlot) {
-    for (size_t offset = 0U; offset < MAX_THREADS; ++offset) {
-        const size_t index = (g_cursor + offset) % MAX_THREADS;
-        if (index != excluded && g_slots[index].state == State::Ready) {
-            g_cursor = (index + 1U) % MAX_THREADS;
-            return index;
-        }
+size_t scheduler_cpu_index() {
+#if defined(KUROGANE_HOST_TEST)
+    return 0U;
+#else
+    return execution_cpu_index();
+#endif
+}
+
+scheduler2::State scheduler_state(State state) {
+    switch (state) {
+        case State::Running: return scheduler2::State::Running;
+        case State::Blocked: return scheduler2::State::Blocked;
+        case State::Sleeping: return scheduler2::State::Sleeping;
+        case State::Terminated:
+        case State::Empty: return scheduler2::State::Terminated;
+        case State::New:
+        case State::Ready: return scheduler2::State::Ready;
     }
-    return kInvalidSlot;
+    return scheduler2::State::Terminated;
+}
+
+void sync_scheduler_policy() {
+    for (const Slot& slot : g_slots) {
+        if (slot.state == State::Empty || slot.id == INVALID_THREAD_ID) continue;
+        static_cast<void>(
+            scheduler2::set_state(slot.id, scheduler_state(slot.state)));
+    }
+}
+
+size_t find_ready(size_t excluded = kInvalidSlot) {
+    sync_scheduler_policy();
+    const ThreadId excluded_id =
+        excluded < MAX_THREADS ? g_slots[excluded].id : INVALID_THREAD_ID;
+    ThreadId selected = INVALID_THREAD_ID;
+    if (scheduler2::pick_next(
+            scheduler_cpu_index(), excluded_id, &selected) !=
+        scheduler2::Status::Ok) {
+        return kInvalidSlot;
+    }
+    size_t index = 0U;
+    if (!decode_id(selected, &index) || index >= MAX_THREADS ||
+        g_slots[index].id != selected || g_slots[index].state != State::Ready) {
+        return kInvalidSlot;
+    }
+    return index;
 }
 
 void wake_sleepers() {
@@ -279,6 +316,7 @@ void reap_terminated() {
         if (slot.state != State::Terminated) {
             continue;
         }
+        static_cast<void>(scheduler2::unregister_thread(slot.id));
         const uint64_t generation = slot.generation;
         clear_bytes(&slot, sizeof(slot));
         slot.generation = generation;
@@ -441,6 +479,33 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
 
 } // namespace
 
+Status configure_processors(size_t online_cpus) {
+    if (!g_initialized) return Status::NotInitialized;
+    const uint64_t flags = save_and_disable_interrupts();
+    if (g_run_active || g_current != kInvalidSlot || g_preemptive_active) {
+        restore_interrupts(flags);
+        return Status::Busy;
+    }
+    if (scheduler2::expand_cpu_count(online_cpus) != scheduler2::Status::Ok) {
+        restore_interrupts(flags);
+        return Status::SchedulerPolicyFailed;
+    }
+    const CpuMask all_online = scheduler2::online_mask();
+    for (Slot& slot : g_slots) {
+        if (slot.state == State::Empty || slot.id == INVALID_THREAD_ID ||
+            slot.affinity_explicit) {
+            continue;
+        }
+        if (scheduler2::set_affinity(slot.id, all_online) !=
+            scheduler2::Status::Ok) {
+            restore_interrupts(flags);
+            return Status::SchedulerPolicyFailed;
+        }
+    }
+    restore_interrupts(flags);
+    return Status::Ok;
+}
+
 Status set_pre_dispatch_hook(PreDispatchHook hook) {
     if (hook == nullptr) return Status::InvalidArgument;
     const uint64_t flags = save_and_disable_interrupts();
@@ -460,9 +525,14 @@ Status initialize() {
         return Status::AlreadyInitialized;
     }
     clear_bytes(g_slots, sizeof(g_slots));
+    const scheduler2::Status policy_status = scheduler2::initialize(1U);
+    if (policy_status != scheduler2::Status::Ok &&
+        policy_status != scheduler2::Status::AlreadyInitialized) {
+        restore_interrupts(flags);
+        return Status::SchedulerPolicyFailed;
+    }
     g_boot_context = {};
     g_current = kInvalidSlot;
-    g_cursor = 0U;
     g_switch_budget = 0U;
     g_run_switches = 0U;
     g_completed_total = 0U;
@@ -544,8 +614,20 @@ Status create_for_process(
     slot.argument = argument;
     slot.process_id = process_id;
     slot.priority = priority;
+    slot.affinity_explicit = false;
     slot.state = State::Ready;
     initialize_stack(slot);
+    if (scheduler2::register_thread(
+            slot.id,
+            priority,
+            scheduler2::online_mask(),
+            scheduler_cpu_index()) != scheduler2::Status::Ok) {
+        const uint64_t retained_generation = slot.generation;
+        clear_bytes(&slot, sizeof(slot));
+        slot.generation = retained_generation;
+        restore_interrupts(flags);
+        return Status::SchedulerPolicyFailed;
+    }
     if (g_preemptive_active) {
         initialize_interrupt_frame(slot);
     }
@@ -939,6 +1021,40 @@ Status request_yield() {
     return Status::Ok;
 }
 
+Status set_affinity(ThreadId id, CpuMask affinity) {
+    if (!g_initialized) return Status::NotInitialized;
+    size_t index = 0U;
+    if (!decode_id(id, &index) || index >= MAX_THREADS ||
+        g_slots[index].state == State::Empty || g_slots[index].id != id) {
+        return Status::NotFound;
+    }
+    const uint64_t flags = save_and_disable_interrupts();
+    const scheduler2::Status status = scheduler2::set_affinity(id, affinity);
+    if (status == scheduler2::Status::Ok) {
+        g_slots[index].affinity_explicit = true;
+    }
+    restore_interrupts(flags);
+    return status == scheduler2::Status::Ok
+        ? Status::Ok
+        : Status::InvalidArgument;
+}
+
+Status set_priority(ThreadId id, uint8_t priority) {
+    if (!g_initialized) return Status::NotInitialized;
+    size_t index = 0U;
+    if (!decode_id(id, &index) || index >= MAX_THREADS ||
+        g_slots[index].state == State::Empty || g_slots[index].id != id) {
+        return Status::NotFound;
+    }
+    const uint64_t flags = save_and_disable_interrupts();
+    const scheduler2::Status status = scheduler2::set_priority(id, priority);
+    if (status == scheduler2::Status::Ok) g_slots[index].priority = priority;
+    restore_interrupts(flags);
+    return status == scheduler2::Status::Ok
+        ? Status::Ok
+        : Status::InvalidArgument;
+}
+
 Status block_current() {
     if (!g_initialized) return Status::NotInitialized;
     const uint64_t flags = save_and_disable_interrupts();
@@ -1050,6 +1166,13 @@ Status stat(ThreadId id, Stat* output) {
     output->address_space_root = slot.address_space_root;
     output->wake_tick = slot.wake_tick;
     output->priority = slot.priority;
+    scheduler2::ThreadStat policy{};
+    if (scheduler2::stat(slot.id, &policy) == scheduler2::Status::Ok) {
+        output->affinity = policy.affinity;
+        output->home_cpu = policy.home_cpu;
+        output->last_cpu = policy.last_cpu;
+        output->migrations = policy.migrations;
+    }
     for (size_t name_index = 0U; name_index <= MAX_THREAD_NAME; ++name_index) {
         output->name[name_index] = slot.name[name_index];
         if (slot.name[name_index] == '\0') {
@@ -1082,6 +1205,13 @@ Status list(ListCallback callback, void* context) {
         snapshot.address_space_root = slot.address_space_root;
         snapshot.wake_tick = slot.wake_tick;
         snapshot.priority = slot.priority;
+        scheduler2::ThreadStat policy{};
+        if (scheduler2::stat(slot.id, &policy) == scheduler2::Status::Ok) {
+            snapshot.affinity = policy.affinity;
+            snapshot.home_cpu = policy.home_cpu;
+            snapshot.last_cpu = policy.last_cpu;
+            snapshot.migrations = policy.migrations;
+        }
         for (size_t index = 0U; index <= MAX_THREAD_NAME; ++index) {
             snapshot.name[index] = slot.name[index];
             if (snapshot.name[index] == '\0') {
@@ -1118,6 +1248,7 @@ const char* status_message(Status status) {
         case Status::Busy: return "thread runner is busy";
         case Status::BudgetExhausted: return "switch budget exhausted";
         case Status::CorruptContext: return "corrupt thread context";
+        case Status::SchedulerPolicyFailed: return "Scheduler 2.0 policy failure";
     }
     return "unknown thread status";
 }
