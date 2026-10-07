@@ -15,6 +15,7 @@ constexpr size_t kFadtResetRegisterOffset = 116U;
 constexpr size_t kFadtResetValueOffset = 128U;
 constexpr size_t kFadtXDsdtOffset = 140U;
 constexpr uint32_t kFadtResetSupported = UINT32_C(1) << 10U;
+constexpr uint32_t kHardwareReducedAcpi = UINT32_C(1) << 20U;
 constexpr uint8_t kSystemIoSpace = 1U;
 constexpr uint16_t kSleepTypeMask = UINT16_C(7) << 10U;
 constexpr uint16_t kSleepEnable = UINT16_C(1) << 13U;
@@ -83,6 +84,15 @@ bool io_port_from_gas(
     }
     *output = static_cast<uint16_t>(gas.address);
     return true;
+}
+
+bool valid_reset_register(const ResetRegister& gas) {
+    return gas.address_space_id == kSystemIoSpace &&
+        gas.bit_width == 8U &&
+        gas.bit_offset == 0U &&
+        (gas.access_size == 0U || gas.access_size == 1U) &&
+        gas.address != 0U &&
+        gas.address <= UINT16_MAX;
 }
 
 bool decode_pkg_length(
@@ -230,18 +240,8 @@ void enable_acpi_if_needed() {
 }
 
 void write_reset_register(const ResetRegister& reset, uint8_t value) {
-    if (reset.address_space_id != kSystemIoSpace ||
-        reset.bit_offset != 0U || reset.address == 0U ||
-        reset.address > UINT16_MAX) return;
-
-    const uint16_t port = static_cast<uint16_t>(reset.address);
-    if (reset.access_size == 3U || reset.bit_width > 16U) {
-        arch::out32(port, value);
-    } else if (reset.access_size == 2U || reset.bit_width > 8U) {
-        arch::out16(port, value);
-    } else {
-        arch::out8(port, value);
-    }
+    if (!valid_reset_register(reset)) return;
+    arch::out8(static_cast<uint16_t>(reset.address), value);
 }
 
 } // namespace
@@ -258,39 +258,42 @@ Status parse(const void* rsdp, Configuration* output) {
 
     const auto* fadt = static_cast<const uint8_t*>(fadt_view.address);
     const size_t fadt_length = fadt_view.length;
+    const uint32_t flags = read_u32(fadt + 112U);
     Configuration staged{};
     staged.smi_command_port = read_u32(fadt + 48U);
     staged.acpi_enable_value = fadt[52U];
 
-    static_cast<void>(select_pm1_control(
-        fadt, fadt_length, 172U, 64U, &staged.pm1a_control_port));
-    static_cast<void>(select_pm1_control(
-        fadt, fadt_length, 184U, 68U, &staged.pm1b_control_port));
-
-    uint64_t dsdt_address = read_u32(fadt + 40U);
-    if (fadt_length >= kFadtXDsdtOffset + 8U) {
-        const uint64_t extended = read_u64(fadt + kFadtXDsdtOffset);
-        if (extended != 0U) dsdt_address = extended;
+    if (fadt_length > kFadtResetValueOffset &&
+        (flags & kFadtResetSupported) != 0U &&
+        fadt_length >= kFadtResetRegisterOffset + 12U) {
+        staged.reset_register = read_gas(fadt + kFadtResetRegisterOffset);
+        staged.reset_supported = valid_reset_register(staged.reset_register);
+        staged.reset_value = fadt[kFadtResetValueOffset];
     }
-    if (dsdt_address == 0U || dsdt_address > UINTPTR_MAX)
-        return Status::DsdtNotFound;
 
-    const auto* dsdt = reinterpret_cast<const uint8_t*>(
-        static_cast<uintptr_t>(dsdt_address));
-    if (!valid_sdt(dsdt, "DSDT")) return Status::InvalidDsdt;
-    staged.shutdown_supported =
-        staged.pm1a_control_port != 0U &&
-        parse_s5(dsdt, &staged.sleep_type_a, &staged.sleep_type_b);
+    if ((flags & kHardwareReducedAcpi) == 0U) {
+        static_cast<void>(select_pm1_control(
+            fadt, fadt_length, 172U, 64U, &staged.pm1a_control_port));
+        static_cast<void>(select_pm1_control(
+            fadt, fadt_length, 184U, 68U, &staged.pm1b_control_port));
 
-    if (fadt_length > kFadtResetValueOffset) {
-        const uint32_t flags = read_u32(fadt + 112U);
-        if ((flags & kFadtResetSupported) != 0U &&
-            fadt_length >= kFadtResetRegisterOffset + 12U) {
-            staged.reset_register = read_gas(fadt + kFadtResetRegisterOffset);
-            uint16_t reset_port = 0U;
-            staged.reset_supported = io_port_from_gas(
-                staged.reset_register, 8U, &reset_port);
-            staged.reset_value = fadt[kFadtResetValueOffset];
+        uint64_t dsdt_address = read_u32(fadt + 40U);
+        if (fadt_length >= kFadtXDsdtOffset + 8U) {
+            const uint64_t extended = read_u64(fadt + kFadtXDsdtOffset);
+            if (extended != 0U) dsdt_address = extended;
+        }
+        if (dsdt_address == 0U || dsdt_address > UINTPTR_MAX) {
+            if (!staged.reset_supported) return Status::DsdtNotFound;
+        } else {
+            const auto* dsdt = reinterpret_cast<const uint8_t*>(
+                static_cast<uintptr_t>(dsdt_address));
+            if (!valid_sdt(dsdt, "DSDT")) {
+                if (!staged.reset_supported) return Status::InvalidDsdt;
+            } else {
+                staged.shutdown_supported =
+                    staged.pm1a_control_port != 0U &&
+                    parse_s5(dsdt, &staged.sleep_type_a, &staged.sleep_type_b);
+            }
         }
     }
 
@@ -346,16 +349,18 @@ void request_poweroff() {
     if (!shutdown_available()) return;
     enable_acpi_if_needed();
 
-    if (g_configuration.pm1b_control_port != 0U) {
-        const uint16_t current = arch::in16(g_configuration.pm1b_control_port);
-        arch::out16(
-            g_configuration.pm1b_control_port,
-            compose_sleep_control(current, g_configuration.sleep_type_b));
-    }
-    const uint16_t current = arch::in16(g_configuration.pm1a_control_port);
+    const uint16_t current_a = arch::in16(g_configuration.pm1a_control_port);
     arch::out16(
         g_configuration.pm1a_control_port,
-        compose_sleep_control(current, g_configuration.sleep_type_a));
+        compose_sleep_control(current_a, g_configuration.sleep_type_a));
+
+    if (g_configuration.pm1b_control_port != 0U) {
+        const uint16_t current_b =
+            arch::in16(g_configuration.pm1b_control_port);
+        arch::out16(
+            g_configuration.pm1b_control_port,
+            compose_sleep_control(current_b, g_configuration.sleep_type_b));
+    }
 }
 
 void request_reset() {

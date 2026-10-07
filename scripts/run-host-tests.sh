@@ -152,8 +152,8 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_acpi"
 "$OUT_DIR/test_acpi"
 
-# Validate FADT reset/control discovery, bounded _S5_ AML decoding and PM1
-# sleep-control composition without executing privileged host I/O.
+# Validate FADT reset/control discovery, strict byte-wide RESET_REG handling,
+# HW-reduced rejection, bounded _S5_ AML decoding and PM1 composition.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_acpi_power.cpp kernel/arch/x86_64/acpi.cpp \
   kernel/arch/x86_64/acpi_power.cpp \

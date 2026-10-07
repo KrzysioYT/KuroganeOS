@@ -96,8 +96,31 @@ int main() {
     assert((control & UINT16_C(0x1C00)) == UINT16_C(0x1400));
     assert((control & UINT16_C(0x2000)) != 0U);
 
+    // ACPI RESET_REG is byte-wide by specification. A 16-bit declaration
+    // must not be accepted merely because the I/O address itself is usable.
+    fadt[117U] = 16U;
+    checksum(fadt, sizeof(fadt), 9U);
+    assert(parse(rsdp, &configuration) == Status::Ok);
+    assert(configuration.shutdown_supported);
+    assert(!configuration.reset_supported);
+
+    // HW-reduced ACPI platforms use SLEEP_CONTROL_REG rather than PM1_CNT.
+    // That mechanism is intentionally outside this bounded Steel baseline.
+    fadt[117U] = 8U;
+    put32(fadt + 112U, (UINT32_C(1) << 10U) | (UINT32_C(1) << 20U));
+    checksum(fadt, sizeof(fadt), 9U);
+    assert(parse(rsdp, &configuration) == Status::SleepStateNotFound);
+    assert(!configuration.shutdown_supported);
+    assert(configuration.reset_supported);
+
+    // Restore the fixed-register platform and prove malformed DSDT is not
+    // promoted into a shutdown method.
+    put32(fadt + 112U, UINT32_C(1) << 10U);
+    checksum(fadt, sizeof(fadt), 9U);
     dsdt[47U] ^= 1U;
-    assert(parse(rsdp, &configuration) == Status::InvalidDsdt);
+    assert(parse(rsdp, &configuration) == Status::SleepStateNotFound);
+    assert(!configuration.shutdown_supported);
+    assert(configuration.reset_supported);
 
     std::cout << "ACPI power parser tests: PASS\n";
     return 0;
