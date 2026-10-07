@@ -22,6 +22,7 @@ grep -Fq "KuroganeOS $RELEASE_VERSION" dist/release-notes.txt
 bash tests/test_network_smoke_state.sh
 
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
+"$HOST_PYTHON" tests/test_virtualbox_input_profile.py
 
 # Run the production input queue and pump, including whole-report rejection,
 # retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
