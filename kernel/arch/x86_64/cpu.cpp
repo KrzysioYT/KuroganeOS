@@ -1,5 +1,6 @@
 #include "cpu.hpp"
 
+#include <stddef.h>
 namespace arch::x86_64::cpu {
 namespace {
 
