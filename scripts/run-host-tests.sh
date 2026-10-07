@@ -235,6 +235,7 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
   -ffunction-sections -fdata-sections tests/test_xhci_completions.cpp \
   kernel/drivers/usb/protocol.cpp \
+  kernel/drivers/usb/hid_report.cpp \
   kernel/drivers/usb/mass_storage_protocol.cpp \
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
