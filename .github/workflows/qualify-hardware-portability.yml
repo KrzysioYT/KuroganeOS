@@ -91,6 +91,7 @@ jobs:
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
             --require-marker '[TEST] hardware_boot_policy: PASS' \
+            --require-marker '[TEST] hardware_inventory: PASS' \
             --require-marker '[TEST] ps2_keyboard: SKIP (optional backend unavailable)' \
             --require-marker '[TEST] ps2_mouse: SKIP (optional backend unavailable)' \
             --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
