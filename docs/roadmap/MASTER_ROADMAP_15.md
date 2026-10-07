@@ -11,7 +11,7 @@ Progress is counted only from verifiable implementation and evidence: code, host
 
 Oracle VirtualBox host acceptance is `OPTIONAL / EXTERNAL VALIDATION`. It is not a Definition-of-Done item, a percentage input or a blocker for formal milestone progression. If an environment cannot be executed, its state stays external/unverified rather than being converted to PASS or FAIL.
 
-The compiled runtime version may remain `3.3.3-dev` while later engineering milestones are qualified. Roadmap qualification does not silently rewrite the version embedded in already-built media.
+The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
 ## Formal versioning model
 
@@ -22,7 +22,7 @@ The compiled runtime version may remain `3.3.3-dev` while later engineering mile
 | `3.5.0-dev` | Connected Userspace | QUALIFIED |
 | `3.6.0-dev` | Flux Stabilization | QUALIFIED |
 | `4.0.0-dev` | Pre-Steel | QUALIFIED |
-| `5.0.0-dev` | Steel / Hardware | ACTIVE |
+| `5.0.0-dev` | Steel / Hardware | QUALIFIED |
 | `6.0.0-dev` | Core Steel | PENDING |
 | `7.0.0-dev` | Iron Shield | PENDING |
 | `8.0.0-dev` | Connected Steel | PENDING |
@@ -154,7 +154,7 @@ The authoritative same-SHA closeout is Actions run `34260827773`; final job `102
 
 ## 5.0.0-dev — Steel / Hardware
 
-Status: **QUALIFICATION CANDIDATE**.
+Status: **QUALIFIED**.
 
 Steel's code-complete scope is the bounded hardware substrate required before
 Core Steel: PCI/PCIe BAR and capability validation, MSI/MSI-X and I/O APIC
@@ -185,9 +185,12 @@ candidate to pass full host regression, a clean release-media build, ACPI
 power discovery, HPET and four-vCPU SMP boot. The shared host-test change also
 retriggers HDA, NVMe, USB Mass Storage, USB keyboard and USB mouse gates.
 
-5.0 may be marked **QUALIFIED** only after that exact candidate is green.
+The exact candidate `90d5ffc80f91236e10118324c8e3b5d6f4a1c781` passed the full required automated matrix on 2026-10-07: Steel Closeout (`37641425299`), HPET (`37641425316`), SMP (`37641425398`), HDA (`37641425368`), NVMe (`37641425280`), USB Mass Storage (`37641425350`), USB Keyboard (`37641425387`) and USB Mouse (`37641425292`). PR #45 merged that candidate into the Road-to-15 integration branch as `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
+
 Physical-machine/VirtualBox checks remain external validation and are not
-silently converted into automated PASS markers.
+silently converted into automated PASS markers. Any real failure discovered
+there reopens the affected 5.0 subsystem before dependent Core Steel work is
+considered authoritative.
 
 ## 6.0.0-dev — Core Steel
 

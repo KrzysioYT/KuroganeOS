@@ -23,34 +23,41 @@ Native KuroFS runtime persistence was qualified at exact source SHA `6dd9581e79d
 
 ## 5.0 Steel / Hardware
 
-Status: **ACTIVE**.
+Status: **QUALIFIED**.
 
-Current USB baseline: `4b33bfbd05bc8b3f01c1cf89bc44ceabb33da79c` passed
-Actions `35231888211` / job `105237832241`, including full host regression,
-clean media, 130 HID key pairs, transfer/event ring wrap, empty-controller
-cleanup and three held-Shift disconnect/reconnect cycles with fresh handles.
-All twenty triggered workflows passed, including Pre-Steel `35231888631`.
-First keyboard attachment after empty-controller boot is qualified at
-`ad6a19b11d83d0eecaba3599c084321768371e67`: run `35905197560`, runtime job
-`107331023235`, cleanup job `107331023071`. Nine triggered workflows passed;
-six self-hosted workflows including Pre-Steel `35905199805` remain queued.
-Mouse publication is now all-or-nothing under queue pressure, and the PS/2
-pump retains blocked keyboard/mouse events. The change at `4926de5` passed full
-host, clean release media and the USB matrix in `35906417389` (runtime job
-`107335121448`, cleanup job `107335121039`), plus local ASan/UBSan and two real
-QEMU/TCG Login/Home/Logout cycles. Pre-Steel `35906417805` remains queued.
-This prerequisite does not claim a USB mouse backend.
+Authoritative automated candidate:
+`90d5ffc80f91236e10118324c8e3b5d6f4a1c781`.
 
-HID Boot Mouse protocol parsing and transactional report decoding into the
-shared mouse sample contract are qualified at exact source SHA
-`0b369e09b424bc707122babfdf8874e904c30bf3`. Actions run `36063735518` passed
-full host regression, clean release media, 130 keyboard report pairs with both
-rings wrapped, empty-controller cleanup, repeated disconnect/reconnect and late
-attachment. This evidence proves the protocol foundation is regression-safe; it
-does not claim an xHCI USB mouse transport or simultaneous USB devices.
+Merged through PR #45 as integration commit:
+`8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
 
-Single-vector PCI MSI is qualified at exact source SHA `718d8c546b4eb436be382f847f910a62b3714220` by Actions run `34292320432`, job `102281331383`. The production path uses bounded generation-safe vector ownership, validated xAPIC enablement, Local APIC EOI, reversible 32/64-bit MSI programming and ordered route teardown. The runtime proof uses the documented QEMU EDU endpoint to raise and acknowledge a real device MSI; QEMU's 82540EM `e1000` remains on its truthful polling/INTx-compatible path because that emulated model does not expose MSI.
+Qualified Steel scope includes:
+- PCI/MSI/MSI-X and bounded I/O APIC routing;
+- ACPI MADT, HPET and firmware-derived FADT/DSDT reset + S5 power;
+- AHCI plus writable NVMe and xHCI USB Mass Storage block backends;
+- xHCI HID keyboard and mouse runtime;
+- Intel HDA PCM DMA with AC'97 compatibility;
+- unified storage/NIC selection;
+- MADT AP discovery, INIT/SIPI AP startup, per-CPU AP state/stacks, Local APIC
+  IPI delivery, bounded cross-CPU work rendezvous and synchronous TLB
+  shootdown.
 
-As recorded in the master roadmap, bounded single-vector MSI-X was subsequently qualified at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in Actions run `34358861039`, job `102490389818`, and production VirtIO-net shared RX/TX MSI-X adoption passed at `6898c72f273207dbfd526f78a640433932e2291c`, run `34683815908`, job `103527144398`.
+Required exact-candidate Actions evidence on 2026-10-07:
+- Steel Closeout `37641425299` — PASS;
+- HPET Main Counter `37641425316` — PASS;
+- SMP Runtime `37641425398` — PASS;
+- Intel HDA Runtime `37641425368` — PASS;
+- NVMe Block Runtime `37641425280` — PASS;
+- xHCI USB Mass Storage `37641425350` — PASS;
+- xHCI USB Keyboard `37641425387` — PASS;
+- xHCI USB Mouse `37641425292` — PASS;
+- Steel Foundations `37641425390` — PASS.
 
-Bounded MSI-X route groups passed exact-source Actions run `34811940628` at `d42d9e31e98fbcb39577184475e36d97cb77d251`, together with Pre-Steel closeout `34811940844`. The contract and evidence are tracked in [PCI_MSIX_GROUPS.md](PCI_MSIX_GROUPS.md). The production VirtIO RX/TX group extension is now qualified at exact source SHA `308f2fb75205dfa265c8a620cf88e84d0627742d`: Network Cleanup run `34950706350` / job `104320726734` and MSI-X Runtime run `34950706505` / jobs `104320726926`, `104320727235` passed. These gates exercise malformed used-ring rejection, no-partial-mutation ownership, legal 16-bit completion wrap, active-queue reset/cleanup, real queue IRQ delivery, two-vector delivery, and truthful no-MSI-X polling fallback with clean release-media builds. The APIC runtime now owns a bounded fixed-delivery I/O APIC route contract: validated hardware-vector selection, masked programming order, destination encoding, GSI range checks and explicit clear-before-reuse. ACPI MADT ISA overrides are now resolved through an allocation-free legacy IRQ→GSI contract with conforming defaults and malformed/conflicting flag rejection. Current-head host evidence includes `[test_io_apic_irq] PASS` in Fatal Diagnostic host job `104330260616` (Actions run `34953615582`); real I/O APIC interrupt delivery and SMP remain open. The route layer also rejects overflowing or overlapping I/O APIC redirection GSI spans before a candidate is retained; host span/route coverage remains part of the green host suite. SMP and broader hardware qualification remain open. Steel is not yet qualified.
+The SMP qualification is deliberately limited to the multi-CPU execution
+substrate. Full Scheduler 2.0, per-CPU userspace run queues and process/thread
+load balancing belong to 6.0 Core Steel.
+
+Oracle VirtualBox and physical-machine validation are external evidence. They
+remain unverified until actually run; a real failure reopens the affected Steel
+subsystem. The manual handoff is documented in
+`docs/testing/STEEL_5_0_MANUAL.md`.
