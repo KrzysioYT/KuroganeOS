@@ -1917,14 +1917,34 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (context.installer) {
         pci::scan();
         initialize_device_framework(false);
-        const storage::ahci::Status ahci_status = storage::ahci::initialize();
-        if (ahci_status != storage::ahci::Status::Ok &&
-            ahci_status != storage::ahci::Status::AlreadyInitialized) {
-            boot_failure("INSTALL", storage::ahci::status_message(ahci_status));
+
+        const storage::nvme::Status nvme_status = storage::nvme::initialize();
+        if (nvme_status != storage::nvme::Status::Ok &&
+            nvme_status != storage::nvme::Status::AlreadyInitialized &&
+            nvme_status != storage::nvme::Status::NoController) {
+            log::write(
+                log::Level::Warn,
+                "INSTALL",
+                storage::nvme::status_message(nvme_status));
         }
-        if (!drivers::keyboard::initialize()) {
-            boot_failure("INSTALL", "PS/2 keyboard initialization failed");
+
+        // PS/2 is only a compatibility producer. The installer consumes the
+        // generic input queue, which can be fed by PS/2 or xHCI USB HID.
+        static_cast<void>(drivers::keyboard::initialize());
+        if (!input::initialize(graphics::width(), graphics::height())) {
+            boot_failure("INSTALL", "generic input queue initialization failed");
         }
+        if (storage::device_registry::device_count() == 0U) {
+            boot_failure(
+                "INSTALL",
+                "no supported block device discovered for installation");
+        }
+        terminal::write("installer block devices: ");
+        terminal::write_u64(storage::device_registry::device_count());
+        terminal::println();
+        terminal::println("[TEST] installer_generic_storage: PASS");
+        terminal::println("[TEST] installer_generic_input: PASS");
+
         install::installer::run_interactive(
             context.boot_info->installation_package,
             static_cast<size_t>(
