@@ -40,6 +40,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_cpu_info"
 "$OUT_DIR/test_cpu_info"
 
+# Scheduler 2.0 policy core: per-CPU run queues, affinity, priority,
+# deterministic round-robin and idle-CPU work stealing.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_scheduler2.cpp kernel/task/scheduler2.cpp \
+  -o "$OUT_DIR/test_scheduler2"
+"$OUT_DIR/test_scheduler2"
+
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_driver_requirement_policy.cpp \
   kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
