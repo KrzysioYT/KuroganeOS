@@ -136,6 +136,73 @@ static void mouse_publication_regression() {
     std::puts("Input mouse publication is retryable and atomic across queue wrap: PASS");
 }
 
+static void absolute_pointer_regression() {
+    using input::EventType;
+    assert(input::initialize(101U, 101U));
+    const input::AbsolutePointerSample press{
+        65535U, 0U, 0U, 65535U, 0U, 65535U,
+        0, drivers::mouse::Left
+    };
+    assert(input::submit_absolute_pointer(press));
+    assert(input::pointer_x() == 100 && input::pointer_y() == 0);
+    assert(input::pointer_buttons() == drivers::mouse::Left);
+    input::Event event{};
+    assert(input::try_read(&event) && event.type == EventType::MouseMove);
+    assert(event.x == 100 && event.y == 0 &&
+           event.delta_x == 50 && event.delta_y == -50);
+    assert(input::try_read(&event) && event.type == EventType::MouseButtonDown);
+    assert(event.button == drivers::mouse::Left && !input::try_read(&event));
+
+    // Same position: wheel and release are still delivered, without a
+    // spurious move or a stale pressed-button state.
+    const input::AbsolutePointerSample release{
+        65535U, 0U, 0U, 65535U, 0U, 65535U, -2, 0U
+    };
+    assert(input::submit_absolute_pointer(release));
+    assert(input::try_read(&event) && event.type == EventType::MouseButtonUp);
+    assert(input::try_read(&event) && event.type == EventType::MouseWheel);
+    assert(event.wheel == -2 && !input::try_read(&event));
+    assert(input::pointer_buttons() == 0U);
+
+    // Invalid ranges and unsupported buttons reject the entire report.
+    const input::AbsolutePointerSample invalid{
+        5U, 5U, 10U, 10U, 0U, 10U, 0, 0U
+    };
+    assert(!input::submit_absolute_pointer(invalid));
+    const input::AbsolutePointerSample invalid_buttons{
+        0U, 0U, 0U, 100U, 0U, 100U, 0, 0x80U
+    };
+    assert(!input::submit_absolute_pointer(invalid_buttons));
+    assert(input::pointer_x() == 100 && input::pointer_y() == 0);
+    assert(input::pending_events() == 0U);
+
+    // Clamp malformed out-of-range device coordinates instead of
+    // multiplying unchecked values.
+    const input::AbsolutePointerSample clamp_sample{
+        UINT32_MAX, 0U, 10U, 100U, 10U, 100U, 0, 0U
+    };
+    assert(input::submit_absolute_pointer(clamp_sample));
+    assert(input::pointer_x() == 100 && input::pointer_y() == 0);
+
+    // Backpressure is report-atomic, including the pointer state.
+    assert(input::initialize(101U, 101U));
+    drivers::keyboard::KeyEvent filler{};
+    for (size_t index = 0U; index < input::EVENT_QUEUE_CAPACITY - 1U; ++index) {
+        assert(input::submit_key(filler));
+    }
+    const size_t occupied = input::pending_events();
+    assert(!input::submit_absolute_pointer(press));
+    assert(!input::submit_absolute_pointer(press));
+    assert(input::pending_events() == occupied);
+    assert(input::pointer_x() == 50 && input::pointer_y() == 50);
+    assert(input::pointer_buttons() == 0U);
+    assert(input::try_read(&event));
+    assert(input::submit_absolute_pointer(press));
+    assert(input::pointer_x() == 100 && input::pointer_y() == 0);
+    assert(input::pending_events() == input::EVENT_QUEUE_CAPACITY);
+    std::puts("Absolute pointer maps full ranges and preserves atomic backpressure: PASS");
+}
+
 int main() {
     const drivers::mouse::Sample early{1, 1, 0, 1U, 1U};
     assert(!input::submit_mouse(early));
@@ -187,5 +254,6 @@ int main() {
         decoder.position != 0U) return 10;
     mouse_publication_regression();
     pump_backpressure_regression();
+    absolute_pointer_regression();
     return 0;
 }
