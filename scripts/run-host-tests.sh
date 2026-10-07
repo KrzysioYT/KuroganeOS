@@ -30,6 +30,12 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_hardware_policy"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_hardware_compatibility.cpp \
+  kernel/hardware/policy.cpp kernel/hardware/compatibility.cpp \
+  -o "$OUT_DIR/test_hardware_compatibility"
+"$OUT_DIR/test_hardware_compatibility"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
   -o "$OUT_DIR/test_cpu_info"
 "$OUT_DIR/test_cpu_info"
