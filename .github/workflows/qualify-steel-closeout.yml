@@ -7,6 +7,8 @@ on:
     paths:
       - '.github/workflows/qualify-steel-closeout.yml'
       - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'docs/ROADMAP.md'
       - 'kernel/arch/x86_64/**'
       - 'kernel/main.cpp'
       - 'kernel/shell/shell.cpp'
@@ -19,6 +21,8 @@ on:
     paths:
       - '.github/workflows/qualify-steel-closeout.yml'
       - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'docs/ROADMAP.md'
       - 'kernel/arch/x86_64/**'
       - 'kernel/main.cpp'
       - 'kernel/shell/shell.cpp'
