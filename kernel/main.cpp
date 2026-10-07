@@ -26,6 +26,7 @@
 #include "fs/kurofs_volume.hpp"
 #include "fs/root_volume.hpp"
 #include "fs/ramfs.hpp"
+#include "hardware/policy.hpp"
 #include "memory/allocator.hpp"
 #include "memory/kernel_virtual_memory.hpp"
 #include "memory/physical_memory.hpp"
@@ -1680,24 +1681,45 @@ void initialize_exception_handling() {
     log::write(log::Level::Info, "KERNEL", "CPU exception handlers installed");
 }
 
-bool initialize_hardware_interrupts() {
+hardware::policy::CapabilityMask initialize_hardware_interrupts() {
+    using namespace hardware::policy;
+
+    CapabilityMask available = CapabilityNone;
     drivers::pic::initialize();
     const bool timer_ready = drivers::pit::initialize(100);
+    if (timer_ready) available |= CapabilityTimer;
     log::write(
         timer_ready ? log::Level::Info : log::Level::Error,
         "TIME",
         timer_ready ? "PIT monotonic clock ready"
                     : "PIT initialization failed");
+
     const bool schedule_hook_ready =
         arch::x86_64::interrupts::register_irq_schedule_hook(
             threading::timer_irq_schedule);
+    if (schedule_hook_ready) available |= CapabilitySchedulerInterrupt;
+
+    // Legacy i8042 devices are compatibility backends, not a platform
+    // requirement. USB HID and future input transports feed the same input
+    // queue, so a machine without PS/2 must still be allowed to boot.
     const bool keyboard_ready = drivers::keyboard::initialize();
+    if (keyboard_ready) available |= CapabilityLegacyKeyboard;
     const bool mouse_ready = drivers::mouse::initialize();
+    if (mouse_ready) available |= CapabilityLegacyPointer;
+
     const bool input_ready = input::initialize(
         graphics::width(), graphics::height());
+    if (input_ready) available |= CapabilityInputQueue;
+
+    if (drivers::usb::xhci::initialized()) {
+        available |= CapabilityUsbHost;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        available |= CapabilityStorage;
+    }
+
     arch::x86_64::interrupts::enable();
-    return timer_ready && schedule_hook_ready && keyboard_ready &&
-        mouse_ready && input_ready;
+    return available;
 }
 
 void restore_shell_after_application() {
@@ -1954,30 +1976,64 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         boot_failure("APPS", "built-in application registration failed");
     }
 
-    const bool hardware_ready = initialize_hardware_interrupts();
+    hardware::policy::CapabilityMask hardware_capabilities =
+        initialize_hardware_interrupts();
+    if (network_status == net::Status::Ok &&
+        net::service::physical_interface()) {
+        hardware_capabilities |= hardware::policy::CapabilityNetwork;
+    }
+    const hardware::policy::Evaluation hardware_evaluation =
+        hardware::policy::evaluate(hardware_capabilities);
+
     log::write(
-        hardware_ready ? log::Level::Info : log::Level::Warn,
-        "INTERRUPTS",
-        hardware_ready ? "PIC, PIT, keyboard, mouse and input queue ready"
-                       : "hardware input degraded; polling fallback active");
-    terminal::write("interrupts/timer/input: ");
-    terminal::println(hardware_ready ? "READY" : "DEGRADED (polling enabled)");
-    terminal::write("PS/2 controller: ");
+        hardware_evaluation.bootable() ? log::Level::Info : log::Level::Error,
+        "HARDWARE",
+        hardware_evaluation.bootable()
+            ? "boot-critical hardware capabilities ready"
+            : "boot-critical hardware capability missing");
+    terminal::write("hardware boot policy: ");
     terminal::println(
-        drivers::keyboard::controller_configured() ? "configured" : "fallback");
+        hardware_evaluation.bootable()
+            ? "READY"
+            : "FAILED (boot-critical capability missing)");
+    terminal::println(
+        hardware_evaluation.bootable()
+            ? "[TEST] hardware_boot_policy: PASS"
+            : "[TEST] hardware_boot_policy: FAIL");
+
+    terminal::write("PS/2 keyboard: ");
+    terminal::println(
+        drivers::keyboard::controller_configured()
+            ? "configured (optional compatibility backend)"
+            : "unavailable (optional)");
+    terminal::println(
+        drivers::keyboard::initialized()
+            ? "[TEST] ps2_keyboard: PASS"
+            : "[TEST] ps2_keyboard: SKIP (optional backend unavailable)");
+
     terminal::write("PS/2 mouse: ");
     terminal::println(
         drivers::mouse::controller_configured()
             ? (drivers::mouse::wheel_enabled()
-                ? "configured (wheel)"
-                : "configured (3-button)")
-            : "unavailable");
+                ? "configured (wheel, optional compatibility backend)"
+                : "configured (3-button, optional compatibility backend)")
+            : "unavailable (optional)");
     terminal::println(
         drivers::mouse::initialized()
             ? "[TEST] ps2_mouse: PASS"
-            : "[TEST] ps2_mouse: FAIL");
-    if (!hardware_ready) {
-        boot_failure("INTERRUPTS", "required timer or PS/2 input unavailable");
+            : "[TEST] ps2_mouse: SKIP (optional backend unavailable)");
+
+    terminal::write("USB host: ");
+    terminal::println(
+        hardware::policy::available(
+            hardware_capabilities, hardware::policy::CapabilityUsbHost)
+            ? "READY"
+            : "unavailable (optional)");
+
+    if (!hardware_evaluation.bootable()) {
+        boot_failure(
+            "HARDWARE",
+            "required timer, scheduler interrupt hook or input queue unavailable");
     }
 
     const auto* smp_topology = arch::x86_64::acpi::topology();
