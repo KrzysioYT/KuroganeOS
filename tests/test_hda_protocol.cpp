@@ -70,6 +70,16 @@ void test_verb_and_response() {
     assert(build_verb_12(
         0U, 0U, 0x1000U, 0U, &verb) == Status::InvalidArgument);
 
+    assert(build_verb_4(
+        3U, 0x22U, 0x02U, 0x4011U, &verb) == Status::Ok);
+    assert(verb == UINT32_C(0x32224011));
+    verb = sentinel_verb;
+    assert(build_verb_4(
+        16U, 0U, 0x02U, 0U, &verb) == Status::InvalidArgument);
+    assert(verb == sentinel_verb);
+    assert(build_verb_4(
+        0U, 0U, 0x10U, 0U, &verb) == Status::InvalidArgument);
+
     RirbResponse response{};
     const uint64_t solicited =
         UINT64_C(0x00000003) << 32U | UINT64_C(0xDEADBEEF);

@@ -47,6 +47,13 @@ Status build_verb_12(
     uint8_t payload,
     uint32_t* output);
 
+Status build_verb_4(
+    uint8_t codec_address,
+    uint8_t node_id,
+    uint8_t verb,
+    uint16_t payload,
+    uint32_t* output);
+
 struct RirbResponse {
     uint32_t response;
     uint8_t codec_address;
