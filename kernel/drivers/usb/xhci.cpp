@@ -21,6 +21,7 @@ constexpr size_t RING_TRB_COUNT = 256U;
 constexpr size_t USABLE_RING_TRBS = RING_TRB_COUNT - 1U;
 constexpr size_t MAXIMUM_SCRATCHPADS = 32U;
 constexpr uint32_t POLL_BUDGET = 2000000U;
+constexpr size_t MAXIMUM_DEFERRED_EVENTS = 32U;
 
 constexpr size_t CAP_HCSPARAMS1 = 0x04U;
 constexpr size_t CAP_HCSPARAMS2 = 0x08U;
@@ -90,6 +91,40 @@ enum class HidKind : uint8_t {
 
 enum class HidLifecycle : uint8_t {
     Active, DrainInput, ReleaseInput, WaitingForDevice, Failed,
+};
+
+struct CompanionHid {
+    uint8_t slot_id;
+    uint8_t port_id;
+    uint8_t port_speed;
+    uint8_t interrupt_dci;
+    uint8_t ignored_port_id;
+    uint16_t vendor_id;
+    uint16_t product_id;
+    uint16_t ep0_packet_size;
+    uint16_t interrupt_packet_size;
+    device::DeviceId child_device;
+    storage::dma::Page input_context_page;
+    storage::dma::Page device_context_page;
+    storage::dma::Page data_page;
+    ProducerRing ep0_ring;
+    ProducerRing interrupt_ring;
+    HidKind hid_kind;
+    HidBootKeyboardInterface keyboard_interface;
+    HidBootMouseInterface mouse_interface;
+    KeyboardDecoder keyboard_decoder;
+    MouseDecoder mouse_decoder;
+    keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
+    size_t pending_key_count;
+    size_t pending_key_index;
+    mouse::Sample pending_mouse;
+    bool pending_mouse_valid;
+    HidLifecycle hid_lifecycle;
+    bool report_queued;
+    uint64_t report_trb;
+    bool input_proven;
+    uint64_t reports;
+    bool allocated;
 };
 
 struct Controller {
@@ -162,6 +197,10 @@ struct Controller {
     bool bus_master_enabled;
     bool cleanup_pending;
     uint64_t reports;
+    CompanionHid companion;
+    Trb deferred_events[MAXIMUM_DEFERRED_EVENTS];
+    size_t deferred_event_count;
+    bool multi_hid_proven;
 };
 
 Controller g_controller{};
@@ -372,6 +411,28 @@ Status remove_hid_devices(Controller* controller) {
     return Status::Ok;
 }
 
+Status remove_companion_device(Controller* controller) {
+    if (controller == nullptr) return Status::InvalidArgument;
+    auto& companion = controller->companion;
+    if (companion.child_device == device::INVALID_DEVICE_ID) {
+        return Status::Ok;
+    }
+    const auto* child = device::get(companion.child_device);
+    if (child != nullptr) {
+        if (child->driver != device::INVALID_DRIVER_ID &&
+            (child->driver != controller->owner_driver ||
+             device::release(child->id, controller->owner_driver) !=
+                 KStatus::Ok)) {
+            return Status::ResourceReleaseFailed;
+        }
+        if (device::remove_device(companion.child_device) != KStatus::Ok) {
+            return Status::ResourceReleaseFailed;
+        }
+    }
+    companion.child_device = device::INVALID_DEVICE_ID;
+    return Status::Ok;
+}
+
 Status release_resources(Controller* controller) {
     if (controller == nullptr) return Status::InvalidArgument;
     controller->initialized = false;
@@ -380,6 +441,8 @@ Status release_resources(Controller* controller) {
     if (stopped != Status::Ok) return stopped;
     const Status removed = remove_hid_devices(controller);
     if (removed != Status::Ok) return removed;
+    const Status companion_removed = remove_companion_device(controller);
+    if (companion_removed != Status::Ok) return companion_removed;
     bool released = true;
     storage::dma::Page* const pages[] = {
         &controller->command_ring.page, &controller->ep0_ring.page,
@@ -389,6 +452,11 @@ Status release_resources(Controller* controller) {
         &controller->input_context_page, &controller->device_context_page,
         &controller->data_page, &controller->storage_io_page,
         &controller->scratchpad_array_page,
+        &controller->companion.input_context_page,
+        &controller->companion.device_context_page,
+        &controller->companion.data_page,
+        &controller->companion.ep0_ring.page,
+        &controller->companion.interrupt_ring.page,
     };
     for (auto* page : pages) {
         if (!release_dma_page(page)) released = false;
@@ -484,7 +552,12 @@ bool allocate_controller_memory(Controller& controller, uint32_t hcsparams2) {
         !initialize_ring(&controller.bulk_in_ring) ||
         !initialize_ring(&controller.bulk_out_ring) ||
         !allocate_page(&controller.data_page) ||
-        !allocate_page(&controller.storage_io_page)) {
+        !allocate_page(&controller.storage_io_page) ||
+        !allocate_page(&controller.companion.input_context_page) ||
+        !allocate_page(&controller.companion.device_context_page) ||
+        !allocate_page(&controller.companion.data_page) ||
+        !initialize_ring(&controller.companion.ep0_ring) ||
+        !initialize_ring(&controller.companion.interrupt_ring)) {
         return false;
     }
     controller.scratchpad_count =
@@ -502,6 +575,10 @@ bool allocate_controller_memory(Controller& controller, uint32_t hcsparams2) {
         static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)[0] =
             controller.scratchpad_array_page.physical_address;
     }
+    controller.companion.child_device = device::INVALID_DEVICE_ID;
+    controller.companion.hid_kind = HidKind::None;
+    controller.companion.hid_lifecycle = HidLifecycle::WaitingForDevice;
+    controller.companion.allocated = true;
     return true;
 }
 
@@ -558,6 +635,28 @@ bool next_event(Controller& controller, Trb* output) {
     return true;
 }
 
+bool defer_event(Controller& controller, const Trb& event) {
+    if (controller.deferred_event_count >= MAXIMUM_DEFERRED_EVENTS) {
+        log::write(log::Level::Error, "XHCI", "deferred event queue overflow");
+        return false;
+    }
+    controller.deferred_events[controller.deferred_event_count++] = event;
+    return true;
+}
+
+bool next_poll_event(Controller& controller, Trb* output) {
+    if (output == nullptr) return false;
+    if (controller.deferred_event_count == 0U) {
+        return next_event(controller, output);
+    }
+    *output = controller.deferred_events[0U];
+    for (size_t index = 1U; index < controller.deferred_event_count; ++index) {
+        controller.deferred_events[index - 1U] = controller.deferred_events[index];
+    }
+    --controller.deferred_event_count;
+    return true;
+}
+
 bool wait_event(
     Controller& controller,
     uint8_t expected_type,
@@ -576,6 +675,7 @@ bool wait_event(
             if (output != nullptr) *output = event;
             return true;
         }
+        if (!defer_event(controller, event)) return false;
     }
     return false;
 }
@@ -612,9 +712,35 @@ uint8_t first_connected_port(const Controller& controller) {
     return 0U;
 }
 
-bool reset_connected_port(Controller& controller) {
-    const uint8_t port = first_connected_port(controller);
+bool port_claimed(const Controller& controller, uint8_t port) {
     if (port == 0U) return false;
+    if (controller.slot_id != 0U && controller.port_id == port) return true;
+    if (controller.companion.slot_id != 0U &&
+        controller.companion.port_id == port) {
+        return true;
+    }
+    return controller.companion.ignored_port_id == port;
+}
+
+uint8_t first_unclaimed_connected_port(const Controller& controller) {
+    for (size_t index = 0U; index < controller.maximum_ports; ++index) {
+        const uint8_t port = static_cast<uint8_t>(index + 1U);
+        if (port_claimed(controller, port)) continue;
+        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
+             PORT_CONNECTED) != 0U) {
+            return port;
+        }
+    }
+    return 0U;
+}
+
+bool reset_port(
+    Controller& controller,
+    uint8_t port,
+    uint8_t* speed) {
+    if (port == 0U || port > controller.maximum_ports || speed == nullptr) {
+        return false;
+    }
     const size_t offset = OP_PORTS +
         static_cast<size_t>(port - 1U) * PORT_STRIDE;
     write32(controller.operational, offset, PORT_POWER | PORT_RESET);
@@ -623,14 +749,22 @@ bool reset_connected_port(Controller& controller) {
         if ((status & PORT_CONNECTED) != 0U &&
             (status & PORT_RESET) == 0U &&
             (status & PORT_ENABLED) != 0U) {
-            controller.port_id = port;
-            controller.port_speed = static_cast<uint8_t>(
-                (status >> 10U) & 0x0FU);
-            return controller.port_speed != 0U;
+            *speed = static_cast<uint8_t>((status >> 10U) & 0x0FU);
+            return *speed != 0U;
         }
         relax();
     }
     return false;
+}
+
+bool reset_connected_port(Controller& controller) {
+    const uint8_t port = first_unclaimed_connected_port(controller);
+    if (port == 0U) return false;
+    uint8_t speed = 0U;
+    if (!reset_port(controller, port, &speed)) return false;
+    controller.port_id = port;
+    controller.port_speed = speed;
+    return true;
 }
 
 void acknowledge_port_change(Controller& controller, uint8_t port) {
@@ -1056,10 +1190,13 @@ bool wait_bulk_transfer(
             continue;
         }
         if (trb_type(event) != TRB_TRANSFER_EVENT) {
-            // A port change while a synchronous BOT transaction is active
-            // invalidates the transaction. Do not pretend the transfer survived
-            // a possible disconnect/reconnect boundary.
-            if (trb_type(event) == TRB_PORT_STATUS_CHANGE) return false;
+            if (!defer_event(controller, event)) return false;
+            continue;
+        }
+        const uint8_t event_slot =
+            static_cast<uint8_t>(event.control >> 24U);
+        if (event_slot != controller.slot_id) {
+            if (!defer_event(controller, event)) return false;
             continue;
         }
         const auto status = bulk::classify_transfer_completion(
@@ -1906,9 +2043,686 @@ void handle_mouse_report(Controller& controller, const Trb& event) {
     }
 }
 
+
+uint32_t* companion_input_context(
+    Controller& controller,
+    size_t index) {
+    return reinterpret_cast<uint32_t*>(
+        static_cast<uint8_t*>(
+            controller.companion.input_context_page.virtual_address) +
+        index * controller.context_size);
+}
+
+uint32_t* companion_output_context(
+    Controller& controller,
+    size_t index) {
+    return reinterpret_cast<uint32_t*>(
+        static_cast<uint8_t*>(
+            controller.companion.device_context_page.virtual_address) +
+        index * controller.context_size);
+}
+
+bool address_companion_device(Controller& controller) {
+    auto& companion = controller.companion;
+    Trb completion{};
+    if (!submit_command(
+            controller, 0U, 0U,
+            static_cast<uint32_t>(TRB_ENABLE_SLOT) << 10U,
+            &completion)) {
+        return false;
+    }
+    companion.slot_id = static_cast<uint8_t>(completion.control >> 24U);
+    if (companion.slot_id == 0U ||
+        companion.slot_id > controller.maximum_slots) {
+        return false;
+    }
+    static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)
+        [companion.slot_id] =
+        companion.device_context_page.physical_address;
+
+    clear_bytes(
+        companion.input_context_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    companion_input_context(controller, 0U)[1U] = 3U;
+    uint32_t* slot = companion_input_context(controller, 1U);
+    slot[0U] = static_cast<uint32_t>(companion.port_speed) << 20U |
+        UINT32_C(1) << 27U;
+    slot[1U] = static_cast<uint32_t>(companion.port_id) << 16U;
+    companion.ep0_packet_size = initial_packet_size(companion.port_speed);
+    uint32_t* ep0 = companion_input_context(controller, 2U);
+    ep0[1U] = UINT32_C(3) << 1U | UINT32_C(4) << 3U |
+        static_cast<uint32_t>(companion.ep0_packet_size) << 16U;
+    ep0[2U] = static_cast<uint32_t>(
+        companion.ep0_ring.page.physical_address) | 1U;
+    ep0[3U] = static_cast<uint32_t>(
+        companion.ep0_ring.page.physical_address >> 32U);
+    ep0[4U] = 8U;
+
+    return submit_command(
+        controller,
+        companion.input_context_page.physical_address,
+        0U,
+        static_cast<uint32_t>(TRB_ADDRESS_DEVICE) << 10U |
+            static_cast<uint32_t>(companion.slot_id) << 24U,
+        &completion);
+}
+
+bool companion_control_transfer(
+    Controller& controller,
+    uint8_t request_type,
+    uint8_t request,
+    uint16_t value,
+    uint16_t index,
+    uint16_t length,
+    bool direction_in) {
+    auto& companion = controller.companion;
+    const uint32_t transfer_type = length == 0U
+        ? 0U
+        : (direction_in ? 3U : 2U);
+    enqueue_trb(
+        companion.ep0_ring,
+        setup_packet(request_type, request, value, index, length),
+        8U,
+        static_cast<uint32_t>(TRB_SETUP_STAGE) << 10U |
+            UINT32_C(1) << 6U | transfer_type << 16U);
+    if (length != 0U) {
+        enqueue_trb(
+            companion.ep0_ring,
+            companion.data_page.physical_address,
+            length,
+            static_cast<uint32_t>(TRB_DATA_STAGE) << 10U |
+                (direction_in ? UINT32_C(1) << 16U : 0U));
+    }
+    const bool status_in = length == 0U || !direction_in;
+    const uint64_t status_trb = enqueue_trb(
+        companion.ep0_ring,
+        0U,
+        0U,
+        static_cast<uint32_t>(TRB_STATUS_STAGE) << 10U |
+            UINT32_C(1) << 5U |
+            (status_in ? UINT32_C(1) << 16U : 0U));
+    controller.doorbells[companion.slot_id] = 1U;
+    Trb completion{};
+    return wait_event(
+               controller, TRB_TRANSFER_EVENT, status_trb, &completion) &&
+        completion_ok(completion) &&
+        static_cast<uint8_t>(completion.control >> 24U) ==
+            companion.slot_id;
+}
+
+bool update_companion_ep0_packet_size(
+    Controller& controller,
+    uint16_t packet_size) {
+    auto& companion = controller.companion;
+    if (packet_size == companion.ep0_packet_size) return true;
+    clear_bytes(
+        companion.input_context_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    companion_input_context(controller, 0U)[1U] = UINT32_C(1) << 1U;
+    copy_bytes(
+        companion_input_context(controller, 2U),
+        companion_output_context(controller, 1U),
+        controller.context_size);
+    companion_input_context(controller, 2U)[1U] &= UINT32_C(0x0000FFFF);
+    companion_input_context(controller, 2U)[1U] |=
+        static_cast<uint32_t>(packet_size) << 16U;
+    Trb completion{};
+    if (!submit_command(
+            controller,
+            companion.input_context_page.physical_address,
+            0U,
+            static_cast<uint32_t>(TRB_EVALUATE_CONTEXT) << 10U |
+                static_cast<uint32_t>(companion.slot_id) << 24U,
+            &completion)) {
+        return false;
+    }
+    companion.ep0_packet_size = packet_size;
+    return true;
+}
+
+bool read_companion_descriptors(Controller& controller) {
+    auto& companion = controller.companion;
+    clear_bytes(
+        companion.data_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    if (!companion_control_transfer(
+            controller, 0x80U, 6U, 0x0100U, 0U, 8U, true)) {
+        return false;
+    }
+    const auto* bytes = static_cast<const uint8_t*>(
+        companion.data_page.virtual_address);
+    if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    uint16_t packet_size = bytes[7U];
+    if (companion.port_speed == 4U) {
+        if (packet_size > 9U) return false;
+        packet_size = static_cast<uint16_t>(UINT16_C(1) << packet_size);
+    }
+    if (packet_size < 8U || packet_size > 512U ||
+        !update_companion_ep0_packet_size(controller, packet_size)) {
+        return false;
+    }
+
+    clear_bytes(
+        companion.data_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    if (!companion_control_transfer(
+            controller, 0x80U, 6U, 0x0100U, 0U, 18U, true)) {
+        return false;
+    }
+    bytes = static_cast<const uint8_t*>(
+        companion.data_page.virtual_address);
+    if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    companion.vendor_id = static_cast<uint16_t>(bytes[8U]) |
+        static_cast<uint16_t>(bytes[9U]) << 8U;
+    companion.product_id = static_cast<uint16_t>(bytes[10U]) |
+        static_cast<uint16_t>(bytes[11U]) << 8U;
+
+    clear_bytes(
+        companion.data_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    if (!companion_control_transfer(
+            controller, 0x80U, 6U, 0x0200U, 0U, 9U, true)) {
+        return false;
+    }
+    bytes = static_cast<const uint8_t*>(
+        companion.data_page.virtual_address);
+    const uint16_t total = static_cast<uint16_t>(bytes[2U]) |
+        static_cast<uint16_t>(bytes[3U]) << 8U;
+    if (bytes[0U] < 9U || bytes[1U] != 2U ||
+        total < 9U || total > 512U) {
+        return false;
+    }
+    clear_bytes(
+        companion.data_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    if (!companion_control_transfer(
+            controller, 0x80U, 6U, 0x0200U, 0U, total, true)) {
+        return false;
+    }
+    const auto* configuration = static_cast<const uint8_t*>(
+        companion.data_page.virtual_address);
+    companion.hid_kind = HidKind::None;
+    if (find_boot_keyboard_interface(
+            configuration, total, &companion.keyboard_interface)) {
+        companion.hid_kind = HidKind::Keyboard;
+        return true;
+    }
+    if (find_boot_mouse_interface(
+            configuration, total, &companion.mouse_interface)) {
+        companion.hid_kind = HidKind::Mouse;
+        return true;
+    }
+    return false;
+}
+
+bool configure_companion_hid_endpoint(Controller& controller) {
+    auto& companion = controller.companion;
+    HidInterruptEndpoint hid{};
+    if (companion.hid_kind == HidKind::Keyboard) {
+        hid = {
+            companion.keyboard_interface.configuration_value,
+            companion.keyboard_interface.interface_number,
+            companion.keyboard_interface.endpoint_address,
+            companion.keyboard_interface.maximum_packet_size,
+            companion.keyboard_interface.interval,
+            8U,
+        };
+    } else if (companion.hid_kind == HidKind::Mouse) {
+        hid = {
+            companion.mouse_interface.configuration_value,
+            companion.mouse_interface.interface_number,
+            companion.mouse_interface.endpoint_address,
+            companion.mouse_interface.maximum_packet_size,
+            companion.mouse_interface.interval,
+            3U,
+        };
+    } else {
+        return false;
+    }
+
+    if (!companion_control_transfer(
+            controller, 0x00U, 9U, hid.configuration_value,
+            0U, 0U, false)) {
+        return false;
+    }
+    static_cast<void>(companion_control_transfer(
+        controller, 0x21U, 0x0BU, 0U,
+        hid.interface_number, 0U, false));
+    static_cast<void>(companion_control_transfer(
+        controller, 0x21U, 0x0AU, 0U,
+        hid.interface_number, 0U, false));
+
+    const uint8_t endpoint_number = hid.endpoint_address & 0x0FU;
+    companion.interrupt_dci = static_cast<uint8_t>(
+        endpoint_number * 2U + 1U);
+    if (endpoint_number == 0U || companion.interrupt_dci >= 32U ||
+        hid.transfer_size == 0U ||
+        hid.transfer_size > hid.maximum_packet_size) {
+        return false;
+    }
+    companion.interrupt_packet_size = hid.transfer_size;
+
+    clear_bytes(
+        companion.input_context_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    companion_input_context(controller, 0U)[1U] = UINT32_C(1) |
+        (UINT32_C(1) << companion.interrupt_dci);
+    copy_bytes(
+        companion_input_context(controller, 1U),
+        companion_output_context(controller, 0U),
+        controller.context_size);
+    uint32_t* slot = companion_input_context(controller, 1U);
+    slot[0U] &= ~(UINT32_C(0x1F) << 27U);
+    slot[0U] |= static_cast<uint32_t>(
+        companion.interrupt_dci) << 27U;
+
+    uint32_t* endpoint = companion_input_context(
+        controller,
+        static_cast<size_t>(companion.interrupt_dci) + 1U);
+    endpoint[0U] = static_cast<uint32_t>(
+        endpoint_interval(companion.port_speed, hid.interval)) << 16U;
+    endpoint[1U] = UINT32_C(3) << 1U | UINT32_C(7) << 3U |
+        static_cast<uint32_t>(hid.maximum_packet_size) << 16U;
+    endpoint[2U] = static_cast<uint32_t>(
+        companion.interrupt_ring.page.physical_address) | 1U;
+    endpoint[3U] = static_cast<uint32_t>(
+        companion.interrupt_ring.page.physical_address >> 32U);
+    endpoint[4U] = companion.interrupt_packet_size;
+
+    Trb completion{};
+    return submit_command(
+        controller,
+        companion.input_context_page.physical_address,
+        0U,
+        static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
+            static_cast<uint32_t>(companion.slot_id) << 24U,
+        &completion);
+}
+
+bool register_companion_hid(Controller& controller) {
+    auto& companion = controller.companion;
+    if (companion.hid_kind != HidKind::Keyboard &&
+        companion.hid_kind != HidKind::Mouse) {
+        return false;
+    }
+    const bool keyboard_kind =
+        companion.hid_kind == HidKind::Keyboard;
+    const device::Descriptor descriptor{
+        device::Type::Input,
+        device::Bus::Usb,
+        keyboard_kind
+            ? "USB HID boot keyboard"
+            : "USB HID boot mouse",
+        companion.vendor_id,
+        companion.product_id,
+        3U, 1U, keyboard_kind ? 1U : 2U,
+        {0U, 0U, companion.port_id, 0U},
+        controller.parent_device,
+        nullptr,
+        0U,
+    };
+    device::DeviceId id = device::INVALID_DEVICE_ID;
+    if (device::register_device(descriptor, &id) != KStatus::Ok) {
+        return false;
+    }
+    companion.child_device = id;
+    if (device::claim(
+            id, controller.owner_driver, "usb-hid-boot") != KStatus::Ok ||
+        device::set_status(id, device::Status::Ready) != KStatus::Ok) {
+        return false;
+    }
+    return true;
+}
+
+bool queue_companion_report(Controller& controller) {
+    auto& companion = controller.companion;
+    if (companion.report_queued) return true;
+    if (companion.hid_kind == HidKind::Keyboard &&
+        companion.pending_key_count != 0U) {
+        return false;
+    }
+    if (companion.hid_kind == HidKind::Mouse &&
+        companion.pending_mouse_valid) {
+        return false;
+    }
+    if (companion.hid_kind == HidKind::None ||
+        companion.interrupt_packet_size == 0U) {
+        return false;
+    }
+    clear_bytes(
+        companion.data_page.virtual_address,
+        companion.interrupt_packet_size);
+    companion.report_trb = enqueue_trb(
+        companion.interrupt_ring,
+        companion.data_page.physical_address,
+        companion.interrupt_packet_size,
+        static_cast<uint32_t>(TRB_NORMAL) << 10U |
+            UINT32_C(1) << 5U);
+    companion.report_queued = true;
+    controller.doorbells[companion.slot_id] =
+        companion.interrupt_dci;
+    return true;
+}
+
+void record_companion_keyboard_input(
+    CompanionHid& companion,
+    const keyboard::KeyEvent& event) {
+    if (!companion.input_proven && event.pressed) {
+        companion.input_proven = true;
+        terminal::println("[TEST] usb_hid_keyboard_input: PASS");
+    }
+}
+
+bool flush_companion_keyboard(CompanionHid& companion) {
+    while (companion.pending_key_index <
+           companion.pending_key_count) {
+        const auto& event =
+            companion.pending_keys[companion.pending_key_index];
+        if (!input::submit_key(event)) return false;
+        record_companion_keyboard_input(companion, event);
+        ++companion.pending_key_index;
+    }
+    companion.pending_key_index = 0U;
+    companion.pending_key_count = 0U;
+    return true;
+}
+
+void record_companion_mouse_input(
+    CompanionHid& companion,
+    const mouse::Sample& sample) {
+    if (!companion.input_proven &&
+        (sample.delta_x != 0 || sample.delta_y != 0 ||
+         sample.wheel != 0 || sample.changed_buttons != 0U)) {
+        companion.input_proven = true;
+        terminal::println("[TEST] usb_hid_mouse_input: PASS");
+    }
+}
+
+bool flush_companion_mouse(CompanionHid& companion) {
+    if (!companion.pending_mouse_valid) return true;
+    if (!input::submit_mouse(companion.pending_mouse)) return false;
+    record_companion_mouse_input(
+        companion, companion.pending_mouse);
+    companion.pending_mouse_valid = false;
+    return true;
+}
+
+bool flush_companion_input(CompanionHid& companion) {
+    if (companion.hid_kind == HidKind::Keyboard) {
+        return flush_companion_keyboard(companion);
+    }
+    if (companion.hid_kind == HidKind::Mouse) {
+        return flush_companion_mouse(companion);
+    }
+    return true;
+}
+
+void handle_companion_keyboard_report(
+    Controller& controller,
+    const Trb& event) {
+    auto& companion = controller.companion;
+    if (!companion.report_queued ||
+        (event.control & (1U << 2U)) != 0U ||
+        event.parameter != companion.report_trb) {
+        return;
+    }
+    companion.report_queued = false;
+    companion.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual =
+        remaining <= companion.interrupt_packet_size
+            ? companion.interrupt_packet_size - remaining
+            : 0U;
+    if (completion_ok(event) && actual >= 8U) {
+        if (decode_boot_keyboard_report(
+                &companion.keyboard_decoder,
+                static_cast<const uint8_t*>(
+                    companion.data_page.virtual_address),
+                actual,
+                companion.pending_keys,
+                MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
+                &companion.pending_key_count)) {
+            ++companion.reports;
+        }
+    }
+    if (flush_companion_keyboard(companion)) {
+        static_cast<void>(queue_companion_report(controller));
+    }
+}
+
+void handle_companion_mouse_report(
+    Controller& controller,
+    const Trb& event) {
+    auto& companion = controller.companion;
+    if (!companion.report_queued ||
+        (event.control & (1U << 2U)) != 0U ||
+        event.parameter != companion.report_trb) {
+        return;
+    }
+    companion.report_queued = false;
+    companion.report_trb = 0U;
+    const uint32_t remaining = event.status & 0x00FFFFFFU;
+    const size_t actual =
+        remaining <= companion.interrupt_packet_size
+            ? companion.interrupt_packet_size - remaining
+            : 0U;
+    if (completion_ok(event) && actual >= 3U) {
+        mouse::Sample sample{};
+        if (decode_boot_mouse_report(
+                &companion.mouse_decoder,
+                static_cast<const uint8_t*>(
+                    companion.data_page.virtual_address),
+                actual,
+                &sample)) {
+            companion.pending_mouse = sample;
+            companion.pending_mouse_valid = true;
+            ++companion.reports;
+        }
+    }
+    if (flush_companion_mouse(companion)) {
+        static_cast<void>(queue_companion_report(controller));
+    }
+}
+
+bool retire_companion_slot(Controller& controller) {
+    auto& companion = controller.companion;
+    if (companion.slot_id != 0U) {
+        Trb completion{};
+        if (!submit_command(
+                controller, 0U, 0U,
+                static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
+                    static_cast<uint32_t>(
+                        companion.slot_id) << 24U,
+                &completion)) {
+            companion.hid_lifecycle = HidLifecycle::Failed;
+            return false;
+        }
+        static_cast<uint64_t*>(
+            controller.dcbaa_page.virtual_address)
+            [companion.slot_id] = 0U;
+        barrier();
+    }
+    if (remove_companion_device(&controller) != Status::Ok) {
+        companion.hid_lifecycle = HidLifecycle::Failed;
+        return false;
+    }
+
+    companion.slot_id = 0U;
+    companion.port_id = 0U;
+    companion.port_speed = 0U;
+    companion.interrupt_dci = 0U;
+    companion.vendor_id = 0U;
+    companion.product_id = 0U;
+    companion.ep0_packet_size = 0U;
+    companion.interrupt_packet_size = 0U;
+    companion.hid_kind = HidKind::None;
+    companion.keyboard_interface = {};
+    companion.mouse_interface = {};
+    companion.keyboard_decoder = {};
+    companion.mouse_decoder = {};
+    companion.pending_key_count = 0U;
+    companion.pending_key_index = 0U;
+    companion.pending_mouse = {};
+    companion.pending_mouse_valid = false;
+    companion.report_queued = false;
+    companion.report_trb = 0U;
+    companion.input_proven = false;
+    reset_ring(&companion.ep0_ring);
+    reset_ring(&companion.interrupt_ring);
+    clear_bytes(
+        companion.input_context_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    clear_bytes(
+        companion.device_context_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    clear_bytes(
+        companion.data_page.virtual_address,
+        memory::virtual_memory::PAGE_SIZE);
+    companion.hid_lifecycle = HidLifecycle::WaitingForDevice;
+    return true;
+}
+
+void mark_multi_hid_if_ready(Controller& controller) {
+    if (controller.multi_hid_proven) return;
+    const bool primary_keyboard =
+        controller.hid_lifecycle == HidLifecycle::Active &&
+        controller.hid_kind == HidKind::Keyboard;
+    const bool primary_mouse =
+        controller.hid_lifecycle == HidLifecycle::Active &&
+        controller.hid_kind == HidKind::Mouse;
+    const bool companion_keyboard =
+        controller.companion.hid_lifecycle ==
+            HidLifecycle::Active &&
+        controller.companion.hid_kind == HidKind::Keyboard;
+    const bool companion_mouse =
+        controller.companion.hid_lifecycle ==
+            HidLifecycle::Active &&
+        controller.companion.hid_kind == HidKind::Mouse;
+    if ((primary_keyboard && companion_mouse) ||
+        (primary_mouse && companion_keyboard)) {
+        controller.multi_hid_proven = true;
+        terminal::println("[TEST] xhci_multi_hid_enumeration: PASS");
+    }
+}
+
+bool attach_companion_hid(Controller& controller) {
+    auto& companion = controller.companion;
+    if (!companion.allocated || companion.slot_id != 0U) {
+        return false;
+    }
+    const uint8_t port =
+        first_unclaimed_connected_port(controller);
+    if (port == 0U) return false;
+
+    uint8_t speed = 0U;
+    if (!reset_port(controller, port, &speed)) return false;
+    companion.port_id = port;
+    companion.port_speed = speed;
+
+    if (!address_companion_device(controller)) {
+        static_cast<void>(retire_companion_slot(controller));
+        return false;
+    }
+    if (!read_companion_descriptors(controller)) {
+        const uint8_t unsupported_port = companion.port_id;
+        if (!retire_companion_slot(controller)) return false;
+        companion.ignored_port_id = unsupported_port;
+        return false;
+    }
+    if (!configure_companion_hid_endpoint(controller) ||
+        !register_companion_hid(controller)) {
+        static_cast<void>(retire_companion_slot(controller));
+        companion.hid_lifecycle = HidLifecycle::Failed;
+        return false;
+    }
+
+    if (companion.hid_kind == HidKind::Keyboard) {
+        reset_keyboard_decoder(&companion.keyboard_decoder);
+    } else {
+        reset_mouse_decoder(&companion.mouse_decoder);
+    }
+    companion.hid_lifecycle = HidLifecycle::Active;
+    acknowledge_port_change(controller, companion.port_id);
+    static_cast<void>(queue_companion_report(controller));
+
+    if (companion.hid_kind == HidKind::Keyboard) {
+        terminal::println("[TEST] xhci_keyboard_enumeration: PASS");
+    } else {
+        terminal::println("[TEST] xhci_mouse_enumeration: PASS");
+    }
+    mark_multi_hid_if_ready(controller);
+    return true;
+}
+
+bool progress_companion_lifecycle(Controller& controller) {
+    auto& companion = controller.companion;
+    if (!companion.allocated) return false;
+
+    if (companion.hid_lifecycle == HidLifecycle::Active &&
+        companion.port_id != 0U) {
+        const size_t offset = OP_PORTS +
+            static_cast<size_t>(
+                companion.port_id - 1U) * PORT_STRIDE;
+        const uint32_t port =
+            read32(controller.operational, offset);
+        if (port == UINT32_MAX) {
+            companion.hid_lifecycle = HidLifecycle::Failed;
+            return false;
+        }
+        if ((port & PORT_CONNECTED) == 0U ||
+            (port & (UINT32_C(1) << 17U)) != 0U) {
+            companion.hid_lifecycle =
+                HidLifecycle::DrainInput;
+            acknowledge_port_change(
+                controller, companion.port_id);
+        }
+    }
+
+    if (companion.hid_lifecycle ==
+        HidLifecycle::DrainInput) {
+        if (!flush_companion_input(companion)) return false;
+        if (companion.hid_kind == HidKind::Keyboard) {
+            const uint8_t released[8]{};
+            static_cast<void>(decode_boot_keyboard_report(
+                &companion.keyboard_decoder,
+                released,
+                sizeof(released),
+                companion.pending_keys,
+                MAXIMUM_KEYBOARD_EVENTS_PER_REPORT,
+                &companion.pending_key_count));
+        } else if (companion.hid_kind == HidKind::Mouse) {
+            const uint8_t released[3]{};
+            mouse::Sample sample{};
+            if (decode_boot_mouse_report(
+                    &companion.mouse_decoder,
+                    released,
+                    sizeof(released),
+                    &sample)) {
+                companion.pending_mouse = sample;
+                companion.pending_mouse_valid = true;
+            }
+        }
+        companion.hid_lifecycle =
+            HidLifecycle::ReleaseInput;
+    }
+
+    if (companion.hid_lifecycle ==
+        HidLifecycle::ReleaseInput) {
+        if (!flush_companion_input(companion)) return false;
+        if (!retire_companion_slot(controller)) return false;
+        return false;
+    }
+
+    if (companion.hid_lifecycle ==
+        HidLifecycle::WaitingForDevice) {
+        return attach_companion_hid(controller);
+    }
+    return companion.hid_lifecycle == HidLifecycle::Active;
+}
+
 Status attach_hid_device(Controller& controller) {
     if (!reset_connected_port(controller)) {
-        return first_connected_port(controller) != 0U
+        return first_unclaimed_connected_port(controller) != 0U
             ? Status::PortResetTimeout : Status::NoDevice;
     }
     log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
@@ -2056,6 +2870,8 @@ bool progress_hid_lifecycle(Controller& controller) {
         controller.mass_storage_tag = 0U;
         controller.bulk_in_dci = 0U;
         controller.bulk_out_dci = 0U;
+        controller.port_id = 0U;
+        controller.port_speed = 0U;
         controller.pending_mouse_valid = false;
         controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         controller.runtime_status = Status::NoDevice;
@@ -2063,7 +2879,7 @@ bool progress_hid_lifecycle(Controller& controller) {
         return false;
     }
     if (controller.hid_lifecycle == HidLifecycle::WaitingForDevice) {
-        if (first_connected_port(controller) == 0U) return false;
+        if (first_unclaimed_connected_port(controller) == 0U) return false;
         // Command/event rings stay live. Only disabled-slot endpoint/context
         // pages are reused; no DMA allocation or global controller reset.
         reset_ring(&controller.ep0_ring);
@@ -2102,6 +2918,8 @@ Status initialize(
     g_controller.keyboard_device = device::INVALID_DEVICE_ID;
     g_controller.mouse_device = device::INVALID_DEVICE_ID;
     g_controller.mass_storage_device = device::INVALID_DEVICE_ID;
+    g_controller.companion.child_device = device::INVALID_DEVICE_ID;
+    g_controller.companion.hid_lifecycle = HidLifecycle::WaitingForDevice;
     g_controller.pci_device = pci_device;
     g_controller.parent_device = parent_device;
     g_controller.owner_driver = owner_driver;
@@ -2157,20 +2975,26 @@ Status initialize(
         g_controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         g_controller.runtime_status = Status::NoDevice;
         g_controller.initialized = true;
+        g_controller.companion.hid_lifecycle =
+            HidLifecycle::WaitingForDevice;
         log::write(log::Level::Info, "XHCI", "controller ready; waiting for USB HID device");
         return Status::Ok;
     }
     if (attached != Status::Ok) return fail_initialization(attached);
     g_controller.initialized = true;
+    static_cast<void>(progress_companion_lifecycle(g_controller));
     return Status::Ok;
 }
 
 size_t poll(size_t budget) {
     if (!g_controller.initialized || budget == 0U) return 0U;
     if (!progress_hid_lifecycle(g_controller) &&
-        g_controller.hid_lifecycle != HidLifecycle::WaitingForDevice) {
+        g_controller.hid_lifecycle != HidLifecycle::WaitingForDevice &&
+        g_controller.hid_lifecycle != HidLifecycle::ReleaseInput) {
         return 0U;
     }
+    static_cast<void>(progress_companion_lifecycle(g_controller));
+
     const bool input_pending =
         (g_controller.hid_kind == HidKind::Keyboard &&
          g_controller.pending_key_count != 0U) ||
@@ -2180,44 +3004,119 @@ size_t poll(size_t budget) {
         if (!flush_hid_input(g_controller)) return 0U;
         static_cast<void>(queue_hid_report(g_controller));
     }
+
+    auto& companion = g_controller.companion;
+    const bool companion_pending =
+        (companion.hid_kind == HidKind::Keyboard &&
+         companion.pending_key_count != 0U) ||
+        (companion.hid_kind == HidKind::Mouse &&
+         companion.pending_mouse_valid);
+    if (companion.hid_lifecycle == HidLifecycle::Active &&
+        companion_pending) {
+        if (!flush_companion_input(companion)) return 0U;
+        static_cast<void>(queue_companion_report(g_controller));
+    }
+
     size_t processed = 0U;
     while (processed < budget) {
         Trb event{};
-        if (!next_event(g_controller, &event)) break;
+        if (!next_poll_event(g_controller, &event)) break;
         ++processed;
+
         if (trb_type(event) == TRB_PORT_STATUS_CHANGE) {
-            const uint8_t port = static_cast<uint8_t>(event.parameter >> 24U);
-            if (port == g_controller.port_id &&
-                !progress_hid_lifecycle(g_controller)) break;
-            acknowledge_port_change(g_controller, port);
+            const uint8_t port =
+                static_cast<uint8_t>(event.parameter >> 24U);
+            if (port == companion.ignored_port_id) {
+                companion.ignored_port_id = 0U;
+            }
+            if (port == g_controller.port_id) {
+                static_cast<void>(
+                    progress_hid_lifecycle(g_controller));
+            } else if (port == companion.port_id) {
+                static_cast<void>(
+                    progress_companion_lifecycle(g_controller));
+            } else {
+                acknowledge_port_change(g_controller, port);
+                if (g_controller.hid_lifecycle ==
+                    HidLifecycle::WaitingForDevice) {
+                    static_cast<void>(
+                        progress_hid_lifecycle(g_controller));
+                }
+                if (companion.hid_lifecycle ==
+                    HidLifecycle::WaitingForDevice) {
+                    static_cast<void>(
+                        progress_companion_lifecycle(g_controller));
+                }
+            }
         }
+
+        if (trb_type(event) != TRB_TRANSFER_EVENT) continue;
+        const uint8_t event_slot =
+            static_cast<uint8_t>(event.control >> 24U);
+        const uint8_t event_dci = static_cast<uint8_t>(
+            (event.control >> 16U) & 0x1FU);
+
         if (g_controller.hid_lifecycle == HidLifecycle::Active &&
-            trb_type(event) == TRB_TRANSFER_EVENT &&
-            static_cast<uint8_t>(event.control >> 24U) == g_controller.slot_id &&
-            static_cast<uint8_t>((event.control >> 16U) & 0x1FU) ==
-                g_controller.interrupt_dci) {
+            event_slot == g_controller.slot_id &&
+            event_dci == g_controller.interrupt_dci) {
             if (g_controller.hid_kind == HidKind::Keyboard) {
                 handle_keyboard_report(g_controller, event);
             } else if (g_controller.hid_kind == HidKind::Mouse) {
                 handle_mouse_report(g_controller, event);
             }
+            continue;
+        }
+
+        if (companion.hid_lifecycle == HidLifecycle::Active &&
+            event_slot == companion.slot_id &&
+            event_dci == companion.interrupt_dci) {
+            if (companion.hid_kind == HidKind::Keyboard) {
+                handle_companion_keyboard_report(
+                    g_controller, event);
+            } else if (companion.hid_kind == HidKind::Mouse) {
+                handle_companion_mouse_report(
+                    g_controller, event);
+            }
         }
     }
+
+    if (companion.hid_lifecycle ==
+        HidLifecycle::WaitingForDevice) {
+        static_cast<void>(
+            progress_companion_lifecycle(g_controller));
+    }
+    mark_multi_hid_if_ready(g_controller);
     return processed;
 }
 
 bool initialized() { return g_controller.initialized; }
 bool keyboard_ready() {
-    return g_controller.initialized &&
+    if (!g_controller.initialized) return false;
+    const bool primary =
         g_controller.hid_lifecycle == HidLifecycle::Active &&
         g_controller.hid_kind == HidKind::Keyboard &&
         g_controller.keyboard_device != device::INVALID_DEVICE_ID;
+    const bool companion =
+        g_controller.companion.hid_lifecycle ==
+            HidLifecycle::Active &&
+        g_controller.companion.hid_kind == HidKind::Keyboard &&
+        g_controller.companion.child_device !=
+            device::INVALID_DEVICE_ID;
+    return primary || companion;
 }
 bool mouse_ready() {
-    return g_controller.initialized &&
+    if (!g_controller.initialized) return false;
+    const bool primary =
         g_controller.hid_lifecycle == HidLifecycle::Active &&
         g_controller.hid_kind == HidKind::Mouse &&
         g_controller.mouse_device != device::INVALID_DEVICE_ID;
+    const bool companion =
+        g_controller.companion.hid_lifecycle ==
+            HidLifecycle::Active &&
+        g_controller.companion.hid_kind == HidKind::Mouse &&
+        g_controller.companion.child_device !=
+            device::INVALID_DEVICE_ID;
+    return primary || companion;
 }
 const storage::block::Device* mass_storage_block_device() {
     return g_controller.initialized &&
@@ -2229,7 +3128,9 @@ const storage::block::Device* mass_storage_block_device() {
         : nullptr;
 }
 Status runtime_status() { return g_controller.runtime_status; }
-uint64_t reports_received() { return g_controller.reports; }
+uint64_t reports_received() {
+    return g_controller.reports + g_controller.companion.reports;
+}
 
 const char* status_message(Status status) {
     switch (status) {
