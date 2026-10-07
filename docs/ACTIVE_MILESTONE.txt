@@ -1,2 +1,3 @@
-4.0 Pre-Steel / KuroFS 1.0 — ACTIVE
-Previous milestone: 3.6 Flux Stabilization — QUALIFIED at 0caf8cc42f872b11b44f874029eb41aeae152abc
+5.0 Steel / Hardware — QUALIFICATION CANDIDATE
+Previous milestone: 4.0 Pre-Steel — QUALIFIED at bbec12248773930d6f40aa98837ff13e99b7cf5e
+Next milestone after 5.0 closeout: 6.0 Core Steel
