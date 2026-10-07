@@ -494,6 +494,16 @@ done
 
 "$OUT_DIR/test_window_manager"
 
+# Exercise the 6.0 Scheduler 2.0 per-CPU run-queue policy independently
+# from the still-live legacy interrupt-frame dispatcher.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_scheduler2.cpp \
+  kernel/task/scheduler2.cpp \
+  -o "$OUT_DIR/test_scheduler2"
+
+"$OUT_DIR/test_scheduler2"
+
 # Exercise the production TCP client with a deterministic fake wire. This
 # protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
 # without relying on host sockets or libc networking.
