@@ -7,7 +7,7 @@
 #include "../drivers/keyboard.hpp"
 #include "../fs/fat32.hpp"
 #include "../fs/root_volume.hpp"
-#include "../storage/ahci.hpp"
+#include "../storage/device_registry.hpp"
 #include "../storage/gpt.hpp"
 #include "../storage/partition_device.hpp"
 #include "../terminal.hpp"
@@ -643,29 +643,42 @@ void draw_progress(size_t stage, const char* label) {
 }
 
 size_t choose_disk() {
-    const size_t count = storage::ahci::device_count();
-    if (count == 0U) fail("NO WRITABLE SATA/AHCI DISK DETECTED");
+    const size_t count = storage::device_registry::device_count();
+    if (count == 0U) fail("NO WRITABLE BLOCK DEVICE DETECTED");
     size_t selected = 0U;
     for (;;) {
         draw_setup_title("SELECT TARGET DISK",
                          "THE SELECTED DISK WILL BE ERASED");
         const int32_t width = static_cast<int32_t>(graphics::width());
         const int32_t x = width / 2 - 250;
-        const storage::ahci::DeviceInfo* info =
-            storage::ahci::device_info_at(selected);
+        storage::device_registry::Entry entry{};
+        const bool available =
+            storage::device_registry::entry_at(selected, &entry) &&
+            entry.device != nullptr;
         graphics::fill_rect(x, 220, 500, 120, kPanelRaised);
         graphics::draw_rect(x, 220, 500, 120, kAccent, 2U);
-        graphics::draw_text(x + 24, 242,
-                            info != nullptr ? info->model : "UNKNOWN SATA DISK",
-                            kText, kPanelRaised, 1U, true);
+        graphics::draw_text(
+            x + 24, 242,
+            available && entry.model != nullptr
+                ? entry.model
+                : "UNKNOWN BLOCK DEVICE",
+            kText, kPanelRaised, 1U, true);
         char size_line[64] = "SIZE: ";
         char size_text[24]{};
-        const uint64_t mib = info != nullptr
-            ? (info->sector_count * info->sector_size) / (1024U * 1024U)
+        const uint64_t mib = available
+            ? (entry.device->sector_count * entry.device->sector_size) /
+                (1024U * 1024U)
             : 0U;
         u64_to_decimal(mib, size_text, sizeof(size_text));
         append_text(size_line, sizeof(size_line), size_text);
-        append_text(size_line, sizeof(size_line), " MiB");
+        append_text(size_line, sizeof(size_line), " MiB  [");
+        append_text(
+            size_line,
+            sizeof(size_line),
+            available
+                ? storage::device_registry::backend_name(entry.backend)
+                : "UNKNOWN");
+        append_text(size_line, sizeof(size_line), "]");
         graphics::draw_text(x + 24, 276, size_line,
                             kMuted, kPanelRaised, 1U, true);
         char index_line[64] = "DISK ";
@@ -830,7 +843,7 @@ void run_interactive(
     for (;;) {
         terminal::println("installer: select target disk index:");
         const size_t target_index = choose_disk();
-        target = storage::ahci::device_at(target_index);
+        target = storage::device_registry::device_at(target_index);
         if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
         if (confirm_erase()) {
             terminal::println("[TEST] installer_confirmation: PASS");
