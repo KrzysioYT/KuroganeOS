@@ -37,11 +37,11 @@ constexpr uint8_t kStatusFailed = UINT8_C(128);
 constexpr uint16_t kCommandMemory = UINT16_C(2);
 constexpr uint16_t kCommandBusMaster = UINT16_C(4);
 constexpr size_t kResetPollLimit = 100000U;
-constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB20000000000);
-constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB20000010000);
-constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB20000020000);
-constexpr uintptr_t kMsixTableVirtualBase = UINT64_C(0xFFFFB20000100000);
-constexpr uintptr_t kMsixPendingVirtualBase = UINT64_C(0xFFFFB20000200000);
+constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB30000000000);
+constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB30000010000);
+constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB30000020000);
+constexpr uintptr_t kMsixTableVirtualBase = UINT64_C(0xFFFFB30000100000);
+constexpr uintptr_t kMsixPendingVirtualBase = UINT64_C(0xFFFFB30000200000);
 constexpr size_t kMaximumMsixBarBytes = 256U * 1024U;
 
 struct VirtioCapability {
