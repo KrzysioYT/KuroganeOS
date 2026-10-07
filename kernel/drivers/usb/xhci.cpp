@@ -414,7 +414,8 @@ Status remove_hid_devices(Controller* controller) {
 Status remove_companion_device(Controller* controller) {
     if (controller == nullptr) return Status::InvalidArgument;
     auto& companion = controller->companion;
-    if (companion.child_device == device::INVALID_DEVICE_ID) {
+    if (!companion.allocated ||
+        companion.child_device == device::INVALID_DEVICE_ID) {
         return Status::Ok;
     }
     const auto* child = device::get(companion.child_device);
