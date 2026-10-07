@@ -118,6 +118,10 @@ bool set_gate_type(uint8_t vector, GateType type);
 
 bool register_irq_handler(uint8_t irq, IrqHandler handler);
 void unregister_irq_handler(uint8_t irq);
+// Marks an already-programmed legacy IRQ as I/O-APIC delivered so the common
+// 0x20..0x2f path acknowledges the Local APIC instead of the 8259 PIC.
+bool set_legacy_irq_apic_delivery(uint8_t irq, bool enabled);
+bool legacy_irq_uses_apic(uint8_t irq);
 
 // Installs the single low-level scheduling hook invoked after an IRQ handler
 // and EOI. Returning a different complete interrupt frame performs the stack
