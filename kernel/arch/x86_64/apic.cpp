@@ -337,7 +337,34 @@ Status route_legacy_irq(uint8_t legacy_irq, const io_apic::Route& route) {
     io_apic::Route effective = route;
     effective.trigger = legacy.trigger;
     effective.polarity = legacy.polarity;
-    return route_gsi(legacy.global_system_interrupt, effective);
+    if (!io_apic::validate_legacy(effective)) return Status::InvalidRoute;
+
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (legacy.global_system_interrupt >= base &&
+            legacy.global_system_interrupt - base < count) {
+            selected = index;
+            pin = legacy.global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+
+    io_apic::Route masked = effective;
+    masked.masked = true;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(
+        registers,
+        static_cast<uint8_t>(low_index + 1U),
+        io_apic::encode_high_legacy(effective));
+    io_write(registers, low_index, io_apic::encode_low_legacy(masked));
+    io_write(registers, low_index, io_apic::encode_low_legacy(effective));
+    return Status::Ok;
 }
 
 Status clear_gsi(uint32_t global_system_interrupt) {
