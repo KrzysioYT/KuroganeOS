@@ -1,4 +1,4 @@
-name: Qualify 5.0 NVMe Admin Runtime
+name: Qualify 5.0 NVMe Block Runtime
 
 on:
   pull_request:
@@ -58,12 +58,19 @@ jobs:
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
 
-      - name: Require real NVMe Admin Identify
+      - name: Require real NVMe namespace block I/O
         run: |
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --nvme \
             --log-dir build/tests/nvme-admin --timeout 120 \
             --require-marker '[TEST] nvme_admin_identify: PASS' \
+            --require-marker '[TEST] nvme_namespace_identify: PASS' \
+            --require-marker '[TEST] nvme_io_queues: PASS' \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] nvme_known_read: PASS' \
+            --require-marker '[TEST] nvme_write: PASS' \
+            --require-marker '[TEST] nvme_flush: PASS' \
+            --require-marker '[TEST] nvme_write_readback: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL' \
             build/tests/nvme-admin/serial.log
@@ -72,6 +79,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: nvme-admin-${{ github.event.pull_request.head.sha || github.sha }}
+          name: nvme-block-${{ github.event.pull_request.head.sha || github.sha }}
           path: build/tests/nvme-admin
           if-no-files-found: warn
