@@ -29,6 +29,12 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_hardware_policy"
 "$OUT_DIR/test_hardware_policy"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_driver_requirement_policy.cpp \
+  kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
+  -o "$OUT_DIR/test_driver_requirement_policy"
+"$OUT_DIR/test_driver_requirement_policy"
+
 # Run the production input queue and pump, including whole-report rejection,
 # retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
 # legacy test.sh entry also runs this regression, but all qualification gates
