@@ -1,0 +1,82 @@
+name: Qualify 5.0 SMP Runtime
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-smp.yml'
+      - 'kernel/arch/x86_64/apic.*'
+      - 'kernel/arch/x86_64/interrupts.*'
+      - 'kernel/arch/x86_64/smp.*'
+      - 'kernel/arch/x86_64/smp_trampoline.asm'
+      - 'kernel/memory/kernel_virtual_memory.cpp'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-smp.yml'
+      - 'kernel/arch/x86_64/apic.*'
+      - 'kernel/arch/x86_64/interrupts.*'
+      - 'kernel/arch/x86_64/smp.*'
+      - 'kernel/arch/x86_64/smp_trampoline.asm'
+      - 'kernel/memory/kernel_virtual_memory.cpp'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smp-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify scripts and diff hygiene
+        run: |
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require four-CPU AP startup scheduler and TLB shootdown
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --log-dir build/tests/smp-runtime --timeout 120 \
+            --require-marker '[TEST] smp_ap_startup: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
+            --require-marker '[TEST] smp_tlb_shootdown: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|smp_.*: FAIL' \
+            build/tests/smp-runtime/serial.log
+
+      - name: Retain SMP runtime logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smp-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/smp-runtime
+          if-no-files-found: warn
