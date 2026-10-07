@@ -1,4 +1,5 @@
 #include "nvme.hpp"
+#include "device_registry.hpp"
 
 #include "dma.hpp"
 #include "nvme_protocol.hpp"
@@ -965,11 +966,28 @@ Status initialize() {
         block_write,
         block_flush,
     };
+    const char* const model =
+        g_controller.info.model[0] != '\0'
+            ? g_controller.info.model
+            : "NVMe namespace";
+    if (!device_registry::register_device(
+            device_registry::Backend::Nvme,
+            0U,
+            &g_controller.block,
+            model)) {
+        static_cast<void>(release_resources(true));
+        g_controller = {};
+        return Status::ResourceReleaseFailed;
+    }
     g_controller.ready = true;
     return Status::Ok;
 }
 
 void shutdown() {
+    if (g_controller.block.context != nullptr) {
+        static_cast<void>(
+            device_registry::unregister_device(&g_controller.block));
+    }
     static_cast<void>(release_resources(true));
     g_controller = {};
 }
