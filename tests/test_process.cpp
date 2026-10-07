@@ -82,6 +82,8 @@ int main() {
     assert(first_stat.handle_count == 0U);
 
     assert(process::wait(first, &code) == process::Status::Ok && code == 7);
+    assert(process::wait(second, &code) == process::Status::ResourcesBusy);
+    assert(process::set_handle_count(second, 0U) == process::Status::Ok);
     assert(process::wait(second, &code) == process::Status::Ok && code == 9);
     assert(process::wait(init, &code) == process::Status::Ok && code == 9);
     assert(process::stat(first, &first_stat) == process::Status::NotFound);

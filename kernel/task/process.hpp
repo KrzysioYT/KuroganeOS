@@ -41,7 +41,8 @@ enum class Status : uint8_t {
     WouldBlock,
     RunnerFailed,
     SchedulerFailed,
-    JobFailed
+    JobFailed,
+    ResourcesBusy
 };
 
 struct Stat {

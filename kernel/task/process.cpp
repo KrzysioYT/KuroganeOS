@@ -161,6 +161,10 @@ void reap_orphan_zombies() {
         if (slot.parent_pid != INVALID_PROCESS_ID && live_parent(slot.parent_pid)) {
             continue;
         }
+        // Never hide a runtime ownership leak by recycling the process slot.
+        // The VFS/runtime must first report that every process-owned handle was
+        // closed during exit cleanup.
+        if (slot.handle_count != 0U) continue;
         job::release_process(slot.pid);
         const uint64_t generation = slot.generation;
         clear_bytes(&slot, sizeof(slot));
@@ -442,6 +446,7 @@ Status wait(ProcessId pid, int32_t* exit_code) {
         return Status::PermissionDenied;
     }
     if (slot.state != State::Zombie) return Status::WouldBlock;
+    if (slot.handle_count != 0U) return Status::ResourcesBusy;
     *exit_code = slot.exit_code;
     job::release_process(slot.pid);
     const uint64_t generation = slot.generation;
@@ -539,6 +544,7 @@ const char* status_message(Status status) {
         case Status::RunnerFailed: return "image runner failed";
         case Status::SchedulerFailed: return "thread scheduler failed";
         case Status::JobFailed: return "process job operation failed";
+        case Status::ResourcesBusy: return "process still owns VFS resources";
     }
     return "unknown process status";
 }
