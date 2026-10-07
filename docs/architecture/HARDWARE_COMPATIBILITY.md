@@ -53,6 +53,11 @@ An optional backend may report `DEGRADED`, `SKIP`, `NotSupported` or
 system. A device driver failure must stay inside its device/subsystem unless
 continuing would corrupt memory, DMA ownership or persistent storage.
 
+The Device Model records this contract explicitly as
+`Requirement::Optional` or `Requirement::BootCritical`. Driver Manager
+aggregate binding propagates failures only for devices marked boot-critical;
+an optional device may enter `FAILED` while the rest of the system continues.
+
 ## Input contract
 
 All pointer and keyboard transports converge on the generic input queue.
@@ -131,10 +136,10 @@ PCI discovery, MSI/MSI-X, ACPI/APIC/HPET, AHCI, NVMe, xHCI, USB HID boot
 keyboard/mouse, USB Mass Storage, HDA/AC'97, a unified input queue and a unified
 block-device registry.
 
-The first portability slice adds a central hardware boot policy and removes
-PS/2 keyboard/mouse from the kernel's boot-critical condition. A dedicated
-runtime gate boots QEMU with `q35,i8042=off` and requires real xHCI USB keyboard
-and mouse delivery.
+The first portability slice adds a central hardware boot policy, explicit
+per-device optional/boot-critical requirements and removes PS/2 keyboard/mouse
+from the kernel's boot-critical condition. A dedicated runtime gate boots QEMU
+with `q35,i8042=off` and requires real xHCI USB keyboard and mouse delivery.
 
 Known follow-up work includes HID report-protocol/absolute pointer support,
 broader PCI NIC coverage, laptop touchpads/I2C HID, Wi-Fi/Bluetooth and wider
