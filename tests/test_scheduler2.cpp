@@ -58,6 +58,11 @@ int main() {
     // first slot forever.
     assert(reset(1U) == Status::Ok);
     assert(register_thread(201U, 3U, UINT64_C(1), 0U) == Status::Ok);
+    assert(expand_cpu_count(4U) == Status::Ok);
+    assert(cpu_count() == 4U);
+    assert(online_mask() == UINT64_C(0xF));
+    assert(expand_cpu_count(2U) == Status::InvalidArgument);
+    assert(set_affinity(201U, UINT64_C(0xF)) == Status::Ok);
     assert(register_thread(202U, 3U, UINT64_C(1), 0U) == Status::Ok);
     assert(register_thread(203U, 3U, UINT64_C(1), 0U) == Status::Ok);
     ThreadId first = 0U;

@@ -55,6 +55,9 @@ struct CpuStat {
 
 Status initialize(size_t online_cpus);
 Status reset(size_t online_cpus);
+// Grow the topology after SMP discovery without losing pre-existing BSP
+// threads, queue order or accounting.
+Status expand_cpu_count(size_t online_cpus);
 
 Status register_thread(
     ThreadId id,

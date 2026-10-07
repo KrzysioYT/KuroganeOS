@@ -176,6 +176,20 @@ Status reset(size_t online_cpus) {
     return configure(online_cpus);
 }
 
+Status expand_cpu_count(size_t online_cpus) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (online_cpus == 0U || online_cpus > MAX_CPUS ||
+        online_cpus < g_cpu_count) {
+        return Status::InvalidArgument;
+    }
+    if (online_cpus == g_cpu_count) return Status::Ok;
+    for (size_t cpu = g_cpu_count; cpu < online_cpus; ++cpu) {
+        g_queues[cpu] = {};
+    }
+    g_cpu_count = online_cpus;
+    return Status::Ok;
+}
+
 Status register_thread(
     ThreadId id,
     uint8_t priority,
