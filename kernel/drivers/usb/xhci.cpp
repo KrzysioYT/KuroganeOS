@@ -1,6 +1,7 @@
 #include "xhci.hpp"
 
 #include "protocol.hpp"
+#include "hid_report.hpp"
 #include "mass_storage_protocol.hpp"
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
@@ -86,7 +87,7 @@ struct ProducerRing {
 };
 
 enum class HidKind : uint8_t {
-    None, Keyboard, Mouse,
+    None, Keyboard, Mouse, ReportPointer,
 };
 
 enum class HidLifecycle : uint8_t {
@@ -112,13 +113,18 @@ struct CompanionHid {
     HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
     HidBootMouseInterface mouse_interface;
+    HidReportInterface report_interface;
+    hid::PointerReportLayout pointer_layout;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
+    hid::PointerDecoder pointer_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
     mouse::Sample pending_mouse;
     bool pending_mouse_valid;
+    hid::PointerReport pending_pointer;
+    bool pending_pointer_valid;
     HidLifecycle hid_lifecycle;
     bool report_queued;
     uint64_t report_trb;
@@ -173,6 +179,8 @@ struct Controller {
     HidKind hid_kind;
     HidBootKeyboardInterface keyboard_interface;
     HidBootMouseInterface mouse_interface;
+    HidReportInterface report_interface;
+    hid::PointerReportLayout pointer_layout;
     mass_storage::BulkOnlyInterface mass_storage_interface;
     bool mass_storage_present;
     uint32_t mass_storage_tag;
@@ -182,11 +190,14 @@ struct Controller {
     bool mass_storage_block_ready;
     KeyboardDecoder keyboard_decoder;
     MouseDecoder mouse_decoder;
+    hid::PointerDecoder pointer_decoder;
     keyboard::KeyEvent pending_keys[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT];
     size_t pending_key_count;
     size_t pending_key_index;
     mouse::Sample pending_mouse;
     bool pending_mouse_valid;
+    hid::PointerReport pending_pointer;
+    bool pending_pointer_valid;
     HidLifecycle hid_lifecycle;
     Status runtime_status;
     bool report_queued;
