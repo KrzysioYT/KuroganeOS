@@ -1,0 +1,80 @@
+name: Qualify 6.0 Core Steel Foundation
+
+on:
+  push:
+    branches:
+      - chatgpt/6.0-core-steel-foundation
+    paths:
+      - '.github/workflows/qualify-core-steel-foundation.yml'
+      - 'common/version.h'
+      - 'kernel/task/**'
+      - 'kernel/memory/**'
+      - 'kernel/ipc/**'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_scheduler2.cpp'
+      - 'docs/ROAD_TO_15_STATUS.md'
+      - 'DEVELOPMENT_STATE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-steel-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify 6.0 identity and truthful scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "6.0.0-dev"
+          grep -Fq 'CORE STEEL DEV' common/version.h
+          test -f kernel/task/scheduler2.cpp
+          test -f tests/test_scheduler2.cpp
+          ! grep -R -Fq '[TEST] smp_scheduler: PASS' kernel .github/workflows
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean 6.0 development media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          grep -Fq 'version=6.0.0-dev' build/build-info.txt
+
+      - name: Preserve qualified 5.x SMP substrate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --log-dir build/tests/core-steel-foundation --timeout 160 \
+            --require-marker '[TEST] smp_ap_startup: PASS' \
+            --require-marker '[TEST] smp_cross_cpu_work: PASS' \
+            --require-marker '[TEST] smp_tlb_shootdown: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|smp_.*: FAIL' \
+            build/tests/core-steel-foundation/serial.log
+
+      - name: Retain Core Steel logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-steel-foundation-${{ github.sha }}
+          path: build/tests/core-steel-foundation
+          if-no-files-found: warn
