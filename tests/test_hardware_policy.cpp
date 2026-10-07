@@ -19,11 +19,15 @@ int main() {
     assert((portable.missing_optional & CapabilityNetwork) != 0U);
 
     const Evaluation usb_only_input = evaluate(
-        core | CapabilityUsbHost | CapabilityStorage);
+        core | CapabilityUsbHost | CapabilityStorage |
+        CapabilityDisplay | CapabilityKeyboard | CapabilityPointer);
     assert(usb_only_input.bootable());
     assert(!available(usb_only_input.available, CapabilityLegacyKeyboard));
     assert(!available(usb_only_input.available, CapabilityLegacyPointer));
     assert(available(usb_only_input.available, CapabilityUsbHost));
+    assert(available(usb_only_input.available, CapabilityKeyboard));
+    assert(available(usb_only_input.available, CapabilityPointer));
+    assert(available(usb_only_input.available, CapabilityDisplay));
 
     const Evaluation no_timer = evaluate(
         CapabilitySchedulerInterrupt | CapabilityInputQueue |
