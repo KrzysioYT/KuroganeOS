@@ -184,11 +184,13 @@ bool activate_slot(size_t index) {
     static_cast<void>(index);
     return true;
 #else
+    const size_t cpu = execution_cpu_index();
     if (index == kInvalidSlot) {
         return memory::kernel_virtual_memory::activate_kernel() ==
                 memory::kernel_virtual_memory::Status::Ok &&
-            arch::x86_64::gdt::set_kernel_stack(
-                arch::x86_64::gdt::kernel_entry_stack_top());
+            arch::x86_64::gdt::set_kernel_stack_for_cpu(
+                cpu,
+                arch::x86_64::gdt::kernel_entry_stack_top_for_cpu(cpu));
     }
     Slot& slot = g_slots[index];
     const bool address_ok = slot.address_space == nullptr
@@ -197,7 +199,7 @@ bool activate_slot(size_t index) {
         : memory::kernel_virtual_memory::activate(slot.address_space) ==
             memory::kernel_virtual_memory::Status::Ok;
     return address_ok &&
-        arch::x86_64::gdt::set_kernel_stack(stack_top(slot));
+        arch::x86_64::gdt::set_kernel_stack_for_cpu(cpu, stack_top(slot));
 #endif
 }
 
@@ -794,7 +796,7 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
         g_preemptive_timed_out = true;
 #if !defined(KUROGANE_HOST_TEST)
         CpuPreemptionState& cpu_state = current_preemption_state();
-    cpu_state.timeout_return_frame = {};
+        cpu_state.timeout_return_frame = {};
         uintptr_t top = reinterpret_cast<uintptr_t>(
             cpu_state.timeout_return_stack + sizeof(cpu_state.timeout_return_stack));
         top &= ~static_cast<uintptr_t>(0xFU);
