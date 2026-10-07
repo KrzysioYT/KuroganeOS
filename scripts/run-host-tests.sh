@@ -52,6 +52,11 @@ bash tests/test_network_smoke_state.sh
   tests/test_sync_spinlock.cpp \
   -o "$OUT_DIR/test_sync_spinlock"
 "$OUT_DIR/test_sync_spinlock"
+
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_job.cpp kernel/task/job.cpp \
+  -o "$OUT_DIR/test_job"
+"$OUT_DIR/test_job"
 "$OUT_DIR/test_scheduler2"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

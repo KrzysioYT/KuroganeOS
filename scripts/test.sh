@@ -130,6 +130,8 @@ else
 fi
 run_test scheduler "$root/tests/test_scheduler.cpp" \
     "$root/kernel/task/scheduler.cpp"
+run_test process-job "$root/tests/test_job.cpp" \
+    "$root/kernel/task/job.cpp"
 echo "[build] kernel-thread"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/tests/test_thread.cpp" -o "$out/test-thread.o"
@@ -149,7 +151,9 @@ echo "[build] process-core"
     "$root/tests/test_process.cpp" -o "$out/test-process.o"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/process.cpp" -o "$out/process.o"
-"$cxx" "$out/test-process.o" "$out/process.o" \
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/job.cpp" -o "$out/job.o"
+"$cxx" "$out/test-process.o" "$out/process.o" "$out/job.o" \
     "$out/thread.o" "$out/context-switch.o" "$log_stub" -o "$out/process-core"
 echo "[run] process-core"
 "$out/process-core"
