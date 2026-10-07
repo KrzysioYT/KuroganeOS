@@ -18,6 +18,9 @@ enum Capability : CapabilityMask {
     CapabilityNetwork = UINT32_C(1) << 7U,
     CapabilityAudio = UINT32_C(1) << 8U,
     CapabilityMultiprocessor = UINT32_C(1) << 9U,
+    CapabilityDisplay = UINT32_C(1) << 10U,
+    CapabilityKeyboard = UINT32_C(1) << 11U,
+    CapabilityPointer = UINT32_C(1) << 12U,
 };
 
 constexpr CapabilityMask BOOT_CRITICAL_CAPABILITIES =
@@ -32,7 +35,10 @@ constexpr CapabilityMask OPTIONAL_HARDWARE_CAPABILITIES =
     CapabilityStorage |
     CapabilityNetwork |
     CapabilityAudio |
-    CapabilityMultiprocessor;
+    CapabilityMultiprocessor |
+    CapabilityDisplay |
+    CapabilityKeyboard |
+    CapabilityPointer;
 
 struct Evaluation {
     CapabilityMask available;
