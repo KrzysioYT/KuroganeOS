@@ -199,6 +199,9 @@ void draw_option(
 
 drivers::keyboard::KeyEvent wait_key() {
     for (;;) {
+        // Early installer runs before the normal interrupt/input loop. Poll
+        // every active producer, then consume only the transport-neutral queue.
+        static_cast<void>(drivers::keyboard::poll());
         if (drivers::usb::xhci::initialized()) {
             static_cast<void>(drivers::usb::xhci::poll(32U));
         }
