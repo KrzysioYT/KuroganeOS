@@ -22,7 +22,7 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `3.5.0-dev` | Connected Userspace | QUALIFIED |
 | `3.6.0-dev` | Flux Stabilization | QUALIFIED |
 | `4.0.0-dev` | Pre-Steel | QUALIFIED |
-| `5.0.0-dev` | Steel / Hardware | REOPENED |
+| `5.0.0-dev` | Steel / Hardware | QUALIFIED AFTER AUDIT |
 | `6.0.0-dev` | Core Steel | PENDING |
 | `7.0.0-dev` | Iron Shield | PENDING |
 | `8.0.0-dev` | Connected Steel | PENDING |
@@ -154,7 +154,7 @@ The authoritative same-SHA closeout is Actions run `34260827773`; final job `102
 
 ## 5.0.0-dev — Steel / Hardware
 
-Status: **REOPENED** after coexistence audit.
+Status: **QUALIFIED AFTER COEXISTENCE AUDIT**.
 
 Steel's code-complete scope is the bounded hardware substrate required before
 Core Steel: PCI/PCIe BAR and capability validation, MSI/MSI-X and I/O APIC
@@ -187,15 +187,39 @@ retriggers HDA, NVMe, USB Mass Storage, USB keyboard and USB mouse gates.
 
 The exact candidate `90d5ffc80f91236e10118324c8e3b5d6f4a1c781` passed the then-required automated matrix on 2026-10-07: Steel Closeout (`37641425299`), HPET (`37641425316`), SMP (`37641425398`), HDA (`37641425368`), NVMe (`37641425280`), USB Mass Storage (`37641425350`), USB Keyboard (`37641425387`) and USB Mouse (`37641425292`). PR #45 merged that candidate into the Road-to-15 integration branch as `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`.
 
-A later QEMU coexistence audit found two release-matrix holes: xHCI and VirtIO-net
-shared a fixed virtual MMIO window, and xHCI still modelled only one active USB
-slot/device context. Those are real 5.0 blockers even though the isolated driver
-gates passed. Steel is reopened until xHCI+VirtIO and simultaneous keyboard+mouse
-runtime tests are green on the same exact candidate.
+A later QEMU coexistence audit found two release-matrix holes: xHCI and
+VirtIO-net shared a fixed virtual MMIO window, and xHCI still modelled only one
+active USB HID slot/device context. Steel was correctly reopened rather than
+preserving the earlier qualification claim.
+
+The post-audit runtime candidate
+`569bae4c33aa0c04db87f0cbe785da1aa45cc084` fixes both findings. VirtIO-net
+now uses dedicated `0xFFFFB7...` virtual space with a host overlap regression,
+while xHCI owns an independent companion HID context with its own slot, EP0 and
+interrupt rings, DMA/report state, decoder and hotplug lifecycle. Foreign-slot
+events are deferred across synchronous transactions instead of being consumed.
+
+Same-SHA post-audit evidence:
+- Steel Closeout `37661212373` — PASS;
+- xHCI/VirtIO coexistence `37661212429` — PASS;
+- simultaneous keyboard + mouse `37661212451` — PASS;
+- full USB Keyboard regression `37661212449` — PASS;
+- USB Mouse `37661212378` — PASS;
+- USB Mass Storage `37661212361` — PASS;
+- NVMe `37661212483` — PASS;
+- Intel HDA `37661212532` — PASS;
+- HPET `37661212464` — PASS;
+- Steel Foundations `37661212233` — PASS.
+
+The strengthened closeout itself now requires simultaneous USB keyboard + mouse
+with VirtIO networking, real HID delivery, DHCP and gateway ICMP in addition to
+the existing ACPI/HPET/four-vCPU SMP requirements.
 
 The same audit was run against older source `2d550f1`; its observations that
 USB Mass Storage, NVMe, SMP and Intel HDA were absent do not describe the current
-integration line, where those implementations landed later.
+integration line, where those implementations landed later and were requalified.
+HID Boot Mouse wheel/report-protocol support remains a P2 limitation rather than
+a claimed Steel capability.
 
 Physical-machine/VirtualBox checks remain external validation and are not
 silently converted into automated PASS markers.
