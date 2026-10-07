@@ -58,6 +58,37 @@ Status build_identify_namespace(
     uint64_t prp1,
     Command* output);
 
+Status build_create_io_completion_queue(
+    uint16_t command_id,
+    uint16_t queue_id,
+    uint16_t queue_entries,
+    uint64_t prp1,
+    Command* output);
+
+Status build_create_io_submission_queue(
+    uint16_t command_id,
+    uint16_t queue_id,
+    uint16_t queue_entries,
+    uint16_t completion_queue_id,
+    uint64_t prp1,
+    Command* output);
+
+Status build_read(
+    uint16_t command_id,
+    uint32_t namespace_id,
+    uint64_t starting_lba,
+    uint16_t block_count,
+    uint64_t prp1,
+    Command* output);
+
+Status build_write(
+    uint16_t command_id,
+    uint32_t namespace_id,
+    uint64_t starting_lba,
+    uint16_t block_count,
+    uint64_t prp1,
+    Command* output);
+
 Status build_flush(
     uint16_t command_id,
     uint32_t namespace_id,

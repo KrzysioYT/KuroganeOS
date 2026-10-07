@@ -3,8 +3,12 @@
 namespace storage::nvme::protocol {
 namespace {
 
+constexpr uint8_t ADMIN_CREATE_IO_SQ = 0x01U;
+constexpr uint8_t ADMIN_CREATE_IO_CQ = 0x05U;
 constexpr uint8_t ADMIN_IDENTIFY = 0x06U;
 constexpr uint8_t NVM_FLUSH = 0x00U;
+constexpr uint8_t NVM_WRITE = 0x01U;
+constexpr uint8_t NVM_READ = 0x02U;
 
 bool power_of_two(uint32_t value) {
     return value != 0U && (value & (value - 1U)) == 0U;
@@ -167,6 +171,116 @@ Status build_identify_namespace(
     staged.dwords[10U] = 0U; // CNS = Identify Namespace
     *output = staged;
     return Status::Ok;
+}
+
+Status build_create_io_completion_queue(
+    uint16_t command_id,
+    uint16_t queue_id,
+    uint16_t queue_entries,
+    uint64_t prp1,
+    Command* output) {
+    if (output == nullptr || queue_id == 0U || queue_entries < 2U ||
+        !valid_identify_prp(prp1)) {
+        return Status::InvalidArgument;
+    }
+
+    Command staged{};
+    clear_command(&staged);
+    staged.dwords[0U] =
+        static_cast<uint32_t>(ADMIN_CREATE_IO_CQ) |
+        (static_cast<uint32_t>(command_id) << 16U);
+    set_prp1(&staged, prp1);
+    staged.dwords[10U] =
+        static_cast<uint32_t>(queue_id) |
+        (static_cast<uint32_t>(queue_entries - 1U) << 16U);
+    // PC=1, IEN=0: Steel uses a physically contiguous, polled queue.
+    staged.dwords[11U] = UINT32_C(1);
+    *output = staged;
+    return Status::Ok;
+}
+
+Status build_create_io_submission_queue(
+    uint16_t command_id,
+    uint16_t queue_id,
+    uint16_t queue_entries,
+    uint16_t completion_queue_id,
+    uint64_t prp1,
+    Command* output) {
+    if (output == nullptr || queue_id == 0U || completion_queue_id == 0U ||
+        queue_entries < 2U || !valid_identify_prp(prp1)) {
+        return Status::InvalidArgument;
+    }
+
+    Command staged{};
+    clear_command(&staged);
+    staged.dwords[0U] =
+        static_cast<uint32_t>(ADMIN_CREATE_IO_SQ) |
+        (static_cast<uint32_t>(command_id) << 16U);
+    set_prp1(&staged, prp1);
+    staged.dwords[10U] =
+        static_cast<uint32_t>(queue_id) |
+        (static_cast<uint32_t>(queue_entries - 1U) << 16U);
+    // PC=1, QPRIO=0 and bind to the selected Completion Queue.
+    staged.dwords[11U] =
+        UINT32_C(1) |
+        (static_cast<uint32_t>(completion_queue_id) << 16U);
+    *output = staged;
+    return Status::Ok;
+}
+
+namespace {
+
+Status build_read_write(
+    uint8_t opcode,
+    uint16_t command_id,
+    uint32_t namespace_id,
+    uint64_t starting_lba,
+    uint16_t block_count,
+    uint64_t prp1,
+    Command* output) {
+    if (output == nullptr || namespace_id == 0U || block_count == 0U ||
+        !valid_identify_prp(prp1)) {
+        return Status::InvalidArgument;
+    }
+
+    Command staged{};
+    clear_command(&staged);
+    staged.dwords[0U] =
+        static_cast<uint32_t>(opcode) |
+        (static_cast<uint32_t>(command_id) << 16U);
+    staged.dwords[1U] = namespace_id;
+    set_prp1(&staged, prp1);
+    staged.dwords[10U] = static_cast<uint32_t>(starting_lba);
+    staged.dwords[11U] = static_cast<uint32_t>(starting_lba >> 32U);
+    staged.dwords[12U] = static_cast<uint32_t>(block_count - 1U);
+    *output = staged;
+    return Status::Ok;
+}
+
+} // namespace
+
+Status build_read(
+    uint16_t command_id,
+    uint32_t namespace_id,
+    uint64_t starting_lba,
+    uint16_t block_count,
+    uint64_t prp1,
+    Command* output) {
+    return build_read_write(
+        NVM_READ, command_id, namespace_id, starting_lba, block_count,
+        prp1, output);
+}
+
+Status build_write(
+    uint16_t command_id,
+    uint32_t namespace_id,
+    uint64_t starting_lba,
+    uint16_t block_count,
+    uint64_t prp1,
+    Command* output) {
+    return build_read_write(
+        NVM_WRITE, command_id, namespace_id, starting_lba, block_count,
+        prp1, output);
 }
 
 Status build_flush(
