@@ -1,6 +1,7 @@
 # KuroganeOS active roadmap
 
-Current baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED AFTER AUDIT**.
+Qualified baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED AFTER AUDIT**.  
+Active engineering track: **5.1 — HAL / Driver Portability**.
 
 The authoritative Road-to-15 plan is
 [`docs/roadmap/MASTER_ROADMAP_15.md`](roadmap/MASTER_ROADMAP_15.md), and the
@@ -60,16 +61,31 @@ USB Mass Storage, NVMe, SMP and Intel HDA were absent in the older audited
 Mouse wheel/report-protocol support remains an explicit P2 limitation and is
 not claimed as part of the Boot Mouse qualification.
 
+## Active 5.x compatibility bridge
+
+5.0 remains the qualified Steel baseline. Before Core 2.0, the 5.x line now
+turns that hardware substrate into a generic x86-64 UEFI platform:
+
+- 5.1 — HAL / Driver Portability — **IN PROGRESS**
+- 5.2 — Universal Input — pending
+- 5.3 — Universal Storage — pending
+- 5.4 — Platform / Firmware Portability — pending
+- 5.5 — Hardware Compatibility Gate — pending
+
+The architectural contract is documented in
+[`docs/architecture/HARDWARE_COMPATIBILITY.md`](architecture/HARDWARE_COMPATIBILITY.md).
+
 ## Road to 15
 
 - 5.0.0-dev — Steel / Hardware — **QUALIFIED AFTER AUDIT**
-- 6.0.0-dev — Core Steel — pending
-- 7.0.0-dev — Iron Shield — pending
-- 8.0.0-dev — Connected Steel — pending
-- 9.0.0-dev — Forge Graphics — pending
-- 10.0.0-dev — Steel Applications — pending
-- 11.0.0-dev — Anvil — pending
-- 12.0.0-dev — Platform / Web — pending
-- 13.0.0-dev — Forge Design — pending
-- 14.0.0-rc — Forge Desktop — pending
+- 5.1–5.5 — Hardware Compatibility Foundation — active/pending
+- 6.0.0-dev — Kernel Core 2.0 — pending
+- 7.0.0-dev — Driver & Device Expansion — pending
+- 8.0.0-dev — Flux Desktop Platform — pending
+- 9.0.0-dev — Networking & Services — pending
+- 10.0.0-dev — Storage & VFS 2.0 — pending
+- 11.0.0-dev — Application Platform — pending
+- 12.0.0-dev — Security, Updates & Recovery — pending
+- 13.0.0-dev — Performance & Power — pending
+- 14.0.0-rc — Compatibility / Release Qualification — pending
 - 15.0.0 — STABLE — final target
