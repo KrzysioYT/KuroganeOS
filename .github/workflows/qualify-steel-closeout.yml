@@ -15,6 +15,12 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'tests/test_acpi*'
+      - 'tests/test_driver_mmio_windows.py'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/net/virtio_net.*'
+      - 'tests/test_driver_mmio_windows.py'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/net/virtio_net.*'
   push:
     branches:
       - gpt/road-to-15-consolidation
@@ -77,10 +83,30 @@ jobs:
           bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --smp 4             --log-dir build/tests/steel-closeout --timeout 120             --require-marker '[TEST] acpi_madt: PASS'             --require-marker '[TEST] acpi_power_discovery: PASS'             --require-marker '[TEST] hpet_main_counter: PASS'             --require-marker '[TEST] smp_ap_startup: PASS'             --require-marker '[TEST] smp_cross_cpu_work: PASS'             --require-marker '[TEST] smp_tlb_shootdown: PASS'             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|smp_.*: FAIL'             build/tests/steel-closeout/serial.log
 
+      - name: Require audited xHCI plus VirtIO coexistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-keyboard --usb-mouse --nic virtio --require-network \
+            --log-dir build/tests/steel-xhci-virtio --timeout 150 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/steel-xhci-virtio/serial.log
+
       - name: Retain Steel closeout logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: steel-closeout-${{ github.event.pull_request.head.sha || github.sha }}
-          path: build/tests/steel-closeout
+          path: |
+            build/tests/steel-closeout
+            build/tests/steel-xhci-virtio
           if-no-files-found: warn
