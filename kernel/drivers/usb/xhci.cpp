@@ -2842,12 +2842,17 @@ bool retire_companion_slot(Controller& controller) {
     companion.hid_kind = HidKind::None;
     companion.keyboard_interface = {};
     companion.mouse_interface = {};
+    companion.report_interface = {};
+    companion.pointer_layout = {};
     companion.keyboard_decoder = {};
     companion.mouse_decoder = {};
+    companion.pointer_decoder = {};
     companion.pending_key_count = 0U;
     companion.pending_key_index = 0U;
     companion.pending_mouse = {};
     companion.pending_mouse_valid = false;
+    companion.pending_pointer = {};
+    companion.pending_pointer_valid = false;
     companion.report_queued = false;
     companion.report_trb = 0U;
     companion.input_proven = false;
@@ -2992,6 +2997,15 @@ bool progress_companion_lifecycle(Controller& controller) {
                 companion.pending_mouse = sample;
                 companion.pending_mouse_valid = true;
             }
+        }
+        else if (companion.hid_kind == HidKind::ReportPointer) {
+            const uint8_t changed = companion.pointer_decoder.previous_buttons;
+            companion.pointer_decoder.previous_buttons = 0U;
+            companion.pending_pointer = {
+                false, 0, 0, 0, 0, 0, 0, 0,
+                0U, changed
+            };
+            companion.pending_pointer_valid = changed != 0U;
         }
         companion.hid_lifecycle =
             HidLifecycle::ReleaseInput;
@@ -3138,6 +3152,15 @@ bool progress_hid_lifecycle(Controller& controller) {
                 controller.pending_mouse_valid = true;
             }
         }
+        else if (controller.hid_kind == HidKind::ReportPointer) {
+            const uint8_t changed = controller.pointer_decoder.previous_buttons;
+            controller.pointer_decoder.previous_buttons = 0U;
+            controller.pending_pointer = {
+                false, 0, 0, 0, 0, 0, 0, 0,
+                0U, changed
+            };
+            controller.pending_pointer_valid = changed != 0U;
+        }
         controller.hid_lifecycle = HidLifecycle::ReleaseInput;
     }
     if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
@@ -3176,6 +3199,11 @@ bool progress_hid_lifecycle(Controller& controller) {
         controller.port_id = 0U;
         controller.port_speed = 0U;
         controller.pending_mouse_valid = false;
+        controller.pending_pointer = {};
+        controller.pending_pointer_valid = false;
+        controller.report_interface = {};
+        controller.pointer_layout = {};
+        controller.pointer_decoder = {};
         controller.hid_lifecycle = HidLifecycle::WaitingForDevice;
         controller.runtime_status = Status::NoDevice;
         log::write(log::Level::Info, "USB", "HID device disconnected; slot retired");
