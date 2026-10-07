@@ -138,9 +138,10 @@ keyboard/mouse, USB Mass Storage, HDA/AC'97, a unified input queue and a unified
 block-device registry.
 
 The first portability slice adds a central hardware boot policy, explicit
-per-device optional/boot-critical requirements and removes PS/2 keyboard/mouse
-from the kernel's boot-critical condition. A dedicated runtime gate boots QEMU
-with `q35,i8042=off` and requires real xHCI USB keyboard and mouse delivery.
+per-device optional/boot-critical requirements, structured boot-time hardware
+inventory and removes PS/2 keyboard/mouse from the kernel's boot-critical
+condition. A dedicated runtime gate boots QEMU with `q35,i8042=off` and
+requires real xHCI USB keyboard and mouse delivery.
 
 Known follow-up work includes HID report-protocol/absolute pointer support,
 broader PCI NIC coverage, laptop touchpads/I2C HID, Wi-Fi/Bluetooth and wider
