@@ -305,12 +305,14 @@ void mark_failed() {
 bool release_queue(Queue* queue) {
     if (queue == nullptr) return false;
     bool complete = true;
-    for (dma::Page* page : {
-            &queue->data_page,
-            &queue->request_page,
-            &queue->used_page,
-            &queue->available_page,
-            &queue->descriptor_page}) {
+    dma::Page* const pages[] = {
+        &queue->data_page,
+        &queue->request_page,
+        &queue->used_page,
+        &queue->available_page,
+        &queue->descriptor_page,
+    };
+    for (dma::Page* page : pages) {
         if (!page->allocated) continue;
         if (dma::release_page(page) != dma::Status::Ok) complete = false;
     }
