@@ -48,23 +48,29 @@ struct Slot {
 };
 
 Slot g_slots[MAX_THREADS]{};
-Context g_boot_context{};
 bool g_initialized = false;
-bool g_run_active = false;
-size_t g_current = kInvalidSlot;
-uint64_t g_switch_budget = 0U;
-uint64_t g_run_switches = 0U;
-uint64_t g_completed_total = 0U;
-uint64_t g_run_completed_start = 0U;
-bool g_preemptive_active = false;
-uint64_t g_preemptions = 0U;
-uint64_t g_timer_ticks = 0U;
-uint64_t g_preemptive_limit = 0U;
-uint64_t g_preemptive_start_tick = 0U;
-bool g_preemptive_timed_out = false;
-PreDispatchHook g_pre_dispatch_hook = nullptr;
-#if !defined(KUROGANE_HOST_TEST)
 constexpr size_t kMaximumSchedulerCpus = 64U;
+
+struct CpuExecutionState {
+    Context boot_context;
+    bool run_active;
+    size_t current;
+    uint64_t switch_budget;
+    uint64_t run_switches;
+    uint64_t completed_total;
+    uint64_t run_completed_start;
+    bool preemptive_active;
+    uint64_t preemptions;
+    uint64_t preemptive_limit;
+    uint64_t preemptive_start_tick;
+    bool preemptive_timed_out;
+};
+
+alignas(64) CpuExecutionState g_cpu_execution[kMaximumSchedulerCpus]{};
+uint64_t g_timer_ticks = 0U;
+PreDispatchHook g_pre_dispatch_hook = nullptr;
+
+#if !defined(KUROGANE_HOST_TEST)
 struct CpuPreemptionState {
     PreemptiveReturnState return_state;
     alignas(16) uint8_t timeout_return_stack[4096U];
@@ -72,21 +78,31 @@ struct CpuPreemptionState {
 };
 alignas(64) CpuPreemptionState g_cpu_preemption[kMaximumSchedulerCpus]{};
 
+#endif
+
 size_t execution_cpu_index() {
+#if defined(KUROGANE_HOST_TEST)
+    return 0U;
+#else
     if (!arch::x86_64::smp::initialized()) return 0U;
     const size_t cpu = arch::x86_64::smp::current_cpu_index();
     return cpu < kMaximumSchedulerCpus ? cpu : 0U;
+#endif
 }
 
+CpuExecutionState& current_execution_state() {
+    return g_cpu_execution[execution_cpu_index()];
+}
+
+#if !defined(KUROGANE_HOST_TEST)
 CpuPreemptionState& current_preemption_state() {
     return g_cpu_preemption[execution_cpu_index()];
 }
-#else
-PreemptiveReturnState g_host_return_state{};
 #endif
 
 PreemptiveReturnState* current_return_state() {
 #if defined(KUROGANE_HOST_TEST)
+    static PreemptiveReturnState g_host_return_state{};
     return &g_host_return_state;
 #else
     return &current_preemption_state().return_state;
@@ -278,7 +294,7 @@ void initialize_interrupt_frame(Slot& slot) {
 }
 
 void switch_to(size_t next, bool current_remains_ready) {
-    const size_t previous = g_current;
+    const size_t previous = current_execution_state().current;
     Slot& old = g_slots[previous];
     Slot& destination = g_slots[next];
     if (current_remains_ready) {
@@ -287,8 +303,8 @@ void switch_to(size_t next, bool current_remains_ready) {
     set_slot_state(destination, State::Running);
     ++old.switches;
     ++destination.switches;
-    ++g_run_switches;
-    g_current = next;
+    ++current_execution_state().run_switches;
+    current_execution_state().current = next;
     if (!activate_slot(next)) {
         set_slot_state(destination, State::Terminated);
     }
@@ -298,18 +314,18 @@ void switch_to(size_t next, bool current_remains_ready) {
 }
 
 void switch_to_boot(bool current_remains_ready) {
-    const size_t previous = g_current;
+    const size_t previous = current_execution_state().current;
     Slot& old = g_slots[previous];
     if (current_remains_ready) {
         set_slot_state(old, State::Ready);
     }
     ++old.switches;
-    ++g_run_switches;
-    g_current = kInvalidSlot;
+    ++current_execution_state().run_switches;
+    current_execution_state().current = kInvalidSlot;
     static_cast<void>(activate_slot(kInvalidSlot));
     x86_64_thread_context_switch(
         &old.context.stack_pointer,
-        &g_boot_context.stack_pointer);
+        &current_execution_state().boot_context.stack_pointer);
 }
 
 void reap_terminated() {
@@ -332,9 +348,9 @@ arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
     if (old.state == State::Running) {
         set_slot_state(old, State::Ready);
     }
-    g_current = kInvalidSlot;
-    g_preemptive_active = false;
-    g_preemptive_timed_out = true;
+    current_execution_state().current = kInvalidSlot;
+    current_execution_state().preemptive_active = false;
+    current_execution_state().preemptive_timed_out = true;
     CpuPreemptionState& cpu_state = current_preemption_state();
     cpu_state.timeout_return_frame = {};
     uintptr_t top = reinterpret_cast<uintptr_t>(
@@ -355,9 +371,9 @@ arch::x86_64::interrupts::InterruptFrame* prepare_timeout_return(
 arch::x86_64::interrupts::InterruptFrame* prepare_blocked_return(
     size_t previous) {
     Slot& old = g_slots[previous];
-    g_current = kInvalidSlot;
-    g_preemptive_active = false;
-    g_preemptive_timed_out = false;
+    current_execution_state().current = kInvalidSlot;
+    current_execution_state().preemptive_active = false;
+    current_execution_state().preemptive_timed_out = false;
     CpuPreemptionState& cpu_state = current_preemption_state();
     cpu_state.timeout_return_frame = {};
     uintptr_t top = reinterpret_cast<uintptr_t>(
@@ -381,12 +397,12 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
     uint8_t vector,
     arch::x86_64::interrupts::InterruptFrame& frame) {
     static_cast<void>(vector);
-    if (!g_preemptive_active || !g_run_active ||
-        g_current == kInvalidSlot || (frame.cs & 3U) != 3U) {
+    if (!current_execution_state().preemptive_active || !current_execution_state().run_active ||
+        current_execution_state().current == kInvalidSlot || (frame.cs & 3U) != 3U) {
         return &frame;
     }
 
-    const size_t previous = g_current;
+    const size_t previous = current_execution_state().current;
     Slot& old = g_slots[previous];
     if (old.process_id == 0U) {
         return &frame;
@@ -414,8 +430,8 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
 
     for (;;) {
 #if !defined(KUROGANE_HOST_TEST)
-        if (g_preemptive_limit != 0U &&
-            g_timer_ticks - g_preemptive_start_tick >= g_preemptive_limit) {
+        if (current_execution_state().preemptive_limit != 0U &&
+            g_timer_ticks - current_execution_state().preemptive_start_tick >= current_execution_state().preemptive_limit) {
             return prepare_timeout_return(previous);
         }
 #endif
@@ -431,9 +447,9 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
             set_slot_state(g_slots[next], State::Running);
             ++old.switches;
             ++g_slots[next].switches;
-            g_current = next;
+            current_execution_state().current = next;
             if (!activate_slot(next)) {
-                g_current = previous;
+                current_execution_state().current = previous;
                 set_slot_state(g_slots[next], State::Ready);
                 set_slot_state(old, old_state);
                 static_cast<void>(activate_slot(previous));
@@ -453,7 +469,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
         if (old.state == State::Ready) {
             set_slot_state(old, State::Running);
             old.wake_tick = 0U;
-            g_current = previous;
+            current_execution_state().current = previous;
             static_cast<void>(activate_slot(previous));
             return &frame;
         }
@@ -462,7 +478,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
         }
         if (old.state != State::Sleeping && old.state != State::Blocked) {
             set_slot_state(old, State::Running);
-            g_current = previous;
+            current_execution_state().current = previous;
             static_cast<void>(activate_slot(previous));
             return &frame;
         }
@@ -483,7 +499,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
 Status configure_processors(size_t online_cpus) {
     if (!g_initialized) return Status::NotInitialized;
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_run_active || g_current != kInvalidSlot || g_preemptive_active) {
+    if (current_execution_state().run_active || current_execution_state().current != kInvalidSlot || current_execution_state().preemptive_active) {
         restore_interrupts(flags);
         return Status::Busy;
     }
@@ -526,24 +542,28 @@ Status initialize() {
         return Status::AlreadyInitialized;
     }
     clear_bytes(g_slots, sizeof(g_slots));
+    clear_bytes(g_cpu_execution, sizeof(g_cpu_execution));
+    for (CpuExecutionState& cpu : g_cpu_execution) {
+        cpu.current = kInvalidSlot;
+    }
     const scheduler2::Status policy_status = scheduler2::initialize(1U);
     if (policy_status != scheduler2::Status::Ok &&
         policy_status != scheduler2::Status::AlreadyInitialized) {
         restore_interrupts(flags);
         return Status::SchedulerPolicyFailed;
     }
-    g_boot_context = {};
-    g_current = kInvalidSlot;
-    g_switch_budget = 0U;
-    g_run_switches = 0U;
-    g_completed_total = 0U;
-    g_run_active = false;
-    g_preemptive_active = false;
-    g_preemptions = 0U;
+    current_execution_state().boot_context = {};
+    current_execution_state().current = kInvalidSlot;
+    current_execution_state().switch_budget = 0U;
+    current_execution_state().run_switches = 0U;
+    current_execution_state().completed_total = 0U;
+    current_execution_state().run_active = false;
+    current_execution_state().preemptive_active = false;
+    current_execution_state().preemptions = 0U;
     g_timer_ticks = 0U;
-    g_preemptive_limit = 0U;
-    g_preemptive_start_tick = 0U;
-    g_preemptive_timed_out = false;
+    current_execution_state().preemptive_limit = 0U;
+    current_execution_state().preemptive_start_tick = 0U;
+    current_execution_state().preemptive_timed_out = false;
 #if !defined(KUROGANE_HOST_TEST)
     if (!arch::x86_64::interrupts::register_software_schedule_hook(
             software_interrupt_schedule)) {
@@ -629,7 +649,7 @@ Status create_for_process(
         restore_interrupts(flags);
         return Status::SchedulerPolicyFailed;
     }
-    if (g_preemptive_active) {
+    if (current_execution_state().preemptive_active) {
         initialize_interrupt_frame(slot);
     }
     if (id != nullptr) {
@@ -651,7 +671,7 @@ Status run_until_idle(uint64_t switch_budget, RunResult* result) {
     }
 
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_run_active || g_current != kInvalidSlot) {
+    if (current_execution_state().run_active || current_execution_state().current != kInvalidSlot) {
         restore_interrupts(flags);
         return Status::Busy;
     }
@@ -661,24 +681,24 @@ Status run_until_idle(uint64_t switch_budget, RunResult* result) {
         restore_interrupts(flags);
         return Status::Ok;
     }
-    g_run_active = true;
-    g_switch_budget = switch_budget;
-    g_run_switches = 1U;
-    g_run_completed_start = g_completed_total;
+    current_execution_state().run_active = true;
+    current_execution_state().switch_budget = switch_budget;
+    current_execution_state().run_switches = 1U;
+    current_execution_state().run_completed_start = current_execution_state().completed_total;
     set_slot_state(g_slots[next], State::Running);
     ++g_slots[next].switches;
-    g_current = next;
+    current_execution_state().current = next;
     restore_interrupts(flags);
 
     x86_64_thread_context_switch(
-        &g_boot_context.stack_pointer,
+        &current_execution_state().boot_context.stack_pointer,
         &g_slots[next].context.stack_pointer);
 
     const uint64_t finish_flags = save_and_disable_interrupts();
-    g_run_active = false;
+    current_execution_state().run_active = false;
     const size_t remaining = ready_count();
-    const uint64_t completed = g_completed_total - g_run_completed_start;
-    const uint64_t switches = g_run_switches;
+    const uint64_t completed = current_execution_state().completed_total - current_execution_state().run_completed_start;
+    const uint64_t switches = current_execution_state().run_switches;
     reap_terminated();
     restore_interrupts(finish_flags);
     if (result != nullptr) {
@@ -693,18 +713,18 @@ Status yield() {
     if (!g_initialized) {
         return Status::NotInitialized;
     }
-    if (g_current == kInvalidSlot || !g_run_active) {
+    if (current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         return Status::NotRunning;
     }
-    if (g_preemptive_active) {
+    if (current_execution_state().preemptive_active) {
         // Ring-3 KU_SYS_YIELD records a request that is consumed by the
         // post-software-interrupt scheduler. Direct kernel callers remain a
         // safe no-op while timer preemption continues.
         return Status::Ok;
     }
     const uint64_t flags = save_and_disable_interrupts();
-    const size_t old = g_current;
-    if (g_run_switches >= g_switch_budget) {
+    const size_t old = current_execution_state().current;
+    if (current_execution_state().run_switches >= current_execution_state().switch_budget) {
         restore_interrupts(flags);
         switch_to_boot(true);
         return Status::Ok;
@@ -720,7 +740,7 @@ Status yield() {
 }
 
 [[noreturn]] void exit_current() {
-    if (!g_initialized || g_current == kInvalidSlot || !g_run_active) {
+    if (!g_initialized || current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         for (;;) {
 #if defined(KUROGANE_HOST_TEST)
             __builtin_trap();
@@ -731,25 +751,25 @@ Status yield() {
     }
 
     const uint64_t flags = save_and_disable_interrupts();
-    const size_t old = g_current;
+    const size_t old = current_execution_state().current;
     set_slot_state(g_slots[old], State::Terminated);
-    ++g_completed_total;
-    if (g_preemptive_active) {
+    ++current_execution_state().completed_total;
+    if (current_execution_state().preemptive_active) {
         const size_t next = find_ready(old);
         if (next == kInvalidSlot) {
-            g_current = kInvalidSlot;
-            g_preemptive_active = false;
+            current_execution_state().current = kInvalidSlot;
+            current_execution_state().preemptive_active = false;
             static_cast<void>(activate_slot(kInvalidSlot));
             static_cast<void>(flags);
             x86_64_thread_return_from_preemptive_run(current_return_state());
         }
         set_slot_state(g_slots[next], State::Running);
         ++g_slots[next].switches;
-        g_current = next;
+        current_execution_state().current = next;
         if (!activate_slot(next)) {
             set_slot_state(g_slots[next], State::Terminated);
-            g_current = kInvalidSlot;
-            g_preemptive_active = false;
+            current_execution_state().current = kInvalidSlot;
+            current_execution_state().preemptive_active = false;
             static_cast<void>(activate_slot(kInvalidSlot));
             x86_64_thread_return_from_preemptive_run(current_return_state());
         }
@@ -758,7 +778,7 @@ Status yield() {
             g_slots[next].interrupt_frame);
     }
     const size_t next =
-        g_run_switches < g_switch_budget ? find_ready(old) : kInvalidSlot;
+        current_execution_state().run_switches < current_execution_state().switch_budget ? find_ready(old) : kInvalidSlot;
     restore_interrupts(flags);
     if (next == kInvalidSlot) {
         switch_to_boot(false);
@@ -785,7 +805,7 @@ Status run_preemptive_for(
         g_pre_dispatch_hook();
     }
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_run_active || g_current != kInvalidSlot || g_preemptive_active) {
+    if (current_execution_state().run_active || current_execution_state().current != kInvalidSlot || current_execution_state().preemptive_active) {
         restore_interrupts(flags);
         return Status::Busy;
     }
@@ -800,20 +820,20 @@ Status run_preemptive_for(
             initialize_interrupt_frame(slot);
         }
     }
-    g_run_active = true;
-    g_preemptive_active = true;
-    g_preemptions = 0U;
-    g_preemptive_limit = maximum_timer_ticks;
-    g_preemptive_start_tick = g_timer_ticks;
-    g_preemptive_timed_out = false;
-    g_run_completed_start = g_completed_total;
+    current_execution_state().run_active = true;
+    current_execution_state().preemptive_active = true;
+    current_execution_state().preemptions = 0U;
+    current_execution_state().preemptive_limit = maximum_timer_ticks;
+    current_execution_state().preemptive_start_tick = g_timer_ticks;
+    current_execution_state().preemptive_timed_out = false;
+    current_execution_state().run_completed_start = current_execution_state().completed_total;
     set_slot_state(g_slots[first], State::Running);
     ++g_slots[first].switches;
-    g_current = first;
+    current_execution_state().current = first;
     if (!activate_slot(first)) {
-        g_current = kInvalidSlot;
-        g_run_active = false;
-        g_preemptive_active = false;
+        current_execution_state().current = kInvalidSlot;
+        current_execution_state().run_active = false;
+        current_execution_state().preemptive_active = false;
         restore_interrupts(flags);
         return Status::CorruptContext;
     }
@@ -823,12 +843,12 @@ Status run_preemptive_for(
     x86_64_thread_start_interrupt_frame(
         g_slots[first].interrupt_frame, current_return_state());
 
-    const uint64_t completed = g_completed_total - g_run_completed_start;
-    const uint64_t preemptions = g_preemptions;
-    const uint64_t elapsed_ticks = g_timer_ticks - g_preemptive_start_tick;
-    const bool timed_out = g_preemptive_timed_out;
-    g_run_active = false;
-    g_preemptive_limit = 0U;
+    const uint64_t completed = current_execution_state().completed_total - current_execution_state().run_completed_start;
+    const uint64_t preemptions = current_execution_state().preemptions;
+    const uint64_t elapsed_ticks = g_timer_ticks - current_execution_state().preemptive_start_tick;
+    const bool timed_out = current_execution_state().preemptive_timed_out;
+    current_execution_state().run_active = false;
+    current_execution_state().preemptive_limit = 0U;
     reap_terminated();
     restore_interrupts(flags);
     if (result != nullptr) {
@@ -850,11 +870,11 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
     }
     ++g_timer_ticks;
     wake_sleepers();
-    if (!g_preemptive_active || !g_run_active ||
-        g_current == kInvalidSlot) {
+    if (!current_execution_state().preemptive_active || !current_execution_state().run_active ||
+        current_execution_state().current == kInvalidSlot) {
         return &frame;
     }
-    const size_t previous = g_current;
+    const size_t previous = current_execution_state().current;
     Slot& old = g_slots[previous];
 
     // IRQ0 may nest while a Ring-3 process is still executing its syscall
@@ -869,14 +889,14 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
 
     old.interrupt_frame = &frame;
 
-    if (g_preemptive_limit != 0U &&
-        g_timer_ticks - g_preemptive_start_tick >= g_preemptive_limit) {
+    if (current_execution_state().preemptive_limit != 0U &&
+        g_timer_ticks - current_execution_state().preemptive_start_tick >= current_execution_state().preemptive_limit) {
         if (old.state == State::Running) {
             set_slot_state(old, State::Ready);
         }
-        g_current = kInvalidSlot;
-        g_preemptive_active = false;
-        g_preemptive_timed_out = true;
+        current_execution_state().current = kInvalidSlot;
+        current_execution_state().preemptive_active = false;
+        current_execution_state().preemptive_timed_out = true;
 #if !defined(KUROGANE_HOST_TEST)
         CpuPreemptionState& cpu_state = current_preemption_state();
         cpu_state.timeout_return_frame = {};
@@ -920,10 +940,10 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
     set_slot_state(g_slots[next], State::Running);
     ++old.switches;
     ++g_slots[next].switches;
-    ++g_preemptions;
-    g_current = next;
+    ++current_execution_state().preemptions;
+    current_execution_state().current = next;
     if (!activate_slot(next)) {
-        g_current = previous;
+        current_execution_state().current = previous;
         set_slot_state(old, State::Running);
         set_slot_state(g_slots[next], State::Ready);
         static_cast<void>(activate_slot(previous));
@@ -933,25 +953,25 @@ arch::x86_64::interrupts::InterruptFrame* timer_irq_schedule(
 }
 
 ThreadId current() {
-    return g_current == kInvalidSlot
+    return current_execution_state().current == kInvalidSlot
         ? INVALID_THREAD_ID
-        : g_slots[g_current].id;
+        : g_slots[current_execution_state().current].id;
 }
 
 uint64_t current_process() {
-    return g_current == kInvalidSlot
+    return current_execution_state().current == kInvalidSlot
         ? 0U
-        : g_slots[g_current].process_id;
+        : g_slots[current_execution_state().current].process_id;
 }
 
 Status retire_current_user_frame() {
     if (!g_initialized) return Status::NotInitialized;
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_current == kInvalidSlot || !g_run_active) {
+    if (current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         restore_interrupts(flags);
         return Status::NotRunning;
     }
-    Slot& slot = g_slots[g_current];
+    Slot& slot = g_slots[current_execution_state().current];
     if (slot.process_id == 0U || slot.state != State::Running) {
         restore_interrupts(flags);
         return Status::CorruptContext;
@@ -973,11 +993,11 @@ Status bind_address_space(
     uintptr_t user_stack) {
     if (!g_initialized) return Status::NotInitialized;
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_current == kInvalidSlot) {
+    if (current_execution_state().current == kInvalidSlot) {
         restore_interrupts(flags);
         return Status::NotRunning;
     }
-    Slot& slot = g_slots[g_current];
+    Slot& slot = g_slots[current_execution_state().current];
     const bool detaching_process =
         address_space == nullptr && slot.process_id != 0U;
     const bool invalid_detach_state =
@@ -1014,10 +1034,10 @@ Status bind_address_space(
 
 Status request_yield() {
     if (!g_initialized) return Status::NotInitialized;
-    if (g_current == kInvalidSlot || !g_run_active) {
+    if (current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         return Status::NotRunning;
     }
-    Slot& slot = g_slots[g_current];
+    Slot& slot = g_slots[current_execution_state().current];
     slot.yield_requested = true;
     return Status::Ok;
 }
@@ -1059,11 +1079,11 @@ Status set_priority(ThreadId id, uint8_t priority) {
 Status block_current() {
     if (!g_initialized) return Status::NotInitialized;
     const uint64_t flags = save_and_disable_interrupts();
-    if (g_current == kInvalidSlot || !g_run_active) {
+    if (current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         restore_interrupts(flags);
         return Status::NotRunning;
     }
-    Slot& slot = g_slots[g_current];
+    Slot& slot = g_slots[current_execution_state().current];
     if (slot.process_id == 0U || slot.state != State::Running) {
         restore_interrupts(flags);
         return Status::CorruptContext;
@@ -1097,14 +1117,14 @@ Status wake_user(ThreadId id, uint64_t accumulator) {
 
 Status sleep_current(uint64_t timer_count) {
     if (!g_initialized) return Status::NotInitialized;
-    if (g_current == kInvalidSlot || !g_run_active) {
+    if (current_execution_state().current == kInvalidSlot || !current_execution_state().run_active) {
         return Status::NotRunning;
     }
     if (timer_count == 0U || timer_count > UINT64_MAX - g_timer_ticks) {
         return Status::InvalidArgument;
     }
 
-    Slot& slot = g_slots[g_current];
+    Slot& slot = g_slots[current_execution_state().current];
     slot.wake_tick = g_timer_ticks + timer_count;
     set_slot_state(slot, State::Sleeping);
 
