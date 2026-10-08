@@ -1,0 +1,72 @@
+name: Qualify 6.0 Scheduler 2.0 Foundation
+
+on:
+  pull_request:
+    branches:
+      - chatgpt/5.1-hardware-portability-foundation
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-core-steel-scheduler.yml'
+      - 'kernel/task/scheduler2.*'
+      - 'kernel/task/thread.*'
+      - 'kernel/task/process.*'
+      - 'kernel/task/job.*'
+      - 'kernel/sync/**'
+      - 'kernel/ipc/**'
+      - 'kernel/arch/x86_64/gdt.*'
+      - 'kernel/arch/x86_64/context_switch.asm'
+      - 'kernel/arch/x86_64/smp.*'
+      - 'tests/test_scheduler2.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_process.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
+  push:
+    branches:
+      - chatgpt/6.0-core-steel
+    paths:
+      - '.github/workflows/qualify-core-steel-scheduler.yml'
+      - 'kernel/task/scheduler2.*'
+      - 'kernel/task/thread.*'
+      - 'kernel/task/process.*'
+      - 'kernel/task/job.*'
+      - 'kernel/sync/**'
+      - 'kernel/ipc/**'
+      - 'kernel/arch/x86_64/gdt.*'
+      - 'kernel/arch/x86_64/context_switch.asm'
+      - 'kernel/arch/x86_64/smp.*'
+      - 'tests/test_scheduler2.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_process.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scheduler2-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify diff hygiene
+        run: git diff --check
+
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3
+
+      - name: Run full host regression including Scheduler 2.0
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Run kernel thread, process and IPC regression suite
+        run: bash ./scripts/test.sh

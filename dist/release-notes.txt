@@ -1,26 +1,28 @@
-KuroganeOS 5.0.0-dev — Steel / Hardware qualification candidate
+KuroganeOS 6.0.0-dev — Core Steel / Kernel Core 2.0 candidate
 
-This media is the Road-to-15 Steel closeout candidate. It is intended for
-automated QEMU qualification first and user-side VirtualBox/physical-hardware
-testing after the exact candidate matrix is green.
+This media moves the Road-to-15 development identity to Core Steel. It is a
+development candidate, not a stable release and not a claim of broad physical
+hardware qualification.
 
-Implemented Steel scope:
-- PCI BAR/capability hardening, MSI/MSI-X groups and I/O APIC routing;
-- ACPI MADT discovery, HPET and firmware-derived FADT/DSDT reset + S5 power;
-- AHCI plus writable NVMe and xHCI USB Mass Storage block backends;
-- xHCI HID keyboard/mouse with bounded keyboard hotplug/ring-wrap coverage;
-- Intel HDA PCM DMA with AC'97 compatibility;
-- unified storage/NIC selection;
-- four-vCPU AP startup, per-CPU AP state/stacks, Local APIC IPI delivery,
-  cross-CPU work rendezvous and synchronous TLB shootdown.
+Implemented Core Steel scope:
+- Scheduler 2.0 policy with per-CPU run queues, affinity, priorities,
+  round-robin tie breaking and work stealing;
+- scheduler topology expansion after SMP discovery without dropping BSP
+  runnable state;
+- atomic Ready -> Running dispatch reservation under the scheduler policy lock;
+- CPU-owned dispatch cancellation so failed execution-layer handoff cannot
+  strand a runnable thread;
+- thread/process integration with scheduler policy state transitions;
+- per-CPU scheduler stack / preemption return state for x86-64 SMP execution;
+- dedicated Local APIC scheduling interrupt path and timer primitives;
+- existing four-vCPU AP startup, cross-CPU work and TLB shootdown preserved.
 
-Scope boundary:
-The 5.0 SMP gate proves the multi-CPU execution substrate, not Scheduler 2.0.
-Full multicore process/thread scheduling, per-CPU run queues and the wider
-kernel-core redesign are 6.0 Core Steel work.
+Qualification boundary:
+The 6.0 identity means Kernel Core 2.0 engineering is now the active system
+milestone. Final qualification still requires the exact candidate Core Steel
+closeout to pass host regressions, a clean release-media build and four-vCPU
+QEMU runtime checks for Scheduler 2.0 topology, kernel preemption, Ring-3
+preemption and the existing SMP substrate.
 
-Qualification:
-Do not treat this candidate as qualified 5.0 unless the exact-source Steel
-Closeout, HPET, SMP, HDA, NVMe, USB Mass Storage, USB Keyboard and USB Mouse
-workflows pass. VirtualBox and physical-machine observations are external
-validation and must be recorded truthfully.
+Oracle VirtualBox, VMware and physical Intel/AMD systems remain external
+validation targets. Their absence is never converted into a fabricated PASS.

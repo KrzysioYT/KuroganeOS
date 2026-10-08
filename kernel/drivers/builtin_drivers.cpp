@@ -182,7 +182,7 @@ KStatus display_attach(
         log::write(
             log::Level::Info,
             "DISPLAY",
-            "hardware 3D command submission is not enabled in 3.3.3-dev");
+            "hardware 3D command submission is not enabled");
     }
     return info.gop_scanout ? KStatus::Ok : KStatus::NotSupported;
 }

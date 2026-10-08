@@ -1,7 +1,11 @@
 #include "event.hpp"
 
+#include "../sync/spinlock.hpp"
+
 namespace ipc::event {
 namespace {
+
+sync::TicketSpinLock g_state_lock{};
 
 constexpr uint64_t kIndexMask = UINT64_C(0xFF);
 constexpr uint64_t kKindMask = UINT64_C(0xFF) << 16U;
@@ -86,6 +90,7 @@ void maybe_reclaim(EventSlot& slot) {
 } // namespace
 
 Status initialize() {
+    sync::LockGuard state_guard(g_state_lock);
     if (g_initialized) return Status::AlreadyInitialized;
     clear_bytes(g_events, sizeof(g_events));
     g_initialized = true;
@@ -93,6 +98,7 @@ Status initialize() {
 }
 
 Status create(ProcessId owner_pid, ResetMode mode, bool signaled, Handle* handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (handle != nullptr) *handle = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || handle == nullptr ||
@@ -117,6 +123,7 @@ Status create(ProcessId owner_pid, ResetMode mode, bool signaled, Handle* handle
 }
 
 Status grant(ProcessId owner_pid, Handle handle, ProcessId target_pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || target_pid == INVALID_PROCESS_ID ||
         owner_pid == target_pid) return Status::InvalidArgument;
@@ -138,6 +145,7 @@ Status grant(ProcessId owner_pid, Handle handle, ProcessId target_pid) {
 }
 
 Status signal(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     EventSlot* slot = nullptr;
@@ -149,6 +157,7 @@ Status signal(ProcessId pid, Handle handle) {
 }
 
 Status reset(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     EventSlot* slot = nullptr;
@@ -160,6 +169,7 @@ Status reset(ProcessId pid, Handle handle) {
 }
 
 Status poll(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     EventSlot* slot = nullptr;
@@ -172,6 +182,7 @@ Status poll(ProcessId pid, Handle handle) {
 }
 
 Status close(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     EventSlot* slot = nullptr;
@@ -190,6 +201,7 @@ Status close(ProcessId pid, Handle handle) {
 }
 
 void release_process(ProcessId pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized || pid == INVALID_PROCESS_ID) return;
     for (EventSlot& slot : g_events) {
         if (!slot.active) continue;

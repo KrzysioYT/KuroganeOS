@@ -130,15 +130,19 @@ else
 fi
 run_test scheduler "$root/tests/test_scheduler.cpp" \
     "$root/kernel/task/scheduler.cpp"
+run_test process-job "$root/tests/test_job.cpp" \
+    "$root/kernel/task/job.cpp"
 echo "[build] kernel-thread"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/tests/test_thread.cpp" -o "$out/test-thread.o"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/thread.cpp" -o "$out/thread.o"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/scheduler2.cpp" -o "$out/scheduler2.o"
 "$cxx" -DKUROGANE_HOST_TEST -c -x assembler-with-cpp \
     "$root/kernel/arch/x86_64/context_switch.asm" \
     -o "$out/context-switch.o"
-"$cxx" "$out/test-thread.o" "$out/thread.o" "$out/context-switch.o" \
+"$cxx" "$out/test-thread.o" "$out/thread.o" "$out/scheduler2.o" "$out/context-switch.o" \
     "$log_stub" \
     -o "$out/kernel-thread"
 echo "[run] kernel-thread"
@@ -149,8 +153,10 @@ echo "[build] process-core"
     "$root/tests/test_process.cpp" -o "$out/test-process.o"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/process.cpp" -o "$out/process.o"
-"$cxx" "$out/test-process.o" "$out/process.o" \
-    "$out/thread.o" "$out/context-switch.o" "$log_stub" -o "$out/process-core"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/job.cpp" -o "$out/job.o"
+"$cxx" "$out/test-process.o" "$out/process.o" "$out/job.o" \
+    "$out/thread.o" "$out/scheduler2.o" "$out/context-switch.o" "$log_stub" -o "$out/process-core"
 echo "[run] process-core"
 "$out/process-core"
 echo "[pass] process-core"

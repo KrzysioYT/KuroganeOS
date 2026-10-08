@@ -2,6 +2,7 @@
 
 #include "apic.hpp"
 #include "interrupts.hpp"
+#include "gdt.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
 
 extern "C" const uint8_t smp_trampoline_start[];
@@ -506,6 +507,7 @@ extern "C" [[noreturn]] void kurogane_smp_ap_entry(
     uint32_t expected_apic_id) {
     using namespace arch::x86_64;
     if (cpu_index >= smp::discovered_cpu_count() ||
+        !gdt::load_current_cpu(cpu_index) ||
         !interrupts::load_current_cpu() ||
         apic::enable_local() != apic::Status::Ok ||
         apic::current_apic_id() != expected_apic_id) {

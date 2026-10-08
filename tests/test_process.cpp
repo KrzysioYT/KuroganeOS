@@ -4,7 +4,7 @@
 #include <cstring>
 
 extern "C" void x86_64_thread_start_interrupt_frame(
-    void*) {
+    void*, void*) {
     __builtin_trap();
 }
 
@@ -13,7 +13,8 @@ extern "C" [[noreturn]] void x86_64_thread_resume_interrupt_frame(
     __builtin_trap();
 }
 
-extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run() {
+extern "C" [[noreturn]] void x86_64_thread_return_from_preemptive_run(
+    const void*) {
     __builtin_trap();
 }
 
@@ -37,6 +38,12 @@ int main() {
     process::ProcessId second = 0;
     assert(process::spawn_init("/system/init", &init) == process::Status::Ok);
     assert(init == 1);
+    process::Stat init_stat{};
+    assert(process::stat(init, &init_stat) == process::Status::Ok);
+    assert(init_stat.job_id != process::job::INVALID_JOB_ID);
+    process::job::Stat root_job{};
+    assert(process::job::stat(init_stat.job_id, &root_job) == process::job::Status::Ok);
+    assert(root_job.owner_pid == init && root_job.member_count == 1U);
     assert(process::spawn_init("/system/init", nullptr) ==
            process::Status::AlreadyInitialized);
     assert(process::spawn("/apps/first", &first) == process::Status::Ok);
@@ -76,6 +83,8 @@ int main() {
     assert(first_stat.handle_count == 0U);
 
     assert(process::wait(first, &code) == process::Status::Ok && code == 7);
+    assert(process::wait(second, &code) == process::Status::ResourcesBusy);
+    assert(process::set_handle_count(second, 0U) == process::Status::Ok);
     assert(process::wait(second, &code) == process::Status::Ok && code == 9);
     assert(process::wait(init, &code) == process::Status::Ok && code == 9);
     assert(process::stat(first, &first_stat) == process::Status::NotFound);

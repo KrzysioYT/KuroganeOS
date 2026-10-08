@@ -27,7 +27,8 @@ Merged through PR #45 as integration commit:
 - `5.3 — Universal Storage`: implemented candidate, qualification pending
 - `5.4 — Platform / Firmware Portability`: implemented candidate, qualification pending
 - `5.5 — Hardware Compatibility Gate`: implemented candidate, qualification pending
-- `6.0.0-dev — Kernel Core 2.0` through `14.0.0-rc`: pending
+- `6.0.0-dev — Kernel Core 2.0`: implemented candidate, exact-SHA closeout pending
+- `7.0.0-dev` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
 `5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
@@ -133,3 +134,18 @@ Routine commits, pushes and merges are authorized. Do not force-push, rewrite
 history, delete branches/tags/releases or perform similarly destructive Git
 operations without explicit instruction. Keep Windows PowerShell and Oracle
 VirtualBox support intact.
+
+
+## Active 6.0 Core Steel candidate
+
+Branch: `chatgpt/6.0-core-steel`.
+
+The system identity is now `6.0.0-dev / CORE STEEL DEV`. Scheduler 2.0 owns
+per-CPU run queues, affinity, priority selection, round-robin fairness, work
+stealing and dispatch reservations. SMP topology is published into the
+scheduler after AP discovery, thread lifecycle transitions are mirrored into
+the policy, and dispatch reservation rollback is CPU-owned.
+
+This is intentionally an implemented development candidate, not a fabricated
+qualification result. Promotion to QUALIFIED requires the dedicated exact-SHA
+Core Steel closeout and external hardware observations remain separate.

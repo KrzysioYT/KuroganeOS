@@ -652,6 +652,7 @@ int main(void) {
     const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
     kui_scene scene;
     int omnibox_active = 0;
+    int surface_reported = 0;
     uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
 
@@ -672,6 +673,10 @@ int main(void) {
         if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
             (void)ku_ui_close(window);
             return 2;
+        }
+        if (!surface_reported) {
+            puts("[TEST] kurogane_web_surface: PASS");
+            surface_reported = 1;
         }
 
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;

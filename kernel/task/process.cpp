@@ -1,6 +1,7 @@
 #include "process.hpp"
 
 #include "thread.hpp"
+#include "job.hpp"
 
 #if !defined(KUROGANE_HOST_TEST)
 #include "../user/runtime.hpp"
@@ -20,6 +21,7 @@ struct Slot {
     uint64_t observed_pid;
     uint64_t address_space_root;
     uint32_t handle_count;
+    job::JobId job_id;
     threading::ThreadId thread_id;
     char name[MAX_PROCESS_NAME + 1U];
     char executable[MAX_EXECUTABLE_PATH + 1U];
@@ -159,6 +161,11 @@ void reap_orphan_zombies() {
         if (slot.parent_pid != INVALID_PROCESS_ID && live_parent(slot.parent_pid)) {
             continue;
         }
+        // Never hide a runtime ownership leak by recycling the process slot.
+        // The VFS/runtime must first report that every process-owned handle was
+        // closed during exit cleanup.
+        if (slot.handle_count != 0U) continue;
+        job::release_process(slot.pid);
         const uint64_t generation = slot.generation;
         clear_bytes(&slot, sizeof(slot));
         slot.generation = generation;
@@ -212,6 +219,7 @@ void snapshot(const Slot& slot, Stat& output) {
     output.address_space_root = slot.address_space_root;
     output.main_thread = slot.thread_id;
     output.handle_count = slot.handle_count;
+    output.job_id = slot.job_id;
     threading::Stat thread_stat{};
     if (threading::stat(slot.thread_id, &thread_stat) ==
         threading::Status::Ok) {
@@ -251,6 +259,10 @@ Status initialize(
     if (thread_status != threading::Status::Ok &&
         thread_status != threading::Status::AlreadyInitialized) {
         return Status::SchedulerFailed;
+    }
+    const job::Status jobs = job::initialize();
+    if (jobs != job::Status::Ok && jobs != job::Status::AlreadyInitialized) {
+        return Status::JobFailed;
     }
     clear_bytes(g_slots, sizeof(g_slots));
     g_current = INVALID_PROCESS_ID;
@@ -304,6 +316,7 @@ Status spawn(const char* executable, ProcessId* pid) {
                 sizeof(slot.working_directory))) {
             return Status::PathTooLong;
         }
+        slot.job_id = g_slots[parent_index].job_id;
     }
     if (!build_executable_path(
             slot.executable,
@@ -313,6 +326,13 @@ Status spawn(const char* executable, ProcessId* pid) {
         return Status::PathTooLong;
     }
     slot.pid = allocate_pid(slot, index);
+    if (slot.job_id != job::INVALID_JOB_ID &&
+        job::inherit_member(slot.job_id, slot.pid) != job::Status::Ok) {
+        const uint64_t retained_generation = slot.generation;
+        clear_bytes(&slot, sizeof(slot));
+        slot.generation = retained_generation;
+        return Status::JobFailed;
+    }
     slot.state = State::Ready;
     derive_name(slot);
     if (threading::create_for_process(
@@ -322,6 +342,7 @@ Status spawn(const char* executable, ProcessId* pid) {
             slot.pid,
             0U,
             &slot.thread_id) != threading::Status::Ok) {
+        job::release_process(slot.pid);
         const uint64_t retained_generation = slot.generation;
         clear_bytes(&slot, sizeof(slot));
         slot.generation = retained_generation;
@@ -356,9 +377,15 @@ Status spawn_init(const char* executable, ProcessId* pid) {
     slot.working_directory[1] = '\0';
     slot.state = State::Ready;
     derive_name(slot);
+    if (job::create(slot.pid, "system", &slot.job_id) != job::Status::Ok) {
+        clear_bytes(&slot, sizeof(slot));
+        slot.generation = generation;
+        return Status::JobFailed;
+    }
     if (threading::create_for_process(
             slot.name, process_entry, &slot, slot.pid, 0U,
             &slot.thread_id) != threading::Status::Ok) {
+        job::release_process(slot.pid);
         clear_bytes(&slot, sizeof(slot));
         slot.generation = generation;
         return Status::ThreadCreationFailed;
@@ -419,7 +446,9 @@ Status wait(ProcessId pid, int32_t* exit_code) {
         return Status::PermissionDenied;
     }
     if (slot.state != State::Zombie) return Status::WouldBlock;
+    if (slot.handle_count != 0U) return Status::ResourcesBusy;
     *exit_code = slot.exit_code;
+    job::release_process(slot.pid);
     const uint64_t generation = slot.generation;
     clear_bytes(&slot, sizeof(slot));
     slot.generation = generation;
@@ -514,6 +543,8 @@ const char* status_message(Status status) {
         case Status::WouldBlock: return "process has not exited";
         case Status::RunnerFailed: return "image runner failed";
         case Status::SchedulerFailed: return "thread scheduler failed";
+        case Status::JobFailed: return "process job operation failed";
+        case Status::ResourcesBusy: return "process still owns VFS resources";
     }
     return "unknown process status";
 }
