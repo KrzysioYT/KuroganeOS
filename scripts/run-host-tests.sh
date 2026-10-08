@@ -35,6 +35,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_hardware_compatibility"
 "$OUT_DIR/test_hardware_compatibility"
 
+# Driver & Device Expansion: keep Intel controller selection independent from
+# the generic network stack so E1000 and E1000e share one production contract.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_e1000_device.cpp kernel/net/e1000_device.cpp \
+  -o "$OUT_DIR/test_e1000_device"
+"$OUT_DIR/test_e1000_device"
+
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
   -o "$OUT_DIR/test_cpu_info"
@@ -127,6 +134,30 @@ bash tests/test_network_smoke_state.sh
   kernel/drivers/pci.cpp \
   -Wl,--gc-sections \
   -o "$OUT_DIR/test_pci_capability_layout"
+
+# Iron Shield power-management foundation: parse PM capability state and prove
+# D-state writes do not replay the write-one-to-clear PME_Status bit.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_pci_power.cpp kernel/drivers/pci_power.cpp kernel/drivers/pci.cpp \
+  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_power"
+"$OUT_DIR/test_pci_power"
+
+# Shared modern VirtIO PCI discovery used by both net and upcoming block
+# drivers. Reject malformed/cyclic vendor capability lists before MMIO mapping.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_pci_transport.cpp \
+  kernel/drivers/virtio/pci_transport.cpp kernel/drivers/pci.cpp \
+  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -o "$OUT_DIR/test_virtio_pci_transport"
+"$OUT_DIR/test_virtio_pci_transport"
+
+# VirtIO-blk keeps its 512-byte wire-sector units separate from the generic
+# logical block ABI so 4K devices cannot silently address the wrong sectors.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_block_protocol.cpp kernel/storage/virtio_block_protocol.cpp \
+  -o "$OUT_DIR/test_virtio_block_protocol"
+"$OUT_DIR/test_virtio_block_protocol"
 
 "$OUT_DIR/test_pci_capability_layout"
 

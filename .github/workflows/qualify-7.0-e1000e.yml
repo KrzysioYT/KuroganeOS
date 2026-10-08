@@ -1,0 +1,132 @@
+name: Qualify 7.0 Iron Shield Device Foundation
+
+on:
+  push:
+    branches:
+      - chatgpt/7.0-driver-device-expansion
+    paths:
+      - '.github/workflows/qualify-7.0-e1000e.yml'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'kernel/net/e1000.cpp'
+      - 'kernel/net/e1000.hpp'
+      - 'kernel/net/e1000_device.cpp'
+      - 'kernel/net/e1000_device.hpp'
+      - 'kernel/net/physical.cpp'
+      - 'kernel/net/physical.hpp'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/main.cpp'
+      - 'kernel/drivers/pci_power.cpp'
+      - 'kernel/drivers/pci_power.hpp'
+      - 'kernel/drivers/virtio/**'
+      - 'kernel/net/virtio_net.cpp'
+      - 'kernel/storage/virtio_block_protocol.cpp'
+      - 'kernel/storage/virtio_block_protocol.hpp'
+      - 'kernel/storage/virtio_block.cpp'
+      - 'kernel/storage/virtio_block.hpp'
+      - 'kernel/storage/device_registry.cpp'
+      - 'kernel/storage/device_registry.hpp'
+      - 'kernel/storage/scratch_test.cpp'
+      - 'kernel/storage/scratch_test.hpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/network-smoke-state.sh'
+      - 'tests/test_e1000_device.cpp'
+      - 'tests/test_pci_power.cpp'
+      - 'tests/test_virtio_pci_transport.cpp'
+      - 'tests/test_virtio_block_protocol.cpp'
+      - 'tests/test_storage_scratch.cpp'
+      - 'tests/test_network_smoke_state.sh'
+      - 'docs/ROADMAP.md'
+      - 'docs/ROAD_TO_15_STATUS.md'
+      - 'docs/roadmap/MASTER_ROADMAP_15.md'
+      - 'DEVELOPMENT_STATE.md'
+  pull_request:
+    branches:
+      - chatgpt/6.0-core-steel
+    paths:
+      - 'kernel/net/**'
+      - 'kernel/main.cpp'
+      - 'scripts/**'
+      - 'tests/test_e1000_device.cpp'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - '.github/workflows/qualify-7.0-e1000e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e1000e-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact Iron Shield candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify 7.0 identity and driver contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          grep -Fq 'IRON SHIELD DEV' common/version.h
+          grep -Fq 'k82574L' kernel/net/e1000_device.hpp
+          grep -Fq 'e1000e_link: PASS' kernel/main.cpp
+          grep -Fq 'kPmeStatus' kernel/drivers/pci_power.cpp
+          grep -Fq 'pci_transport::discover' kernel/net/virtio_net.cpp
+          grep -Fq 'none|e1000|e1000e|pcnet|virtio' scripts/smoke-uefi-iso-qemu.sh
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Run kernel thread process and IPC regression
+        run: bash ./scripts/test.sh
+
+      - name: Build clean 7.0 development media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require E1000e and VirtIO block runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000e --require-network --virtio-block \
+            --log-dir build/tests/iron-shield-e1000e --timeout 240 \
+            --require-marker '[TEST] virtio_block_probe: PASS' \
+            --require-marker '[TEST] virtio_block_rw: PASS' \
+            --require-marker '[TEST] unified_storage_write_flush_readback_restore: PASS' \
+            --require-marker '[TEST] e1000e_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] scheduler2_topology: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|virtio_block_.*: FAIL|unified_storage_write_flush_readback_restore: FAIL|e1000e_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL|smp_.*: FAIL|ALL_REQUIRED_TESTS_PASSED: FAIL' \
+            build/tests/iron-shield-e1000e/serial.log
+
+      - name: Retain Iron Shield evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-e1000e-${{ github.sha }}
+          path: build/tests/iron-shield-e1000e
+          if-no-files-found: warn

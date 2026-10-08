@@ -1,28 +1,38 @@
-KuroganeOS 6.0.0-dev — Core Steel / Kernel Core 2.0 candidate
+KuroganeOS 7.0.0-dev — Iron Shield / Driver & Device Expansion
 
-This media moves the Road-to-15 development identity to Core Steel. It is a
-development candidate, not a stable release and not a claim of broad physical
-hardware qualification.
+This media begins the 7.0 Driver & Device Expansion line on top of the exact
+6.0 Core Steel candidate qualified at
+717e003b34d47c81495e8ac5c580ae57c5fb16b3.
 
-Implemented Core Steel scope:
-- Scheduler 2.0 policy with per-CPU run queues, affinity, priorities,
-  round-robin tie breaking and work stealing;
-- scheduler topology expansion after SMP discovery without dropping BSP
-  runnable state;
-- atomic Ready -> Running dispatch reservation under the scheduler policy lock;
-- CPU-owned dispatch cancellation so failed execution-layer handoff cannot
-  strand a runnable thread;
-- thread/process integration with scheduler policy state transitions;
-- per-CPU scheduler stack / preemption return state for x86-64 SMP execution;
-- dedicated Local APIC scheduling interrupt path and timer primitives;
-- existing four-vCPU AP startup, cross-CPU work and TLB shootdown preserved.
+Initial Iron Shield scope:
+- production Intel Ethernet device-family policy shared by E1000 and E1000e;
+- Intel 82540EM remains the legacy E1000 backend;
+- Intel 82574L is promoted from MSI-X-only qualification hardware to the normal
+  production network path;
+- the generic NetworkInterface, DHCP, TCP, TLS and application layers remain
+  unchanged by concrete Intel NIC selection;
+- QEMU smoke infrastructure gains an explicit e1000e profile so 82574L must
+  obtain DHCP and reach the gateway instead of being treated as compile-only
+  support.
+- PCI device power-management foundation parses the standard PM capability,
+  exposes D-state transitions and avoids replaying write-one-to-clear PME status;
+  no automatic suspend policy is enabled yet.
+- modern VirtIO PCI vendor-capability discovery is now a shared bounded
+  transport layer; virtio-net consumes it and the same contract is prepared for
+  virtio-blk instead of duplicating PCI capability parsing.
+- a polling modern VirtIO block backend now negotiates VERSION_1, RO,
+  logical-block-size and FLUSH features, publishes through the unified block
+  registry, and uses a signed scratch disk for write/flush/readback/restore
+  qualification without touching unknown media.
+
+7.0 remains a development milestone. The wider target includes Realtek
+RTL8111/8168-class networking, VirtIO net/block expansion, PCnet legacy
+coverage, audio fallback coverage, USB hubs/wider HID and device power
+management.
 
 Qualification boundary:
-The 6.0 identity means Kernel Core 2.0 engineering is now the active system
-milestone. Final qualification still requires the exact candidate Core Steel
-closeout to pass host regressions, a clean release-media build and four-vCPU
-QEMU runtime checks for Scheduler 2.0 topology, kernel preemption, Ring-3
-preemption and the existing SMP substrate.
-
-Oracle VirtualBox, VMware and physical Intel/AMD systems remain external
-validation targets. Their absence is never converted into a fabricated PASS.
+Core Steel 6.0 automated QEMU qualification remains attached to its exact SHA.
+Iron Shield requires its own exact-SHA host, release-media and concrete-device
+runtime gates. VirtualBox, VMware and physical machines remain external
+validation until directly observed; unavailable environments are never
+reported as PASS.

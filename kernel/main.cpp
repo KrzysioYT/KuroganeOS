@@ -43,6 +43,7 @@
 #include "storage/ahci.hpp"
 #include "storage/device_registry.hpp"
 #include "storage/nvme.hpp"
+#include "storage/virtio_block.hpp"
 #include "storage/gpt.hpp"
 #include "storage/scratch_test.hpp"
 #include "task/scheduler.hpp"
@@ -945,6 +946,34 @@ bool handle_installed_first_boot() {
 }
 
 void initialize_storage_probe() {
+    const storage::virtio_block::Status virtio_block_status =
+        storage::virtio_block::initialize();
+    if (virtio_block_status == storage::virtio_block::Status::Ok ||
+        virtio_block_status == storage::virtio_block::Status::AlreadyInitialized) {
+        const storage::virtio_block::DeviceInfo* const info =
+            storage::virtio_block::device_info();
+        if (info != nullptr) {
+            log::write_u64(
+                log::Level::Info,
+                "VIRTIO-BLK",
+                "logical block bytes=",
+                info->block_size);
+            log::write_u64(
+                log::Level::Info,
+                "VIRTIO-BLK",
+                "logical block count=",
+                info->block_count);
+            terminal::println("[TEST] virtio_block_probe: PASS");
+        }
+    } else if (virtio_block_status != storage::virtio_block::Status::NoDevice) {
+        log::write(
+            log::Level::Warn,
+            "VIRTIO-BLK",
+            storage::virtio_block::status_message(virtio_block_status));
+        terminal::println("[TEST] virtio_block_probe: FAIL");
+        g_required_runtime_test_failed = true;
+    }
+
     const storage::nvme::Status nvme_status = storage::nvme::initialize();
     if (nvme_status == storage::nvme::Status::Ok ||
         nvme_status == storage::nvme::Status::AlreadyInitialized) {
@@ -1154,6 +1183,9 @@ void initialize_storage_probe() {
             scratch_result.write_attempted && scratch_result.restored) {
             terminal::println(
                 "[TEST] unified_storage_write_flush_readback_restore: PASS");
+            if (entry.backend == storage::device_registry::Backend::VirtioBlock) {
+                terminal::println("[TEST] virtio_block_rw: PASS");
+            }
             continue;
         }
 
@@ -2184,6 +2216,17 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         pci::scan();
         initialize_device_framework(false);
 
+        const storage::virtio_block::Status virtio_block_status =
+            storage::virtio_block::initialize();
+        if (virtio_block_status != storage::virtio_block::Status::Ok &&
+            virtio_block_status != storage::virtio_block::Status::AlreadyInitialized &&
+            virtio_block_status != storage::virtio_block::Status::NoDevice) {
+            log::write(
+                log::Level::Warn,
+                "INSTALL",
+                storage::virtio_block::status_message(virtio_block_status));
+        }
+
         const storage::nvme::Status nvme_status = storage::nvme::initialize();
         if (nvme_status != storage::nvme::Status::Ok &&
             nvme_status != storage::nvme::Status::AlreadyInitialized &&
@@ -2510,7 +2553,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         bool physical_driver_ready = true;
         switch (net::physical::driver()) {
             case net::physical::Driver::E1000:
-                terminal::println("[TEST] e1000_link: PASS");
+                terminal::println(
+                    net::e1000::is_e1000e()
+                        ? "[TEST] e1000e_link: PASS"
+                        : "[TEST] e1000_link: PASS");
+                terminal::write("Intel Ethernet model: ");
+                terminal::println(net::e1000::model_name());
                 break;
             case net::physical::Driver::VirtioNet: {
                 terminal::println("[TEST] virtio_net_link: PASS");

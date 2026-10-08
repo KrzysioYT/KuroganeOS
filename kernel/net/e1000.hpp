@@ -1,6 +1,7 @@
 #pragma once
 
 #include "network.hpp"
+#include "e1000_device.hpp"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -31,6 +32,10 @@ const MacAddress* hardware_address();
 uint64_t transmitted_frames();
 uint64_t received_frames();
 uint64_t dropped_frames();
+device::Model model();
+bool is_e1000e();
+const char* driver_name();
+const char* model_name();
 bool msi_configured();
 // Uses the E1000 Interrupt Cause Set register to request an actual device MSI
 // and waits for the production IDT/APIC handler. Failure disables MSI and
