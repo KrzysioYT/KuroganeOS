@@ -1,4 +1,4 @@
-name: Qualify 7.0 E1000e Production Driver
+name: Qualify 7.0 Iron Shield Device Foundation
 
 on:
   push:
@@ -23,6 +23,12 @@ on:
       - 'kernel/net/virtio_net.cpp'
       - 'kernel/storage/virtio_block_protocol.cpp'
       - 'kernel/storage/virtio_block_protocol.hpp'
+      - 'kernel/storage/virtio_block.cpp'
+      - 'kernel/storage/virtio_block.hpp'
+      - 'kernel/storage/device_registry.cpp'
+      - 'kernel/storage/device_registry.hpp'
+      - 'kernel/storage/scratch_test.cpp'
+      - 'kernel/storage/scratch_test.hpp'
       - 'scripts/run-host-tests.sh'
       - 'scripts/build-media-linux.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
@@ -102,15 +108,18 @@ jobs:
           set -euo pipefail
           bash ./scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
-            --nic e1000e --require-network \
+            --nic e1000e --require-network --virtio-block \
             --log-dir build/tests/iron-shield-e1000e --timeout 240 \
+            --require-marker '[TEST] virtio_block_probe: PASS' \
+            --require-marker '[TEST] virtio_block_rw: PASS' \
+            --require-marker '[TEST] unified_storage_write_flush_readback_restore: PASS' \
             --require-marker '[TEST] e1000e_link: PASS' \
             --require-marker '[TEST] dhcp_lease: PASS' \
             --require-marker '[TEST] network_gateway_icmp: PASS' \
             --require-marker '[TEST] scheduler2_topology: PASS' \
             --require-marker '[TEST] smp_scheduler: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|e1000e_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL|smp_.*: FAIL|ALL_REQUIRED_TESTS_PASSED: FAIL' \
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|virtio_block_.*: FAIL|unified_storage_write_flush_readback_restore: FAIL|e1000e_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL|smp_.*: FAIL|ALL_REQUIRED_TESTS_PASSED: FAIL' \
             build/tests/iron-shield-e1000e/serial.log
 
       - name: Retain Iron Shield evidence
