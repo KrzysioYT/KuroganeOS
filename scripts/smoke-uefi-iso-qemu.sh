@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -19,6 +19,7 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 nvme=false
+virtio_block=false
 no_ps2=false
 usb_keyboard=false
 usb_mouse=false
@@ -62,6 +63,7 @@ while (($#)); do
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --nvme) nvme=true; shift ;;
+        --virtio-block) virtio_block=true; shift ;;
         --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
@@ -522,6 +524,40 @@ if [[ "$audio_model" == "hda" ]]; then
     )
 fi
 
+virtio_block_args=()
+if $virtio_block; then
+    virtio_block_image="$tmp/virtio-block-storage.img"
+    python3 - "$virtio_block_image" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+size = 8 * 1024 * 1024
+sector_count = size // 512
+header = bytearray(512)
+magic = b"KUROGANE_AHCI_SCRATCH_V1"
+header[:len(magic)] = magic
+struct.pack_into("<I", header, 32, 1)
+struct.pack_into("<I", header, 36, 64)
+struct.pack_into("<Q", header, 40, sector_count)
+struct.pack_into("<Q", header, 48, 8)
+struct.pack_into("<I", header, 56, 8)
+struct.pack_into("<I", header, 60, 0x4B535431)
+with open(path, "wb") as image:
+    image.truncate(size)
+    image.seek(0)
+    image.write(header)
+    image.seek(8 * 512)
+    image.write(bytes((index * 19 + 7) & 0xFF for index in range(8 * 512)))
+PY
+    # Modern-only transport makes the runtime exercise the shared PCI vendor
+    # capability path rather than silently falling back to legacy I/O ports.
+    virtio_block_args=(
+        -drive "if=none,id=kurogane_virtio_block,format=raw,file=$virtio_block_image"
+        -device "virtio-blk-pci,drive=kurogane_virtio_block,disable-legacy=on,id=kurogane_virtio_block"
+    )
+fi
+
 nvme_args=()
 if $nvme; then
     nvme_image="$tmp/nvme-storage.img"
@@ -625,6 +661,7 @@ qemu-system-x86_64 \
     "${network_args[@]}" \
     "${audio_args[@]}" \
     "${nvme_args[@]}" \
+    "${virtio_block_args[@]}" \
     "${usb_args[@]}" \
     -no-reboot \
     -no-shutdown \
