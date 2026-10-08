@@ -17,6 +17,9 @@ Initial Iron Shield scope:
 - PCI device power-management foundation parses the standard PM capability,
   exposes D-state transitions and avoids replaying write-one-to-clear PME status;
   no automatic suspend policy is enabled yet.
+- modern VirtIO PCI vendor-capability discovery is now a shared bounded
+  transport layer; virtio-net consumes it and the same contract is prepared for
+  virtio-blk instead of duplicating PCI capability parsing.
 
 7.0 remains a development milestone. The wider target includes Realtek
 RTL8111/8168-class networking, VirtIO net/block expansion, PCnet legacy
