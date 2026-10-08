@@ -77,7 +77,7 @@ jobs:
             build/images/KuroganeOS-linux.img --disk --smp 4 --nic e1000 --require-network \
             --log-dir build/tests/core-steel-closeout --timeout 240 \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
-            --send-key-after-marker '[TEST] desktop_launcher_ring3: PASS' b \
+            --send-key-after-marker '[TEST] red_flux_login_to_desktop: PASS' b \
             --require-marker '[TEST] scheduler2_topology: PASS' \
             --require-marker '[TEST] kernel_preemption: PASS' \
             --require-marker '[TEST] ring3_preemption: PASS' \
