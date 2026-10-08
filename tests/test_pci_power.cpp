@@ -48,7 +48,7 @@ int main() {
         UINT16_C(3) |
         (UINT16_C(1) << 9U) |
         (UINT16_C(1) << 10U) |
-        (UINT16_C(0x1FU) << 11U);
+        (UINT16_C(0x1F) << 11U);
     const uint16_t control =
         static_cast<uint16_t>(State::D0) |
         (UINT16_C(1) << 8U) |
