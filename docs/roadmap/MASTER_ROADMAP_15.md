@@ -23,8 +23,8 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `3.6.0-dev` | Flux Stabilization | QUALIFIED |
 | `4.0.0-dev` | Pre-Steel | QUALIFIED |
 | `5.0.0-dev` | Steel / Hardware | QUALIFIED AFTER AUDIT |
-| `6.0.0-dev` | Core Steel | PENDING |
-| `7.0.0-dev` | Iron Shield | PENDING |
+| `6.0.0-dev` | Core Steel | QUALIFIED |
+| `7.0.0-dev` | Iron Shield | IN PROGRESS |
 | `8.0.0-dev` | Connected Steel | PENDING |
 | `9.0.0-dev` | Forge Graphics | PENDING |
 | `10.0.0-dev` | Steel Applications | PENDING |
@@ -292,12 +292,21 @@ assumptions in higher layers.
 
 ## 6.0.0-dev — Kernel Core 2.0
 
+Status: **QUALIFIED** at exact source SHA
+`717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
+
 PMM/VMM and independent address spaces, Scheduler 2.0, threads, processes/jobs,
 per-CPU run queues, CPU affinity, preemption, IPC 2.0, shared memory,
 synchronization primitives, VFS-facing process resource ownership and syscall
 ABI qualification.
 
+Authoritative evidence:
+- Scheduler 2.0 Foundation run `37710497664` — PASS;
+- Core Steel Closeout run `37710493815` — PASS.
+
 ## 7.0.0-dev — Driver & Device Expansion
+
+Status: **IN PROGRESS**.
 
 Broaden real hardware coverage while preserving the 5.x contracts:
 - Intel E1000/E1000e;

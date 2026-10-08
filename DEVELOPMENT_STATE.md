@@ -1,6 +1,6 @@
 # KuroganeOS Development State
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Integration branch
 
@@ -27,8 +27,9 @@ Merged through PR #45 as integration commit:
 - `5.3 — Universal Storage`: implemented candidate, qualification pending
 - `5.4 — Platform / Firmware Portability`: implemented candidate, qualification pending
 - `5.5 — Hardware Compatibility Gate`: implemented candidate, qualification pending
-- `6.0.0-dev — Kernel Core 2.0`: implemented candidate, exact-SHA closeout pending
-- `7.0.0-dev` through `14.0.0-rc`: pending
+- `6.0.0-dev — Kernel Core 2.0`: QUALIFIED at `717e003b34d47c81495e8ac5c580ae57c5fb16b3`
+- `7.0.0-dev — Iron Shield / Driver & Device Expansion`: active candidate, qualification pending
+- `8.0.0-dev` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
 `5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
@@ -136,16 +137,35 @@ operations without explicit instruction. Keep Windows PowerShell and Oracle
 VirtualBox support intact.
 
 
-## Active 6.0 Core Steel candidate
+## 6.0 Core Steel qualified baseline
 
-Branch: `chatgpt/6.0-core-steel`.
+Exact source SHA: `717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
 
-The system identity is now `6.0.0-dev / CORE STEEL DEV`. Scheduler 2.0 owns
-per-CPU run queues, affinity, priority selection, round-robin fairness, work
-stealing and dispatch reservations. SMP topology is published into the
-scheduler after AP discovery, thread lifecycle transitions are mirrored into
-the policy, and dispatch reservation rollback is CPU-owned.
+Scheduler 2.0 Foundation run `37710497664` and Core Steel Closeout run
+`37710493815` both passed. The closeout covered full host regression,
+thread/process/IPC regression, a clean release build and four-vCPU QEMU runtime
+including Scheduler 2.0 topology, kernel/Ring-3 preemption, AP Ring-3 execution,
+cross-CPU work, TLB shootdown, networking and the Red Flux login -> desktop ->
+mouse-launched Kurogane Web path.
 
-This is intentionally an implemented development candidate, not a fabricated
-qualification result. Promotion to QUALIFIED requires the dedicated exact-SHA
-Core Steel closeout and external hardware observations remain separate.
+## Active 7.0 Iron Shield candidate
+
+Branch: `chatgpt/7.0-iron-shield`.
+
+The system identity is now `7.0.0-dev / IRON SHIELD DEV`. The first device
+expansion slice adds Intel 82574L/E1000e support beside the qualified 82540EM
+path while preserving the generic NetworkInterface consumed by higher layers.
+The dedicated 7.0 gate must prove both emulated Intel models with real DHCP and
+gateway ICMP before this slice is considered qualified.
+
+The original Intel GbE + initial PCI PM source at
+`0299d9a39ea2874ed71e3ca41203fe00f864ca2b` passed exact-source workflow
+`37723596871` (full host suite, clean media, E1000 and E1000e DHCP/gateway).
+This qualifies that slice, not the whole 7.0 milestone.
+
+The next PCI PM candidate enforces legal state transitions, mandatory
+settling delays, DMA gating for all low-power states and recoverable
+transaction ownership. The gate now additionally requires four pre-bind
+E1000e D3hot cycles followed by working DHCP/gateway traffic. The new source
+remains a candidate until its own workflow passes. See `docs/PCI_POWER.md`
+for the API contract and remaining driver-integration limits.

@@ -2510,7 +2510,11 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         bool physical_driver_ready = true;
         switch (net::physical::driver()) {
             case net::physical::Driver::E1000:
-                terminal::println("[TEST] e1000_link: PASS");
+                terminal::println(
+                    net::e1000::model() == net::e1000::Model::I82574L
+                        ? "[TEST] e1000e_link: PASS"
+                        : "[TEST] e1000_link: PASS");
+                terminal::println("[TEST] intel_gbe_link: PASS");
                 break;
             case net::physical::Driver::VirtioNet: {
                 terminal::println("[TEST] virtio_net_link: PASS");

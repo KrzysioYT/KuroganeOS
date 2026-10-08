@@ -1,7 +1,7 @@
 # KuroganeOS active roadmap
 
-Qualified baseline: **5.0.0-dev — Steel / Hardware — QUALIFIED AFTER AUDIT**.  
-Active engineering track: **6.0.0-dev — Core Steel / Kernel Core 2.0**.
+Qualified baseline: **6.0.0-dev — Core Steel / Kernel Core 2.0 — QUALIFIED**.  
+Active engineering track: **7.0.0-dev — Iron Shield / Driver & Device Expansion**.
 
 The 5.1–5.5 portability bridge remains part of the current source line and its
 automated exact-SHA qualification is still tracked separately; 6.0 development
@@ -79,25 +79,36 @@ turns that hardware substrate into a generic x86-64 UEFI platform:
 The architectural contract is documented in
 [`docs/architecture/HARDWARE_COMPATIBILITY.md`](architecture/HARDWARE_COMPATIBILITY.md).
 
-## 6.0 Core Steel — active candidate
+## 6.0 Core Steel — qualified
 
-Core Steel now contains Scheduler 2.0 with per-CPU queues, affinity, priorities,
-round-robin fairness, work stealing, topology expansion and CPU-owned atomic
-dispatch reservations. The live thread layer mirrors lifecycle transitions into
-the policy and uses the SMP CPU identity for scheduling decisions. x86-64 also
-has per-CPU preemption return state and a dedicated Local APIC scheduling
-interrupt path.
+Exact source SHA: `717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
 
-The milestone is intentionally still a **candidate** until an exact-SHA
-closeout proves the host suite, clean release build and four-vCPU runtime
-markers. Broad VirtualBox/VMware/physical-hardware evidence remains external.
+Scheduler 2.0 Foundation run `37710497664` and Core Steel Closeout run
+`37710493815` passed. Core Steel therefore has exact-SHA evidence for the host
+suite, clean release build, four-vCPU scheduler topology, kernel and Ring-3
+preemption, Ring-3 execution on APs, cross-CPU work, TLB shootdown, networking
+and the Red Flux login/desktop/browser launch path.
+
+Broad VirtualBox/VMware/physical-hardware evidence remains external.
+
+## 7.0 Iron Shield — active candidate
+
+The first Iron Shield slice expands the production Intel GbE backend from the
+82540EM (8086:100E) to the E1000e-class 82574L (8086:10D3) without changing the
+generic NetworkInterface contract. QEMU can now exercise both `e1000` and
+`e1000e` profiles through the same DHCP/IP/TCP stack. Host regression protects
+the PCI model classifier, while the dedicated runtime gate requires real link,
+DHCP and gateway ICMP for both devices.
+
+RTL8111/8168, wider USB/hub coverage and device power management remain pending
+7.0 work and are not implied by the Intel GbE slice.
 
 ## Road to 15
 
 - 5.0.0-dev — Steel / Hardware — **QUALIFIED AFTER AUDIT**
 - 5.1–5.5 — Hardware Compatibility Foundation — implemented candidates / qualification pending
-- 6.0.0-dev — Kernel Core 2.0 — **IMPLEMENTED CANDIDATE / QUALIFICATION PENDING**
-- 7.0.0-dev — Driver & Device Expansion — pending
+- 6.0.0-dev — Kernel Core 2.0 — **QUALIFIED**
+- 7.0.0-dev — Driver & Device Expansion — **ACTIVE CANDIDATE**
 - 8.0.0-dev — Flux Desktop Platform — pending
 - 9.0.0-dev — Networking & Services — pending
 - 10.0.0-dev — Storage & VFS 2.0 — pending

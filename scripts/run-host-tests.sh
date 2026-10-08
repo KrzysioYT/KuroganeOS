@@ -24,6 +24,13 @@ bash tests/test_network_smoke_state.sh
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 "$HOST_PYTHON" tests/test_virtualbox_input_profile.py
 
+# Driver & Device Expansion: keep Intel E1000/E1000e PCI model
+# classification deterministic and independent from the generic network stack.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_intel_gbe_model.cpp \
+  -o "$OUT_DIR/test_intel_gbe_model"
+"$OUT_DIR/test_intel_gbe_model"
+
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hardware_policy.cpp kernel/hardware/policy.cpp \
   -o "$OUT_DIR/test_hardware_policy"
@@ -127,6 +134,13 @@ bash tests/test_network_smoke_state.sh
   kernel/drivers/pci.cpp \
   -Wl,--gc-sections \
   -o "$OUT_DIR/test_pci_capability_layout"
+
+# Iron Shield PCI power-management foundation: validate PM capability parsing,
+# D0/D1/D2/D3hot transitions, DMA quiesce enforcement and PME W1C safety.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_pci_power.cpp kernel/drivers/pci_power.cpp \
+  -o "$OUT_DIR/test_pci_power"
+"$OUT_DIR/test_pci_power"
 
 "$OUT_DIR/test_pci_capability_layout"
 

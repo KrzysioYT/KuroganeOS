@@ -9,8 +9,6 @@
 namespace net::e1000 {
 namespace {
 
-constexpr uint16_t INTEL_VENDOR = 0x8086U;
-constexpr uint16_t E1000_82540EM = 0x100EU;
 constexpr size_t MMIO_BYTES = 128U * 1024U;
 constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB10000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
@@ -82,6 +80,7 @@ static_assert(
 
 struct Device {
     pci::Device pci_device;
+    Model model;
     volatile uint8_t* registers;
     uintptr_t mapped_base;
     size_t mapped_pages;
@@ -348,6 +347,20 @@ bool valid_mac(const MacAddress& mac) {
         !mac_is_multicast(mac);
 }
 
+const pci::Device* find_supported_device(Model* out_model) {
+    if (out_model != nullptr) *out_model = Model::Unknown;
+    for (size_t index = 0U; index < pci::device_count(); ++index) {
+        const pci::Device* device = pci::device_at(index);
+        if (device == nullptr) continue;
+        const Model candidate =
+            classify_model(device->vendor_id, device->device_id);
+        if (candidate == Model::Unknown) continue;
+        if (out_model != nullptr) *out_model = candidate;
+        return device;
+    }
+    return nullptr;
+}
+
 bool allocate_dma(Device* device) {
     if (storage::dma::allocate_page(true, &device->rx_ring_page) !=
             storage::dma::Status::Ok ||
@@ -383,13 +396,15 @@ Status initialize() {
     if (g_device.initialized) {
         return Status::AlreadyInitialized;
     }
-    const pci::Device* pci_device = pci::find(INTEL_VENDOR, E1000_82540EM);
-    if (pci_device == nullptr) {
+    Model detected_model = Model::Unknown;
+    const pci::Device* pci_device = find_supported_device(&detected_model);
+    if (pci_device == nullptr || detected_model == Model::Unknown) {
         g_status = Status::NotFound;
         return g_status;
     }
     g_device = {};
     g_device.pci_device = *pci_device;
+    g_device.model = detected_model;
     bool io_space = false;
     const uint64_t bar = pci::bar_address(*pci_device, 0U, &io_space);
     if (bar == 0U || io_space) {
@@ -526,6 +541,23 @@ bool msi_configured() {
     return g_device.initialized && g_device.msi_active;
 }
 
+Model model() {
+    return g_device.model;
+}
+
+uint16_t pci_device_id() {
+    return g_device.pci_device.device_id;
+}
+
+const char* model_name(Model model) {
+    switch (model) {
+        case Model::I82540EM: return "Intel 82540EM E1000";
+        case Model::I82574L: return "Intel 82574L E1000e";
+        case Model::Unknown: return "unsupported Intel GbE";
+    }
+    return "unsupported Intel GbE";
+}
+
 bool qualify_msi_delivery(uint32_t spin_budget) {
     if (!msi_configured() || spin_budget == 0U) return false;
 
@@ -568,16 +600,16 @@ const char* status_message(Status status) {
         case Status::Ok: return "ok";
         case Status::AlreadyInitialized: return "already initialized";
         case Status::NotInitialized: return "not initialized";
-        case Status::NotFound: return "Intel E1000 was not found";
-        case Status::UnsupportedDevice: return "unsupported E1000 device";
-        case Status::InvalidBar: return "invalid E1000 MMIO BAR";
-        case Status::MmioMapFailed: return "E1000 MMIO mapping failed";
-        case Status::ResetTimedOut: return "E1000 reset timed out";
-        case Status::InvalidMac: return "E1000 has no valid unicast MAC";
-        case Status::DmaAllocationFailed: return "E1000 DMA allocation failed";
-        case Status::LinkDown: return "E1000 link is down";
-        case Status::TransmitTimedOut: return "E1000 transmit timed out";
-        case Status::DeviceError: return "E1000 device error";
+        case Status::NotFound: return "supported Intel E1000/E1000e NIC was not found";
+        case Status::UnsupportedDevice: return "unsupported Intel GbE device";
+        case Status::InvalidBar: return "invalid Intel GbE MMIO BAR";
+        case Status::MmioMapFailed: return "Intel GbE MMIO mapping failed";
+        case Status::ResetTimedOut: return "Intel GbE reset timed out";
+        case Status::InvalidMac: return "Intel GbE has no valid unicast MAC";
+        case Status::DmaAllocationFailed: return "Intel GbE DMA allocation failed";
+        case Status::LinkDown: return "Intel GbE link is down";
+        case Status::TransmitTimedOut: return "Intel GbE transmit timed out";
+        case Status::DeviceError: return "Intel GbE device error";
     }
     return "unknown E1000 status";
 }
