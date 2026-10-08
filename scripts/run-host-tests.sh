@@ -143,6 +143,15 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_pci_power"
 "$OUT_DIR/test_pci_power"
 
+# Shared modern VirtIO PCI discovery used by both net and upcoming block
+# drivers. Reject malformed/cyclic vendor capability lists before MMIO mapping.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_pci_transport.cpp \
+  kernel/drivers/virtio/pci_transport.cpp kernel/drivers/pci.cpp \
+  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -o "$OUT_DIR/test_virtio_pci_transport"
+"$OUT_DIR/test_virtio_pci_transport"
+
 "$OUT_DIR/test_pci_capability_layout"
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
