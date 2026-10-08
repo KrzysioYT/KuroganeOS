@@ -16,7 +16,10 @@ Current 7.0 implementation:
 - host regression validates PCI model classification and rejects unrelated
   Intel/non-Intel device IDs;
 - a dedicated 7.0 Intel GbE gate requires real DHCP and gateway ICMP on both
-  QEMU e1000 and e1000e devices.
+  QEMU e1000 and e1000e devices;
+- PCI power-management foundation validates PM capabilities and bounded
+  D0/D1/D2/D3hot transitions, rejects D3hot while Bus Master DMA is enabled,
+  verifies state writes and never replays the write-one-to-clear PME Status bit.
 
 Qualified baseline carried forward:
 KuroganeOS 6.0.0-dev Core Steel is qualified at exact source SHA

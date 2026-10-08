@@ -12,10 +12,13 @@ on:
       - 'kernel/net/e1000.hpp'
       - 'kernel/net/physical.cpp'
       - 'kernel/net/physical.hpp'
+      - 'kernel/drivers/pci_power.cpp'
+      - 'kernel/drivers/pci_power.hpp'
       - 'kernel/main.cpp'
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'tests/test_intel_gbe_model.cpp'
+      - 'tests/test_pci_power.cpp'
       - 'docs/ROADMAP.md'
       - 'docs/ROAD_TO_15_STATUS.md'
       - 'DEVELOPMENT_STATE.md'
@@ -45,6 +48,7 @@ jobs:
           grep -Fq '0x100E' kernel/net/e1000.hpp
           grep -Fq '0x10D3' kernel/net/e1000.hpp
           grep -Fq 'e1000e_link: PASS' kernel/main.cpp
+          grep -Fq 'BUS_MASTER_ACTIVE' kernel/drivers/pci_power.cpp
           bash -n scripts/smoke-uefi-iso-qemu.sh
           git diff --check
 

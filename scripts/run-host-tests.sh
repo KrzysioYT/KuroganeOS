@@ -135,6 +135,13 @@ bash tests/test_network_smoke_state.sh
   -Wl,--gc-sections \
   -o "$OUT_DIR/test_pci_capability_layout"
 
+# Iron Shield PCI power-management foundation: validate PM capability parsing,
+# D0/D1/D2/D3hot transitions, DMA quiesce enforcement and PME W1C safety.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_pci_power.cpp kernel/drivers/pci_power.cpp \
+  -o "$OUT_DIR/test_pci_power"
+"$OUT_DIR/test_pci_power"
+
 "$OUT_DIR/test_pci_capability_layout"
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
