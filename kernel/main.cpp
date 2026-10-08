@@ -90,6 +90,18 @@ struct PreemptionProbe {
 
 PreemptionProbe g_preemption_probe{};
 
+constexpr size_t kMulticoreSchedulerProbeCpus = 64U;
+struct MulticoreSchedulerProbeArgument {
+    size_t expected_cpu;
+};
+struct MulticoreSchedulerProbe {
+    alignas(64) uint64_t hits[kMulticoreSchedulerProbeCpus];
+    alignas(64) uint64_t dispatch_ok[kMulticoreSchedulerProbeCpus];
+    MulticoreSchedulerProbeArgument arguments[kMulticoreSchedulerProbeCpus];
+    uint64_t mismatches;
+};
+MulticoreSchedulerProbe g_multicore_scheduler_probe{};
+
 struct BootContext {
     KuroganeFramebuffer framebuffer;
     const KuroganeBootInfo* boot_info;
@@ -1307,6 +1319,116 @@ bool run_kernel_thread_probe() {
         threading::current() == threading::INVALID_THREAD_ID;
 }
 
+void multicore_scheduler_probe_thread(void* context) {
+    auto* argument =
+        static_cast<MulticoreSchedulerProbeArgument*>(context);
+    if (argument == nullptr) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+        return;
+    }
+    const size_t actual_cpu = arch::x86_64::smp::current_cpu_index();
+    if (actual_cpu >= kMulticoreSchedulerProbeCpus) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+        return;
+    }
+    __atomic_fetch_add(
+        &g_multicore_scheduler_probe.hits[actual_cpu],
+        UINT64_C(1),
+        __ATOMIC_RELAXED);
+    if (actual_cpu != argument->expected_cpu) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+    }
+}
+
+void multicore_scheduler_probe_dispatch(size_t cpu_index, void*) {
+    bool executed = false;
+    const threading::Status status =
+        threading::run_dispatch_once(&executed);
+    if (cpu_index < kMulticoreSchedulerProbeCpus &&
+        status == threading::Status::Ok && executed) {
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.dispatch_ok[cpu_index],
+            UINT64_C(1),
+            __ATOMIC_RELEASE);
+    }
+}
+
+bool run_multicore_scheduler_probe(size_t online_cpus) {
+    if (online_cpus < 2U ||
+        online_cpus > kMulticoreSchedulerProbeCpus) {
+        return false;
+    }
+
+    for (size_t cpu = 0U; cpu < kMulticoreSchedulerProbeCpus; ++cpu) {
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.hits[cpu],
+            UINT64_C(0),
+            __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.dispatch_ok[cpu],
+            UINT64_C(0),
+            __ATOMIC_RELAXED);
+        g_multicore_scheduler_probe.arguments[cpu].expected_cpu = cpu;
+    }
+    __atomic_store_n(
+        &g_multicore_scheduler_probe.mismatches,
+        UINT64_C(0),
+        __ATOMIC_RELAXED);
+
+    for (size_t cpu = 0U; cpu < online_cpus; ++cpu) {
+        threading::ThreadId thread = threading::INVALID_THREAD_ID;
+        if (threading::create(
+                "smp-scheduler-probe",
+                multicore_scheduler_probe_thread,
+                &g_multicore_scheduler_probe.arguments[cpu],
+                &thread) != threading::Status::Ok) {
+            return false;
+        }
+        const threading::CpuMask mask = UINT64_C(1) << cpu;
+        if (threading::set_affinity(thread, mask) !=
+            threading::Status::Ok) {
+            return false;
+        }
+    }
+
+    if (arch::x86_64::smp::run_on_all_cpus(
+            multicore_scheduler_probe_dispatch,
+            nullptr) != arch::x86_64::smp::Status::Ok) {
+        return false;
+    }
+
+    bool passed =
+        __atomic_load_n(
+            &g_multicore_scheduler_probe.mismatches,
+            __ATOMIC_ACQUIRE) == UINT64_C(0);
+    for (size_t cpu = 0U; cpu < online_cpus; ++cpu) {
+        passed = passed &&
+            __atomic_load_n(
+                &g_multicore_scheduler_probe.hits[cpu],
+                __ATOMIC_ACQUIRE) == UINT64_C(1) &&
+            __atomic_load_n(
+                &g_multicore_scheduler_probe.dispatch_ok[cpu],
+                __ATOMIC_ACQUIRE) == UINT64_C(1);
+    }
+
+    // The rendezvous has completed on every CPU, so the BSP may now perform
+    // the ordinary single-owner terminated-slot reap safely.
+    threading::RunResult cleanup{};
+    if (threading::run_until_idle(1U, &cleanup) != threading::Status::Ok) {
+        passed = false;
+    }
+    return passed;
+}
+
 bool run_process_lifecycle_probe() {
     if (process::initialize() != process::Status::Ok) {
         return false;
@@ -2197,6 +2319,14 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                 boot_failure("SMP", "per-CPU GDT/TSS state not loaded");
             }
             terminal::println("[TEST] smp_per_cpu_tss: PASS");
+            if (!run_multicore_scheduler_probe(
+                    arch::x86_64::smp::online_cpu_count())) {
+                terminal::println("[TEST] smp_scheduler: FAIL");
+                boot_failure(
+                    "SMP",
+                    "Scheduler 2.0 did not execute affinity-bound threads on every CPU");
+            }
+            terminal::println("[TEST] smp_scheduler: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
                 terminal::println("[TEST] smp_cross_cpu_work: FAIL");
                 boot_failure("SMP", "parallel CPU work dispatch failed");
@@ -2210,12 +2340,14 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         } else {
             terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
             terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
+            terminal::println("[TEST] smp_scheduler: SKIP (single CPU)");
             terminal::println("[TEST] smp_cross_cpu_work: SKIP (single CPU)");
             terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
         }
     } else {
         terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
+        terminal::println("[TEST] smp_scheduler: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_cross_cpu_work: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
     }

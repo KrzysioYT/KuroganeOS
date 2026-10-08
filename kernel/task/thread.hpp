@@ -123,6 +123,12 @@ Status create_for_process(
 Status run_until_idle(
     uint64_t switch_budget,
     RunResult* result = nullptr);
+
+// Dispatches at most one ready thread on the calling CPU and returns to that
+// CPU's scheduler context when the thread exits or yields. Unlike
+// run_until_idle(), this primitive performs no global reap pass, so it is safe
+// to invoke concurrently from an SMP rendezvous.
+Status run_dispatch_once(bool* executed = nullptr);
 Status yield();
 [[noreturn]] void exit_current();
 

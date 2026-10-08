@@ -47,7 +47,7 @@ jobs:
           grep -Fq 'CORE STEEL DEV' common/version.h
           grep -Fq 'cancel_dispatch' kernel/task/scheduler2.hpp
           grep -Fq 'scheduler2_topology: PASS' kernel/main.cpp
-          ! grep -R -Fq '[TEST] smp_scheduler: PASS' kernel .github/workflows
+          grep -Fq '[TEST] smp_scheduler: PASS' kernel/main.cpp
           bash -n scripts/smoke-uefi-iso-qemu.sh
           git diff --check
 
@@ -82,6 +82,7 @@ jobs:
             --require-marker '[TEST] kernel_preemption: PASS' \
             --require-marker '[TEST] ring3_preemption: PASS' \
             --require-marker '[TEST] smp_ap_startup: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
             --require-marker '[TEST] smp_cross_cpu_work: PASS' \
             --require-marker '[TEST] smp_tlb_shootdown: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \

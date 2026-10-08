@@ -709,6 +709,44 @@ Status run_until_idle(uint64_t switch_budget, RunResult* result) {
     return remaining == 0U ? Status::Ok : Status::BudgetExhausted;
 }
 
+Status run_dispatch_once(bool* executed) {
+    if (executed != nullptr) *executed = false;
+    if (!g_initialized) return Status::NotInitialized;
+
+    const uint64_t flags = save_and_disable_interrupts();
+    CpuExecutionState& cpu = current_execution_state();
+    if (cpu.run_active || cpu.current != kInvalidSlot || cpu.preemptive_active) {
+        restore_interrupts(flags);
+        return Status::Busy;
+    }
+
+    const size_t next = find_ready();
+    if (next == kInvalidSlot) {
+        restore_interrupts(flags);
+        return Status::Ok;
+    }
+
+    cpu.run_active = true;
+    cpu.switch_budget = 1U;
+    cpu.run_switches = 1U;
+    cpu.run_completed_start = cpu.completed_total;
+    set_slot_state(g_slots[next], State::Running);
+    ++g_slots[next].switches;
+    cpu.current = next;
+    restore_interrupts(flags);
+
+    x86_64_thread_context_switch(
+        &cpu.boot_context.stack_pointer,
+        &g_slots[next].context.stack_pointer);
+
+    const uint64_t finish_flags = save_and_disable_interrupts();
+    cpu.run_active = false;
+    cpu.switch_budget = 0U;
+    if (executed != nullptr) *executed = true;
+    restore_interrupts(finish_flags);
+    return Status::Ok;
+}
+
 Status yield() {
     if (!g_initialized) {
         return Status::NotInitialized;
