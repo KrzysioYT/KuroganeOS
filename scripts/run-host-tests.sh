@@ -152,6 +152,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_virtio_pci_transport"
 "$OUT_DIR/test_virtio_pci_transport"
 
+# VirtIO-blk keeps its 512-byte wire-sector units separate from the generic
+# logical block ABI so 4K devices cannot silently address the wrong sectors.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_block_protocol.cpp kernel/storage/virtio_block_protocol.cpp \
+  -o "$OUT_DIR/test_virtio_block_protocol"
+"$OUT_DIR/test_virtio_block_protocol"
+
 "$OUT_DIR/test_pci_capability_layout"
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
