@@ -1,6 +1,6 @@
 # KuroganeOS Development State
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Integration branch
 
@@ -27,8 +27,9 @@ Merged through PR #45 as integration commit:
 - `5.3 — Universal Storage`: implemented candidate, qualification pending
 - `5.4 — Platform / Firmware Portability`: implemented candidate, qualification pending
 - `5.5 — Hardware Compatibility Gate`: implemented candidate, qualification pending
-- `6.0.0-dev — Kernel Core 2.0`: implemented candidate, exact-SHA closeout pending
-- `7.0.0-dev` through `14.0.0-rc`: pending
+- `6.0.0-dev — Kernel Core 2.0`: QUALIFIED at exact SHA `717e003b34d47c81495e8ac5c580ae57c5fb16b3`
+- `7.0.0-dev — Iron Shield / Driver & Device Expansion`: active development
+- `8.0.0-dev` through `14.0.0-rc`: pending
 - `15.0.0 stable`: target
 
 `5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
@@ -136,9 +137,9 @@ operations without explicit instruction. Keep Windows PowerShell and Oracle
 VirtualBox support intact.
 
 
-## Active 6.0 Core Steel candidate
+## Qualified 6.0 Core Steel
 
-Branch: `chatgpt/6.0-core-steel`.
+Qualified branch: `chatgpt/6.0-core-steel`.
 
 The system identity is now `6.0.0-dev / CORE STEEL DEV`. Scheduler 2.0 owns
 per-CPU run queues, affinity, priority selection, round-robin fairness, work
@@ -146,6 +147,20 @@ stealing and dispatch reservations. SMP topology is published into the
 scheduler after AP discovery, thread lifecycle transitions are mirrored into
 the policy, and dispatch reservation rollback is CPU-owned.
 
-This is intentionally an implemented development candidate, not a fabricated
-qualification result. Promotion to QUALIFIED requires the dedicated exact-SHA
-Core Steel closeout and external hardware observations remain separate.
+Exact SHA `717e003b34d47c81495e8ac5c580ae57c5fb16b3` passed Scheduler 2.0
+Foundation run `37710497664` and Core Steel Closeout run `37710493815`.
+The closeout covered full host regression, kernel/thread/process/IPC regression,
+a clean release-media build and four-vCPU QEMU runtime including Scheduler 2.0,
+Ring-3 execution on APs, preemption, cross-CPU work, TLB shootdown, networking,
+login -> desktop and mouse-launched Kurogane Web.
+
+Broad VirtualBox/VMware/physical hardware validation remains external.
+
+## Active 7.0 Iron Shield
+
+Branch: `chatgpt/7.0-driver-device-expansion`.
+
+7.0 broadens concrete hardware coverage without changing the generic network,
+storage, input, audio or application contracts. The first production slice
+promotes Intel 82574L E1000e into the normal physical NIC path and adds a real
+QEMU e1000e DHCP/gateway gate.
