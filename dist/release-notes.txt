@@ -14,6 +14,9 @@ Initial Iron Shield scope:
 - QEMU smoke infrastructure gains an explicit e1000e profile so 82574L must
   obtain DHCP and reach the gateway instead of being treated as compile-only
   support.
+- PCI device power-management foundation parses the standard PM capability,
+  exposes D-state transitions and avoids replaying write-one-to-clear PME status;
+  no automatic suspend policy is enabled yet.
 
 7.0 remains a development milestone. The wider target includes Realtek
 RTL8111/8168-class networking, VirtIO net/block expansion, PCnet legacy
