@@ -107,7 +107,7 @@ NetworkInterface* interface() {
 const char* name() {
     switch (driver()) {
         case Driver::VirtioNet: return "virtio-net";
-        case Driver::E1000: return "e1000";
+        case Driver::E1000: return e1000::driver_name();
         case Driver::Pcnet: return "pcnet";
         case Driver::None: return "none";
     }
