@@ -37,6 +37,7 @@ on:
       - 'tests/test_pci_power.cpp'
       - 'tests/test_virtio_pci_transport.cpp'
       - 'tests/test_virtio_block_protocol.cpp'
+      - 'tests/test_storage_scratch.cpp'
       - 'tests/test_network_smoke_state.sh'
       - 'docs/ROADMAP.md'
       - 'docs/ROAD_TO_15_STATUS.md'
@@ -102,7 +103,7 @@ jobs:
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
 
-      - name: Require Intel 82574L E1000e runtime
+      - name: Require E1000e and VirtIO block runtime
         shell: bash
         run: |
           set -euo pipefail
