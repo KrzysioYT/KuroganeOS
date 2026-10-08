@@ -9,8 +9,6 @@
 namespace net::e1000 {
 namespace {
 
-constexpr uint16_t INTEL_VENDOR = 0x8086U;
-constexpr uint16_t E1000_82540EM = 0x100EU;
 constexpr size_t MMIO_BYTES = 128U * 1024U;
 constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB10000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
@@ -82,6 +80,7 @@ static_assert(
 
 struct Device {
     pci::Device pci_device;
+    device::Model model;
     volatile uint8_t* registers;
     uintptr_t mapped_base;
     size_t mapped_pages;
@@ -379,17 +378,43 @@ bool allocate_dma(Device* device) {
 
 } // namespace
 
+const pci::Device* find_supported_device(device::Model* out_model) {
+    if (out_model == nullptr) return nullptr;
+    *out_model = device::Model::Unsupported;
+
+    // Prefer the newer E1000e endpoint when more than one supported Intel NIC
+    // is present. Upper networking layers consume the same NetworkInterface
+    // contract regardless of which concrete controller wins selection.
+    constexpr uint16_t preferred_ids[] = {
+        device::k82574L,
+        device::k82540Em,
+    };
+    for (uint16_t device_id : preferred_ids) {
+        const pci::Device* candidate =
+            pci::find(device::kIntelVendor, device_id);
+        if (candidate == nullptr) continue;
+        const device::Model identified =
+            device::identify(candidate->vendor_id, candidate->device_id);
+        if (identified == device::Model::Unsupported) continue;
+        *out_model = identified;
+        return candidate;
+    }
+    return nullptr;
+}
+
 Status initialize() {
     if (g_device.initialized) {
         return Status::AlreadyInitialized;
     }
-    const pci::Device* pci_device = pci::find(INTEL_VENDOR, E1000_82540EM);
-    if (pci_device == nullptr) {
+    device::Model model = device::Model::Unsupported;
+    const pci::Device* pci_device = find_supported_device(&model);
+    if (pci_device == nullptr || model == device::Model::Unsupported) {
         g_status = Status::NotFound;
         return g_status;
     }
     g_device = {};
     g_device.pci_device = *pci_device;
+    g_device.model = model;
     bool io_space = false;
     const uint64_t bar = pci::bar_address(*pci_device, 0U, &io_space);
     if (bar == 0U || io_space) {
@@ -522,6 +547,22 @@ uint64_t transmitted_frames() { return g_device.tx_frames; }
 uint64_t received_frames() { return g_device.rx_frames; }
 uint64_t dropped_frames() { return g_device.drops; }
 
+device::Model model() {
+    return g_device.initialized ? g_device.model : device::Model::Unsupported;
+}
+
+bool is_e1000e() {
+    return device::is_e1000e(model());
+}
+
+const char* driver_name() {
+    return device::driver_name(model());
+}
+
+const char* model_name() {
+    return device::model_name(model());
+}
+
 bool msi_configured() {
     return g_device.initialized && g_device.msi_active;
 }
@@ -568,8 +609,8 @@ const char* status_message(Status status) {
         case Status::Ok: return "ok";
         case Status::AlreadyInitialized: return "already initialized";
         case Status::NotInitialized: return "not initialized";
-        case Status::NotFound: return "Intel E1000 was not found";
-        case Status::UnsupportedDevice: return "unsupported E1000 device";
+        case Status::NotFound: return "Intel E1000/E1000e was not found";
+        case Status::UnsupportedDevice: return "unsupported Intel Ethernet device";
         case Status::InvalidBar: return "invalid E1000 MMIO BAR";
         case Status::MmioMapFailed: return "E1000 MMIO mapping failed";
         case Status::ResetTimedOut: return "E1000 reset timed out";
