@@ -173,7 +173,7 @@ mandatory before the final release-candidate/stable gate.
 
 ## 6.0 Core Steel / Kernel Core 2.0
 
-Status: **IMPLEMENTED CANDIDATE — AWAITING EXACT-SHA CLOSEOUT**.
+Status: **QUALIFIED** at exact source SHA `717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
 
 The active 6.0 line introduces Scheduler 2.0 as a real policy layer instead of
 renaming the older SMP work-dispatch proof. The current implementation provides
@@ -193,8 +193,26 @@ dedicated Local APIC scheduling interrupt path. Existing four-vCPU AP startup,
 cross-CPU work rendezvous and synchronous TLB shootdown remain part of the
 required runtime substrate.
 
-6.0 is not marked QUALIFIED until one exact source SHA passes the dedicated
-Core Steel closeout: full host regression, kernel/process/thread regression,
-clean release media build, four-vCPU Scheduler 2.0 topology, kernel preemption,
-Ring-3 preemption, AP startup, cross-CPU work and TLB shootdown. VirtualBox,
-VMware and physical hardware remain external evidence.
+Authoritative exact-SHA evidence:
+- Scheduler 2.0 Foundation run `37710497664` — PASS;
+- Core Steel Closeout run `37710493815` — PASS.
+
+The closeout passed the full host regression, kernel/process/thread/IPC suite,
+clean release media build and a four-vCPU runtime requiring Scheduler 2.0
+topology, kernel and Ring-3 preemption, AP startup, multicore scheduler/Ring-3
+execution, cross-CPU work, TLB shootdown, network DHCP/gateway, Red Flux
+login -> desktop and mouse-launched Kurogane Web. VirtualBox, VMware and
+physical hardware remain external evidence.
+
+## 7.0 Iron Shield / Driver & Device Expansion
+
+Status: **ACTIVE DEVELOPMENT**.
+
+The first production slice promotes Intel 82574L E1000e from a dedicated MSI-X
+qualification endpoint into the normal physical NIC path. Intel 82540EM and
+82574L share one bounded model policy and the same generic `NetworkInterface`;
+DHCP, TCP, TLS and applications do not special-case either controller.
+
+The 7.0 device gate must prove a clean `7.0.0-dev` release image with QEMU
+`e1000e`, DHCP and gateway ICMP on one exact SHA. Broader Realtek, VirtIO
+block, USB hub/HID and power-management work remains open.
