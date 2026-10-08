@@ -35,6 +35,13 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_hardware_compatibility"
 "$OUT_DIR/test_hardware_compatibility"
 
+# Driver & Device Expansion: keep Intel controller selection independent from
+# the generic network stack so E1000 and E1000e share one production contract.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_e1000_device.cpp kernel/net/e1000_device.cpp \
+  -o "$OUT_DIR/test_e1000_device"
+"$OUT_DIR/test_e1000_device"
+
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
   -o "$OUT_DIR/test_cpu_info"
