@@ -74,16 +74,23 @@ jobs:
         run: |
           set -euo pipefail
           bash ./scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img --disk --smp 4 \
-            --log-dir build/tests/core-steel-closeout --timeout 180 \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic e1000 --require-network \
+            --log-dir build/tests/core-steel-closeout --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --send-key-after-marker '[TEST] desktop_launcher_ring3: PASS' b \
             --require-marker '[TEST] scheduler2_topology: PASS' \
             --require-marker '[TEST] kernel_preemption: PASS' \
             --require-marker '[TEST] ring3_preemption: PASS' \
             --require-marker '[TEST] smp_ap_startup: PASS' \
             --require-marker '[TEST] smp_cross_cpu_work: PASS' \
             --require-marker '[TEST] smp_tlb_shootdown: PASS' \
-            --require-marker '[TEST] red_flux_login_surface: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|scheduler2_topology: FAIL|kernel_preemption: FAIL|ring3_preemption: FAIL|smp_.*: FAIL' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS' \
+            --require-marker '[TEST] chromium_port_browser_context: PASS' \
+            --require-marker '[TEST] kurogane_web_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|scheduler2_topology: FAIL|kernel_preemption: FAIL|ring3_preemption: FAIL|smp_.*: FAIL|red_flux_.*: FAIL|chromium_port_.*: FAIL|kurogane_web_surface: FAIL' \
             build/tests/core-steel-closeout/serial.log
 
       - name: Retain Core Steel evidence
