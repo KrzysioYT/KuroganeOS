@@ -4,6 +4,7 @@
 #include "../drivers/pci_bar.hpp"
 #include "../drivers/pci_msix.hpp"
 #include "../drivers/pci_msix_group.hpp"
+#include "../drivers/virtio/pci_transport.hpp"
 #include "../arch/x86_64/apic.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/virtual_memory.hpp"
@@ -15,12 +16,6 @@ namespace {
 constexpr uint16_t kVirtioVendor = UINT16_C(0x1AF4);
 constexpr uint16_t kVirtioNetTransitionalDevice = UINT16_C(0x1000);
 constexpr uint16_t kVirtioNetModernDevice = UINT16_C(0x1041);
-constexpr uint8_t kVendorCapabilityId = UINT8_C(0x09);
-constexpr uint8_t kCommonConfigType = 1U;
-constexpr uint8_t kNotifyConfigType = 2U;
-constexpr uint8_t kDeviceConfigType = 4U;
-constexpr uint8_t kCapabilityIterations = 48U;
-constexpr uint8_t kMaxBarIndex = 5U;
 constexpr size_t kQueueCapacity = 8U;
 constexpr size_t kVirtioNetHeaderSize = 12U;
 constexpr size_t kDmaBufferSize = memory::virtual_memory::PAGE_SIZE;
@@ -44,13 +39,7 @@ constexpr uintptr_t kMsixTableVirtualBase = UINT64_C(0xFFFFB70000100000);
 constexpr uintptr_t kMsixPendingVirtualBase = UINT64_C(0xFFFFB70000200000);
 constexpr size_t kMaximumMsixBarBytes = 256U * 1024U;
 
-struct VirtioCapability {
-    bool present;
-    uint8_t bar;
-    uint32_t offset;
-    uint32_t length;
-    uint32_t notify_multiplier;
-};
+using VirtioCapability = drivers::virtio::pci_transport::Capability;
 
 struct MappedRegion {
     uintptr_t virtual_base;
@@ -118,13 +107,6 @@ uint8_t g_interrupt_pending = 0U;
 uint64_t g_receive_interrupt_count = 0U;
 uint64_t g_transmit_interrupt_count = 0U;
 
-uint8_t pci_read8(const pci::Device& device, uint8_t offset) {
-    const uint8_t aligned = static_cast<uint8_t>(offset & UINT8_C(0xFC));
-    const uint32_t value = pci::read32(device, aligned);
-    const unsigned shift = static_cast<unsigned>((offset & UINT8_C(3)) * 8U);
-    return static_cast<uint8_t>((value >> shift) & UINT32_C(0xFF));
-}
-
 uint16_t mmio_read16(const MappedRegion& region, size_t offset) {
     if (region.base == nullptr || offset + sizeof(uint16_t) > region.length) return 0U;
     return *reinterpret_cast<volatile uint16_t*>(region.base + offset);
@@ -166,62 +148,8 @@ void clear_bytes(void* destination, size_t size) {
 }
 
 bool capability_valid(const VirtioCapability& capability) {
-    return capability.present && capability.bar <= kMaxBarIndex &&
-        capability.length != 0U &&
-        capability.length <= memory::virtual_memory::PAGE_SIZE &&
-        capability.offset <= UINT32_MAX - capability.length;
-}
-
-bool scan_capabilities(
-    const pci::Device& device,
-    VirtioCapability* common,
-    VirtioCapability* notify,
-    VirtioCapability* device_config) {
-    if (common == nullptr || notify == nullptr || device_config == nullptr) return false;
-    *common = {};
-    *notify = {};
-    *device_config = {};
-
-    uint8_t pointer = static_cast<uint8_t>(pci_read8(device, UINT8_C(0x34)) & UINT8_C(0xFC));
-    for (uint8_t iteration = 0U;
-         pointer >= UINT8_C(0x40) && iteration < kCapabilityIterations;
-         ++iteration) {
-        const uint32_t header = pci::read32(device, pointer);
-        const uint8_t capability_id = static_cast<uint8_t>(header & UINT32_C(0xFF));
-        const uint8_t next = static_cast<uint8_t>((header >> 8U) & UINT32_C(0xFC));
-        if (capability_id == kVendorCapabilityId) {
-            const uint8_t length = static_cast<uint8_t>((header >> 16U) & UINT32_C(0xFF));
-            const uint8_t type = static_cast<uint8_t>((header >> 24U) & UINT32_C(0xFF));
-            if (length >= 16U && pointer <= UINT8_C(0xF0)) {
-                const uint32_t second = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 4U));
-                VirtioCapability candidate{};
-                candidate.present = true;
-                candidate.bar = static_cast<uint8_t>(second & UINT32_C(0xFF));
-                candidate.offset = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 8U));
-                candidate.length = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 12U));
-                if (type == kNotifyConfigType && length >= 20U &&
-                    pointer <= UINT8_C(0xEC)) {
-                    candidate.notify_multiplier = pci::read32(
-                        device, static_cast<uint8_t>(pointer + 16U));
-                }
-                if (capability_valid(candidate)) {
-                    if (type == kCommonConfigType && !common->present) {
-                        *common = candidate;
-                    } else if (type == kNotifyConfigType && !notify->present) {
-                        *notify = candidate;
-                    } else if (type == kDeviceConfigType && !device_config->present) {
-                        *device_config = candidate;
-                    }
-                }
-            }
-        }
-        if (next == 0U || next == pointer) break;
-        pointer = next;
-    }
-    return common->present && notify->present;
+    return drivers::virtio::pci_transport::region_valid(
+        capability, memory::virtual_memory::PAGE_SIZE);
 }
 
 bool unmap_capability(MappedRegion* region) {
@@ -940,17 +868,18 @@ Status initialize() {
     g_device = *found;
     g_detected = true;
 
-    VirtioCapability common_capability{};
-    VirtioCapability notify_capability{};
-    VirtioCapability device_capability{};
-    if (!scan_capabilities(
-            g_device,
-            &common_capability,
-            &notify_capability,
-            &device_capability)) {
+    drivers::virtio::pci_transport::Layout transport{};
+    if (drivers::virtio::pci_transport::discover(
+            g_device, &transport) !=
+        drivers::virtio::pci_transport::Status::Ok ||
+        !capability_valid(transport.common) ||
+        !capability_valid(transport.notify)) {
         g_status = Status::UnsupportedTransport;
         return g_status;
     }
+    const VirtioCapability& common_capability = transport.common;
+    const VirtioCapability& notify_capability = transport.notify;
+    const VirtioCapability& device_capability = transport.device;
 
     g_original_command = pci::read16(g_device, 0x04U);
     g_command_owned = true;
