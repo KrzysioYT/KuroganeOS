@@ -135,6 +135,14 @@ bash tests/test_network_smoke_state.sh
   -Wl,--gc-sections \
   -o "$OUT_DIR/test_pci_capability_layout"
 
+# Iron Shield power-management foundation: parse PM capability state and prove
+# D-state writes do not replay the write-one-to-clear PME_Status bit.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_pci_power.cpp kernel/drivers/pci_power.cpp kernel/drivers/pci.cpp \
+  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -o "$OUT_DIR/test_pci_power"
+"$OUT_DIR/test_pci_power"
+
 "$OUT_DIR/test_pci_capability_layout"
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
