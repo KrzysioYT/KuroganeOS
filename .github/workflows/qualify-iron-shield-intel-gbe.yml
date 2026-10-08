@@ -1,0 +1,106 @@
+name: Qualify 7.0 Intel GbE Expansion
+
+on:
+  push:
+    branches:
+      - chatgpt/7.0-iron-shield
+    paths:
+      - '.github/workflows/qualify-iron-shield-intel-gbe.yml'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'kernel/net/e1000.cpp'
+      - 'kernel/net/e1000.hpp'
+      - 'kernel/net/physical.cpp'
+      - 'kernel/net/physical.hpp'
+      - 'kernel/main.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'tests/test_intel_gbe_model.cpp'
+      - 'docs/ROADMAP.md'
+      - 'docs/ROAD_TO_15_STATUS.md'
+      - 'DEVELOPMENT_STATE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  intel-gbe-expansion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify Iron Shield identity and Intel model contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          grep -Fq 'IRON SHIELD DEV' common/version.h
+          grep -Fq '0x100E' kernel/net/e1000.hpp
+          grep -Fq '0x10D3' kernel/net/e1000.hpp
+          grep -Fq 'e1000e_link: PASS' kernel/main.cpp
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean 7.0 development media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require legacy E1000 network runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000 --require-network --timeout 180 \
+            --log-dir build/tests/iron-shield-e1000 \
+            --require-marker '[TEST] e1000_link: PASS' \
+            --require-marker '[TEST] intel_gbe_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|e1000_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL' \
+            build/tests/iron-shield-e1000/serial.log
+
+      - name: Require E1000e 82574L network runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000e --require-network --timeout 180 \
+            --log-dir build/tests/iron-shield-e1000e \
+            --require-marker '[TEST] e1000e_link: PASS' \
+            --require-marker '[TEST] intel_gbe_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|e1000e_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL' \
+            build/tests/iron-shield-e1000e/serial.log
+
+      - name: Retain Iron Shield Intel GbE evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-intel-gbe-${{ github.sha }}
+          path: |
+            build/tests/iron-shield-e1000
+            build/tests/iron-shield-e1000e
+          if-no-files-found: warn

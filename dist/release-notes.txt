@@ -1,28 +1,32 @@
-KuroganeOS 6.0.0-dev — Core Steel / Kernel Core 2.0 candidate
+KuroganeOS 7.0.0-dev — Iron Shield / Driver & Device Expansion candidate
 
-This media moves the Road-to-15 development identity to Core Steel. It is a
-development candidate, not a stable release and not a claim of broad physical
-hardware qualification.
+Iron Shield broadens real hardware coverage without changing the generic
+network, storage, input, audio, UI or application contracts established by the
+5.x portability work and 6.0 Core Steel.
 
-Implemented Core Steel scope:
-- Scheduler 2.0 policy with per-CPU run queues, affinity, priorities,
-  round-robin tie breaking and work stealing;
-- scheduler topology expansion after SMP discovery without dropping BSP
-  runnable state;
-- atomic Ready -> Running dispatch reservation under the scheduler policy lock;
-- CPU-owned dispatch cancellation so failed execution-layer handoff cannot
-  strand a runnable thread;
-- thread/process integration with scheduler policy state transitions;
-- per-CPU scheduler stack / preemption return state for x86-64 SMP execution;
-- dedicated Local APIC scheduling interrupt path and timer primitives;
-- existing four-vCPU AP startup, cross-CPU work and TLB shootdown preserved.
+Current 7.0 implementation:
+- Intel Gigabit Ethernet family detection now covers the legacy 82540EM
+  (8086:100E) and the E1000e-class 82574L (8086:10D3);
+- both Intel NIC models continue to use the same bounded NetworkInterface
+  contract consumed by DHCP, IPv4, TCP/TLS and Kurogane Web;
+- E1000e keeps the existing legacy descriptor-ring ownership rules, dedicated
+  DMA pages, reset/link validation and polling-safe fallback when MSI delivery
+  cannot be retained;
+- the shared QEMU smoke harness can instantiate e1000e explicitly;
+- host regression validates PCI model classification and rejects unrelated
+  Intel/non-Intel device IDs;
+- a dedicated 7.0 Intel GbE gate requires real DHCP and gateway ICMP on both
+  QEMU e1000 and e1000e devices.
+
+Qualified baseline carried forward:
+KuroganeOS 6.0.0-dev Core Steel is qualified at exact source SHA
+717e003b34d47c81495e8ac5c580ae57c5fb16b3. Scheduler 2.0, four-vCPU SMP,
+Ring-3 execution on APs, preemption, Red Flux login/desktop and mouse-launched
+Kurogane Web passed the exact-SHA Core Steel closeout.
 
 Qualification boundary:
-The 6.0 identity means Kernel Core 2.0 engineering is now the active system
-milestone. Final qualification still requires the exact candidate Core Steel
-closeout to pass host regressions, a clean release-media build and four-vCPU
-QEMU runtime checks for Scheduler 2.0 topology, kernel preemption, Ring-3
-preemption and the existing SMP substrate.
-
-Oracle VirtualBox, VMware and physical Intel/AMD systems remain external
-validation targets. Their absence is never converted into a fabricated PASS.
+7.0 is an active development candidate until an exact Iron Shield candidate
+passes its dedicated driver/device matrix. The first Intel GbE slice does not
+claim RTL8111/8168, USB hub, device-power-management or broad physical-machine
+qualification yet. Oracle VirtualBox, VMware and physical Intel/AMD systems
+remain external validation targets unless explicitly tested.

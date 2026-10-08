@@ -198,3 +198,32 @@ Core Steel closeout: full host regression, kernel/process/thread regression,
 clean release media build, four-vCPU Scheduler 2.0 topology, kernel preemption,
 Ring-3 preemption, AP startup, cross-CPU work and TLB shootdown. VirtualBox,
 VMware and physical hardware remain external evidence.
+
+
+## 6.0 Core Steel / Kernel Core 2.0
+
+Status: **QUALIFIED** at exact source SHA
+`717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
+
+Authoritative evidence:
+- Scheduler 2.0 Foundation run `37710497664` — PASS;
+- Core Steel Closeout run `37710493815` — PASS.
+
+The closeout passed the full host suite, kernel/thread/process/IPC regressions,
+a clean release-media build and four-vCPU QEMU runtime. Runtime evidence
+includes Scheduler 2.0 topology, kernel and Ring-3 preemption, AP startup,
+Scheduler 2.0 execution across CPUs, Ring-3 execution on APs, cross-CPU work,
+TLB shootdown, DHCP/gateway networking, Red Flux login -> desktop and a real
+mouse launch of Kurogane Web. VirtualBox/VMware/physical-machine evidence
+remains external.
+
+## 7.0 Iron Shield / Driver & Device Expansion
+
+Status: **ACTIVE CANDIDATE — NOT YET QUALIFIED**.
+
+Initial implementation expands the existing Intel GbE driver from 82540EM
+(`8086:100E`) to the E1000e-class 82574L (`8086:10D3`) while retaining the
+same generic NetworkInterface. A dedicated exact-SHA gate now requires host
+classification regression plus clean-media QEMU DHCP/gateway runtime on both
+`e1000` and `e1000e`. RTL8111/8168, wider USB/hub support and device power
+management remain open 7.0 scope.
