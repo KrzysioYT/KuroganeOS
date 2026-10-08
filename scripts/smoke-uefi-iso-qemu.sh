@@ -535,7 +535,7 @@ path = sys.argv[1]
 size = 8 * 1024 * 1024
 sector_count = size // 512
 header = bytearray(512)
-magic = b"KUROGANE_AHCI_SCRATCH_V1"
+magic = b"KUROGANE_BLOCK_SCRATCH_V1"
 header[:len(magic)] = magic
 struct.pack_into("<I", header, 32, 1)
 struct.pack_into("<I", header, 36, 64)
