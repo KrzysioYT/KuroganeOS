@@ -119,8 +119,8 @@ int main() {
         Status::MissingRequiredCapability);
 
     config = valid_layout();
-    store32(config, 0x4CU, UINT32_MAX);
-    store32(config, 0x50U, 2U);
+    store32(config, 0x48U, UINT32_MAX);
+    store32(config, 0x4CU, 2U);
     assert(discover(address, 0x00U, access(config), &layout) ==
         Status::MalformedList);
 
