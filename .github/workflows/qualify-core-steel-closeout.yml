@@ -83,6 +83,7 @@ jobs:
             --require-marker '[TEST] ring3_preemption: PASS' \
             --require-marker '[TEST] smp_ap_startup: PASS' \
             --require-marker '[TEST] smp_scheduler: PASS' \
+            --require-marker '[TEST] smp_ring3_execution: PASS' \
             --require-marker '[TEST] smp_cross_cpu_work: PASS' \
             --require-marker '[TEST] smp_tlb_shootdown: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \

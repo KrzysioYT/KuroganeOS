@@ -1429,6 +1429,80 @@ bool run_multicore_scheduler_probe(size_t online_cpus) {
     return passed;
 }
 
+bool run_multicore_ring3_probe(size_t online_cpus) {
+    if (online_cpus < 2U ||
+        online_cpus > kMulticoreSchedulerProbeCpus ||
+        !fs::root_volume::mounted()) {
+        return false;
+    }
+
+    for (size_t cpu = 1U; cpu < online_cpus; ++cpu) {
+        for (size_t index = 0U;
+             index < kMulticoreSchedulerProbeCpus;
+             ++index) {
+            __atomic_store_n(
+                &g_multicore_scheduler_probe.dispatch_ok[index],
+                UINT64_C(0),
+                __ATOMIC_RELAXED);
+        }
+
+        process::ProcessId pid = process::INVALID_PROCESS_ID;
+        if (process::spawn("/apps/hello", &pid) != process::Status::Ok) {
+            return false;
+        }
+
+        process::Stat before{};
+        if (process::stat(pid, &before) != process::Status::Ok ||
+            before.main_thread == threading::INVALID_THREAD_ID) {
+            return false;
+        }
+        const threading::CpuMask affinity = UINT64_C(1) << cpu;
+        if (threading::set_affinity(before.main_thread, affinity) !=
+            threading::Status::Ok) {
+            return false;
+        }
+
+        if (arch::x86_64::smp::run_on_all_cpus(
+                multicore_scheduler_probe_dispatch,
+                nullptr) != arch::x86_64::smp::Status::Ok) {
+            return false;
+        }
+        if (__atomic_load_n(
+                &g_multicore_scheduler_probe.dispatch_ok[cpu],
+                __ATOMIC_ACQUIRE) != UINT64_C(1)) {
+            return false;
+        }
+
+        process::Stat after{};
+        threading::Stat thread_after{};
+        if (process::stat(pid, &after) != process::Status::Ok ||
+            after.state != process::State::Zombie ||
+            after.exit_code != 0 ||
+            after.observed_pid != pid ||
+            threading::stat(before.main_thread, &thread_after) !=
+                threading::Status::Ok ||
+            thread_after.state != threading::State::Terminated ||
+            thread_after.last_cpu != cpu) {
+            return false;
+        }
+
+        int32_t exit_code = -1;
+        if (process::wait(pid, &exit_code) != process::Status::Ok ||
+            exit_code != 0) {
+            return false;
+        }
+
+        // The AP rendezvous is over. Reap the terminated thread from the BSP
+        // before creating the next process so slot ownership cannot overlap.
+        threading::RunResult cleanup{};
+        if (threading::run_until_idle(1U, &cleanup) !=
+            threading::Status::Ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool run_process_lifecycle_probe() {
     if (process::initialize() != process::Status::Ok) {
         return false;
@@ -2327,6 +2401,14 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
                     "Scheduler 2.0 did not execute affinity-bound threads on every CPU");
             }
             terminal::println("[TEST] smp_scheduler: PASS");
+            if (!run_multicore_ring3_probe(
+                    arch::x86_64::smp::online_cpu_count())) {
+                terminal::println("[TEST] smp_ring3_execution: FAIL");
+                boot_failure(
+                    "SMP",
+                    "Ring-3 process did not execute and return cleanly on every AP");
+            }
+            terminal::println("[TEST] smp_ring3_execution: PASS");
             if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
                 terminal::println("[TEST] smp_cross_cpu_work: FAIL");
                 boot_failure("SMP", "parallel CPU work dispatch failed");
@@ -2341,6 +2423,7 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
             terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
             terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
             terminal::println("[TEST] smp_scheduler: SKIP (single CPU)");
+            terminal::println("[TEST] smp_ring3_execution: SKIP (single CPU)");
             terminal::println("[TEST] smp_cross_cpu_work: SKIP (single CPU)");
             terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
         }
@@ -2348,6 +2431,7 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
         terminal::println("[TEST] smp_scheduler: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_ring3_execution: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_cross_cpu_work: SKIP (APIC unavailable)");
         terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
     }
