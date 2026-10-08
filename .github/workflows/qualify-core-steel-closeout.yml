@@ -13,6 +13,7 @@ on:
       - 'kernel/ipc/**'
       - 'kernel/arch/x86_64/**'
       - 'kernel/main.cpp'
+      - 'kernel/drivers/**'
       - 'scripts/run-host-tests.sh'
       - 'scripts/test.sh'
       - 'scripts/build-media-linux.sh'
@@ -48,6 +49,7 @@ jobs:
           grep -Fq 'cancel_dispatch' kernel/task/scheduler2.hpp
           grep -Fq 'scheduler2_topology: PASS' kernel/main.cpp
           grep -Fq '[TEST] smp_scheduler: PASS' kernel/main.cpp
+          ! grep -Fq '3.3.3-dev' kernel/drivers/builtin_drivers.cpp
           bash -n scripts/smoke-uefi-iso-qemu.sh
           git diff --check
 
