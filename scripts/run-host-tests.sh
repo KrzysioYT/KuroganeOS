@@ -24,6 +24,13 @@ bash tests/test_network_smoke_state.sh
 "$HOST_PYTHON" tests/test_mouse_first_apps.py
 "$HOST_PYTHON" tests/test_virtualbox_input_profile.py
 
+# Driver & Device Expansion: keep Intel E1000/E1000e PCI model
+# classification deterministic and independent from the generic network stack.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_intel_gbe_model.cpp \
+  -o "$OUT_DIR/test_intel_gbe_model"
+"$OUT_DIR/test_intel_gbe_model"
+
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hardware_policy.cpp kernel/hardware/policy.cpp \
   -o "$OUT_DIR/test_hardware_policy"
