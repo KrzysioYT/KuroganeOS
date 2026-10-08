@@ -20,6 +20,10 @@ Initial Iron Shield scope:
 - modern VirtIO PCI vendor-capability discovery is now a shared bounded
   transport layer; virtio-net consumes it and the same contract is prepared for
   virtio-blk instead of duplicating PCI capability parsing.
+- a polling modern VirtIO block backend now negotiates VERSION_1, RO,
+  logical-block-size and FLUSH features, publishes through the unified block
+  registry, and uses a signed scratch disk for write/flush/readback/restore
+  qualification without touching unknown media.
 
 7.0 remains a development milestone. The wider target includes Realtek
 RTL8111/8168-class networking, VirtIO net/block expansion, PCnet legacy
