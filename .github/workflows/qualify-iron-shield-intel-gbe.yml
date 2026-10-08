@@ -16,6 +16,7 @@ on:
       - 'kernel/drivers/pci_power.hpp'
       - 'kernel/main.cpp'
       - 'scripts/run-host-tests.sh'
+      - 'scripts/qualification/inject-pci-power-runtime.py'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'tests/test_intel_gbe_model.cpp'
       - 'tests/test_pci_power.cpp'
@@ -99,6 +100,29 @@ jobs:
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|e1000e_link: FAIL|dhcp_lease: FAIL|network_gateway_icmp: FAIL' \
             build/tests/iron-shield-e1000e/serial.log
 
+      - name: Inject pre-bind PCI power cycle qualification
+        run: python3 scripts/qualification/inject-pci-power-runtime.py
+
+      - name: Build PCI power qualification media
+        run: bash scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Require PCI power cycles followed by working E1000e network
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000e --require-network --timeout 180 \
+            --log-dir build/tests/iron-shield-pci-power \
+            --require-marker-count '[PCI-PM-TEST] D0 -> D3hot -> D0 cycle: PASS' 4 \
+            --require-marker '[TEST] pci_power_cycle: PASS' \
+            --require-marker '[TEST] e1000e_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|pci_power_cycle: FAIL' \
+            build/tests/iron-shield-pci-power/serial.log
+
       - name: Retain Iron Shield Intel GbE evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -107,4 +131,5 @@ jobs:
           path: |
             build/tests/iron-shield-e1000
             build/tests/iron-shield-e1000e
+            build/tests/iron-shield-pci-power
           if-no-files-found: warn

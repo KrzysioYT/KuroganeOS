@@ -52,6 +52,61 @@ bool bus_master_active(
             PCI_COMMAND_BUS_MASTER) != 0U;
 }
 
+uint32_t settling_time_us(State from, State to) {
+    if (from == to) return 0U;
+    if (from == State::D3Hot || to == State::D3Hot) return 10000U;
+    if (from == State::D2 || to == State::D2) return 200U;
+    return 0U;
+}
+
+Status finish_delay(const ConfigAccess& access, Transaction* transaction) {
+    if (transaction->pending_delay_us == 0U) return Status::Ok;
+    if (access.wait_us == nullptr) return Status::DelayUnavailable;
+    if (!access.wait_us(transaction->pending_delay_us, access.context)) {
+        return Status::DelayFailed;
+    }
+    transaction->pending_delay_us = 0U;
+    return Status::Ok;
+}
+
+Status change_state(
+    const ConfigAccess& access,
+    Transaction* transaction,
+    uint16_t current,
+    uint16_t controls,
+    State target) {
+    const State from = decode_state(current);
+    // Waking to an intermediate state is forbidden: return through D0.
+    if (target != State::D0 && target < from) {
+        return Status::InvalidTransition;
+    }
+    if (from == target) return Status::Ok;
+    if (target != State::D0 &&
+        bus_master_active(transaction->address, access)) {
+        return Status::BusMasterActive;
+    }
+    const uint32_t delay = settling_time_us(from, target);
+    if (delay != 0U && access.wait_us == nullptr) {
+        return Status::DelayUnavailable;
+    }
+    const uint8_t offset =
+        static_cast<uint8_t>(transaction->capability_offset + 4U);
+    // Retain the restore token before writing: failed verification does not
+    // prove that hardware has not changed state.
+    transaction->active = true;
+    transaction->pending_delay_us = delay;
+    access.write16(transaction->address, offset,
+        safe_pmcsr_value(controls, target), access.context);
+    const Status waited = finish_delay(access, transaction);
+    if (waited != Status::Ok) return waited;
+    const uint16_t observed =
+        access.read16(transaction->address, offset, access.context);
+    if (observed == UINT16_MAX || decode_state(observed) != target) {
+        return Status::VerificationFailed;
+    }
+    return Status::Ok;
+}
+
 } // namespace
 
 Status inspect_capability(
@@ -87,6 +142,7 @@ Status inspect_capability(
         address,
         static_cast<uint8_t>(capability_offset + 4U),
         access.context);
+    if (pmcsr == UINT16_MAX) return Status::VerificationFailed;
 
     output->offset = capability_offset;
     output->version = version;
@@ -107,50 +163,26 @@ Status transition(
     if (output == nullptr || !valid_access(access)) {
         return Status::InvalidArgument;
     }
+    if (output->active) return Status::AlreadyActive;
     *output = {};
-
     CapabilityInfo info{};
     const Status inspect =
         inspect_capability(address, capability_offset, access, &info);
     if (inspect != Status::Ok) return inspect;
     if (!state_supported(info, target)) return Status::UnsupportedState;
 
-    if (target == State::D3Hot && bus_master_active(address, access)) {
-        // The generic layer must never power down an actively DMA-capable
-        // function. A concrete driver must quiesce DMA and clear Bus Master
-        // before asking the PCI PM layer to enter D3hot.
-        return Status::BusMasterActive;
-    }
-
     const uint8_t pmcsr_offset =
         static_cast<uint8_t>(capability_offset + 4U);
     const uint16_t original =
         access.read16(address, pmcsr_offset, access.context);
-    if (decode_state(original) == target) {
-        output->address = address;
-        output->capability_offset = capability_offset;
-        output->original_pmcsr = original;
-        output->target_state = target;
-        output->active = true;
-        return Status::Ok;
-    }
-
-    access.write16(
-        address,
-        pmcsr_offset,
-        safe_pmcsr_value(original, target),
-        access.context);
-    if (decode_state(access.read16(
-            address, pmcsr_offset, access.context)) != target) {
-        return Status::VerificationFailed;
-    }
-
+    if (original == UINT16_MAX) return Status::VerificationFailed;
     output->address = address;
     output->capability_offset = capability_offset;
     output->original_pmcsr = original;
     output->target_state = target;
-    output->active = true;
-    return Status::Ok;
+    const Status changed = change_state(access, output, original, original, target);
+    if (changed == Status::Ok) output->active = true;
+    return changed;
 }
 
 Status restore(
@@ -164,25 +196,35 @@ Status restore(
         return Status::NotActive;
     }
 
+    const Status waited = finish_delay(access, transaction);
+    if (waited != Status::Ok) return waited;
+    CapabilityInfo info{};
+    const Status inspected = inspect_capability(transaction->address,
+        transaction->capability_offset, access, &info);
+    if (inspected != Status::Ok) return inspected;
     const State original_state = decode_state(transaction->original_pmcsr);
-    if (original_state == State::D3Hot &&
+    if (!state_supported(info, original_state)) return Status::UnsupportedState;
+    if (original_state != State::D0 && info.current_state != original_state &&
         bus_master_active(transaction->address, access)) {
         return Status::BusMasterActive;
     }
 
     const uint8_t pmcsr_offset =
         static_cast<uint8_t>(transaction->capability_offset + 4U);
-    access.write16(
-        transaction->address,
-        pmcsr_offset,
-        safe_pmcsr_value(transaction->original_pmcsr, original_state),
-        access.context);
-    if (decode_state(access.read16(
-            transaction->address, pmcsr_offset, access.context)) !=
-        original_state) {
-        return Status::VerificationFailed;
+    uint16_t current =
+        access.read16(transaction->address, pmcsr_offset, access.context);
+    if (current == UINT16_MAX) return Status::VerificationFailed;
+    if (original_state != State::D0 && original_state < decode_state(current)) {
+        const Status woke = change_state(
+            access, transaction, current, current, State::D0);
+        if (woke != Status::Ok) return woke;
+        current = access.read16(
+            transaction->address, pmcsr_offset, access.context);
+        if (current == UINT16_MAX) return Status::VerificationFailed;
     }
-
+    const Status changed = change_state(access, transaction, current,
+        transaction->original_pmcsr, original_state);
+    if (changed != Status::Ok) return changed;
     transaction->active = false;
     return Status::Ok;
 }
@@ -196,6 +238,10 @@ const char* status_name(Status status) {
         case Status::BusMasterActive: return "BUS_MASTER_ACTIVE";
         case Status::VerificationFailed: return "VERIFICATION_FAILED";
         case Status::NotActive: return "NOT_ACTIVE";
+        case Status::AlreadyActive: return "ALREADY_ACTIVE";
+        case Status::InvalidTransition: return "INVALID_TRANSITION";
+        case Status::DelayUnavailable: return "DELAY_UNAVAILABLE";
+        case Status::DelayFailed: return "DELAY_FAILED";
     }
     return "UNKNOWN";
 }

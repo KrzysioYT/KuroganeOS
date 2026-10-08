@@ -157,3 +157,15 @@ expansion slice adds Intel 82574L/E1000e support beside the qualified 82540EM
 path while preserving the generic NetworkInterface consumed by higher layers.
 The dedicated 7.0 gate must prove both emulated Intel models with real DHCP and
 gateway ICMP before this slice is considered qualified.
+
+The original Intel GbE + initial PCI PM source at
+`0299d9a39ea2874ed71e3ca41203fe00f864ca2b` passed exact-source workflow
+`37723596871` (full host suite, clean media, E1000 and E1000e DHCP/gateway).
+This qualifies that slice, not the whole 7.0 milestone.
+
+The next PCI PM candidate enforces legal state transitions, mandatory
+settling delays, DMA gating for all low-power states and recoverable
+transaction ownership. The gate now additionally requires four pre-bind
+E1000e D3hot cycles followed by working DHCP/gateway traffic. The new source
+remains a candidate until its own workflow passes. See `docs/PCI_POWER.md`
+for the API contract and remaining driver-integration limits.
