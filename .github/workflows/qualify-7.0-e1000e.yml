@@ -36,6 +36,7 @@ on:
       - 'tests/test_pci_power.cpp'
       - 'tests/test_virtio_pci_transport.cpp'
       - 'tests/test_virtio_block_protocol.cpp'
+      - 'tests/test_virtio_block_lifecycle.cpp'
       - 'tests/test_storage_scratch.cpp'
       - 'tests/test_network_smoke_state.sh'
       - 'docs/ROADMAP.md'

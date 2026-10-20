@@ -104,6 +104,23 @@ struct Controller {
 };
 
 Controller g_controller{};
+// Separate from Controller: resetting device state must not release ownership.
+// Contention returns DeviceBusy; never spin while a polling I/O owner is
+// preempted on this CPU. Covers DMA copies as well as descriptor submission.
+bool g_controller_owned = false;
+class ControllerGuard {
+public:
+    ControllerGuard() : owned_(!__atomic_test_and_set(
+        &g_controller_owned, __ATOMIC_ACQUIRE)) {}
+    ~ControllerGuard() {
+        if (owned_) __atomic_clear(&g_controller_owned, __ATOMIC_RELEASE);
+    }
+    bool acquired() const { return owned_; }
+    ControllerGuard(const ControllerGuard&) = delete;
+    ControllerGuard& operator=(const ControllerGuard&) = delete;
+private:
+    bool owned_;
+};
 
 void memory_barrier() {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
@@ -669,6 +686,8 @@ block::Status read_blocks_callback(
     uint64_t first_block,
     uint64_t block_count,
     void* destination) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || destination == nullptr ||
         block_count == 0U || !g_controller.ready) {
         return block::Status::InvalidArgument;
@@ -716,6 +735,8 @@ block::Status write_blocks_callback(
     uint64_t first_block,
     uint64_t block_count,
     const void* source) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || source == nullptr ||
         block_count == 0U || !g_controller.ready) {
         return block::Status::InvalidArgument;
@@ -766,6 +787,8 @@ block::Status write_blocks_callback(
 }
 
 block::Status flush_callback(void* context) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::InvalidArgument;
     }
@@ -779,6 +802,8 @@ block::Status flush_callback(void* context) {
 } // namespace
 
 Status initialize() {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
     if (g_controller.ready) return Status::AlreadyInitialized;
     if (g_controller.cleanup_blocked) return g_controller.status;
     g_controller = {};
@@ -958,21 +983,24 @@ Status initialize() {
     return Status::Ok;
 }
 
-void shutdown() {
+Status shutdown() {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
     if (g_controller.block.context != nullptr) {
         static_cast<void>(
             device_registry::unregister_device(&g_controller.block));
     }
     if (g_controller.common.base == nullptr &&
-        !g_controller.command_owned) {
+        !g_controller.command_owned && !g_controller.cleanup_blocked) {
         g_controller = {};
-        return;
+        return Status::Ok;
     }
     const bool reset_complete = reset_device();
-    static_cast<void>(cleanup_after_reset(
+    const Status result = cleanup_after_reset(
         reset_complete ? Status::Ok : Status::DeviceResetFailed,
-        reset_complete));
+        reset_complete);
     if (!g_controller.cleanup_blocked) g_controller = {};
+    return result;
 }
 
 bool initialized() { return g_controller.ready; }

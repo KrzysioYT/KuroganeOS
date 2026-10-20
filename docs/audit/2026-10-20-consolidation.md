@@ -49,3 +49,19 @@ are not hardware or DMA-runtime evidence.
 Milestones 8–13 and the release/install/upgrade/recovery/security/stress and
 physical-machine matrices in 14–15 remain open. No product-stable version is
 claimed, and no version number was advanced by this consolidation.
+
+## Follow-up: controller ownership and failure injection
+
+Added nonblocking atomic ownership around complete read/write/flush callbacks
+and initialize/shutdown. The lock is outside the resettable controller state;
+contenders return DeviceBusy rather than spinning on a preempted I/O owner.
+Ownership includes the bounce-buffer copy before submission and after read
+completion. Shutdown now returns a status so a busy caller can retry.
+
+A production-driver host fixture exercises four concurrent contenders, full
+range rejection before writes, actual polling timeout followed by reset,
+unsolicited completion cleanup, DMA quarantine after failed reset, failed page
+release and PCI-command restoration retry. It found and fixes an early-return
+bug which discarded pending DMA cleanup after MMIO had already been unmapped.
+The fixture passes locally; the release kernel compiles. It uses bounded host
+MMIO/DMA adapters and does not claim physical-device failure qualification.

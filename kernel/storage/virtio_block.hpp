@@ -43,7 +43,8 @@ struct DeviceInfo {
 };
 
 Status initialize();
-void shutdown();
+// Returns DeviceBusy without touching DMA if an operation owns the controller.
+Status shutdown();
 
 bool initialized();
 const DeviceInfo* device_info();

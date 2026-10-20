@@ -156,6 +156,13 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_virtio_block_protocol.cpp kernel/storage/virtio_block_protocol.cpp \
   -o "$OUT_DIR/test_virtio_block_protocol"
+
+# Production block driver ownership and failure cleanup with host DMA/MMIO.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+  -ffunction-sections -fdata-sections \
+  tests/test_virtio_block_lifecycle.cpp kernel/storage/virtio_block_protocol.cpp \
+  -Wl,--gc-sections -o "$OUT_DIR/test_virtio_block_lifecycle"
+"$OUT_DIR/test_virtio_block_lifecycle"
 "$OUT_DIR/test_virtio_block_protocol"
 
 "$OUT_DIR/test_pci_capability_layout"
