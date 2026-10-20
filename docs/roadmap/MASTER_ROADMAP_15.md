@@ -25,12 +25,12 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `5.0.0-dev` | Steel / Hardware | QUALIFIED AFTER AUDIT |
 | `6.0.0-dev` | Core Steel | QUALIFIED |
 | `7.0.0-dev` | Iron Shield | IN PROGRESS |
-| `8.0.0-dev` | Connected Steel | PENDING |
-| `9.0.0-dev` | Forge Graphics | PENDING |
-| `10.0.0-dev` | Steel Applications | PENDING |
-| `11.0.0-dev` | Anvil | PENDING |
-| `12.0.0-dev` | Platform / Web | PENDING |
-| `13.0.0-dev` | Forge Design | PENDING |
+| `8.0.0-dev` | Flux Desktop Platform | PENDING |
+| `9.0.0-dev` | Networking & Services | PENDING |
+| `10.0.0-dev` | Storage & VFS 2.0 | PENDING |
+| `11.0.0-dev` | Application Platform | PENDING |
+| `12.0.0-dev` | Security, Updates & Recovery | PENDING |
+| `13.0.0-dev` | Performance & Power | PENDING |
 | `14.0.0-rc` | Forge Desktop / release candidate | PENDING |
 | `15.0.0` | STABLE | FINAL TARGET |
 

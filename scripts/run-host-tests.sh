@@ -142,6 +142,22 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_pci_power"
 "$OUT_DIR/test_pci_power"
 
+# Shared modern VirtIO PCI discovery used by both net and upcoming block
+# drivers. Reject malformed/cyclic vendor capability lists before MMIO mapping.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_pci_transport.cpp \
+  kernel/drivers/virtio/pci_transport.cpp kernel/drivers/pci.cpp \
+  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -o "$OUT_DIR/test_virtio_pci_transport"
+"$OUT_DIR/test_virtio_pci_transport"
+
+# VirtIO-blk keeps its 512-byte wire-sector units separate from the generic
+# logical block ABI so 4K devices cannot silently address the wrong sectors.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_virtio_block_protocol.cpp kernel/storage/virtio_block_protocol.cpp \
+  -o "$OUT_DIR/test_virtio_block_protocol"
+"$OUT_DIR/test_virtio_block_protocol"
+
 "$OUT_DIR/test_pci_capability_layout"
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
@@ -304,8 +320,12 @@ timeout 10 "$OUT_DIR/test_xhci_cleanup"
 
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
+  extra_sources=()
+  if [[ "$test" == test_virtio_net_cleanup ]]; then
+    extra_sources+=(kernel/drivers/virtio/pci_transport.cpp)
+  fi
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-    -ffunction-sections -fdata-sections "tests/$test.cpp" \
+    -ffunction-sections -fdata-sections "tests/$test.cpp" "${extra_sources[@]}" \
     -Wl,--gc-sections -o "$OUT_DIR/$test"
   "$OUT_DIR/$test"
 done

@@ -39,4 +39,13 @@ assert all((value >> 40) != (apic_local >> 40) for value in (
     virtio_common, virtio_notify, virtio_device, virtio_msix, virtio_pba
 )), "VirtIO window shares the reserved APIC B3 region"
 
+block = read("kernel/storage/virtio_block.cpp")
+block_windows = [hex_constant(block, name) for name in (
+    "kCommonVirtualBase", "kNotifyVirtualBase", "kDeviceVirtualBase")]
+existing_windows = [xhci_base, virtio_common, virtio_notify, virtio_device,
+                    virtio_msix, virtio_pba, apic_local, apic_io]
+assert len(set(block_windows)) == len(block_windows)
+for window in block_windows:
+    for other in existing_windows:
+        assert abs(window - other) >= 0x10000, "VirtIO block overlaps an existing MMIO window"
 print("Driver MMIO coexistence layout: PASS")

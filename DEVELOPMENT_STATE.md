@@ -1,6 +1,6 @@
 # KuroganeOS Development State
 
-Last updated: 2026-10-08
+Last updated: 2026-10-20
 
 ## Integration branch
 
@@ -169,3 +169,11 @@ transaction ownership. The gate now additionally requires four pre-bind
 E1000e D3hot cycles followed by working DHCP/gateway traffic. The new source
 remains a candidate until its own workflow passes. See `docs/PCI_POWER.md`
 for the API contract and remaining driver-integration limits.
+
+## Consolidated continuation (2026-10-20)
+
+Active candidate: `codex/road-to-15-stability`, merging both 7.0 development
+branches without discarding the timed PCI PM fixes or VirtIO block driver.
+The integration branch remains unchanged pending runtime qualification.
+See `docs/audit/2026-10-20-consolidation.md` for current evidence; no 15.0
+stable release or tag has been created.

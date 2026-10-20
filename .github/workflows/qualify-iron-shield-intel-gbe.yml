@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - chatgpt/7.0-iron-shield
+      - codex/road-to-15-stability
     paths:
       - '.github/workflows/qualify-iron-shield-intel-gbe.yml'
       - 'common/version.h'

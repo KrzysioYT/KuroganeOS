@@ -48,8 +48,9 @@ struct Result {
 };
 
 // Performs a destructive-but-restoring write/flush/readback test only when
-// LBA0 contains the exact KUROGANE_AHCI_SCRATCH_V1 header produced by the host
-// helper. Untagged or malformed devices are never written. Once a write is
+// LBA0 contains a signed KUROGANE_BLOCK_SCRATCH_V1 header (or the legacy
+// KUROGANE_AHCI_SCRATCH_V1 header). Untagged or malformed devices are never
+// written. Once a write is
 // attempted, every error path attempts write/flush/readback restoration of the
 // original bytes; a recovery error takes precedence in Result::status while
 // Result::primary_status retains the triggering failure.

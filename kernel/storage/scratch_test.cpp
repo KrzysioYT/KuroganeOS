@@ -5,8 +5,10 @@
 namespace storage::scratch_test {
 namespace {
 
-constexpr char MAGIC[] = "KUROGANE_AHCI_SCRATCH_V1";
-constexpr size_t MAGIC_LENGTH = sizeof(MAGIC) - 1U;
+constexpr char LEGACY_AHCI_MAGIC[] = "KUROGANE_AHCI_SCRATCH_V1";
+constexpr char BLOCK_MAGIC[] = "KUROGANE_BLOCK_SCRATCH_V1";
+constexpr size_t LEGACY_AHCI_MAGIC_LENGTH = sizeof(LEGACY_AHCI_MAGIC) - 1U;
+constexpr size_t BLOCK_MAGIC_LENGTH = sizeof(BLOCK_MAGIC) - 1U;
 constexpr uint32_t FORMAT_VERSION = 1U;
 constexpr uint32_t HEADER_SIZE = 64U;
 constexpr uint32_t HEADER_GUARD = UINT32_C(0x4B535431);
@@ -35,12 +37,21 @@ bool equal_bytes(const uint8_t* left, const uint8_t* right, size_t count) {
     return true;
 }
 
-bool has_magic(const uint8_t* header) {
-    return header != nullptr &&
-           equal_bytes(
-               header,
-               reinterpret_cast<const uint8_t*>(MAGIC),
-               MAGIC_LENGTH);
+size_t magic_length(const uint8_t* header) {
+    if (header == nullptr) return 0U;
+    if (equal_bytes(
+            header,
+            reinterpret_cast<const uint8_t*>(BLOCK_MAGIC),
+            BLOCK_MAGIC_LENGTH)) {
+        return BLOCK_MAGIC_LENGTH;
+    }
+    if (equal_bytes(
+            header,
+            reinterpret_cast<const uint8_t*>(LEGACY_AHCI_MAGIC),
+            LEGACY_AHCI_MAGIC_LENGTH)) {
+        return LEGACY_AHCI_MAGIC_LENGTH;
+    }
+    return 0U;
 }
 
 void fill_pattern(uint8_t* output, size_t byte_count) {
@@ -146,7 +157,8 @@ Result run(const block::Device* device, Workspace* workspace) {
         result.block_status = block_status;
         return result;
     }
-    if (!has_magic(workspace->header)) {
+    const size_t matched_magic_length = magic_length(workspace->header);
+    if (matched_magic_length == 0U) {
         result.status = Status::NotTagged;
         result.primary_status = result.status;
         result.block_status = block::Status::Ok;
@@ -154,7 +166,7 @@ Result run(const block::Device* device, Workspace* workspace) {
     }
     result.tagged = true;
 
-    for (size_t index = MAGIC_LENGTH; index < 32U; ++index) {
+    for (size_t index = matched_magic_length; index < 32U; ++index) {
         if (workspace->header[index] != 0U) {
             result.status = Status::InvalidHeader;
             result.primary_status = result.status;
