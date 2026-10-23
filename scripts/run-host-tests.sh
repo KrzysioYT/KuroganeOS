@@ -15,6 +15,11 @@ echo "[host-tests] C compiler:   $HOST_CC"
 echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
+"$OUT_DIR/test_keyboard_lifecycle"
+"$HOST_PYTHON" tests/test_qmp_pointer_selection.py
+
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"

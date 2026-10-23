@@ -380,7 +380,7 @@ for _ in range(40):
             pattern = (
                 r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
                 if pointer_kind == "usb-mouse"
-                else r"Mouse #(\d+):[^\n]*QEMU USB Tablet"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
             )
             match = re.search(pattern, mice, re.IGNORECASE)
             if match is None:

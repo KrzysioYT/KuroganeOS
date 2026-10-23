@@ -75,7 +75,7 @@ jobs:
             --log-dir build/tests/universal-storage --timeout 190 \
             --require-marker '[TEST] generic_storage_registry: PASS' \
             --require-marker '[TEST] nvme_admin_identify: PASS' \
-            --require-marker '[TEST] nvme_namespace_read: PASS' \
+            --require-marker '[TEST] nvme_read: PASS' \
             --require-marker '[TEST] xhci_mass_storage_enumeration: PASS' \
             --require-marker '[TEST] xhci_mass_storage_read10: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
