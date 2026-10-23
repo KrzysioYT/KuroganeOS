@@ -1,0 +1,41 @@
+name: Check Flux Window Manager
+
+on:
+  pull_request:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'kernel/ui/**'
+      - 'tests/test_window_manager.cpp'
+      - '.github/workflows/check-window-manager.yml'
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'kernel/ui/**'
+      - 'tests/test_window_manager.cpp'
+      - '.github/workflows/check-window-manager.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Optimized window lifecycle and damage regression
+        run: |
+          mkdir -p build/tests
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
+            kernel/ui/window_manager.cpp -o build/tests/window-manager
+          build/tests/window-manager
+      - name: Undefined behavior regression
+        run: |
+          c++ -std=c++17 -O1 -g -fsanitize=undefined \
+            -fno-sanitize-recover=all -DKUROGANE_HOST_TEST \
+            tests/test_window_manager.cpp kernel/ui/window_manager.cpp \
+            -o build/tests/window-manager-ubsan
+          build/tests/window-manager-ubsan

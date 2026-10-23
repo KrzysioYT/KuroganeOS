@@ -5,6 +5,15 @@ size_t g_draws = 0U;
 size_t g_inputs = 0U;
 
 void draw(windowing::WindowId, const ui::Rect&, bool, void*) { ++g_draws; }
+struct RedrawFixture { unsigned mode = 0; bool nested_render = false; };
+void invalidate_during_draw(windowing::WindowId, const ui::Rect&, bool, void* context) {
+    auto& fixture = *static_cast<RedrawFixture*>(context);
+    const unsigned mode = fixture.mode;
+    fixture.mode = 0;
+    if (mode == 1) windowing::invalidate_region({12, 15, 20, 25});
+    if (mode == 2) windowing::invalidate();
+    if (mode != 0) fixture.nested_render = windowing::render_if_needed();
+}
 void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
 } // namespace
 
@@ -539,5 +548,22 @@ int main() {
     if (close(hover_window) != Status::Ok ||
         interaction_snapshot(&interaction) != Status::Ok ||
         interaction.hovered != INVALID_WINDOW) return 103;
+    // Invalidations raised by a draw callback belong to the next frame.
+    if (initialize(800U, 600U) != Status::Ok) return 104;
+    RedrawFixture redraw{};
+    WindowId repaint = INVALID_WINDOW;
+    if (create_window("Repaint", 31U, {40, 50, 300, 220},
+        invalidate_during_draw, receive, &redraw, &repaint) != Status::Ok) return 105;
+    redraw.mode = 1;
+    if (!render_if_needed() || redraw.nested_render ||
+        damage_snapshot(&damage) != Status::Ok || damage.full || damage.count != 1 ||
+        damage.regions[0].x != 12 || damage.regions[0].y != 15 ||
+        damage.regions[0].width != 20 || damage.regions[0].height != 25) return 106;
+    if (!render_if_needed() || render_if_needed()) return 107;
+    invalidate_region({30, 40, 50, 60});
+    redraw.mode = 2;
+    if (!render_if_needed() || redraw.nested_render ||
+        damage_snapshot(&damage) != Status::Ok || !damage.full) return 108;
+    if (!render_if_needed() || render_if_needed()) return 109;
     return 0;
 }

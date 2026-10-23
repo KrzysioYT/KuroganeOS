@@ -100,6 +100,7 @@ DirtyMode g_dirty = DirtyMode::None;
 ui::Rect g_damage_regions[MAX_DAMAGE_REGIONS]{};
 size_t g_damage_count = 0U;
 bool g_initialized = false;
+bool g_rendering = false;
 #ifndef KUROGANE_HOST_TEST
 process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 #endif
@@ -1378,7 +1379,8 @@ Status resource_snapshot(ResourceSnapshot* out_snapshot) {
 }
 
 bool render_if_needed() {
-    if (!g_initialized || g_dirty == DirtyMode::None) return false;
+    if (!g_initialized || g_rendering || g_dirty == DirtyMode::None) return false;
+    g_rendering = true;
 #ifndef KUROGANE_HOST_TEST
     const DirtyMode pending_mode = g_dirty;
 #endif
@@ -1387,6 +1389,10 @@ bool render_if_needed() {
     for (size_t index = 0U; index < pending_count; ++index) {
         pending[index] = g_damage_regions[index];
     }
+    // Consume only this frame's snapshot. Draw callbacks may invalidate new
+    // regions (or the entire desktop) for the following frame.
+    g_dirty = DirtyMode::None;
+    g_damage_count = 0U;
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
     const bool buffered = graphics::begin_frame();
@@ -1411,9 +1417,19 @@ bool render_if_needed() {
         }
     }
     show_cursor(input::pointer_x(), input::pointer_y());
+#else
+    // Host adapter omits framebuffer operations but exercises draw callbacks
+    // inside the same frame lifecycle as production.
+    for (size_t position = 0U; position < g_count; ++position) {
+        Slot& slot = g_slots[g_order[position]];
+        if (slot.occupied && slot.info.state != WindowState::Minimized &&
+            slot.draw != nullptr) {
+            slot.draw(slot.info.id, calculate_content(slot),
+                slot.info.focused, slot.context);
+        }
+    }
 #endif
-    g_dirty = DirtyMode::None;
-    g_damage_count = 0U;
+    g_rendering = false;
     return true;
 }
 
