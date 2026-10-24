@@ -16,6 +16,14 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'kernel/user/runtime_base.inc'
+      - 'sdk/include/kurogane/design.h'
+      - 'sdk/include/kurogane/desktop.h'
+      - 'sdk/include/kurogane/syscall.h'
+      - 'sdk/src/libui.c'
+      - 'userspace/gui/settings/**'
+      - 'userspace/gui/performance/**'
+      - 'tests/test_flux_theme_palette.c'
+      - 'tests/test_sdk_abi.cpp'
       - 'kernel/user/ui_event_queue.hpp'
       - 'tests/test_ui_event_queue.cpp'
       - 'sdk/include/kurogane/ui.h'
@@ -94,14 +102,28 @@ jobs:
             -Isdk/include tests/test_ui_event_queue.cpp \
             -o build/tests/desktop/ui-event-queue-ubsan
           build/tests/desktop/ui-event-queue-ubsan
+      - name: Flux 8 palette shared C/C++ and sanitizer regression
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-c
+          build/tests/desktop/flux-theme-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include -x c++ tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-cpp
+          build/tests/desktop/flux-theme-cpp
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include -x c++ tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-ubsan
+          build/tests/desktop/flux-theme-ubsan
       - name: Ring-3 UI wheel ABI and libui scene scroll
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
-            -Isdk/include tests/test_libui_pointer.c sdk/src/libui.c \
+            -DKUROGANE_HOST_TEST -Isdk/include tests/test_libui_pointer.c sdk/src/libui.c \
             -o build/tests/desktop/libui
           build/tests/desktop/libui
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
-            -ffreestanding -Isdk/include tests/test_libui_pointer.c \
+            -ffreestanding -DKUROGANE_HOST_TEST -Isdk/include tests/test_libui_pointer.c \
             sdk/src/libui.c -o build/tests/desktop/libui-ubsan
           build/tests/desktop/libui-ubsan
 
