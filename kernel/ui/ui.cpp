@@ -824,9 +824,9 @@ void notice_card(
         char fitted_detail[96]{};
         const size_t cols = bounds.width > 42
             ? static_cast<size_t>((bounds.width - 42) / 6) : 0U;
-        text_fit::fit_ascii(title ? title : "NOTIFICATION",
+        text_fit::fit_utf8(title ? title : "NOTIFICATION",
                             fitted_title, sizeof(fitted_title), cols);
-        text_fit::fit_ascii(detail ? detail : "",
+        text_fit::fit_utf8(detail ? detail : "",
                             fitted_detail, sizeof(fitted_detail), cols);
         graphics::draw_text(bounds.x + 29, bounds.y + 10,
             fitted_title, kTheme.text, kTheme.panel_alt, 1U, true);
@@ -911,9 +911,9 @@ void app_tile(
         char fitted_subtitle[64]{};
         const size_t available = bounds.width > 62
             ? static_cast<size_t>((bounds.width - 62) / 6) : 0U;
-        text_fit::fit_ascii(title ? title : "APP",
+        text_fit::fit_utf8(title ? title : "APP",
                             fitted_title, sizeof(fitted_title), available);
-        text_fit::fit_ascii(subtitle ? subtitle : "",
+        text_fit::fit_utf8(subtitle ? subtitle : "",
                             fitted_subtitle, sizeof(fitted_subtitle), available);
         graphics::draw_text(bounds.x + 50, bounds.y + 13,
             fitted_title, kTheme.text, background, 1U, true);
@@ -974,7 +974,7 @@ void list_row(
             selected || pressed ? kTheme.accent : kTheme.border, 7U);
         const graphics::Color ink = disabled ? kTheme.text_muted : kTheme.text;
         char fitted[128]{};
-        text_fit::fit_ascii(text ? text : "", fitted, sizeof(fitted),
+        text_fit::fit_utf8(text ? text : "", fitted, sizeof(fitted),
             bounds.width > 24 ? static_cast<size_t>((bounds.width - 24) / 6)
                               : 0U);
         graphics::draw_text(bounds.x + 13,

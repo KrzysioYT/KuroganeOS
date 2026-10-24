@@ -64,3 +64,13 @@ block promotion. Windows support, PS/2 fallback, and Classic are retained.
 - Regression smoke requires an actual authenticated Files launch.
 - Main blocker remains font implementation and unqualified runtime/session
   behavior. Continue reliability and typography before declaring completion.
+
+## Text foundation, 2026-10-24
+
+- [x] Small freestanding UTF-8 scalar scanner with invalid-input replacement
+      and code-point-safe, bounded label truncation in Modern UI.
+- [x] Interim Polish glyph fallback (ĄĆĘŁŃÓŚŹŻ upper/lower) in kernel
+      software bitmap text; unsupported glyphs render '?' as one cell.
+- [ ] Replace transitional 5x7 raster with licensed, scalable anti-aliased
+      fonts, shaped text, full Unicode and proportional layout.
+- [ ] Host/QEMU exact SHA green gates and VirtualBox first-frame acceptance.
