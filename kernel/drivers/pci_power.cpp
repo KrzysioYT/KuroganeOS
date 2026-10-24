@@ -80,8 +80,14 @@ Status change_state(
     if (target != State::D0 && target < from) {
         return Status::InvalidTransition;
     }
-    if (from == target) return Status::Ok;
-    if (target != State::D0 &&
+    // A no-op power-state transition may still need to restore PME Enable:
+    // e.g. after the device/firmware changed wakeup configuration while the
+    // transaction was active. Do not silently release the restore token.
+    const bool power_state_changed = from != target;
+    const bool pme_enable_changed =
+        ((current ^ controls) & PMCSR_PME_ENABLE) != 0U;
+    if (!power_state_changed && !pme_enable_changed) return Status::Ok;
+    if (power_state_changed && target != State::D0 &&
         bus_master_active(transaction->address, access)) {
         return Status::BusMasterActive;
     }
@@ -101,7 +107,11 @@ Status change_state(
     if (waited != Status::Ok) return waited;
     const uint16_t observed =
         access.read16(transaction->address, offset, access.context);
-    if (observed == UINT16_MAX || decode_state(observed) != target) {
+    // PME Enable is writable even when the power state is unchanged.
+    // Verification must cover both fields; PME Status is W1C and must never
+    // be compared as an ordinary writable control bit.
+    if (observed == UINT16_MAX || decode_state(observed) != target ||
+        ((observed ^ controls) & PMCSR_PME_ENABLE) != 0U) {
         return Status::VerificationFailed;
     }
     return Status::Ok;

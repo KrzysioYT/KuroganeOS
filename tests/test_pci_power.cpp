@@ -284,6 +284,48 @@ void test_restore_failure_and_removed_device() {
     assert(!transaction.active);
 }
 
+
+void test_restore_pme_when_power_state_unchanged() {
+    using namespace pci::power;
+    constexpr uint8_t cap = 0x50U;
+    const pci::Address address{0U, 7U, 0U};
+    for (unsigned index = 0U; index < 2U; ++index) {
+        const State state = index == 0U ? State::D0 : State::D3Hot;
+        FakeConfig config{};
+        const uint16_t state_bits = static_cast<uint16_t>(state);
+        seed_pm(config, cap, UINT16_C(0x0003),
+            static_cast<uint16_t>(
+                state_bits | PMCSR_PME_ENABLE | PMCSR_PME_STATUS));
+        Transaction transaction{};
+
+        // No state change: the transition itself must not touch hardware.
+        assert(transition(address, cap, state, access(config), &transaction) ==
+            Status::Ok);
+        assert(transaction.active && config.write_count == 0U);
+
+        // Device/firmware clears the wakeup setting without changing D-state.
+        store16(config, static_cast<uint8_t>(cap + 4U),
+            static_cast<uint16_t>(state_bits | PMCSR_PME_STATUS));
+        config.ignore_pmcsr_writes = true;
+        assert(restore(access(config), &transaction) ==
+            Status::VerificationFailed);
+        assert(transaction.active && config.write_count == 1U);
+        assert((config.writes[0].value & PMCSR_PME_STATUS) == 0U);
+
+        // Retained ownership permits retry once writes become functional.
+        config.ignore_pmcsr_writes = false;
+        assert(restore(access(config), &transaction) == Status::Ok);
+        assert(!transaction.active && config.write_count == 2U);
+        assert(config.wait_count == 0U);
+        const uint16_t restored = load16(
+            config, static_cast<uint8_t>(cap + 4U));
+        assert((restored & PMCSR_POWER_STATE_MASK) == state_bits);
+        assert((restored & PMCSR_PME_ENABLE) != 0U);
+        assert((restored & PMCSR_PME_STATUS) != 0U);
+        assert((config.writes[1].value & PMCSR_PME_STATUS) == 0U);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -295,6 +337,7 @@ int main() {
     test_all_low_power_states_require_quiesce();
     test_delay_failure_and_token_ownership();
     test_restore_failure_and_removed_device();
-    puts("PCI power transitions, timing, W1C and recovery: PASS");
+    test_restore_pme_when_power_state_unchanged();
+    puts("PCI power transitions, timing, PME restore, W1C and recovery: PASS");
     return 0;
 }
