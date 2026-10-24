@@ -128,6 +128,9 @@ Status query(WindowId id, WindowInfo* out_info);
 // windows; closed generations are skipped, and newly created windows are
 // visible only on the next iteration. Callback metadata remains immutable.
 Status list(ListCallback callback, void* context);
+// Keyboard events go to focus. Pointer events go to the topmost client
+// content; primary-button capture survives movement outside that content,
+// but chrome, dock and desktop commands consume their own gestures.
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);

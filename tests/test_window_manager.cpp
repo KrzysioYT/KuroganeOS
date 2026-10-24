@@ -88,6 +88,30 @@ bool stop_during_list(const windowing::WindowInfo&, void* context) {
     return false;
 }
 
+struct PointerRoutingProbe {
+    size_t moves = 0U;
+    size_t downs = 0U;
+    size_t ups = 0U;
+    size_t wheels = 0U;
+    size_t keys = 0U;
+    bool close_on_down = false;
+};
+void receive_pointer_route(windowing::WindowId id, const input::Event& event,
+                           void* context) {
+    auto& probe = *static_cast<PointerRoutingProbe*>(context);
+    switch (event.type) {
+        case input::EventType::MouseMove: ++probe.moves; break;
+        case input::EventType::MouseButtonDown: ++probe.downs; break;
+        case input::EventType::MouseButtonUp: ++probe.ups; break;
+        case input::EventType::MouseWheel: ++probe.wheels; break;
+        case input::EventType::KeyDown: ++probe.keys; break;
+        case input::EventType::KeyUp: break;
+    }
+    if (probe.close_on_down && event.type == input::EventType::MouseButtonDown) {
+        (void)windowing::close(id);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -730,5 +754,93 @@ int main() {
     size_t stopped = 0U;
     if (list(stop_during_list, &stopped) != Status::IterationStopped ||
         stopped != 1U) return 134;
+
+    // Flux 8 pointer ownership: hover and wheel follow client hit testing,
+    // keyboard remains with focus and left-button capture survives leaving
+    // a window without sending a release to the unrelated focused app.
+    if (initialize(800U, 600U) != Status::Ok) return 135;
+    PointerRoutingProbe pointer_a{}, pointer_b{};
+    WindowId mouse_a = INVALID_WINDOW, mouse_b = INVALID_WINDOW;
+    if (create_window("Pointer A", 201U, {40, 55, 300, 220},
+            draw, receive_pointer_route, &pointer_a, &mouse_a) != Status::Ok ||
+        create_window("Pointer B", 202U, {200, 140, 300, 220},
+            draw, receive_pointer_route, &pointer_b, &mouse_b) != Status::Ok ||
+        focused_window() != mouse_b) return 136;
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.x = 80; event.y = 210;  // A content, B remains focused.
+    if (dispatch(event) != Status::Ok || pointer_a.moves != 1U ||
+        pointer_b.moves != 0U || focused_window() != mouse_b) return 137;
+    event.type = input::EventType::MouseWheel;
+    event.wheel = 1;
+    if (dispatch(event) != Status::Ok || pointer_a.wheels != 1U ||
+        pointer_b.wheels != 0U) return 138;
+    event = {};
+    event.type = input::EventType::KeyDown;
+    event.key = drivers::keyboard::KeyCode::Tab;
+    if (dispatch(event) != Status::Ok || pointer_b.keys != 1U ||
+        pointer_a.keys != 0U) return 139;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = 80; event.y = 210;
+    if (dispatch(event) != Status::Ok || pointer_a.downs != 1U ||
+        pointer_b.downs != 0U || focused_window() != mouse_a) return 140;
+    event.type = input::EventType::MouseMove;
+    event.x = 780; event.y = 570;
+    if (dispatch(event) != Status::Ok || pointer_a.moves != 2U ||
+        pointer_b.moves != 0U) return 141;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || pointer_a.ups != 1U ||
+        pointer_b.ups != 0U) return 142;
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.x = 780; event.y = 570;
+    if (dispatch(event) != Status::Ok || pointer_a.moves != 2U) return 143;
+    // Chrome header starts WM drag and cannot generate app click/release.
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = 215; event.y = 153;
+    if (dispatch(event) != Status::Ok || pointer_b.downs != 0U) return 144;
+    event.type = input::EventType::MouseMove;
+    event.x = 780; event.y = 570;
+    if (dispatch(event) != Status::Ok || pointer_b.moves != 0U) return 145;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || pointer_b.ups != 0U) return 146;
+    // Click the exposed client, then close it while captured: the subsequent
+    // release cannot be delivered to a reused slot or underlying window.
+    if (query(mouse_b, &info) != Status::Ok) return 147;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = info.bounds.x + 40; event.y = info.bounds.y + 100;
+    if (dispatch(event) != Status::Ok || pointer_b.downs != 1U) return 148;
+    if (close(mouse_b) != Status::Ok) return 149;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || pointer_b.ups != 0U ||
+        pointer_a.ups != 1U) return 150;
+    if (initialize(800U, 600U) != Status::Ok) return 151;
+    PointerRoutingProbe self_closing{};
+    self_closing.close_on_down = true;
+    WindowId self_id = INVALID_WINDOW;
+    if (create_window("Self-close pointer", 203U, {50, 60, 300, 220},
+            draw, receive_pointer_route, &self_closing, &self_id) != Status::Ok) return 152;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = 90; event.y = 160;
+    if (dispatch(event) != Status::Ok || self_closing.downs != 1U ||
+        query(self_id, &info) != Status::NotFound) return 153;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || self_closing.ups != 0U) return 154;
+
     return 0;
 }

@@ -95,6 +95,8 @@ WindowId g_focused = INVALID_WINDOW;
 WindowId g_dragged = INVALID_WINDOW;
 WindowId g_resized = INVALID_WINDOW;
 WindowId g_hovered = INVALID_WINDOW;
+// Application-level left-button capture is distinct from window-chrome drag.
+WindowId g_pointer_capture = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
@@ -565,6 +567,7 @@ void purge_exposed_session() {
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
     g_hovered = INVALID_WINDOW;
+    g_pointer_capture = INVALID_WINDOW;
     update_z_order();
     mark_full_dirty();
 }
@@ -575,6 +578,7 @@ WindowId hit_test(int32_t x, int32_t y);
 void cancel_capture(WindowId id) {
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
     if (g_resized == id) g_resized = INVALID_WINDOW;
+    if (g_pointer_capture == id) g_pointer_capture = INVALID_WINDOW;
 }
 
 void clear_hover(WindowId id) {
@@ -894,6 +898,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
     g_hovered = INVALID_WINDOW;
+    g_pointer_capture = INVALID_WINDOW;
 #ifndef KUROGANE_HOST_TEST
     g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
@@ -943,7 +948,7 @@ Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
             slot.info.bounds = maximized ? area : fit(slot.info.bounds);
         }
     }
-    g_dragged = g_resized = g_hovered = INVALID_WINDOW;
+    g_dragged = g_resized = g_hovered = g_pointer_capture = INVALID_WINDOW;
     mark_full_dirty();
     return Status::Ok;
 }
@@ -1303,6 +1308,18 @@ Status desktop_pin(
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
 
+    const bool primary_release =
+        event.type == input::EventType::MouseButtonUp &&
+        event.button == drivers::mouse::Left;
+    const bool pointer_event =
+        event.type == input::EventType::MouseMove ||
+        event.type == input::EventType::MouseButtonDown ||
+        event.type == input::EventType::MouseButtonUp ||
+        event.type == input::EventType::MouseWheel;
+    // A chrome drag/resize never becomes an application release.
+    const bool system_release = primary_release &&
+        (g_dragged != INVALID_WINDOW || g_resized != INVALID_WINDOW);
+
     // Red Flux is mouse-first: physical desktop/window shortcuts are not
     // intercepted globally. Keyboard events continue to the focused app so
     // text entry, terminals and accessibility paths remain available.
@@ -1313,6 +1330,7 @@ Status dispatch(const input::Event& event) {
         // This recovers deterministically if a prior button-up was lost.
         g_dragged = INVALID_WINDOW;
         g_resized = INVALID_WINDOW;
+        g_pointer_capture = INVALID_WINDOW;
         const WorkspaceGeometry workspace = calculate_workspace();
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
@@ -1360,8 +1378,15 @@ Status dispatch(const input::Event& event) {
                     g_resized = INVALID_WINDOW;
                     g_drag_offset_x = event.x - slot->info.bounds.x;
                     g_drag_offset_y = event.y - slot->info.bounds.y;
+                    return Status::Ok;
                 }
             }
+            // Non-client borders/chrome may focus a window but must not
+            // deliver synthetic clicks to its application contents.
+            if (!rect_contains(calculate_content(*slot), event.x, event.y)) {
+                return Status::Ok;
+            }
+            g_pointer_capture = target;
         }
     } else if (event.type == input::EventType::MouseMove &&
                (event.buttons & drivers::mouse::Left) != 0U) {
@@ -1393,9 +1418,34 @@ Status dispatch(const input::Event& event) {
     if (event.type == input::EventType::MouseMove) move_cursor(event.x, event.y);
 #endif
 
-    Slot* focused = find(g_focused);
-    if (focused != nullptr && focused->input_callback != nullptr) {
-        focused->input_callback(focused->info.id, event, focused->context);
+    // Keyboard ownership follows focus; pointer ownership follows the
+    // topmost client content below the pointer, independently of focus.
+    // While held, a primary-button gesture remains with its original
+    // application even outside its bounds. System chrome consumes its own
+    // gestures and unmatched primary releases must not leak to other apps.
+    if (pointer_event) {
+        if (!system_release && g_dragged == INVALID_WINDOW &&
+            g_resized == INVALID_WINDOW) {
+            WindowId destination = g_pointer_capture;
+            if (destination == INVALID_WINDOW && !primary_release) {
+                destination = hit_test(event.x, event.y);
+                const Slot* candidate = find(destination);
+                if (candidate == nullptr ||
+                    !rect_contains(calculate_content(*candidate), event.x, event.y)) {
+                    destination = INVALID_WINDOW;
+                }
+            }
+            Slot* receiver = find(destination);
+            if (receiver != nullptr && receiver->input_callback != nullptr) {
+                receiver->input_callback(receiver->info.id, event, receiver->context);
+            }
+        }
+        if (primary_release) g_pointer_capture = INVALID_WINDOW;
+    } else {
+        Slot* focused = find(g_focused);
+        if (focused != nullptr && focused->input_callback != nullptr) {
+            focused->input_callback(focused->info.id, event, focused->context);
+        }
     }
     return Status::Ok;
 }
