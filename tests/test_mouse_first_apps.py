@@ -201,3 +201,10 @@ assert "chromium_port_mouse_navigation: PASS" in browser
 assert "chromium_port_keyboard_scoped_to_omnibox: PASS" in browser
 
 print("mouse-first application input contract tests passed")
+
+# Service-start failure telemetry must include path + runtime status so
+# installer regressions cannot hide behind a successful PID1 spawn.
+process = (root / "kernel/task/process.cpp").read_text()
+assert 'log::write(log::Level::Error, "PROCESS", slot.executable)' in process
+assert "user::runtime::status_message(status)" in process
+assert '"isolated ring-3 fault vector="' in process

@@ -187,3 +187,17 @@ load; supervisor logs each service's child exit kind/code and an exhausted
 restart budget. A new ISO is needed for these markers. The root cause
 (service bind, fault or invalid installed root) is not yet proven; keep
 account verification intact and never infer login success from liveness PASS.
+
+### 2026-10-25: common daemon runtime failure isolation
+
+VirtualBox installed root logged supervised restarts of accountd, sessiond,
+notificationd and other services, not only an account profile failure.
+The earlier successful isolated Ring-3 page-fault test occurs before daemon
+startup and is not evidence of the cause. On Linux/QEMU media accountd ran,
+but VirtualBox had no `accountd: ... online` marker. The process image
+runner now reports the exact **installed executable path** and a bounded
+runtime failure category (file absent, bad ELF, OOM, address space or stack)
+when a daemon fails before entering Ring-3. Unexpected user-mode faults are
+reported with their vector. PID1's supervised exit code remains separate.
+This is diagnostics, not a verified runtime repair; don't reset installed
+credentials or delete the VM until the fault has been isolated.

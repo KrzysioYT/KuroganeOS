@@ -5,6 +5,7 @@
 
 #if !defined(KUROGANE_HOST_TEST)
 #include "../user/runtime.hpp"
+#include "../core/log.hpp"
 #endif
 
 namespace process {
@@ -185,9 +186,22 @@ int32_t run_image(Slot& slot) {
     const user::runtime::Status status =
         user::runtime::run(slot.executable, slot.pid, &result);
     slot.observed_pid = result.observed_pid;
-    return status == user::runtime::Status::Ok
-        ? result.exit_code
-        : -1;
+    if (status != user::runtime::Status::Ok) {
+        // PID1 spawn success only means a scheduler slot was allocated.
+        // It does not prove an installed ELF exists, loaded or ran.
+        // Every failed daemon previously appeared as "service restart" with
+        // no process path, hiding a common installed-root or memory failure.
+        log::write(log::Level::Error, "PROCESS", slot.executable);
+        log::write(log::Level::Error, "PROCESS",
+                   user::runtime::status_message(status));
+        return -1;
+    }
+    if (result.fault_vector != 0xFFU) {
+        log::write(log::Level::Error, "PROCESS", slot.executable);
+        log::write_u64(log::Level::Error, "PROCESS",
+                       "isolated ring-3 fault vector=", result.fault_vector);
+    }
+    return result.exit_code;
 #endif
 }
 
