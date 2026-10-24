@@ -355,6 +355,12 @@ done
 
 "$OUT_DIR/test_ui_event_queue"
 
+# Verify Files Explorer page bounds and merged signed USB wheel deltas.
+"$HOST_CC" \
+  -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
+"$OUT_DIR/test_files_wheel_paging"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

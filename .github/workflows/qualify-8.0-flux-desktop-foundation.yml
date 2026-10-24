@@ -20,6 +20,7 @@ on:
       - 'tests/test_ui_event_queue.cpp'
       - 'sdk/include/kurogane/ui.h'
       - 'userspace/gui/files/**'
+      - 'tests/test_files_wheel_paging.c'
       - 'docs/ROAD_TO_15_STATUS.md'
   workflow_dispatch:
 
@@ -75,6 +76,14 @@ jobs:
             -o build/tests/desktop/clipboard-ubsan
           build/tests/desktop/clipboard-ubsan
 
+      - name: Files multi-detent wheel page and signed-overflow tests
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_files_wheel_paging.c -o build/tests/desktop/files-wheel
+          build/tests/desktop/files-wheel
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_files_wheel_paging.c -o build/tests/desktop/files-wheel-ubsan
+          build/tests/desktop/files-wheel-ubsan
       - name: Ring-3 event queue / pressure and click-edge regression
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -125,6 +134,9 @@ jobs:
             --log-dir build/tests/flux-8-foundation --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --click-after-marker '[TEST] desktop_launcher_ring3: PASS' 440 726 \
+            --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 400 300 down \
+            --require-marker '[TEST] flux_files_usb_wheel_paging: PASS' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS' \

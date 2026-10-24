@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "paging.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 24U
 #define PAGE_SIZE 6U
@@ -352,20 +353,17 @@ int main(void) {
         const int wait_result = gui_wait_event(window, &event);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (event.type == KU_UI_EVENT_SCROLL) {
-            // One wheel detent moves one six-tile directory page. Do not wrap
-            // at the ends, and never change selection on an inert scroll.
+            // Preserve combined wheel detents without integer overflow.
             const size_t before = page_start;
-            if (event.wheel_y < 0 && page_start + PAGE_SIZE < entry_count) {
-                page_start += PAGE_SIZE;
-            } else if (event.wheel_y > 0 && page_start >= PAGE_SIZE) {
-                page_start -= PAGE_SIZE;
-            }
+            page_start = flux_files_wheel_page(
+                page_start, entry_count, PAGE_SIZE, event.wheel_y);
             if (page_start != before) {
                 selected = NO_SELECTION;
                 (void)strlcpy(preview, "WHEEL / PAGE CHANGED", sizeof(preview));
                 build_scene(&scene, path, entries, entry_count,
                             page_start, selected, preview);
                 (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_files_usb_wheel_paging: PASS");
             }
             continue;
         }

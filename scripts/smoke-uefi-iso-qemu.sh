@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -47,6 +47,11 @@ click_count_targets=()
 click_count_x=()
 click_count_y=()
 click_count_sent=()
+wheel_markers=()
+wheel_x=()
+wheel_y=()
+wheel_direction=()
+wheel_sent=()
 require_markers=()
 require_marker_count_markers=()
 require_marker_count_targets=()
@@ -104,6 +109,16 @@ while (($#)); do
             click_count_x+=("$4")
             click_count_y+=("$5")
             click_count_sent+=(false)
+            shift 5
+            ;;
+        --wheel-after-marker)
+            [[ $# -ge 5 && -n "$2" && "$3" =~ ^[0-9]+$ &&
+               "$4" =~ ^[0-9]+$ && "$5" =~ ^(up|down)$ ]] || usage
+            wheel_markers+=("$2")
+            wheel_x+=("$3")
+            wheel_y+=("$4")
+            wheel_direction+=("$5")
+            wheel_sent+=(false)
             shift 5
             ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
@@ -172,6 +187,12 @@ done
 for index in "${!click_count_markers[@]}"; do
     if (( click_count_x[index] > 4095 || click_count_y[index] > 4095 )); then
         echo "invalid QEMU click coordinate: ${click_count_x[$index]},${click_count_y[$index]}" >&2
+        exit 2
+    fi
+done
+for index in "${!wheel_markers[@]}"; do
+    if (( wheel_x[index] > 4095 || wheel_y[index] > 4095 )); then
+        echo "invalid QEMU wheel coordinate: ${wheel_x[$index]},${wheel_y[$index]}" >&2
         exit 2
     fi
 done
@@ -427,6 +448,142 @@ for _ in range(40):
             pass
         time.sleep(0.05)
 raise SystemExit(f"cannot click through QMP: {last_error}")
+PY
+}
+
+send_qemu_wheel() {
+    local target_x="$1"
+    local target_y="$2"
+    local wheel_direction="$3"
+    local pointer_kind="default"
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
+        pointer_kind="usb-mouse"
+    fi
+    python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" "$wheel_direction" <<'PY'
+import json
+import re
+import socket
+import sys
+import time
+
+path = sys.argv[1]
+target_x = int(sys.argv[2])
+target_y = int(sys.argv[3])
+pointer_kind = sys.argv[4]
+wheel_direction = sys.argv[5]
+last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
+def execute(stream, name, arguments=None):
+    payload = {"execute": name}
+    if arguments is not None:
+        payload["arguments"] = arguments
+    stream.write(json.dumps(payload).encode("utf-8") + b"\r\n")
+    return receive_object(stream, name)
+
+
+def relative(stream, dx, dy):
+    events = []
+    if dx:
+        events.append({"type": "rel", "data": {"axis": "x", "value": dx}})
+    if dy:
+        events.append({"type": "rel", "data": {"axis": "y", "value": dy}})
+    if events:
+        execute(stream, "input-send-event", {"events": events})
+
+
+def move_axis(stream, axis, amount):
+    remaining = amount
+    while remaining:
+        step = max(-100, min(100, remaining))
+        relative(stream, step if axis == "x" else 0, step if axis == "y" else 0)
+        remaining -= step
+
+
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(2.0)
+        client.connect(path)
+        stream = client.makefile("rwb", buffering=0)
+        greeting = json.loads(stream.readline().decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+        execute(stream, "qmp_capabilities")
+
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
+            mice = execute(stream, "human-monitor-command", {
+                "command-line": "info mice"
+            })
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
+            )
+            match = re.search(pattern, mice, re.IGNORECASE)
+            if match is None:
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
+            execute(stream, "human-monitor-command", {
+                "command-line": f"mouse_set {match.group(1)}"
+            })
+
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        button = "wheel-down" if wheel_direction == "down" else "wheel-up"
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": True, "button": button}}
+        ]})
+        time.sleep(0.08)
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": False, "button": button}}
+        ]})
+        time.sleep(0.35)
+        stream.close()
+        client.close()
+        print(f"[qmp] USB wheel {wheel_direction} at {target_x},{target_y}")
+        raise SystemExit(0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        last_error = error
+        try:
+            client.close()
+        except OSError:
+            pass
+        time.sleep(0.05)
+raise SystemExit(f"cannot scroll USB mouse through QMP: {last_error}")
 PY
 }
 
@@ -755,6 +912,17 @@ while ((SECONDS < deadline)); do
                 send_qemu_click "${click_count_x[$index]}" "${click_count_y[$index]}"
                 click_count_sent[$index]=true
                 echo "[uefi-qemu] clicked ${click_count_x[$index]},${click_count_y[$index]} after marker occurrence $target: $marker"
+            fi
+        done
+        for index in "${!wheel_markers[@]}"; do
+            if [[ "${wheel_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${wheel_markers[$index]}"
+            if grep -Fq "$marker" "$serial"; then
+                send_qemu_wheel "${wheel_x[$index]}" "${wheel_y[$index]}" "${wheel_direction[$index]}"
+                wheel_sent[$index]=true
+                echo "[uefi-qemu] wheel ${wheel_direction[$index]} at ${wheel_x[$index]},${wheel_y[$index]} after marker: $marker"
             fi
         done
         all_markers_ready=true
