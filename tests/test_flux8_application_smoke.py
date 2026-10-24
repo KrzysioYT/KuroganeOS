@@ -34,8 +34,14 @@ for text in required:
 # dock width = 12*2 + (78+7*42+7*8) + 16 = 468, x = (1280-468)/2.
 # button index 2 -> 406+12+78+8+42+8 = 554, center=575.
 # dock top=800-58-12=730, center=759.
-assert '573 754' in workflow, "QEMU smoke not pointing inside Files Dock button"
-assert '525 754' in workflow, "QEMU smoke not pointing inside Terminal Dock button"
+assert '450 726' in workflow, "QMP normalized Files click missing"
+assert '410 726' in workflow, "QMP normalized Terminal click missing"
+assert '573 754' not in workflow and '525 754' not in workflow, (
+    "Raw GOP pixel clicks reintroduced despite QMP tablet normalization"
+)
+qmp_script = (root / "scripts/smoke-uefi-iso-qemu.sh").read_text()
+assert "target_x * 32767 // 1023" in qmp_script
+assert "target_y * 32767 // 767" in qmp_script
 qemu_command = workflow.split("bash scripts/smoke-uefi-iso-qemu.sh", 1)[1]
 qemu_command = qemu_command.split("\n          ! grep -Eq", 1)[0]
 assert not any(line.lstrip().startswith("#") for line in qemu_command.splitlines()), (

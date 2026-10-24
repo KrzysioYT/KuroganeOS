@@ -141,3 +141,14 @@ SESSION / LAUNCHER SPAWN / SET HOME / ATTACH HOME / VERIFY HOME / HOME
 FIRST FRAME / CLEANUP), without exposing secrets. COM1 still contains the
 full bracketed status markers. The screenshot alone did not identify which
 stage failed on the previous media; live VirtualBox verification is open.
+
+## QMP logical pointer coordinates vs GOP screen coordinates
+
+The scoped QEMU smoke had fed physical 1280x800 pixels into the helper,
+but its absolute USB tablet movement explicitly scales input from the
+1024x768 QMP logical coordinate range. This can reliably deliver a primary
+button but miss every Dock button, so the runtime only reports mouse input.
+Files is now targeted at logical (450,726) and Terminal (410,726), within
+their respective pins for both 1024x768 and 1280x800 GOP. The wheel point
+is independently inside a Files client window. The static test enforces
+QMP scaling assumptions and rejects the old raw-pixel positions.
