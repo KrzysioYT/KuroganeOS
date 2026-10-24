@@ -15,6 +15,11 @@ on:
       - 'tests/test_input.cpp'
       - 'scripts/run-host-tests.sh'
       - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/user/runtime_base.inc'
+      - 'kernel/user/ui_event_queue.hpp'
+      - 'tests/test_ui_event_queue.cpp'
+      - 'sdk/include/kurogane/ui.h'
+      - 'userspace/gui/files/**'
       - 'docs/ROAD_TO_15_STATUS.md'
   workflow_dispatch:
 

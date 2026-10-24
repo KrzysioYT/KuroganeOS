@@ -347,6 +347,14 @@ for test in test_pci_word_write test_virtio_net_cleanup; do
   "$OUT_DIR/$test"
 done
 
+# Test the real per-process Ring-3 UI event queue and overload policy.
+"$HOST_CXX" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_ui_event_queue.cpp \
+  -o "$OUT_DIR/test_ui_event_queue"
+
+"$OUT_DIR/test_ui_event_queue"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

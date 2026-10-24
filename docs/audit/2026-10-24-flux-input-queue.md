@@ -33,3 +33,7 @@ A finite queue cannot promise lossless transport under unbounded input;
 this change prevents a *motion storm* from displacing existing click/key
 events. UI processing remains serialized by the existing kernel context.
 No claim is made of concurrent MPMC safety or complete 8.0 release.
+
+The standard `scripts/run-host-tests.sh` suite also compiles and executes
+the production queue tests (without sanitizers); the focused 8.0 qualification
+adds UBSan and validates the same production Ring-3 path in a release image.
