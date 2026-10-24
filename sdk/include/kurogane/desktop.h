@@ -46,6 +46,15 @@ static inline ku_status_t ku_desktop_pin(ku_desktop_pin_request* request) {
 }
 
 
+enum ku_desktop_style_action { KU_DESKTOP_STYLE_QUERY = 0, KU_DESKTOP_STYLE_SET = 1 };
+typedef struct ku_desktop_style_request {
+    uint32_t structure_size, action, style_id, reserved;
+} ku_desktop_style_request;
+static inline ku_status_t ku_desktop_style(ku_desktop_style_request* request) {
+    return (ku_status_t)ku_syscall3(KU_SYS_DESKTOP_STYLE,
+        (uint64_t)(uintptr_t)request, (uint64_t)sizeof(*request), 0U);
+}
+
 enum ku_desktop_theme_action {
     KU_DESKTOP_THEME_QUERY = 0,
     KU_DESKTOP_THEME_SET = 1

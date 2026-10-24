@@ -1631,6 +1631,33 @@ void syscall_handler(
                 : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
             return;
         }
+        case KU_SYS_DESKTOP_STYLE: {
+            if (frame.rsi != sizeof(ku_desktop_style_request) ||
+                !validate_user_buffer(*context, frame.rdi, sizeof(ku_desktop_style_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_style_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_STYLE_SET ||
+                (request->action == KU_DESKTOP_STYLE_SET &&
+                 request->style_id >= KU_FLUX_STYLE_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_STYLE_SET) {
+                if (!ui::set_desktop_style(request->style_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->style_id = ui::desktop_style_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
         case KU_SYS_DESKTOP_THEME: {
             if (frame.rsi != sizeof(ku_desktop_theme_request) ||
                 !validate_user_buffer(

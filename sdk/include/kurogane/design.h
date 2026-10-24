@@ -81,6 +81,8 @@ enum ku_flux_typography_role {
  * 8.0 desktop palettes: pure shared C/C++ ABI with stable IDs.
  * Semantic colors, never a global mutable palette in Ring-3.
  */
+enum ku_flux_style_id { KU_FLUX_STYLE_CLASSIC = 0, KU_FLUX_STYLE_MODERN = 1, KU_FLUX_STYLE_COUNT = 2 };
+
 enum ku_flux_theme_id {
     KU_FLUX_THEME_RED = 0,
     KU_FLUX_THEME_VIOLET = 1,

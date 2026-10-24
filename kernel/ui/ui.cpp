@@ -18,6 +18,7 @@ Theme kTheme = {
 };
 
 uint32_t gThemeId = KU_FLUX_THEME_RED;
+uint32_t gStyleId = KU_FLUX_STYLE_MODERN;
 graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
 graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
 graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
@@ -300,6 +301,12 @@ const Theme& default_theme() { return kTheme; }
 
 uint32_t desktop_theme_id() { return gThemeId; }
 
+uint32_t desktop_style_id() { return gStyleId; }
+bool set_desktop_style(uint32_t id) {
+    if (id >= KU_FLUX_STYLE_COUNT) return false;
+    gStyleId = id;
+    return true;
+}
 bool set_desktop_theme(uint32_t id) {
     if (id >= KU_FLUX_THEME_COUNT) return false;
     const ku_flux_palette palette = ku_flux_theme_palette(id);
@@ -427,11 +434,24 @@ void panel(const Rect& bounds, bool raised) {
     const auto background = raised ? kGraphiteRaised : kTheme.panel_alt;
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
-    corner_marks(bounds, raised ? kTheme.accent : kRedDeep);
+    if (gStyleId == KU_FLUX_STYLE_CLASSIC) corner_marks(bounds, raised ? kTheme.accent : kRedDeep);
 }
 
 void flux_window(const Rect& bounds, const char* title, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = focused ? kGraphiteFocused : kGraphite;
+        graphics::fill_rect(bounds.x + 5, bounds.y + 6, bounds.width, bounds.height, kSurfaceShadow);
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, surface);
+        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, focused ? kRedMuted : kTheme.border);
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width, 2, focused ? kRedBright : kTheme.border);
+        graphics::fill_rect(bounds.x + 1, bounds.y + 35, bounds.width - 2, 1, kTheme.border);
+        graphics::draw_text(bounds.x + 16, bounds.y + 14, title ? title : "SURFACE",
+                            focused ? kTheme.text : kTheme.text_muted, surface, 1U, true);
+        if (focused) graphics::fill_rect(bounds.x + bounds.width - 22,
+                            bounds.y + bounds.height - 5, 14, 2, kTheme.accent);
+        return;
+    }
 
     graphics::fill_rect(bounds.x + 7, bounds.y + 8,
                         bounds.width, bounds.height, kSurfaceShadow);
@@ -511,6 +531,13 @@ void signal_spine(const Rect& bounds, size_t window_count, size_t focused_positi
 
 void dock_bar(const Rect& bounds, size_t running_count) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        graphics::fill_rect(bounds.x + 4, bounds.y + 5, bounds.width, bounds.height, kSurfaceShadow);
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, kDockSurface);
+        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
+        if (running_count != 0U) graphics::fill_rect(bounds.x + 18, bounds.y, 36, 2, kTheme.accent);
+        return;
+    }
     graphics::fill_rect(bounds.x + 6, bounds.y + 7,
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
@@ -526,7 +553,7 @@ void dock_bar(const Rect& bounds, size_t running_count) {
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     const graphics::Color background = focused
-        ? graphics::rgb(54, 21, 27)
+        ? (gStyleId == KU_FLUX_STYLE_MODERN ? kTheme.panel : graphics::rgb(54, 21, 27))
         : (running ? kDockRaised : kDockSurface);
     const graphics::Color border = focused
         ? kRedBright
@@ -584,10 +611,11 @@ void label(const Rect& bounds, const char* text,
 void button(
     const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed,
     bool destructive) {
-    const auto background = pressed
-        ? KU_FLUX_COLOR_SURFACE_PRESSED
-        : (selected ? graphics::rgb(55, 20, 26)
-                    : (hovered ? KU_FLUX_COLOR_SURFACE_HOVER : kTheme.panel_alt));
+    const auto background = gStyleId == KU_FLUX_STYLE_MODERN
+        ? (pressed ? kTheme.panel : (selected || hovered ? kGraphite : kTheme.panel_alt))
+        : (pressed ? KU_FLUX_COLOR_SURFACE_PRESSED
+                   : (selected ? graphics::rgb(55, 20, 26)
+                               : (hovered ? KU_FLUX_COLOR_SURFACE_HOVER : kTheme.panel_alt)));
     const auto signal = destructive
         ? (pressed ? KU_FLUX_COLOR_DANGER : KU_FLUX_COLOR_ACCENT)
         : (pressed ? kTheme.danger
@@ -790,6 +818,15 @@ void progress(const Rect& bounds, uint32_t value, uint32_t maximum) {
                         kTheme.border);
     if (maximum == 0U || bounds.width < 8 || bounds.height <= 4) return;
     if (value > maximum) value = maximum;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const int32_t inner = bounds.width - 6;
+        const int32_t active = static_cast<int32_t>(
+            (static_cast<uint64_t>(value) * static_cast<uint64_t>(inner)) / maximum);
+        graphics::fill_rect(bounds.x + 3, bounds.y + 3, inner, bounds.height - 6, kTheme.border);
+        if (active > 0) graphics::fill_rect(bounds.x + 3, bounds.y + 3, active,
+                                            bounds.height - 6, kTheme.accent);
+        return;
+    }
 
     constexpr uint32_t segments = 12U;
     const int32_t inner_width = bounds.width - 6;

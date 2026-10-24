@@ -57,6 +57,8 @@ enum class AppIcon : uint8_t {
 const Theme& default_theme();
 uint32_t desktop_theme_id();
 bool set_desktop_theme(uint32_t theme_id);
+uint32_t desktop_style_id();
+bool set_desktop_style(uint32_t style_id);
 bool contains(const Rect& rectangle, int32_t x, int32_t y);
 void boot_splash(const char* stage, uint32_t progress);
 void login_backdrop(const char* status);
