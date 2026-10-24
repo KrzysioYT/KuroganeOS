@@ -210,9 +210,14 @@ void draw_native_frame(
     const int32_t pointer_y = input::pointer_y();
     const bool primary_down =
         (input::pointer_buttons() & drivers::mouse::Left) != 0U;
-    const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
+    const ku_flux_scene_colors live = ku_flux_resolve_scene_colors(
+        frame.background_rgb & UINT32_C(0xFFFFFF),
+        frame.foreground_rgb & UINT32_C(0xFFFFFF),
+        frame.accent_rgb & UINT32_C(0xFFFFFF),
+        ui::desktop_theme_id());
+    const graphics::Color background = live.background;
+    const graphics::Color foreground = live.foreground;
+    const graphics::Color accent = live.accent;
     graphics::fill_rect(content.x, content.y, content.width, content.height, background);
     if (content.width > 48) {
         graphics::fill_rect(content.x + 16, content.y + 7,

@@ -22,6 +22,20 @@ int main(void) {
         }
         accents[id] = palette.accent;
     }
+    const ku_flux_palette red_input = ku_flux_theme_palette(KU_FLUX_THEME_RED);
+    const ku_flux_palette violet_input = ku_flux_theme_palette(KU_FLUX_THEME_VIOLET);
+    const ku_flux_scene_colors remapped = ku_flux_resolve_scene_colors(
+        red_input.background, red_input.text, red_input.accent,
+        KU_FLUX_THEME_VIOLET);
+    assert(remapped.background == violet_input.background);
+    assert(remapped.foreground == violet_input.text);
+    assert(remapped.accent == violet_input.accent);
+    /* Custom palettes must never be silently rewritten. */
+    const ku_flux_scene_colors custom = ku_flux_resolve_scene_colors(
+        0x123456U, 0xEFEFEFU, 0xAABBCCU, KU_FLUX_THEME_VIOLET);
+    assert(custom.background == 0x123456U);
+    assert(custom.foreground == 0xEFEFEFU);
+    assert(custom.accent == 0xAABBCCU);
     const ku_flux_palette fallback = ku_flux_theme_palette(UINT32_MAX);
     const ku_flux_palette red = ku_flux_theme_palette(KU_FLUX_THEME_RED);
     assert(fallback.accent == red.accent);

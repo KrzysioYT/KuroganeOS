@@ -125,4 +125,33 @@ static inline const char* ku_flux_theme_name(uint32_t theme_id) {
     return names[theme_id < (uint32_t)KU_FLUX_THEME_COUNT ? theme_id : (uint32_t)KU_FLUX_THEME_RED];
 }
 
+
+/* Render legacy retained Ring-3 native scene packets in the *current*
+ * palette without forcing each app to republish its old scene. Only exact
+ * builtin palette triples are remapped; explicitly custom color choices
+ * remain unchanged.
+ */
+typedef struct ku_flux_scene_colors {
+    uint32_t background, foreground, accent;
+} ku_flux_scene_colors;
+
+static inline ku_flux_scene_colors ku_flux_resolve_scene_colors(
+    uint32_t background, uint32_t foreground, uint32_t accent,
+    uint32_t active_theme) {
+    ku_flux_scene_colors result = { background, foreground, accent };
+    for (uint32_t id = 0U; id < (uint32_t)KU_FLUX_THEME_COUNT; ++id) {
+        const ku_flux_palette old = ku_flux_theme_palette(id);
+        if (result.background == old.background &&
+            result.foreground == old.text &&
+            result.accent == old.accent) {
+            const ku_flux_palette current = ku_flux_theme_palette(active_theme);
+            result.background = current.background;
+            result.foreground = current.text;
+            result.accent = current.accent;
+            break;
+        }
+    }
+    return result;
+}
+
 #endif
