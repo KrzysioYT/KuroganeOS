@@ -232,3 +232,37 @@ survivors are not skipped and changed z-order does not corrupt iteration.
 The desktop foundation gate is an independent 8.0 **engineering checkpoint**,
 not a completed 8.0 release. Full graphics mode switching, drag-and-drop,
 the general shell API and physical hardware validation remain open.
+
+## 8.0 Flux Desktop Platform — in development (2026-10-24)
+
+Status: **NOT QUALIFIED; formal runtime is still 7.0.0-dev**.
+
+Integrated on `codex/road-to-15-stability`:
+- six kernel/SDK shared semantic palettes, user-space palette selection and typed
+  `settings.v1` persistence, including session restore;
+- Flux Classic / Flux Modern with alternate window chrome, Dock and progress
+  rendering; theme-aware wallpaper and retained Ring-3 native scene remapping;
+- working Settings mouse-wheel viewport pagination (multi-detent signed safe);
+- conservative telemetry: actual PMM RAM frame counts; explicitly labeled
+  approximate scheduler/GOP/block-I/O indices, sampled on a shared one-second
+  window rather than each GUI client resetting global counters;
+- a real user-facing `clipboard.v1` path from Files (copy selected path)
+  into Kurogane Web (copy/paste omnibox address);
+- C/C++ palette contract, kernel palette/style state, shared metrics window,
+  mouse-first app integration and desktop sanitizer regressions.
+
+**Last known broadly green integration baseline:** `17e3382c`
+(23 success checks on exact SHA, including host and release media build).
+The first scoped USB-only Flux QEMU run at `d6877442` confirmed live login,
+USB keyboard/mouse reports and Home but failed to launch Files via an early
+QMP dock click; failure was not marked PASS. Subsequent changes delay that
+click until `red_flux_home_surface` and use QEMU xHCI USB Tablet, as confirmed
+in physical user-run QEMU testing. New exact-SHA tests **must pass** before
+counting these fixes.
+
+**8.0 blockers still open**: production text renderer replacing 5x7
+bitmap glyphs, dynamic UEFI display modes and UI scaling, general
+clipboard editing/shortcuts, inter-app drag/drop, full desktop UI
+accessibility, repeatable QEMU interaction with all theme presets and
+restart/persistence, and a same-SHA release gate.
+Do not bump `common/version.h` or mark 8.0 qualified on code presence alone.
