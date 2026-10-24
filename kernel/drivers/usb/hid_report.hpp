@@ -21,7 +21,8 @@ struct PointerReportLayout {
     uint16_t buttons_bit_offset;
     uint8_t button_count;
     uint8_t report_id;
-    uint16_t report_bytes;
+    uint16_t report_bytes;  // Selected pointer report, including ID prefix.
+    uint16_t transfer_bytes; // Longest input report on the interface.
     bool has_report_id;
     bool valid;
 };

@@ -24,7 +24,7 @@ int main() {
     assert(relative.valid && !relative.x.relative == false);
     assert(relative.x.relative && relative.y.relative);
     assert(relative.wheel.present);
-    assert(relative.report_bytes == 4U);
+    assert(relative.report_bytes == 4U && relative.transfer_bytes == 4U);
     assert(relative.button_count == 3U);
 
     PointerDecoder decoder{};
@@ -88,6 +88,47 @@ int main() {
         with_id, &decoder, with_id_report,
         sizeof(with_id_report), &report));
     assert(report.x == 2 && report.y == -2 && report.buttons == 1U);
+
+
+    // Composite HID interface: keyboard ID 1, pointer ID 7, extended ID 9.
+    // The keyboard must not poison pointer field offsets; a longer unrelated
+    // report must set endpoint transfer size without changing decode minimum.
+    const uint8_t composite[] = {
+        0x05,0x01, 0x09,0x06, 0xA1,0x01, 0x85,0x01,
+        0x05,0x07, 0x19,0xE0, 0x29,0xE7,
+        0x15,0x00, 0x25,0x01, 0x75,0x01, 0x95,0x08, 0x81,0x02, 0xC0,
+        0x05,0x01, 0x09,0x02, 0xA1,0x01, 0x85,0x07,
+        0x05,0x09, 0x19,0x01, 0x29,0x03,
+        0x15,0x00, 0x25,0x01, 0x75,0x01, 0x95,0x03, 0x81,0x02,
+        0x75,0x05, 0x95,0x01, 0x81,0x01,
+        0x05,0x01, 0x09,0x30, 0x09,0x31,
+        0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x02, 0x81,0x06,
+        0xC0,
+        0x06,0x00,0xFF, 0x09,0x01, 0xA1,0x01, 0x85,0x09,
+        0x75,0x08, 0x95,0x08, 0x81,0x02, 0xC0
+    };
+    PointerReportLayout multi{};
+    assert(parse_pointer_report_descriptor(composite, sizeof(composite), &multi));
+    assert(multi.valid && multi.has_report_id && multi.report_id == 7U);
+    assert(multi.report_bytes == 4U && multi.transfer_bytes == 9U);
+    assert(multi.x.bit_offset == 8U && multi.y.bit_offset == 16U);
+    reset_pointer_decoder(&decoder);
+    const uint8_t multi_mouse[] = {7U, 0x03U, 0x06U, 0xFCU};
+    assert(decode_pointer_report(
+        multi, &decoder, multi_mouse, sizeof(multi_mouse), &report));
+    assert(report.x == 6 && report.y == -4);
+    assert(report.buttons == 3U && report.changed_buttons == 3U);
+    const uint8_t unrelated[] = {9U, 3U, 6U, 0xFCU, 0U, 0U, 0U, 0U, 0U};
+    assert(!decode_pointer_report(
+        multi, &decoder, unrelated, sizeof(unrelated), &report));
+    assert(decoder.previous_buttons == 3U);
+    const uint8_t short_mouse[] = {7U, 3U, 6U};
+    assert(!decode_pointer_report(
+        multi, &decoder, short_mouse, sizeof(short_mouse), &report));
+    const uint8_t release_mouse[] = {7U, 0U, 0U, 0U};
+    assert(decode_pointer_report(
+        multi, &decoder, release_mouse, sizeof(release_mouse), &report));
+    assert(report.buttons == 0U && report.changed_buttons == 3U);
 
     const uint8_t truncated[] = {0x05, 0x01, 0x09};
     assert(!parse_pointer_report_descriptor(

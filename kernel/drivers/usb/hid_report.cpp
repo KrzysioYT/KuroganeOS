@@ -129,11 +129,16 @@ bool parse_pointer_report_descriptor(
     int32_t logical_maximum = 0;
     uint32_t report_size = 0U;
     uint32_t report_count = 0U;
-    uint32_t bit_offset = 0U;
+    // HID Report IDs have independent input bit positions. Never mix fields
+    // from different IDs into one pointer layout.
+    uint32_t input_bits[256]{};
     uint8_t active_report_id = 0U;
+    uint8_t pointer_report_id = 0U;
     bool report_id_selected = false;
-    bool unsupported_multiple_reports = false;
+    bool pointer_selected = false;
     bool saw_pointer_collection = false;
+    size_t collection_depth = 0U;
+    size_t pointer_collection_depth = 0U;
 
     uint16_t usages[MAXIMUM_LOCAL_USAGES]{};
     size_t usage_count = 0U;
@@ -188,15 +193,13 @@ bool parse_pointer_report_descriptor(
                     const uint32_t value = read_unsigned(data, data_size);
                     if (value == 0U || value > UINT8_MAX) return false;
                     const uint8_t next_id = static_cast<uint8_t>(value);
-                    if (!report_id_selected) {
-                        active_report_id = next_id;
-                        layout.report_id = next_id;
-                        layout.has_report_id = true;
-                        report_id_selected = true;
-                        bit_offset = 0U;
-                    } else if (next_id != active_report_id) {
-                        unsupported_multiple_reports = true;
+                    // Mixed anonymous/numbered input reports are ambiguous:
+                    // do not reinterpret a previously parsed ID-zero payload.
+                    if (!report_id_selected && input_bits[0U] != 0U) {
+                        return false;
                     }
+                    active_report_id = next_id;
+                    report_id_selected = true;
                     break;
                 }
                 case 9U:
@@ -235,14 +238,26 @@ bool parse_pointer_report_descriptor(
         if (type != 0U) continue;
 
         if (tag == 10U) {
-            if (usage_page == 0x01U && usage_count != 0U &&
+            if (collection_depth >= 16U) return false;
+            ++collection_depth;
+            // Only an application collection for a mouse/pointer may
+            // contribute pointer fields; keyboard/vendor fields are ignored.
+            if (pointer_collection_depth == 0U && data_size != 0U &&
+                data[0U] == 0x01U && usage_page == 0x01U &&
+                usage_count != 0U &&
                 (usages[0U] == 0x01U || usages[0U] == 0x02U)) {
+                pointer_collection_depth = collection_depth;
                 saw_pointer_collection = true;
             }
             clear_local();
             continue;
         }
         if (tag == 12U) {
+            if (collection_depth == 0U) return false;
+            if (pointer_collection_depth == collection_depth) {
+                pointer_collection_depth = 0U;
+            }
+            --collection_depth;
             clear_local();
             continue;
         }
@@ -257,6 +272,7 @@ bool parse_pointer_report_descriptor(
         }
         const uint64_t bits_added =
             static_cast<uint64_t>(report_size) * report_count;
+        const uint32_t bit_offset = input_bits[active_report_id];
         if (bits_added > UINT16_MAX ||
             static_cast<uint64_t>(bit_offset) + bits_added > UINT16_MAX) {
             return false;
@@ -267,7 +283,18 @@ bool parse_pointer_report_descriptor(
         const bool variable = (flags & UINT32_C(2)) != 0U;
         const bool relative = (flags & UINT32_C(4)) != 0U;
 
-        if (!unsupported_multiple_reports && !constant && variable) {
+        // Bind the first suitable pointer Input report. Additional IDs may
+        // coexist, but must never overwrite this layout or its button state.
+        const bool eligible = pointer_collection_depth != 0U &&
+            !constant && variable &&
+            ((usage_page == 0x09U && report_size == 1U) ||
+             usage_page == 0x01U);
+        if (eligible && !pointer_selected) {
+            pointer_selected = true;
+            pointer_report_id = active_report_id;
+        }
+        if (eligible && pointer_selected &&
+            pointer_report_id == active_report_id) {
             if (usage_page == 0x09U && report_size == 1U &&
                 layout.button_count == 0U && report_count <= 8U) {
                 layout.buttons_bit_offset =
@@ -301,21 +328,35 @@ bool parse_pointer_report_descriptor(
             }
         }
 
-        bit_offset += static_cast<uint32_t>(bits_added);
+        input_bits[active_report_id] += static_cast<uint32_t>(bits_added);
         clear_local();
     }
 
-    if (unsupported_multiple_reports || !saw_pointer_collection ||
-        !layout.x.present || !layout.y.present ||
+    if (collection_depth != 0U || !pointer_selected ||
+        !saw_pointer_collection || !layout.x.present || !layout.y.present ||
         layout.x.relative != layout.y.relative) {
         return false;
     }
 
-    const uint32_t payload_bytes = (bit_offset + 7U) / 8U;
+    const uint32_t pointer_bytes =
+        (input_bits[pointer_report_id] + 7U) / 8U;
     const uint32_t total_bytes =
-        payload_bytes + (layout.has_report_id ? 1U : 0U);
-    if (total_bytes == 0U || total_bytes > UINT16_MAX) return false;
+        pointer_bytes + (report_id_selected ? 1U : 0U);
+    if (total_bytes == 0U || total_bytes > UINT16_MAX ||
+        (report_id_selected && pointer_report_id == 0U)) return false;
+    uint32_t maximum_bytes = total_bytes;
+    for (size_t id = 0U; id < 256U; ++id) {
+        if (input_bits[id] == 0U) continue;
+        if (report_id_selected && id == 0U) return false;
+        const uint32_t wire_bytes = (input_bits[id] + 7U) / 8U +
+            (report_id_selected ? 1U : 0U);
+        if (wire_bytes > maximum_bytes) maximum_bytes = wire_bytes;
+    }
+    if (maximum_bytes > UINT16_MAX) return false;
+    layout.report_id = pointer_report_id;
+    layout.has_report_id = report_id_selected;
     layout.report_bytes = static_cast<uint16_t>(total_bytes);
+    layout.transfer_bytes = static_cast<uint16_t>(maximum_bytes);
     layout.valid = true;
     *output = layout;
     return true;

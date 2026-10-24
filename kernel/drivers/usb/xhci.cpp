@@ -1173,7 +1173,7 @@ bool configure_report_pointer_endpoint(Controller& controller) {
         controller.report_interface.endpoint_address,
         controller.report_interface.maximum_packet_size,
         controller.report_interface.interval,
-        controller.pointer_layout.report_bytes,
+        controller.pointer_layout.transfer_bytes,
     };
     return controller.pointer_layout.valid &&
         configure_hid_interrupt_endpoint(controller, hid_endpoint);
@@ -2530,7 +2530,7 @@ bool configure_companion_hid_endpoint(Controller& controller) {
             companion.report_interface.endpoint_address,
             companion.report_interface.maximum_packet_size,
             companion.report_interface.interval,
-            companion.pointer_layout.report_bytes,
+            companion.pointer_layout.transfer_bytes,
         };
     } else {
         return false;
