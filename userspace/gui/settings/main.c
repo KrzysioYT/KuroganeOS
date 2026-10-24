@@ -374,8 +374,11 @@ int main(void) {
         }
         if (event.type == KU_UI_EVENT_SCROLL) {
             const uint32_t before = scene.scroll_offset;
-            (void)kui_scene_scroll(&scene, event.wheel_y < 0 ? 1 :
-                (event.wheel_y > 0 ? -1 : 0));
+            // USB HID can coalesce several detents into one signed event.
+            // Avoid negating INT32_MIN, which is not representable in int32_t.
+            const int32_t step = event.wheel_y == INT32_MIN
+                ? INT32_MAX : -event.wheel_y;
+            (void)kui_scene_scroll(&scene, step);
             if (scene.scroll_offset != before) {
                 (void)kui_scene_present(window, &scene);
                 puts("[TEST] flux_settings_wheel_navigation: PASS");
