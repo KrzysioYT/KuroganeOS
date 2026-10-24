@@ -655,6 +655,24 @@ void label(const Rect& bounds, const char* text,
 void button(
     const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed,
     bool destructive) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = pressed ? kTheme.panel
+            : (selected || hovered ? kGraphiteRaised : kTheme.panel_alt);
+        const graphics::Color outline = destructive ? kTheme.danger
+            : (pressed || selected ? kTheme.accent
+                : (hovered ? kRedMuted : kTheme.border));
+        modern_surface(bounds, surface, outline, 7U);
+        const char* shown = text;
+        if (text_equals(text, "[]")) shown = "<>";
+        else if (text_equals(text, "-")) shown = "_";
+        else if (text_equals(text, "X")) shown = "x";
+        graphics::draw_text(bounds.x + 10,
+            bounds.y + (bounds.height - 14) / 2, shown ? shown : "",
+            kTheme.text, surface, 2U, true);
+        return;
+    }
+
     const auto background = gStyleId == KU_FLUX_STYLE_MODERN
         ? (pressed ? kTheme.panel : (selected || hovered ? kGraphite : kTheme.panel_alt))
         : (pressed ? KU_FLUX_COLOR_SURFACE_PRESSED
@@ -689,6 +707,16 @@ void button(
 void input_field(
     const Rect& bounds, const char* text, bool focused, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = kTheme.panel_alt;
+        modern_surface(bounds, surface,
+            focused || pressed ? kTheme.accent
+                : (hovered ? kRedMuted : kTheme.border), 7U);
+        graphics::draw_text(bounds.x + 12,
+            bounds.y + (bounds.height - 8) / 2, text ? text : "",
+            kTheme.text, surface, 1U, true);
+        return;
+    }
     const graphics::Color background = pressed
         ? graphics::rgb(31, 16, 21)
         : (focused ? graphics::rgb(24, 18, 22)
@@ -710,6 +738,29 @@ void metric_card(
     const Rect& bounds, const char* title, const char* detail,
     uint32_t value, uint32_t maximum) {
     if (bounds.width <= 0 || bounds.height <= 0 || maximum == 0U) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        if (value > maximum) value = maximum;
+        const uint32_t percent = static_cast<uint32_t>(
+            (static_cast<uint64_t>(value) * 100U) / maximum);
+        const graphics::Color highlight = value == 0U ? kSteel
+            : (percent >= 80U ? kTheme.accent : kRedMuted);
+        modern_surface(bounds, kGraphite, kTheme.border, 8U);
+        graphics::draw_text(bounds.x + 12, bounds.y + 9,
+            title ? title : "METRIC", kTheme.text, kGraphite, 1U, true);
+        graphics::draw_text(bounds.x + 12, bounds.y + 25,
+            detail ? detail : "", kTheme.text_muted, kGraphite, 1U, true);
+        if (bounds.width > 28 && bounds.height > 18) {
+            const int32_t track_width = bounds.width - 24;
+            const int32_t filled = static_cast<int32_t>(
+                (static_cast<uint64_t>(value) * static_cast<uint64_t>(track_width)) /
+                maximum);
+            graphics::fill_rounded_rect(bounds.x + 12,
+                bounds.y + bounds.height - 10, track_width, 3, 1U, kTheme.border);
+            if (filled > 0) graphics::fill_rounded_rect(bounds.x + 12,
+                bounds.y + bounds.height - 10, filled, 3, 1U, highlight);
+        }
+        return;
+    }
     if (value > maximum) value = maximum;
     const graphics::Color background = kGraphite;
     const uint32_t percent = static_cast<uint32_t>(
@@ -765,6 +816,25 @@ void toggle_switch(
     const Rect& bounds, const char* title, const char* detail,
     bool checked, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = pressed ? kTheme.panel : kGraphite;
+        modern_surface(bounds, surface,
+            hovered || checked ? kRedMuted : kTheme.border, 9U);
+        graphics::draw_text(bounds.x + 12, bounds.y + 9,
+            title ? title : "SETTING", kTheme.text, surface, 1U, true);
+        graphics::draw_text(bounds.x + 12, bounds.y + 27,
+            detail ? detail : "", kTheme.text_muted, surface, 1U, true);
+        if (bounds.width >= 82 && bounds.height >= 30) {
+            const int32_t track_x = bounds.x + bounds.width - 54;
+            const int32_t track_y = bounds.y + (bounds.height - 20) / 2;
+            graphics::fill_rounded_rect(track_x, track_y, 42, 20, 10U,
+                checked ? kRedMuted : kTheme.border);
+            graphics::fill_rounded_rect(
+                checked ? track_x + 25 : track_x + 3,
+                track_y + 3, 14, 14, 7U, kTheme.text);
+        }
+        return;
+    }
     graphics::Color background = checked ? graphics::rgb(34, 18, 23) : kGraphite;
     graphics::Color border = checked ? kRedMuted : kTheme.border;
     if (hovered) border = kSteel;

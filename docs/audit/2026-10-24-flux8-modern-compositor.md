@@ -38,3 +38,12 @@ cursor. The attached VirtualBox screenshot demonstrates the old appearance.
 - There is no hardware GPU acceleration or full dynamic modesetting here.
 - Do not mark 8.0.0-dev or 15.0 stable without exact SHA CI and manual
   VirtualBox acceptance; keep 7.0.0-dev version and PR #55 draft.
+
+## Further Modern widgets
+
+The retained/native compositor's Modern style now covers app actions,
+text inputs, system metric cards and toggles with soft corners, reduced
+high-contrast strips and modern switch tracks. Classic is unchanged. The
+integer raster rounds use 64-bit intermediates to avoid signed i32 overflow
+at extreme coordinates. These remain software-GOP surfaces, not Wayland or
+GPU-accelerated clients.

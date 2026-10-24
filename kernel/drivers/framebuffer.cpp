@@ -441,11 +441,16 @@ void fill_rounded_rect(int32_t x, int32_t y, int32_t width,
     }
     // Large flat center is painted once; only the top/bottom corners need
     // per-row spans. No heap, floats, multiply-overflow or unbounded loops.
-    fill_rect(x, y + r, width, height - 2 * r, color);
+    fill_rect(x, saturate_i32(static_cast<int64_t>(y) + r),
+              width, height - 2 * r, color);
     for (int32_t row = 0; row < r; ++row) {
         const int32_t inset = raster::rounded_inset(r, row);
-        fill_rect(x + inset, y + row, width - 2 * inset, 1, color);
-        fill_rect(x + inset, y + height - 1 - row, width - 2 * inset, 1, color);
+        const int32_t left = saturate_i32(static_cast<int64_t>(x) + inset);
+        fill_rect(left, saturate_i32(static_cast<int64_t>(y) + row),
+                  width - 2 * inset, 1, color);
+        fill_rect(left, saturate_i32(
+            static_cast<int64_t>(y) + height - 1 - row),
+            width - 2 * inset, 1, color);
     }
 }
 
