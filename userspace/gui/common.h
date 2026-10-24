@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <kurogane/libui.h>
+#include <kurogane/display.h>
 #include <kurogane/kurogane.h>
 
 static inline void gui_u64(char* output, size_t capacity, uint64_t value) {
@@ -26,6 +27,12 @@ static inline ku_window_t gui_open(
     ku_ui_window_options options = {
         sizeof(ku_ui_window_options), x, y, width, height
     };
+    ku_display_info display = {0};
+    display.structure_size = sizeof(display);
+    if (ku_display_get_info(&display) == KU_STATUS_OK &&
+        display.version == KU_DISPLAY_INFO_VERSION) {
+        (void)ku_display_fit_window(&display, &options);
+    }
     const ku_result_t result = ku_ui_create(title, strlen(title), &options);
     return result > 0 ? (ku_window_t)result : KU_INVALID_WINDOW;
 }

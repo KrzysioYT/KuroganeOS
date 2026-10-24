@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/display.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/network.h>
 #include <kurogane/status.h>
@@ -1634,6 +1635,37 @@ void syscall_handler(
             frame.rax = status == windowing::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
                 : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            return;
+        }
+        case KU_SYS_DISPLAY_INFO: {
+            if (frame.rsi != sizeof(ku_display_info) ||
+                !validate_user_buffer(*context, frame.rdi,
+                                      sizeof(ku_display_info), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* info = reinterpret_cast<ku_display_info*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (info->structure_size != sizeof(*info)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            if (!graphics::available() || !windowing::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            const windowing::WorkspaceGeometry workspace =
+                windowing::workspace_geometry();
+            *info = {};
+            info->structure_size = sizeof(*info);
+            info->version = KU_DISPLAY_INFO_VERSION;
+            info->screen_width = graphics::width();
+            info->screen_height = graphics::height();
+            info->work_x = workspace.work_area.x;
+            info->work_y = workspace.work_area.y;
+            info->work_width = workspace.work_area.width;
+            info->work_height = workspace.work_area.height;
+            frame.rax = KU_STATUS_OK;
             return;
         }
         case KU_SYS_DESKTOP_STYLE: {

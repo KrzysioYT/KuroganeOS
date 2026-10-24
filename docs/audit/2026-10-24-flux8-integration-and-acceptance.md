@@ -51,3 +51,17 @@ VARS copy, the built `KuroganeOS-linux.img` in `snapshot=on` mode,
 A modern production font renderer, switchable GOP display modes and
 resolution-aware layout, drag-and-drop, and complete clipboard editing
 remain unimplemented. Pass logs should never claim those features.
+
+## Responsive desktop window geometry (2026-10-24 candidate)
+
+Public `KU_SYS_DISPLAY_INFO = 70` exposes actual GOP framebuffer width/height
+and the compositor's current usable work area through a strict 32-byte ABI,
+including version/size and user-pointer validation. Native Ring-3 `gui_open`
+fits requested window sizes and positions to this area without changing normal
+1024x768 layouts. Pure C11/C++17 host regressions check 800x600, 1024x768,
+1920x1080, inverted/invalid dimensions, small workspaces and integer extremes.
+
+**Not** runtime resolution switching: GOP cannot be arbitrarily reprogrammed
+after ExitBootServices; mode-setting driver and resizable layout for individual
+widgets still require separate qualification. This improves initial window
+placement only.

@@ -371,6 +371,17 @@ done
   -o "$OUT_DIR/test_flux_theme_palette_cpp"
 "$OUT_DIR/test_flux_theme_palette_cpp"
 
+# Flux 8 responsive geometry: compile the actual SDK placement contract
+# in both freestanding-compatible C and C++ and test overflow and small GOP.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_display_layout.c \
+  -o "$OUT_DIR/test_display_layout"
+"$OUT_DIR/test_display_layout"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_display_layout.c \
+  -o "$OUT_DIR/test_display_layout_cpp"
+"$OUT_DIR/test_display_layout_cpp"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
