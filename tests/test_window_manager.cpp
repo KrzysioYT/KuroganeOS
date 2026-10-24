@@ -207,7 +207,8 @@ int main() {
         info.bounds.x != 190 || info.bounds.y != 140) return 15;
     event.type = input::EventType::MouseButtonUp;
     event.buttons = 0U;
-    if (dispatch(event) != Status::Ok || g_inputs == 0U) return 16;
+    // System chrome drag/release must not synthesize app callbacks.
+    if (dispatch(event) != Status::Ok || g_inputs != 0U) return 16;
 
     // Exercise the geometric expand control instead of a textual [] button.
     if (chrome_geometry(first, &chrome) != Status::Ok) return 17;
