@@ -428,6 +428,29 @@ void draw_rect(int32_t x, int32_t y, int32_t rectangle_width,
               y, line, rectangle_height, color);
 }
 
+void blend_corner_pixel(int32_t x, int32_t y, Color foreground,
+                        uint8_t count) {
+    if (count == 0U || !g_available || x < 0 || y < 0 ||
+        x >= static_cast<int32_t>(g_framebuffer.width) ||
+        y >= static_cast<int32_t>(g_framebuffer.height)) return;
+    if (g_clip.enabled &&
+        (x < g_clip.left || x >= g_clip.right ||
+         y < g_clip.top || y >= g_clip.bottom)) return;
+    if (!damage_contains(x, y)) return;
+    auto* row = reinterpret_cast<uint32_t*>(
+        draw_base() + static_cast<size_t>(y) * draw_pitch());
+    const uint32_t fg = native_color(foreground);
+    if (count >= 16U) { row[x] = fg; return; }
+    const uint32_t bg = row[x];
+    uint32_t out = bg & UINT32_C(0xff000000);
+    for (uint32_t shift = 0U; shift < 24U; shift += 8U) {
+        const uint32_t a = (fg >> shift) & 255U;
+        const uint32_t b = (bg >> shift) & 255U;
+        out |= ((a * count + b * (16U - count) + 8U) / 16U) << shift;
+    }
+    row[x] = out;
+}
+
 void fill_rounded_rect(int32_t x, int32_t y, int32_t width,
                        int32_t height, uint32_t radius, Color color) {
     if (!g_available || width <= 0 || height <= 0) return;
@@ -435,22 +458,24 @@ void fill_rounded_rect(int32_t x, int32_t y, int32_t width,
     if (limit > static_cast<uint32_t>(width / 2)) limit = static_cast<uint32_t>(width / 2);
     if (limit > static_cast<uint32_t>(height / 2)) limit = static_cast<uint32_t>(height / 2);
     const int32_t r = static_cast<int32_t>(limit);
-    if (r <= 1) {
-        fill_rect(x, y, width, height, color);
-        return;
-    }
-    // Large flat center is painted once; only the top/bottom corners need
-    // per-row spans. No heap, floats, multiply-overflow or unbounded loops.
+    if (r <= 1) { fill_rect(x, y, width, height, color); return; }
+    // Cheap flat center and middle; only four radius-sized corners sampled.
     fill_rect(x, saturate_i32(static_cast<int64_t>(y) + r),
               width, height - 2 * r, color);
+    fill_rect(saturate_i32(static_cast<int64_t>(x) + r), y,
+              width - 2 * r, height, color);
     for (int32_t row = 0; row < r; ++row) {
-        const int32_t inset = raster::rounded_inset(r, row);
-        const int32_t left = saturate_i32(static_cast<int64_t>(x) + inset);
-        fill_rect(left, saturate_i32(static_cast<int64_t>(y) + row),
-                  width - 2 * inset, 1, color);
-        fill_rect(left, saturate_i32(
-            static_cast<int64_t>(y) + height - 1 - row),
-            width - 2 * inset, 1, color);
+        const int32_t top = saturate_i32(static_cast<int64_t>(y) + row);
+        const int32_t bottom = saturate_i32(static_cast<int64_t>(y) + height - row - 1);
+        for (int32_t col = 0; col < r; ++col) {
+            const uint8_t a = raster::coverage4x4(r, col, row);
+            const int32_t left = saturate_i32(static_cast<int64_t>(x) + col);
+            const int32_t right = saturate_i32(static_cast<int64_t>(x) + width - col - 1);
+            blend_corner_pixel(left, top, color, a);
+            blend_corner_pixel(right, top, color, a);
+            blend_corner_pixel(left, bottom, color, a);
+            blend_corner_pixel(right, bottom, color, a);
+        }
     }
 }
 

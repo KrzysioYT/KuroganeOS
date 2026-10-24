@@ -227,3 +227,14 @@ child, and Home to be the live Login's direct child with no existing Home.
 This preserves the authenticated handoff, rejects spoofed title privilege,
 and leaves every other user application under existing session-tree checks.
 An independent no-hardware unit covers the new origin policy.
+
+
+## Flux Modern subpixel corner raster (2026-10-24)
+
+Added 4x4 deterministic, integer-only antialiased coverage in the
+software-compositor rounded rectangles, blending into the destination
+backbuffer with both clip and damage checks. Flat spans remain optimized;
+only 4 corners of <=16px are supersampled. This improves widget edges
+without changing Classic layout. The rounded geometry host regression
+now asserts coverage symmetry, corner bounds and intermediate alpha.
+It is **not** yet a scalable font renderer, TTF support, or GPU compositor.
