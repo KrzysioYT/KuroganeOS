@@ -651,6 +651,7 @@ int main(void) {
     const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
     kui_scene scene;
     int omnibox_active = 0;
+    int omnibox_select_all = 0;
     int surface_reported = 0;
     uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
@@ -692,6 +693,7 @@ int main(void) {
             target = kui_scene_hit_test(&scene, event.x, event.y);
             if (target == 2U) {
                 omnibox_active = 1;
+                omnibox_select_all = 0;
             } else if (target == 3U) {
                 (void)navigation_controller_load(&g_browser);
                 omnibox_active = 0;
@@ -714,30 +716,79 @@ int main(void) {
                     (void)strlcpy(g_browser.status, "CLIPBOARD UNAVAILABLE", sizeof(g_browser.status));
                 }
                 omnibox_active = 1;
+                omnibox_select_all = 0;
             } else if (target == 4U) {
                 g_browser.url_length = 0U;
                 g_browser.url[0] = '\0';
                 g_browser.stage = CHROMIUM_STAGE_IDLE;
                 (void)strlcpy(g_browser.status, "ADDRESS CLEARED", sizeof(g_browser.status));
                 omnibox_active = 1;
+                omnibox_select_all = 0;
             } else {
                 omnibox_active = 0;
+                omnibox_select_all = 0;
             }
             continue;
         }
 
         if (event.type != KU_UI_EVENT_KEY || !omnibox_active) continue;
+        if ((event.modifiers & KU_UI_MOD_CONTROL) != 0U) {
+            const uint32_t key = event.character >= 'A' && event.character <= 'Z'
+                ? event.character - 'A' + 'a' : event.character;
+            if (key == 'a') {
+                omnibox_select_all = 1;
+                puts("[TEST] flux_browser_select_all: PASS");
+            } else if (key == 'c' || key == 'x') {
+                if (flux_clipboard_set_text(g_browser.url)) {
+                    if (key == 'x') {
+                        g_browser.url_length = 0U;
+                        g_browser.url[0] = '\0';
+                        omnibox_select_all = 0;
+                    }
+                    puts("[TEST] flux_browser_ctrl_copy: PASS");
+                }
+            } else if (key == 'v') {
+                char pasted[BROWSER_URL_CAPACITY];
+                if (flux_clipboard_get_text(pasted, sizeof(pasted))) {
+                    const size_t length = strlen(pasted);
+                    const size_t prefix = omnibox_select_all ? 0U : g_browser.url_length;
+                    if (length < sizeof(g_browser.url) &&
+                        prefix <= sizeof(g_browser.url) - 1U - length) {
+                        memcpy(g_browser.url + prefix, pasted, length + 1U);
+                        g_browser.url_length = prefix + length;
+                        omnibox_select_all = 0;
+                        puts("[TEST] flux_browser_ctrl_paste: PASS");
+                    } else {
+                        (void)strlcpy(g_browser.status, "PASTE / ADDRESS TOO LONG",
+                                      sizeof(g_browser.status));
+                    }
+                }
+            }
+            // Consume all control shortcuts. Never insert Ctrl+C/V as text.
+            continue;
+        }
         if (event.key == KU_UI_KEY_BACKSPACE) {
-            if (g_browser.url_length != 0U) {
+            if (omnibox_select_all) {
+                g_browser.url_length = 0U;
+                g_browser.url[0] = '\0';
+                omnibox_select_all = 0;
+            } else if (g_browser.url_length != 0U) {
                 g_browser.url[--g_browser.url_length] = '\0';
             }
         } else if (event.key == KU_UI_KEY_ENTER) {
             (void)navigation_controller_load(&g_browser);
             omnibox_active = 0;
-        } else if (event.character >= 0x20U && event.character <= 0x7EU &&
-                   g_browser.url_length + 1U < sizeof(g_browser.url)) {
-            g_browser.url[g_browser.url_length++] = (char)event.character;
-            g_browser.url[g_browser.url_length] = '\0';
+            omnibox_select_all = 0;
+        } else if (event.character >= 0x20U && event.character <= 0x7EU) {
+            if (omnibox_select_all) {
+                g_browser.url_length = 0U;
+                g_browser.url[0] = '\0';
+                omnibox_select_all = 0;
+            }
+            if (g_browser.url_length + 1U < sizeof(g_browser.url)) {
+                g_browser.url[g_browser.url_length++] = (char)event.character;
+                g_browser.url[g_browser.url_length] = '\0';
+            }
         }
     }
 

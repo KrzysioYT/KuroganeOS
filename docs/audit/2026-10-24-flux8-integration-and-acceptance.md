@@ -65,3 +65,13 @@ fits requested window sizes and positions to this area without changing normal
 after ExitBootServices; mode-setting driver and resizable layout for individual
 widgets still require separate qualification. This improves initial window
 placement only.
+
+## Scoped keyboard clipboard integration (2026-10-24)
+
+The Ring-3 UI event retains its 32-byte ABI while assigning the previously
+reserved final word to Shift/Ctrl/Alt modifier flags **for key events only**;
+scroll events continue to use the same union member as signed `wheel_y`.
+Kurogane Web now supports Ctrl+A/C/X/V in its focused omnibox, including
+bounded append/selection replacement and no accidental Ctrl-key text entry.
+Clipboard contents are served by production `clipboard.v1`; other apps
+remain mouse-first and must not see this as general clipboard completion.

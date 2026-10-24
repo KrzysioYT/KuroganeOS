@@ -143,6 +143,12 @@ enum ku_ui_event_type {
  * target window. They can be negative when a captured pointer leaves the
  * content area; applications must not treat them as screen coordinates.
  */
+enum ku_ui_key_modifiers {
+    KU_UI_MOD_SHIFT = UINT32_C(1) << 0,
+    KU_UI_MOD_CONTROL = UINT32_C(1) << 1,
+    KU_UI_MOD_ALT = UINT32_C(1) << 2
+};
+
 typedef struct ku_ui_event {
     uint32_t structure_size;
     uint32_t type;
@@ -152,9 +158,11 @@ typedef struct ku_ui_event {
     int32_t y;
     uint32_t buttons;
     // Reuse the original reserved ABI slot; size and alignment stay at 32.
-    // wheel_y is only defined for KU_UI_EVENT_SCROLL (positive = up).
+    // ABI-compatible event payload: key modifiers on KEY and signed wheel
+    // detents on SCROLL. These event types are mutually exclusive.
     union {
         uint32_t reserved;
+        uint32_t modifiers;
         int32_t wheel_y;
     };
 } ku_ui_event;

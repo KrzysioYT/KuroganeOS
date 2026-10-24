@@ -387,6 +387,10 @@ void input_user_window(
         event.type = KU_UI_EVENT_KEY;
         event.key = static_cast<uint32_t>(input_event.key);
         event.character = static_cast<uint8_t>(input_event.character);
+        event.modifiers =
+            (input_event.shift ? KU_UI_MOD_SHIFT : 0U) |
+            (input_event.control ? KU_UI_MOD_CONTROL : 0U) |
+            (input_event.alt ? KU_UI_MOD_ALT : 0U);
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
                input_event.type == input::EventType::MouseButtonUp ||
