@@ -102,7 +102,7 @@ static void build_scene(
         (void)strlcpy(ram_metric, "RAM\n<1%", sizeof(ram_metric));
     }
     build_percent_metric(
-        gpu_metric, sizeof(gpu_metric), "GPU", snapshot->gpu_percent);
+        gpu_metric, sizeof(gpu_metric), "SOFT DRAW*", snapshot->gpu_percent);
     build_percent_metric(
         disk_metric, sizeof(disk_metric), "DISK I/O*", snapshot->disk_percent);
 
@@ -204,7 +204,7 @@ static void build_scene(
         (void)kui_flow_metric(
             &root, 14U, disk_metric, snapshot->disk_percent, 100U);
         (void)kui_flow_label(&root, 15U, memory_line);
-        (void)kui_flow_label(&root, 17U, "* ESTIMATED SCHEDULER / BLOCK I/O ACTIVITY");
+        (void)kui_flow_label(&root, 17U, "* SCHEDULER / BLOCK I/O / GOP ACTIVITY INDEX");
         (void)kui_flow_label(
             &root, 16U, status != NULL ? status : "LIVE / READY");
     }

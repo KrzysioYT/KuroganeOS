@@ -439,7 +439,7 @@ static void build_scene(kui_scene* scene) {
     if (!network_valid) {
         append_text(net, sizeof(net), "UNKNOWN");
     } else if (network.ready != 0U) {
-        append_text(net, sizeof(net), "ONLINE");
+        append_text(net, sizeof(net), "STACK READY");
         net_value = 100U;
     } else if (network.physical != 0U) {
         append_text(net, sizeof(net), "LINK");
