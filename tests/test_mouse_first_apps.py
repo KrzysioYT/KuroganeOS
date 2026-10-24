@@ -73,6 +73,11 @@ assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
 assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
 assert "if (!profile.password_required)" in login
 assert "gui_key_activate(&event)" in login, "login: Enter activation missing for live profile"
+assert "wait_for_home_surface(launcher_pid)" in login
+assert 'flux_home_first_frame: PASS' in login
+assert 'flux_launcher_exited_before_ui: FAIL' in login
+assert "ku_ui_close(window) != KU_STATUS_OK" in login
+assert login.index("wait_for_home_surface(launcher_pid)") < login.index("ku_ui_close(window) != KU_STATUS_OK"), "login: closed before ready"
 
 window_manager = read("kernel/ui/window_manager.cpp")
 assert "slot.info.state = owner_pid == 0U" in window_manager, "desktop: HOME is still minimized on session entry"

@@ -133,6 +133,9 @@ Status list(ListCallback callback, void* context);
 // but chrome, dock and desktop commands consume their own gestures.
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
+// The session Home is ready only after it has presented a real UI surface.
+// Login uses this as a bounded hand-off gate, never a timer-based assumption.
+bool home_surface_ready();
 // Floating dock is rendered over the work area and collapses on pointer exit.
 // These queries expose exact geometry and visibility for host/runtime tests.
 bool dock_visible();

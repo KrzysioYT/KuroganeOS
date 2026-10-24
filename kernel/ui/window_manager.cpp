@@ -42,6 +42,7 @@ constexpr size_t DOCK_PIN_COUNT = 8U;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
+constexpr uint32_t DESKTOP_PIN_HOME_READY = 3U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -1278,6 +1279,14 @@ Status list(ListCallback callback, void* context) {
 }
 
 WorkspaceGeometry workspace_geometry() { return calculate_workspace(); }
+
+bool home_surface_ready() {
+    if (!g_initialized) return false;
+    const Slot* home = find_by_title("RED FLUX HOME");
+    return home != nullptr && home->occupied &&
+        home->info.state != WindowState::Minimized &&
+        home->surface.valid && home->draw != nullptr;
+}
 bool dock_visible() { return g_dock_visible; }
 
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
@@ -1314,6 +1323,11 @@ Status desktop_pin(
     if (!g_initialized) return Status::NotInitialized;
     if (out_pinned == nullptr || app_id >= DOCK_PIN_COUNT) {
         return Status::InvalidArgument;
+    }
+    if (action == DESKTOP_PIN_HOME_READY) {
+        if (app_id != 0U) return Status::InvalidArgument;
+        *out_pinned = home_surface_ready();
+        return Status::Ok;
     }
     if (app_id == 0U) {
         g_desktop_pinned[0U] = true;

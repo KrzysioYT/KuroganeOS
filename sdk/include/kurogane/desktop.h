@@ -25,7 +25,11 @@ enum ku_desktop_app_id {
 enum ku_desktop_pin_action {
     KU_DESKTOP_PIN_QUERY = 0,
     KU_DESKTOP_PIN_SET = 1,
-    KU_DESKTOP_PIN_TOGGLE = 2
+    KU_DESKTOP_PIN_TOGGLE = 2,
+    // Session-ready query: app_id must be HOME. 'pinned' reports whether
+    // a live, visible Home window has submitted its first UI surface.
+    // This cannot modify desktop pin state or launch an app.
+    KU_DESKTOP_PIN_HOME_READY = 3
 };
 
 typedef struct ku_desktop_pin_request {

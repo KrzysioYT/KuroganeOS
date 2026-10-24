@@ -435,12 +435,20 @@ int main() {
     if (create_window("RED FLUX HOME", 17U, {100, 100, 360, 260},
                       draw, receive, nullptr, &home) != Status::Ok ||
         query(home, &info) != Status::Ok ||
-        info.state != WindowState::Normal || focused_window() != home) return 57;
+        info.state != WindowState::Normal || focused_window() != home ||
+        home_surface_ready()) return 57;
+    bool reported_ready = true;
+    if (desktop_pin(0U, 3U, false, &reported_ready) != Status::Ok ||
+        reported_ready ||
+        desktop_pin(2U, 3U, false, &reported_ready) != Status::InvalidArgument)
+        return 162;
     uint8_t home_payload[16]{};
     home_payload[0] = UINT8_C(0x5a);
     if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=
             Status::Ok || query(home, &info) != Status::Ok ||
-        info.state != WindowState::Normal) return 58;
+        info.state != WindowState::Normal || !home_surface_ready() ||
+        desktop_pin(0U, 3U, false, &reported_ready) != Status::Ok ||
+        !reported_ready) return 58;
     // Clicking the APPS item on an already-focused Home must NOT minimize it.
     const WorkspaceGeometry dock_at_home = workspace_geometry();
     event = {};
@@ -452,7 +460,7 @@ int main() {
     if (dispatch(event) != Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Normal) return 158;
     if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
-        info.state != WindowState::Minimized) return 59;
+        info.state != WindowState::Minimized || home_surface_ready()) return 59;
     // Keyboard escape hatch works even with completely unavailable pointer.
     event = {};
     event.type = input::EventType::KeyDown;
@@ -462,7 +470,7 @@ int main() {
     if (dispatch(event) != Status::Ok ||
         query(home, &info) != Status::Ok ||
         info.state != WindowState::Normal ||
-        focused_window() != home) return 159;
+        focused_window() != home || !home_surface_ready()) return 159;
     if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Minimized) return 160;
     SurfaceView home_surface{};
@@ -471,7 +479,8 @@ int main() {
         home_surface.data[0] != UINT8_C(0x5a)) return 60;
     const WindowId stale_home = home;
     if (close(home) != Status::Ok || query(stale_home, &info) != Status::NotFound ||
-        read_surface(stale_home, &home_surface) != Status::NotFound) return 61;
+        read_surface(stale_home, &home_surface) != Status::NotFound ||
+        home_surface_ready()) return 61;
     WindowId next_home_slot = INVALID_WINDOW;
     if (create_window("AfterHome", 18U, {110, 110, 300, 220},
                       draw, receive, nullptr, &next_home_slot) != Status::Ok ||

@@ -265,6 +265,44 @@ static int response_has_application(
     return 0;
 }
 
+/* Prevent a blank authenticated desktop when /gui/launcher either
+ * fails to open a window or dies before presenting native controls.
+ * Reuse the desktop pin syscall's explicit read-only Home-ready action:
+ * it does not add a new syscall number or change existing request size.
+ */
+static int home_surface_ready(void) {
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = KU_DESKTOP_APP_HOME;
+    request.action = KU_DESKTOP_PIN_HOME_READY;
+    return ku_desktop_pin(&request) == KU_STATUS_OK && request.pinned != 0U;
+}
+
+static int wait_for_home_surface(uint64_t launcher_pid) {
+    uint32_t attempt;
+    for (attempt = 0U; attempt < 2500U; ++attempt) {
+        int32_t status = 0;
+        ku_status_t result;
+        if (home_surface_ready()) {
+            puts("[SESSION] flux_home_first_frame: PASS");
+            return 1;
+        }
+        result = ku_process_wait(launcher_pid, &status);
+        if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
+            puts("[SESSION] flux_launcher_exited_before_ui: FAIL");
+            return 0;
+        }
+        if (result != KU_STATUS_WOULD_BLOCK) {
+            puts("[SESSION] flux_launcher_wait_error: FAIL");
+            return 0;
+        }
+        (void)kuro_sleep(1U);
+    }
+    puts("[SESSION] flux_home_first_frame_timeout: FAIL");
+    return 0;
+}
+
 static int wait_for_desktop(uint64_t pid) {
     for (;;) {
         int32_t status = 0;
@@ -298,10 +336,15 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     }
     session_id = response.session_id;
 
-    (void)ku_ui_close(window);
+    // Keep the authenticated login surface visible while the Ring-3
+    // session starts. No desktop handoff until native Home really exists.
     {
         const ku_result_t spawned = ku_process_spawn(launcher, sizeof(launcher) - 1U);
-        if (spawned <= 0) goto cleanup;
+        if (spawned <= 0) {
+            puts("[SESSION] flux_launcher_spawn: FAIL");
+            goto cleanup;
+        }
+        puts("[SESSION] flux_launcher_spawn: PASS");
         launcher_pid = (uint64_t)spawned;
     }
 
@@ -322,10 +365,24 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     }
 
     puts("[TEST] red_flux_owned_session: PASS");
+    if (!wait_for_home_surface(launcher_pid)) {
+        desktop_status = 8;
+        goto cleanup;
+    }
+    // The launcher has presented a real retained surface. It is now safe
+    // to dismiss Login and release pointer ownership to the Home window.
+    if (ku_ui_close(window) != KU_STATUS_OK) {
+        puts("[SESSION] flux_login_window_close: FAIL");
+        desktop_status = 9;
+        goto cleanup;
+    }
     puts("[TEST] red_flux_login_to_desktop: PASS");
     desktop_status = wait_for_desktop(launcher_pid);
 
 cleanup:
+    if (desktop_status != 0) {
+        puts("[SESSION] flux_login_handoff: FAIL");
+    }
     if (launcher_pid != 0U) {
         (void)session_request(
             connection, KU_SESSION_DETACH_APPLICATION, session_id, 0U,

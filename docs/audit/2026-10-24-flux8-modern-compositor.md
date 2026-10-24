@@ -78,3 +78,24 @@ shows which stages actually happened, and does not confuse missing markers
 (before user interaction) with proven regression failures. New runtime
 `[INPUT]` traces are emitted at mouse delivery, launcher action receipt,
 Home tile hit and child process spawn.
+
+## Atomic Login-to-Home hand-off — 2026-10-24
+
+A user verified the native desktop appears but the Home window and every
+application command are missing. The kernel Dock forwards app requests through
+the `RED FLUX HOME` Ring-3 owner; when it is missing, desktop clicks and even
+Ctrl+Alt+F1…F8 are ineffective. The specific reason Home did not present in
+VirtualBox remains subject to COM1 diagnostics.
+
+The login process previously closed its own window **before** spawning and
+validating `/gui/launcher`. That made a blank desktop possible on a failed
+handoff. Login now retains its window until the actual Home window has both
+been created and submitted a retained surface, verified via a read-only,
+ABI-compatible `KU_DESKTOP_PIN_HOME_READY` action. The query is bound to
+Home ID 0, doesn't mutate pin state, and cannot promote session credentials.
+Waiting is bounded (2500 ticks) and aborts early if the child exits; stage
+failure markers are serialized rather than optimistic startup PASS labels.
+
+Host regression covers nonpresented Home, first surface, minimized state,
+restoration and window destruction. Manual VBox/UEFI and exact SHA CI remain
+necessary before claiming live functionality.

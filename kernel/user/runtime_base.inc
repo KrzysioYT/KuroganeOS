@@ -1625,7 +1625,7 @@ void syscall_handler(
                 static_cast<uintptr_t>(frame.rdi));
             if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
                 request->app_id >= KU_DESKTOP_APP_COUNT ||
-                request->action > KU_DESKTOP_PIN_TOGGLE) {
+                request->action > KU_DESKTOP_PIN_HOME_READY) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
