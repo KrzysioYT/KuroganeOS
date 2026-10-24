@@ -46,12 +46,13 @@ static inline ku_result_t flux_clipboard_open(void) {
 static inline int flux_clipboard_set_text(const char* text) {
     ku_clipboard_request request;
     ku_clipboard_response response;
-    const ku_result_t opened = flux_clipboard_open();
+    ku_result_t opened;
     size_t length;
     int ok;
     if (text == NULL) return 0;
     length = strlen(text) + 1U;
     if (length < 2U || length > KU_CLIPBOARD_DATA_CAPACITY) return 0;
+    opened = flux_clipboard_open();
     if (opened <= 0) return 0;
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
@@ -71,9 +72,11 @@ static inline int flux_clipboard_set_text(const char* text) {
 static inline int flux_clipboard_get_text(char* destination, size_t capacity) {
     ku_clipboard_request request;
     ku_clipboard_response response;
-    const ku_result_t opened = flux_clipboard_open();
+    ku_result_t opened;
     int ok;
-    if (destination == NULL || capacity == 0U || opened <= 0) return 0;
+    if (destination == NULL || capacity == 0U) return 0;
+    opened = flux_clipboard_open();
+    if (opened <= 0) return 0;
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
     request.structure_size = sizeof(request);

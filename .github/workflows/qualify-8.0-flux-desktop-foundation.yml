@@ -21,6 +21,8 @@ on:
       - 'sdk/include/kurogane/syscall.h'
       - 'sdk/src/libui.c'
       - 'userspace/gui/settings/**'
+      - 'userspace/gui/browser/**'
+      - 'userspace/gui/clipboard_actions.h'
       - 'userspace/gui/performance/**'
       - 'tests/test_flux_theme_palette.c'
       - 'kernel/core/system_metrics.cpp'
