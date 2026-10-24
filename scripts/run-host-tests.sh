@@ -11,6 +11,8 @@ OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
 
 mkdir -p "$OUT_DIR"
 
+bash -n scripts/run-flux8-wsl.sh
+
 echo "[host-tests] C compiler:   $HOST_CC"
 echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"

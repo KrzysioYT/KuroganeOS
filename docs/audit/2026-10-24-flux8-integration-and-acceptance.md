@@ -80,3 +80,28 @@ The keyboard driver translates Ctrl+C to ASCII 0x03 (not 'c'). An additional
 bounded `ku_ui_clipboard_shortcut()` helper matches the physical KeyCode A/C/X/V
 with Control in the 32-byte Ring-3 ABI. Native hosted C/C++ tests assert the
 real control-character behavior, non-control typing and wheel union exclusion.
+
+## One-command WSLg visual testing
+
+After pulling the integration branch in `D:\\KuroganeOS` and entering Ubuntu
+at `/mnt/d/KuroganeOS`:
+
+```bash
+bash scripts/run-flux8-wsl.sh --build
+```
+
+This compiles release media, opens a real GTK QEMU window with OVMF, q35,
+xHCI USB keyboard + **USB Tablet** (the pointer profile verified in the
+user's WSLg environment), no PS/2, a serial log at
+`build/tests/flux8-manual/serial.log`, and a **snapshot-on** disk.
+
+To test persistence of `ui.theme` and `ui.style` across guest reboots:
+
+```bash
+bash scripts/run-flux8-wsl.sh --persistent
+```
+
+The persistent flag writes **only** to an independent
+`build/tests/flux8-manual/flux8-persistent.img` copy and reuses it between
+runs. It does not modify the build image, host Windows/Arch disks, or source.
+No VM run constitutes acceptance without checking logs and interaction.
