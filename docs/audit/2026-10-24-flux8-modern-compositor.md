@@ -1,0 +1,40 @@
+# KuroganeOS Flux 8 — Modern compositor migration (2026-10-24)
+
+## Why
+The Classic/Modern toggle previously changed only rectangular widget chrome.
+The desktop still used a 5x7 bitmap typeface and a framebuffer XOR triangle
+cursor. The attached VirtualBox screenshot demonstrates the old appearance.
+
+## Implemented here
+- Replace the XOR cursor with a non-inverting, framebuffer-format-aware
+  software cursor overlay. Each modified GOP pixel is backed up and restored
+  when the cursor moves or a compositor frame begins. The input coordinates,
+  event ordering and mouse capture semantics remain unchanged; no pointer
+  smoothing or additional input latency is introduced.
+- Use a bounded cursor mask, 64-bit clipping arithmetic and tests for
+  edges, corners, offscreen coordinates and framebuffer restoration.
+- Add freestanding integer-only rounded-rectangle raster geometry that honors
+  the existing clip and damage rules through fill_rect.
+- Render Modern window backgrounds, dock, dock buttons, panels and Home app
+  tiles with subtle rounded corners and restrained focus accents.
+- Keep Classic's existing angular look as an explicit fallback.
+
+## Verification
+- New host tests: test_flux_cursor_overlay and test_flux_rounded_geometry.
+- Run these in scripts/run-host-tests.sh and the scoped Flux desktop
+  qualification as optimized and UBSan builds.
+- The scoped workflow still requires real QEMU/OVMF Ring-3 USB-only desktop
+  startup with both keyboard and pointer.
+- Human acceptance: mouse move on bright and dark backgrounds must no longer
+  invert or corrupt background pixels; move/resize/close windows, drag across
+  screen edges, toggle Modern and Classic and inspect each theme.
+
+## Not yet implemented or claimed
+- This is KuroganeOS native compositor work **inspired by modern Wayland
+  desktops**, not an implementation of the Wayland protocol.
+- The 5x7 bitmap glyphs are **not** a scalable, anti-aliased font engine.
+  True font atlas/rasterizer + UTF-8, HiDPI, per-client surfaces and
+  proper fractional-scale layout remain future 8.x milestones.
+- There is no hardware GPU acceleration or full dynamic modesetting here.
+- Do not mark 8.0.0-dev or 15.0 stable without exact SHA CI and manual
+  VirtualBox acceptance; keep 7.0.0-dev version and PR #55 draft.

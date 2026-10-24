@@ -1,4 +1,5 @@
 #include "framebuffer.hpp"
+#include "rounded_rect.hpp"
 
 #include "../core/memory.hpp"
 
@@ -425,6 +426,27 @@ void draw_rect(int32_t x, int32_t y, int32_t rectangle_width,
     fill_rect(x, y, line, rectangle_height, color);
     fill_rect(saturate_i32(static_cast<int64_t>(x) + rectangle_width - line),
               y, line, rectangle_height, color);
+}
+
+void fill_rounded_rect(int32_t x, int32_t y, int32_t width,
+                       int32_t height, uint32_t radius, Color color) {
+    if (!g_available || width <= 0 || height <= 0) return;
+    uint32_t limit = radius > 16U ? 16U : radius;
+    if (limit > static_cast<uint32_t>(width / 2)) limit = static_cast<uint32_t>(width / 2);
+    if (limit > static_cast<uint32_t>(height / 2)) limit = static_cast<uint32_t>(height / 2);
+    const int32_t r = static_cast<int32_t>(limit);
+    if (r <= 1) {
+        fill_rect(x, y, width, height, color);
+        return;
+    }
+    // Large flat center is painted once; only the top/bottom corners need
+    // per-row spans. No heap, floats, multiply-overflow or unbounded loops.
+    fill_rect(x, y + r, width, height - 2 * r, color);
+    for (int32_t row = 0; row < r; ++row) {
+        const int32_t inset = raster::rounded_inset(r, row);
+        fill_rect(x + inset, y + row, width - 2 * inset, 1, color);
+        fill_rect(x + inset, y + height - 1 - row, width - 2 * inset, 1, color);
+    }
 }
 
 void draw_char(int32_t x, int32_t y, char character, Color foreground,

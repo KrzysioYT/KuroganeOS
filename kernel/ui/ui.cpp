@@ -33,6 +33,20 @@ constexpr graphics::Color kHeaderBand = graphics::rgb(12, 13, 16);
 constexpr graphics::Color kDockSurface = graphics::rgb(14, 15, 18);
 constexpr graphics::Color kDockRaised = graphics::rgb(27, 28, 33);
 
+// Flux Modern compositor surfaces: soft corners, restrained borders and
+// compact shadows; Classic retains the previous angular visual language.
+void modern_surface(const Rect& bounds, graphics::Color surface,
+                    graphics::Color border, uint32_t radius = 9U) {
+    if (bounds.width <= 2 || bounds.height <= 2) return;
+    graphics::fill_rounded_rect(bounds.x + 2, bounds.y + 4,
+        bounds.width, bounds.height, radius, kSurfaceShadow);
+    graphics::fill_rounded_rect(bounds.x, bounds.y,
+        bounds.width, bounds.height, radius, border);
+    graphics::fill_rounded_rect(bounds.x + 1, bounds.y + 1,
+        bounds.width - 2, bounds.height - 2,
+        radius > 0U ? radius - 1U : 0U, surface);
+}
+
 bool text_equals(const char* left, const char* right) {
     if (left == nullptr || right == nullptr) return false;
     size_t index = 0U;
@@ -441,6 +455,11 @@ void desktop(const char* title) {
 
 void panel(const Rect& bounds, bool raised) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        modern_surface(bounds, raised ? kGraphiteRaised : kTheme.panel_alt,
+                       kTheme.border);
+        return;
+    }
     graphics::fill_rect(bounds.x + 5, bounds.y + 6,
                         bounds.width, bounds.height, kSurfaceShadow);
     const auto background = raised ? kGraphiteRaised : kTheme.panel_alt;
@@ -453,15 +472,15 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
         const graphics::Color surface = focused ? kGraphiteFocused : kGraphite;
-        graphics::fill_rect(bounds.x + 5, bounds.y + 6, bounds.width, bounds.height, kSurfaceShadow);
-        graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, surface);
-        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, focused ? kRedMuted : kTheme.border);
-        graphics::fill_rect(bounds.x, bounds.y, bounds.width, 2, focused ? kRedBright : kTheme.border);
-        graphics::fill_rect(bounds.x + 1, bounds.y + 35, bounds.width - 2, 1, kTheme.border);
-        graphics::draw_text(bounds.x + 16, bounds.y + 11, title ? title : "SURFACE",
-                            focused ? kTheme.text : kTheme.text_muted, surface, 2U, true);
-        if (focused) graphics::fill_rect(bounds.x + bounds.width - 22,
-                            bounds.y + bounds.height - 5, 14, 2, kTheme.accent);
+        modern_surface(bounds, surface, focused ? kRedMuted : kTheme.border, 10U);
+        if (bounds.width > 2 && bounds.height > 36) {
+            graphics::fill_rect(bounds.x + 12, bounds.y + 35,
+                bounds.width - 24, 1, kTheme.border);
+        }
+        graphics::draw_text(bounds.x + 16, bounds.y + 11,
+                            title ? title : "SURFACE",
+                            focused ? kTheme.text : kTheme.text_muted,
+                            surface, 2U, true);
         return;
     }
 
@@ -546,10 +565,10 @@ void signal_spine(const Rect& bounds, size_t window_count, size_t focused_positi
 void dock_bar(const Rect& bounds, size_t running_count) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
-        graphics::fill_rect(bounds.x + 4, bounds.y + 5, bounds.width, bounds.height, kSurfaceShadow);
-        graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, kDockSurface);
-        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
-        if (running_count != 0U) graphics::fill_rect(bounds.x + 18, bounds.y, 36, 2, kTheme.accent);
+        modern_surface(bounds, kDockSurface, kTheme.border, 12U);
+        if (running_count != 0U)
+            graphics::fill_rect(bounds.x + 20,
+                bounds.y + bounds.height - 4, 28, 2, kTheme.accent);
         return;
     }
     graphics::fill_rect(bounds.x + 6, bounds.y + 7,
@@ -566,6 +585,17 @@ void dock_bar(const Rect& bounds, size_t running_count) {
 
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = focused ? kTheme.panel
+            : (running ? kDockRaised : kDockSurface);
+        modern_surface(bounds, surface,
+            focused ? kRedMuted : kTheme.border, 9U);
+        dock_icon(bounds, icon, focused ? kTheme.text : kTheme.text_muted,
+                  focused || running ? kTheme.accent : kRedMuted);
+        if (running) graphics::fill_rect(bounds.x + bounds.width / 2 - 3,
+            bounds.y + bounds.height - 4, 6, 2, kTheme.accent);
+        return;
+    }
     const graphics::Color background = focused
         ? (gStyleId == KU_FLUX_STYLE_MODERN ? kTheme.panel : graphics::rgb(54, 21, 27))
         : (running ? kDockRaised : kDockSurface);
@@ -763,6 +793,24 @@ void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected, bool pinned, bool running, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color background = pressed || selected ? kTheme.panel
+            : (hovered ? kGraphiteRaised : kGraphite);
+        modern_surface(bounds, background,
+            selected || pressed ? kTheme.accent
+                : (hovered ? kRedMuted : kTheme.border), 9U);
+        app_icon_glyph(bounds, icon, kTheme.text,
+            selected || hovered || pressed ? kTheme.accent : kRedMuted);
+        graphics::draw_text(bounds.x + 50, bounds.y + 13,
+            title ? title : "APP", kTheme.text, background, 1U, true);
+        graphics::draw_text(bounds.x + 50, bounds.y + 31,
+            subtitle ? subtitle : "", kTheme.text_muted, background, 1U, true);
+        if (pinned) graphics::fill_rect(bounds.x + bounds.width - 12,
+            bounds.y + 10, 4, 4, kTheme.accent);
+        if (running) graphics::fill_rect(bounds.x + 12,
+            bounds.y + bounds.height - 6, 22, 2, kTheme.accent);
+        return;
+    }
     const graphics::Color background = gStyleId == KU_FLUX_STYLE_MODERN
         ? (pressed || selected ? kTheme.panel : (hovered ? kGraphiteRaised : kGraphite))
         : (pressed ? graphics::rgb(63, 17, 27)

@@ -349,6 +349,15 @@ for test in test_pci_word_write test_virtio_net_cleanup; do
   "$OUT_DIR/$test"
 done
 
+# Native pointer overlay and Modern rounded raster geometry: freestanding
+# pure helpers compiled with warnings-as-errors and UBSan in scoped CI.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_cursor_overlay.cpp -o "$OUT_DIR/test_flux_cursor_overlay"
+"$OUT_DIR/test_flux_cursor_overlay"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_rounded_geometry.cpp -o "$OUT_DIR/test_flux_rounded_geometry"
+"$OUT_DIR/test_flux_rounded_geometry"
+
 # Test the real per-process Ring-3 UI event queue and overload policy.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

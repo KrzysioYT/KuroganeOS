@@ -61,6 +61,10 @@ void fill_rect(int32_t x, int32_t y, int32_t width, int32_t height,
                Color color);
 void draw_rect(int32_t x, int32_t y, int32_t width, int32_t height,
                Color color, uint32_t thickness = 1);
+// Bounded, integer scanline rounded rectangles for the Modern compositor
+// style. Classic keeps rectangular primitives. Honors clip and damage.
+void fill_rounded_rect(int32_t x, int32_t y, int32_t width, int32_t height,
+                       uint32_t radius, Color color);
 void draw_char(int32_t x, int32_t y, char character, Color foreground,
                Color background, uint32_t scale = 1,
                bool transparent = false);

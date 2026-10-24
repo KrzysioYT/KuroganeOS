@@ -3,6 +3,7 @@
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
+#include "cursor_sprite.hpp"
 #endif
 
 namespace windowing {
@@ -112,6 +113,8 @@ process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 bool g_cursor_visible = false;
 int32_t g_cursor_x = 0;
 int32_t g_cursor_y = 0;
+uint32_t g_cursor_under[flux_cursor::kWidth * flux_cursor::kHeight]{};
+bool g_cursor_saved[flux_cursor::kWidth * flux_cursor::kHeight]{};
 #endif
 
 void clear_surface(SurfaceState& surface) {
@@ -699,42 +702,53 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
 }
 
 #ifndef KUROGANE_HOST_TEST
-void xor_pixel(int32_t x, int32_t y) {
-    if (!graphics::available() || x < 0 || y < 0 ||
-        x >= static_cast<int32_t>(graphics::width()) ||
-        y >= static_cast<int32_t>(graphics::height())) return;
-    const KuroganeFramebuffer& framebuffer = graphics::info();
-    auto* row = reinterpret_cast<uint32_t*>(
-        reinterpret_cast<uint8_t*>(framebuffer.base) +
-        static_cast<size_t>(y) * framebuffer.pitch);
-    row[x] ^= UINT32_C(0x00FFFFFF);
-}
-
-void xor_cursor_shape(int32_t x, int32_t y) {
-    for (int32_t row = 0; row < 14; ++row) {
-        const int32_t width = row / 2 + 1;
-        for (int32_t column = 0; column < width; ++column) {
-            xor_pixel(x + column, y + row);
-        }
+uint32_t cursor_native_color(flux_cursor::Ink ink) {
+    uint32_t rgb = UINT32_C(0xF5F7FA);
+    switch (ink) {
+        case flux_cursor::Ink::Outline: rgb = UINT32_C(0x14171D); break;
+        case flux_cursor::Ink::Edge: rgb = UINT32_C(0xD0D7E2); break;
+        case flux_cursor::Ink::Shadow: rgb = UINT32_C(0x535B68); break;
+        case flux_cursor::Ink::Fill:
+        case flux_cursor::Ink::Transparent: break;
     }
-    for (int32_t row = 10; row < 18; ++row) {
-        for (int32_t column = 3; column < 6; ++column) {
-            xor_pixel(x + column, y + row);
-        }
+    if (graphics::info().pixel_format == KUROGANE_PIXEL_RGBX8) {
+        return ((rgb & 0x0000FFU) << 16U) |
+               (rgb & 0x00FF00U) |
+               ((rgb & 0xFF0000U) >> 16U);
     }
+    return rgb;
 }
 
 void hide_cursor() {
-    if (!g_cursor_visible) return;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    if (!g_cursor_visible || !graphics::available()) return;
+    const KuroganeFramebuffer& fb = graphics::info();
+    flux_cursor::visit_visible(g_cursor_x, g_cursor_y, fb.width, fb.height,
+        [&](uint32_t index, int32_t x, int32_t y, flux_cursor::Ink) {
+            if (!g_cursor_saved[index]) return;
+            auto* row = reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(fb.base) +
+                static_cast<size_t>(y) * fb.pitch);
+            row[x] = g_cursor_under[index];
+            g_cursor_saved[index] = false;
+        });
     g_cursor_visible = false;
 }
 
 void show_cursor(int32_t x, int32_t y) {
     if (g_cursor_visible) hide_cursor();
+    if (!graphics::available()) return;
+    const KuroganeFramebuffer& fb = graphics::info();
     g_cursor_x = x;
     g_cursor_y = y;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    flux_cursor::visit_visible(x, y, fb.width, fb.height,
+        [&](uint32_t index, int32_t px, int32_t py, flux_cursor::Ink ink) {
+            auto* row = reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(fb.base) +
+                static_cast<size_t>(py) * fb.pitch);
+            g_cursor_under[index] = row[px];
+            g_cursor_saved[index] = true;
+            row[px] = cursor_native_color(ink);
+        });
     g_cursor_visible = true;
 }
 
@@ -902,6 +916,8 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
 #ifndef KUROGANE_HOST_TEST
     g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
+    for (size_t i = 0U; i < flux_cursor::kWidth * flux_cursor::kHeight; ++i)
+        g_cursor_saved[i] = false;
     g_cursor_x = input::pointer_x();
     g_cursor_y = input::pointer_y();
 #endif
@@ -921,9 +937,11 @@ Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
 #ifndef KUROGANE_HOST_TEST
     if (graphics::width() != screen_width || graphics::height() != screen_height ||
         !input::set_screen_bounds(screen_width, screen_height)) return Status::InvalidState;
-    // The old XOR cursor belongs to the old framebuffer; a full redraw below
-    // replaces it without applying its saved coordinates to the new surface.
+    // The old cursor backup belongs to the previous display geometry. Do not
+    // restore it onto a new framebuffer; the next full frame will rebuild it.
     g_cursor_visible = false;
+    for (size_t i = 0U; i < flux_cursor::kWidth * flux_cursor::kHeight; ++i)
+        g_cursor_saved[i] = false;
 #endif
     g_screen_width = static_cast<int32_t>(screen_width);
     g_screen_height = static_cast<int32_t>(screen_height);
