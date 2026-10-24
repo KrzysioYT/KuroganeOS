@@ -123,7 +123,7 @@ assert "ku_network_get_status" in launcher, "launcher: live network source missi
 assert "ku_audio_get_state" in launcher, "launcher: live audio source missing"
 assert "flux_home_system_pulse: PASS" in launcher
 assert "flux_home_public_notification: PASS" in launcher
-assert "/gui/notify" in launcher and "KU_UI_NATIVE_ICON_NOTIFICATION" in launcher
+assert "KU_FLUX_EXEC_NOTIFICATIONS" in launcher and "KU_UI_NATIVE_ICON_NOTIFICATION" in launcher
 assert "SYSTEM APP / NOT PINNABLE" in launcher
 notifications = read("userspace/gui/notifications/main.c")
 assert "KU_NOTIFICATION_LIST_PUBLIC" in notifications
@@ -133,7 +133,7 @@ assert "flux_notification_center_public_record: PASS" in notifications
 assert "CLICK A CARD TO OPEN" not in launcher, "launcher: instruction-banner UI returned"
 
 control_center = read("userspace/gui/performance/main.c")
-assert 'gui_open("FORGE CONTROL"' in control_center
+assert 'gui_open(KU_FLUX_TITLE_PERFORMANCE' in control_center
 assert '"FORGE CONTROL / LIVE SYSTEM"' in control_center
 assert "ku_system_get_snapshot" in control_center
 assert "ku_network_get_status" in control_center
@@ -150,7 +150,7 @@ assert "forge_control_audio_surface: PASS" in control_center
 assert "flux_control_center_audio_action: PASS" in control_center
 assert '"FORGE CONTROL"' in launcher
 assert '"system pulse / network / audio"' in launcher
-assert "\"FORGE CONTROL\", 'v'" in window_manager
+assert "KU_FLUX_TITLE_PERFORMANCE, 'v'" in window_manager
 assert 'text_equals(title, "CONTROL CENTER")' in window_manager
 
 browser = read("userspace/gui/browser/main.c")

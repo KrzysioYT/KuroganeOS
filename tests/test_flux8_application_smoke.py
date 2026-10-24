@@ -36,7 +36,7 @@ assert 'constexpr int32_t DOCK_HEIGHT = 58' in wm
 assert 'constexpr int32_t DOCK_BOTTOM = 12' in wm
 assert 'constexpr int32_t DOCK_PADDING = 12' in wm
 assert 'constexpr int32_t DOCK_PIN_GAP = 8' in wm
-assert '"FILES", \'f\'' in wm
+assert "KU_FLUX_TITLE_FILES, 'f'" in wm
 assert '"[INPUT] flux_dock_shortcut_received: PASS"' in launcher
 assert '"[INPUT] flux_app_spawn: PASS"' in launcher
 assert '"[SESSION] flux_home_ui_present: PASS"' in launcher
