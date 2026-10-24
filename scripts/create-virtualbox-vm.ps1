@@ -256,7 +256,12 @@ try {
                [Environment]::NewLine + "VM preserved: $Name" +
                [Environment]::NewLine + "VBoxManage output: $diagnostics")
     }
-    Write-Host '[virtualbox-create] EFI, input and exact disk/ISO attachments verified: PASS'
+    $reportedInput = ConvertFrom-KuroganeVBoxMachineInfo -Text $machine
+    if (-not $reportedInput.ContainsKey('keyboard') -or
+        -not $reportedInput.ContainsKey('mouse')) {
+        Write-Warning 'VBoxManage omitted keyboard/mouse fields from --machinereadable. The creator requested PS/2 and VBoxManage accepted it; actual guest input still requires testing.'
+    }
+    Write-Host '[virtualbox-create] Firmware, boot order, SATA VDI and IDE ISO: PASS'
 } catch {
     Write-Warning "Machine '$Name' was left registered for inspection; no automatic disk deletion."
     throw

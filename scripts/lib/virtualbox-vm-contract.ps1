@@ -43,15 +43,23 @@ function Test-KuroganeVBoxVmContract {
         }
     }
 
-    $keyboardRaw = [string]$fields['keyboard']
-    $mouseRaw = [string]$fields['mouse']
-    $keyboard = ($keyboardRaw -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
-    $mouse = ($mouseRaw -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
-    if ($keyboard -notin @('ps2','ps2keyboard')) {
-        $errors.Add("Input: expected PS/2 keyboard, got '$keyboardRaw'.")
+    # Many VirtualBox releases accept --keyboard ps2 / --mouse ps2 but do
+    # not expose keyboard= or mouse= in --machinereadable. Absence is NOT
+    # evidence of USB input. Check a value only when this build reports it.
+    # An explicit incompatible value still fails closed.
+    if ($fields.ContainsKey('keyboard')) {
+        $keyboardRaw = [string]$fields['keyboard']
+        $keyboard = ($keyboardRaw -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
+        if ($keyboard -notin @('ps2','ps2keyboard')) {
+            $errors.Add("Input: expected PS/2 keyboard, got '$keyboardRaw'.")
+        }
     }
-    if ($mouse -notin @('ps2','ps2mouse')) {
-        $errors.Add("Input: expected PS/2 mouse, got '$mouseRaw'.")
+    if ($fields.ContainsKey('mouse')) {
+        $mouseRaw = [string]$fields['mouse']
+        $mouse = ($mouseRaw -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
+        if ($mouse -notin @('ps2','ps2mouse')) {
+            $errors.Add("Input: expected PS/2 mouse, got '$mouseRaw'.")
+        }
     }
 
     $sataFound = $false

@@ -45,9 +45,17 @@ function Assert-Rejected {
 }
 Assert-Valid -Snapshot $normal
 Assert-Valid -Snapshot $alternate
+# Observed VirtualBox output omits both input fields even when modifyvm
+# returned success. Missing keys must not fail the entire VM.
+Assert-Valid -Snapshot ($normal -replace '(?m)^keyboard="PS2"\r?\n?', '' -replace '(?m)^mouse="PS2"\r?\n?', '')
+Assert-Valid -Snapshot ($normal -replace '(?m)^keyboard="PS2"\r?\n?', '')
+Assert-Valid -Snapshot ($normal -replace '(?m)^mouse="PS2"\r?\n?', '')
+# An explicitly reported incompatible/empty device is different from missing.
+Assert-Rejected -Snapshot ($normal -replace 'keyboard="PS2"', 'keyboard="USB"') -Contains 'PS/2 keyboard'
+Assert-Rejected -Snapshot ($normal -replace 'mouse="PS2"', 'mouse=""') -Contains 'PS/2 mouse'
 Assert-Rejected -Snapshot ($normal -replace 'mouse="PS2"', 'mouse="USBTablet"') -Contains 'PS/2 mouse'
 Assert-Rejected -Snapshot ($normal -replace 'boot2="disk"', 'boot2="dvd"') -Contains 'Boot order'
 Assert-Rejected -Snapshot ($normal -replace 'IntelAhci', 'PIIX4') -Contains 'IntelAHCI'
 Assert-Rejected -Snapshot ($normal -replace '"SATA-0-0"=', '"SATA-0-1"=') -Contains 'SATA 0:0'
 Assert-Rejected -Snapshot ($normal -replace 'KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso', 'old.iso') -Contains 'IDE 0:0'
-Write-Host '[virtualbox-contract] 7 host regression scenarios: PASS'
+Write-Host '[virtualbox-contract] 12 host regression scenarios: PASS'
