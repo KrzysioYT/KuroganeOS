@@ -158,3 +158,18 @@ The account lookup now emits separate no-secrets COM1 markers for connection
 failure, service reply failure and profile mismatch, plus a confirmed match.
 This distinguishes a stale installed profile from a launcher/UI failure without
 logging usernames, hashes, passwords or personal account data.
+
+
+## 2026-10-25 — Verified VBox account lookup failure
+
+User-supplied VM COM1 output repeatedly reports
+`[SESSION] flux_account_lookup: FAIL`, while Login surface, physical
+pointer events and retry-screen rendering pass. Therefore the session
+manager, launcher and Home are not being reached. **Exact subcause is not
+yet identified**: the earlier ISO did not emit separate connect/reply/profile
+markers. Non-sensitive diagnostics now distinguish accountd's installed/live
+profile state, a malformed installed config, IPC send/receive/timeout, ABI
+response errors and service rejection. The PowerShell verifier now prints
+PID1/accountd startup from the beginning of the boot log even when thousands
+of retry clicks push those markers beyond the tail window. It does not bypass
+login or weaken installed account validation.

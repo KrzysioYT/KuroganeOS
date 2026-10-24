@@ -94,6 +94,18 @@ assert 'g_failed_stage = "SESSION SERVICE"' in login
 assert "flux_account_connect: FAIL" in login
 assert "flux_account_reply: FAIL" in login
 assert "flux_account_profile_mismatch: FAIL" in login
+for stage in (
+    "flux_account_ipc_send: FAIL",
+    "flux_account_ipc_receive: FAIL",
+    "flux_account_ipc_timeout: FAIL",
+    "flux_account_response_size: FAIL",
+    "flux_account_response_layout: FAIL",
+    "flux_account_service_rejected: FAIL",
+):
+    assert stage in login, stage
+accountd = (root / "userspace/system/accountd/main.c").read_text()
+assert "[ACCOUNTD] profile_installed_ready: PASS" in accountd
+assert "[ACCOUNTD] installed_profile_invalid: FAIL" in accountd
 assert 'g_failed_stage = "LAUNCHER SPAWN"' in login
 assert 'flux_home_first_frame: PASS' in login
 assert 'flux_launcher_exited_before_ui: FAIL' in login

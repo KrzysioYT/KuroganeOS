@@ -175,7 +175,10 @@ static ku_status_t account_transact(
     ku_account_response* response) {
     uint32_t attempt;
     ku_status_t status = ku_service_send(connection, request, sizeof(*request));
-    if (status != KU_STATUS_OK) return status;
+    if (status != KU_STATUS_OK) {
+        puts("[SESSION] flux_account_ipc_send: FAIL");
+        return status;
+    }
     for (attempt = 0U; attempt < LOGIN_SERVICE_ATTEMPTS; ++attempt) {
         ku_service_message message;
         status = ku_service_receive(connection, &message);
@@ -183,12 +186,24 @@ static ku_status_t account_transact(
             (void)kuro_sleep(1U);
             continue;
         }
-        if (status != KU_STATUS_OK) return status;
-        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        if (status != KU_STATUS_OK) {
+            puts("[SESSION] flux_account_ipc_receive: FAIL");
+            return status;
+        }
+        if (message.data_size != sizeof(*response)) {
+            puts("[SESSION] flux_account_response_size: FAIL");
+            return KU_STATUS_CORRUPT_DATA;
+        }
         *response = *(const ku_account_response*)(const void*)message.data;
-        if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        if (response->structure_size != sizeof(*response)) {
+            puts("[SESSION] flux_account_response_layout: FAIL");
+            return KU_STATUS_CORRUPT_DATA;
+        }
+        if (response->status != KU_STATUS_OK)
+            puts("[SESSION] flux_account_service_rejected: FAIL");
         return (ku_status_t)response->status;
     }
+    puts("[SESSION] flux_account_ipc_timeout: FAIL");
     return KU_STATUS_WOULD_BLOCK;
 }
 

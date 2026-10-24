@@ -31,12 +31,28 @@ $lines = @(Get-Content -LiteralPath $log -Tail $Tail -ErrorAction Stop)
 Write-Host "[Flux 8] VM: $Name"
 Write-Host "[Flux 8] Log: $log"
 Write-Host "[Flux 8] Note: interact with dock and one app tile before interpreting absent markers."
+Write-Host ("[Flux 8] Serial bytes: {0}; last write: {1}" -f
+    (Get-Item -LiteralPath $log).Length, (Get-Item -LiteralPath $log).LastWriteTime)
+
+# The usual -Tail output loses PID1/accountd startup evidence after repeated
+# retry-clicks. Independently inspect the beginning of the current boot log
+# without requiring a new ISO or trusting the last few thousand lines.
+$boot = @(Get-Content -LiteralPath $log -TotalCount 5000 -ErrorAction Stop)
+Write-Host '--- Account daemon and PID1 startup markers (first 5000 lines) ---'
+$boot | Where-Object {
+    $_ -match 'accountd:|\[ACCOUNTD\]|\[TEST\] account_service|\[TEST\] userspace_init|\[TEST\] installed_first_boot|\[SESSION\] flux_account'
+} | Select-Object -First 60 | ForEach-Object { Write-Host $_ }
+if ($boot.Count -eq 0 -and $lines.Count -eq 0) {
+    Write-Warning 'Serial log is empty. Wait until guest boot completes and run again; absence of markers is not evidence of failure.'
+}
 
 $steps = [ordered]@{
     'Kernel Flux session'           = '[TEST] desktop_session: PASS'
     'Login window presented'        = '[TEST] red_flux_login_surface: PASS'
     'Account lookup verified'       = '[SESSION] flux_account_lookup: PASS'
     'Account profile matched'       = '[SESSION] flux_account_profile_match: PASS'
+    'Account daemon ready (live)'   = '[ACCOUNTD] profile_live_ready: PASS'
+    'Account daemon ready (disk)'   = '[ACCOUNTD] profile_installed_ready: PASS'
     'Session service connected'     = '[SESSION] flux_session_connect: PASS'
     'Session created'               = '[SESSION] flux_session_create: PASS'
     'Launcher child spawned'        = '[SESSION] flux_launcher_spawn: PASS'
@@ -69,7 +85,7 @@ if ($failed.Count -gt 0) {
 }
 Write-Host '--- Recent relevant serial lines ---'
 $lines | Where-Object {
-    $_ -match '^\[INPUT\]|^\[SESSION\]|\[TEST\] desktop_launcher|\[TEST\] red_flux_home_surface|PANIC_BEGIN|flux.*FAIL'
+    $_ -match '^\[INPUT\]|^\[SESSION\]|^\[ACCOUNTD\]|\[TEST\] desktop_launcher|\[TEST\] red_flux_home_surface|PANIC_BEGIN|flux.*FAIL'
 } | Select-Object -Last 60 | ForEach-Object { Write-Host $_ }
 
 # Diagnostic status is not a release verdict: require both Home and a

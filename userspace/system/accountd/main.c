@@ -91,6 +91,7 @@ static void load_profile(void) {
         copy_text(profile.username, sizeof(profile.username), "developer");
         copy_text(profile.locale, sizeof(profile.locale), "en-US");
         profile.available = 1;
+        (void)u_puts("[ACCOUNTD] profile_live_ready: PASS\n");
         return;
     }
 
@@ -98,6 +99,7 @@ static void load_profile(void) {
     if (!locale_valid || !ku_dev_profile_parse_user_config(user_config, &parsed)) {
         profile.flags = KU_ACCOUNT_FLAG_INSTALLED;
         profile.available = 0;
+        (void)u_puts("[ACCOUNTD] installed_profile_invalid: FAIL\n");
         return;
     }
 
@@ -106,6 +108,7 @@ static void load_profile(void) {
     copy_text(profile.username, sizeof(profile.username), parsed.username);
     copy_text(profile.locale, sizeof(profile.locale), locale);
     profile.available = 1;
+    (void)u_puts("[ACCOUNTD] profile_installed_ready: PASS\n");
 }
 
 static ku_status_t send_response(
@@ -144,6 +147,7 @@ static void handle_request(accountd_client* client, const ku_service_message* me
         return;
     }
     if (!profile.available) {
+        (void)u_puts("[ACCOUNTD] request_invalid_profile: FAIL\n");
         (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, 0);
         return;
     }
