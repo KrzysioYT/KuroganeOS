@@ -272,18 +272,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # All options below belong to ONE shell command. The former
+          # inline comment after a continued line truncated the QEMU
+          # arguments and executed the next --click-after-marker as a
+          # separate, invalid shell command.
+          # Default frame 1280x800; Dock: x406..874 y730..788.
+          # Files pin center ~573,754; Terminal pin center ~525,754.
           bash scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
             --nic none --no-ps2 --usb-keyboard --usb-tablet \
             --log-dir build/tests/flux-8-foundation --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
-            # Home first-frame marker occurs before Login is dismissed.
-            # Click only AFTER authenticated handoff, at the actual Files Dock
-            # button: 1280x800 -> dock x=406..874, y=730..788; Files x=554..596.
             --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 573 754 \
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 400 300 down \
+            --click-after-marker '[TEST] flux_files_usb_wheel_paging: PASS' 525 754 \
             --require-marker '[TEST] flux_files_usb_wheel_paging: PASS' \
+            --require-marker '[TEST] desktop_terminal_ring3: PASS' \
+            --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \

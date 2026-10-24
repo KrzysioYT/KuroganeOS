@@ -97,3 +97,14 @@ append-only request layout and SDK syscall number remain unchanged;
 C11/C++17 and UBSan policy tests cover timeouts and monotonic clock edges.
 Normal slow launches are not automatically killed by a background thread.
 This is a reliability slice, not live VirtualBox qualification.
+
+## Extended QEMU live acceptance (2026-10-24)
+
+Fixed a shell line-continuation regression in the scoped Flux 8 QEMU workflow:
+comments placed after a backslash-continued option terminated the command,
+so the run could fail without ever sending the intended Files click.
+The single QEMU invocation now verifies **both** Files after login and the
+Terminal after a real Files wheel event; requires two distinct child spawns
+and a Terminal Ring-3 marker. The static test rejects future comments in
+continued shell option lists. This gate must pass on the exact SHA before
+considering any release promotion.
