@@ -23,6 +23,8 @@ on:
       - 'userspace/gui/settings/**'
       - 'userspace/gui/performance/**'
       - 'tests/test_flux_theme_palette.c'
+      - 'kernel/core/system_metrics.cpp'
+      - 'tests/test_system_metrics_sampling.cpp'
       - 'tests/test_sdk_abi.cpp'
       - 'kernel/user/ui_event_queue.hpp'
       - 'tests/test_ui_event_queue.cpp'
@@ -102,6 +104,16 @@ jobs:
             -Isdk/include tests/test_ui_event_queue.cpp \
             -o build/tests/desktop/ui-event-queue-ubsan
           build/tests/desktop/ui-event-queue-ubsan
+      - name: Shared telemetry sampling across GUI clients
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
+            -o build/tests/desktop/activity-window
+          build/tests/desktop/activity-window
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
+            -o build/tests/desktop/activity-window-ubsan
+          build/tests/desktop/activity-window-ubsan
       - name: Flux 8 palette shared C/C++ and sanitizer regression
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \

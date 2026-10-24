@@ -577,6 +577,13 @@ done
 
 "$OUT_DIR/test_diagnostic_event_ring"
 
+# System activity is sampled on a fixed shared interval. Home and Forge
+# Control must not consume counters from each other's independent reads.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
+  -o "$OUT_DIR/test_system_metrics_sampling"
+"$OUT_DIR/test_system_metrics_sampling"
+
 # Exercise the production Flux Window Core, including retained surface
 # ownership and generation-safe cleanup, without framebuffer hardware.
 "$HOST_CXX" \
