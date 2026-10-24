@@ -49,8 +49,17 @@ try {
     Write-Host "[Flux 8] SHA256: $((Get-FileHash -LiteralPath $iso.FullName -Algorithm SHA256).Hash)"
 
     # Unregistered settings files are a recovery case, not permission to delete data.
-    $existing = & $VBox showvminfo $Name --machinereadable 2>$null
-    $registered = $LASTEXITCODE -eq 0
+    # Windows PowerShell 5.1 may surface VBoxManage's expected "not found"
+    # stderr as a terminating NativeCommandError under Stop. Suppress only
+    # this one probing call, and always restore the caller's preference.
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $null = & $VBox showvminfo $Name --machinereadable 2>$null
+        $registered = $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
     if (-not $registered) {
         $settings = Join-Path $VmRoot ($Name + '\' + $Name + '.vbox')
         if (Test-Path -LiteralPath $settings -PathType Leaf) {

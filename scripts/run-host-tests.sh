@@ -363,6 +363,7 @@ done
 "$OUT_DIR/test_flux_rounded_geometry"
 
 python3 tests/test_flux8_application_smoke.py
+python3 tests/test_flux8_virtualbox_runner.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_console_fallback_policy.cpp -o "$OUT_DIR/test_console_fallback_policy"
 "$OUT_DIR/test_console_fallback_policy"

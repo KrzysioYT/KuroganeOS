@@ -18,3 +18,7 @@ After login and Files click inspect serial output:
 
 Do not call version 8.0.0 stable until exact-SHA QEMU tests and real
 VirtualBox user interaction complete. Current version remains 7.0.0-dev.
+
+The native VM runner restores ErrorActionPreference after probing an absent
+VM; Windows PowerShell 5.1 can otherwise throw NativeCommandError on the
+expected VBoxManage not-found stderr, preventing recovery/new VM creation.
