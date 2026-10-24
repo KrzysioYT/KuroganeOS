@@ -76,4 +76,51 @@ enum ku_flux_typography_role {
 #define KU_FLUX_TYPE_TITLE_SCALE   UINT32_C(2)
 #define KU_FLUX_TYPE_TEXT_SCALE    UINT32_C(1)
 
+
+/*
+ * 8.0 desktop palettes: pure shared C/C++ ABI with stable IDs.
+ * Semantic colors, never a global mutable palette in Ring-3.
+ */
+enum ku_flux_theme_id {
+    KU_FLUX_THEME_RED = 0,
+    KU_FLUX_THEME_VIOLET = 1,
+    KU_FLUX_THEME_CRIMSON = 2,
+    KU_FLUX_THEME_STEEL = 3,
+    KU_FLUX_THEME_EMBER = 4,
+    KU_FLUX_THEME_MONO = 5,
+    KU_FLUX_THEME_COUNT = 6
+};
+typedef struct ku_flux_palette {
+    uint32_t desktop;
+    uint32_t panel;
+    uint32_t background;
+    uint32_t border;
+    uint32_t text;
+    uint32_t text_muted;
+    uint32_t accent;
+    uint32_t accent_focus;
+    uint32_t accent_deep;
+    uint32_t accent_muted;
+    uint32_t danger;
+} ku_flux_palette;
+
+static inline ku_flux_palette ku_flux_theme_palette(uint32_t theme_id) {
+    static const ku_flux_palette presets[KU_FLUX_THEME_COUNT] = {
+        {0x040507U,0x121316U,0x090A0CU,0x373A40U,0xEEEFF2U,0x91959CU,0xDC1628U,0xFF2230U,0x530A14U,0x8B1824U,0xFF3642U},
+        {0x07050EU,0x191522U,0x0D0A16U,0x42374FU,0xF3EFFAU,0xB5A7C8U,0xA46DFFU,0xBE96FFU,0x34204BU,0x6C46A1U,0xFF5267U},
+        {0x080507U,0x1A1215U,0x10090DU,0x543238U,0xF5EBEFU,0xB7A0A7U,0xBD2849U,0xEE4A68U,0x4D1123U,0x852641U,0xFF4869U},
+        {0x070A0FU,0x151C24U,0x0B1118U,0x364858U,0xEBF3F9U,0x9DABB7U,0x6798C7U,0x89B9E0U,0x213C52U,0x486D8BU,0xF07179U},
+        {0x0D0804U,0x201711U,0x140E09U,0x52402EU,0xF9F0E5U,0xC0AD96U,0xE89034U,0xFFB95FU,0x543010U,0x996022U,0xFF5D4AU},
+        {0x08090AU,0x17191BU,0x101214U,0x474B50U,0xF2F2F2U,0xB3B6BAU,0xCDD1D6U,0xFFFFFFU,0x383B40U,0x82868CU,0xF37581U}
+    };
+    return presets[theme_id < KU_FLUX_THEME_COUNT ? theme_id : KU_FLUX_THEME_RED];
+}
+static inline const char* ku_flux_theme_name(uint32_t theme_id) {
+    static const char* const names[KU_FLUX_THEME_COUNT] = {
+        "KUROGANE RED", "KUROGANE VIOLET", "KUROGANE CRIMSON",
+        "KUROGANE STEEL", "KUROGANE EMBER", "KUROGANE MONO"
+    };
+    return names[theme_id < KU_FLUX_THEME_COUNT ? theme_id : KU_FLUX_THEME_RED];
+}
+
 #endif

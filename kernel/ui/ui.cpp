@@ -6,7 +6,7 @@
 namespace ui {
 
 namespace {
-constexpr Theme kTheme = {
+Theme kTheme = {
     KU_FLUX_COLOR_VOID_BLACK,       // desktop
     KU_FLUX_COLOR_SURFACE,          // panel
     KU_FLUX_COLOR_BACKGROUND,       // panel_alt
@@ -17,10 +17,11 @@ constexpr Theme kTheme = {
     KU_FLUX_COLOR_DANGER,           // danger
 };
 
-constexpr graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
-constexpr graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
-constexpr graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
-constexpr graphics::Color kRedMuted = KU_FLUX_COLOR_ACCENT_MUTED;
+uint32_t gThemeId = KU_FLUX_THEME_RED;
+graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
+graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
+graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
+graphics::Color kRedMuted = KU_FLUX_COLOR_ACCENT_MUTED;
 constexpr graphics::Color kGraphite = KU_FLUX_COLOR_SURFACE_ELEVATED;
 constexpr graphics::Color kGraphiteRaised = KU_FLUX_COLOR_SURFACE_ELEVATED;
 constexpr graphics::Color kGraphiteFocused = graphics::rgb(38, 35, 40);
@@ -296,6 +297,27 @@ void app_icon_glyph(
 } // namespace
 
 const Theme& default_theme() { return kTheme; }
+
+uint32_t desktop_theme_id() { return gThemeId; }
+
+bool set_desktop_theme(uint32_t id) {
+    if (id >= KU_FLUX_THEME_COUNT) return false;
+    const ku_flux_palette palette = ku_flux_theme_palette(id);
+    gThemeId = id;
+    kTheme.desktop = palette.desktop;
+    kTheme.panel = palette.panel;
+    kTheme.panel_alt = palette.background;
+    kTheme.border = palette.border;
+    kTheme.text = palette.text;
+    kTheme.text_muted = palette.text_muted;
+    kTheme.accent = palette.accent;
+    kTheme.danger = palette.danger;
+    kRedBright = palette.accent_focus;
+    kRedHot = palette.accent;
+    kRedDeep = palette.accent_deep;
+    kRedMuted = palette.accent_muted;
+    return true;
+}
 
 bool contains(const Rect& rectangle, int32_t x, int32_t y) {
     return x >= rectangle.x && y >= rectangle.y &&

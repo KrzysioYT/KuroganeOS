@@ -1631,6 +1631,34 @@ void syscall_handler(
                 : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
             return;
         }
+        case KU_SYS_DESKTOP_THEME: {
+            if (frame.rsi != sizeof(ku_desktop_theme_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_theme_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_theme_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_THEME_SET ||
+                (request->action == KU_DESKTOP_THEME_SET &&
+                 request->theme_id >= KU_FLUX_THEME_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_THEME_SET) {
+                if (!ui::set_desktop_theme(request->theme_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->theme_id = ui::desktop_theme_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
         case KU_SYS_NET_STATUS: {
             if (frame.rsi != sizeof(ku_network_status) ||
                 !validate_user_buffer(
