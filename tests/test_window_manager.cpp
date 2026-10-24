@@ -803,7 +803,7 @@ int main() {
     event.type = input::EventType::MouseButtonDown;
     event.button = drivers::mouse::Left;
     event.buttons = drivers::mouse::Left;
-    event.x = 215; event.y = 153;
+    event.x = 370; event.y = 153;  // B-only header, outside raised A.
     if (dispatch(event) != Status::Ok || pointer_b.downs != 0U) return 144;
     event.type = input::EventType::MouseMove;
     event.x = 780; event.y = 570;
@@ -822,6 +822,7 @@ int main() {
     if (dispatch(event) != Status::Ok || pointer_b.downs != 1U) return 148;
     if (close(mouse_b) != Status::Ok) return 149;
     event.type = input::EventType::MouseButtonUp;
+    event.x = 80; event.y = 210;  // A content; stale B release must not leak.
     event.buttons = 0U;
     if (dispatch(event) != Status::Ok || pointer_b.ups != 0U ||
         pointer_a.ups != 1U) return 150;
