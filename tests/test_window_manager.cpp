@@ -14,6 +14,34 @@ void invalidate_during_draw(windowing::WindowId, const ui::Rect&, bool, void* co
     if (mode == 2) windowing::invalidate();
     if (mode != 0) fixture.nested_render = windowing::render_if_needed();
 }
+struct MutationFixture {
+    size_t mutator_draws = 0U;
+    size_t survivor_draws = 0U;
+    size_t replacement_draws = 0U;
+    bool closed = false;
+    bool recreated = false;
+    windowing::WindowId replacement = windowing::INVALID_WINDOW;
+};
+
+void replacement_draw(windowing::WindowId, const ui::Rect&, bool, void* context) {
+    ++static_cast<MutationFixture*>(context)->replacement_draws;
+}
+
+void survivor_draw(windowing::WindowId, const ui::Rect&, bool, void* context) {
+    ++static_cast<MutationFixture*>(context)->survivor_draws;
+}
+
+void mutate_during_draw(windowing::WindowId id, const ui::Rect&, bool, void* context) {
+    auto& fixture = *static_cast<MutationFixture*>(context);
+    if (++fixture.mutator_draws != 1U) return;
+    fixture.closed = windowing::close(id) == windowing::Status::Ok;
+    if (!fixture.closed) return;
+    fixture.recreated = windowing::create_window(
+        "Replacement", 43U, {90, 100, 300, 220},
+        replacement_draw, nullptr, &fixture, &fixture.replacement) ==
+        windowing::Status::Ok;
+}
+
 void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
 } // namespace
 
@@ -565,5 +593,23 @@ int main() {
     if (!render_if_needed() || redraw.nested_render ||
         damage_snapshot(&damage) != Status::Ok || !damage.full) return 108;
     if (!render_if_needed() || render_if_needed()) return 109;
+
+    // Mutating the live z-order while drawing used to skip the surviving
+    // window and draw a replacement that did not exist at frame start.
+    if (initialize(800U, 600U) != Status::Ok) return 110;
+    MutationFixture mutation{};
+    WindowId mutator = INVALID_WINDOW;
+    WindowId survivor = INVALID_WINDOW;
+    if (create_window("Mutator", 41U, {40, 50, 300, 220},
+            mutate_during_draw, nullptr, &mutation, &mutator) != Status::Ok ||
+        create_window("Survivor", 42U, {60, 80, 300, 220},
+            survivor_draw, nullptr, &mutation, &survivor) != Status::Ok) return 111;
+    if (!render_if_needed() || !mutation.closed || !mutation.recreated ||
+        mutation.mutator_draws != 1U || mutation.survivor_draws != 1U ||
+        mutation.replacement_draws != 0U || mutation.replacement == mutator ||
+        query(mutator, &info) != Status::NotFound ||
+        damage_snapshot(&damage) != Status::Ok || !damage.full) return 112;
+    if (!render_if_needed() || mutation.survivor_draws != 2U ||
+        mutation.replacement_draws != 1U || render_if_needed()) return 113;
     return 0;
 }

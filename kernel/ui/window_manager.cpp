@@ -176,6 +176,17 @@ Slot* find(WindowId id, size_t* out_slot = nullptr) {
     return &candidate;
 }
 
+// Draw callbacks are allowed to change window lifecycle and z-order.
+// Capture the generation-safe IDs so this frame never skips a survivor,
+// repeats a window or draws a newly reused slot in place of a closed one.
+size_t snapshot_frame_windows(WindowId (&ids)[MAX_WINDOWS]) {
+    const size_t count = g_count;
+    for (size_t position = 0U; position < count; ++position) {
+        ids[position] = g_slots[g_order[position]].info.id;
+    }
+    return count;
+}
+
 bool exposed(const Slot& slot) {
     return slot.occupied && slot.info.owner_pid != 0U;
 }
@@ -821,8 +832,13 @@ void render_layers() {
             theme.text, theme.desktop, 1U, true);
     }
 
-    for (size_t position = 0U; position < g_count; ++position) {
-        draw_window_slot(g_slots[g_order[position]]);
+    WindowId frame_windows[MAX_WINDOWS]{};
+    const size_t frame_count = snapshot_frame_windows(frame_windows);
+    for (size_t position = 0U; position < frame_count; ++position) {
+        // A callback can close a window and immediately reuse its slot.
+        // Matching the original ID prevents drawing the replacement early.
+        Slot* slot = find(frame_windows[position]);
+        if (slot != nullptr) draw_window_slot(*slot);
     }
 
     ui::dock_bar(workspace.pulse_ribbon, tasks);
@@ -1420,12 +1436,14 @@ bool render_if_needed() {
 #else
     // Host adapter omits framebuffer operations but exercises draw callbacks
     // inside the same frame lifecycle as production.
-    for (size_t position = 0U; position < g_count; ++position) {
-        Slot& slot = g_slots[g_order[position]];
-        if (slot.occupied && slot.info.state != WindowState::Minimized &&
-            slot.draw != nullptr) {
-            slot.draw(slot.info.id, calculate_content(slot),
-                slot.info.focused, slot.context);
+    WindowId frame_windows[MAX_WINDOWS]{};
+    const size_t frame_count = snapshot_frame_windows(frame_windows);
+    for (size_t position = 0U; position < frame_count; ++position) {
+        Slot* slot = find(frame_windows[position]);
+        if (slot != nullptr && slot->info.state != WindowState::Minimized &&
+            slot->draw != nullptr) {
+            slot->draw(slot->info.id, calculate_content(*slot),
+                slot->info.focused, slot->context);
         }
     }
 #endif
