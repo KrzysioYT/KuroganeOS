@@ -289,8 +289,10 @@ static int launch_app(size_t index, int quiet_if_running) {
     result = ku_process_spawn(app->path, strlen(app->path));
     if (result <= 0) {
         (void)strlcpy(g_status, "APP LAUNCH FAILED", sizeof(g_status));
+        puts("[INPUT] flux_app_spawn: FAIL");
         return 0;
     }
+    puts("[INPUT] flux_app_spawn: PASS");
     (void)remember_child((uint64_t)result, (uint32_t)index);
     gui_u64(number, sizeof(number), (uint64_t)result);
     (void)strlcpy(g_status, "OPENED ", sizeof(g_status));
@@ -307,6 +309,7 @@ static void launch_selected(void) {
 static void select_and_launch(size_t index) {
     if (index >= APP_COUNT) return;
     g_selected = index;
+    puts("[INPUT] flux_launcher_action_received: PASS");
     launch_selected();
 }
 
@@ -572,6 +575,7 @@ int main(void) {
             if (!primary_pressed) continue;
             target = kui_scene_hit_test(&scene, event.x, event.y);
             if (target >= 10U && target < 10U + APP_COUNT) {
+                puts("[INPUT] flux_home_tile_hit: PASS");
                 select_and_launch((size_t)(target - 10U));
             } else if (target == 30U) {
                 toggle_selected_pin();
@@ -593,6 +597,7 @@ int main(void) {
          * is introduced.
          */
         if (event.type != KU_UI_EVENT_KEY || event.key != KU_UI_KEY_UNKNOWN) continue;
+        puts("[INPUT] flux_dock_shortcut_received: PASS");
         if (event.character == 't') {
             select_and_launch(0U);
         } else if (event.character == 'f') {

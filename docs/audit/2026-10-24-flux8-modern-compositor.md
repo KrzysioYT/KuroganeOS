@@ -68,3 +68,13 @@ GPU-accelerated clients.
 Host test isolation: the hovering-window partial-raster test first consumes any
 floating Dock visibility transition; otherwise expected one-window damage is
 contaminated by a legitimate Dock full-frame transition.
+
+## User-side VirtualBox diagnostic command
+
+After refreshing ISO and making real clicks, run
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\check-flux8-ui.ps1 -Name "KuroganeOS-Flux8-Modern"`.
+It reads COM1 under `$HOME\VirtualBox VMs\...` without mutating the VM,
+shows which stages actually happened, and does not confuse missing markers
+(before user interaction) with proven regression failures. New runtime
+`[INPUT]` traces are emitted at mouse delivery, launcher action receipt,
+Home tile hit and child process spawn.

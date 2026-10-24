@@ -86,6 +86,14 @@ assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
 assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
 assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
 assert "red_flux_tile_launcher: PASS" in launcher
+for marker in (
+    "flux_launcher_action_received: PASS",
+    "flux_home_tile_hit: PASS",
+    "flux_dock_shortcut_received: PASS",
+    "flux_app_spawn: PASS",
+    "flux_app_spawn: FAIL",
+):
+    assert marker in launcher, f"missing real runtime trace: {marker}"
 assert "scene->visible_rows = 16U" in launcher, "launcher: LOG OUT action is clipped"
 assert "kui_flow_metric" in launcher, "launcher: System Pulse metric cards missing"
 assert "ku_system_get_snapshot" in launcher, "launcher: live CPU/RAM/disk source missing"
