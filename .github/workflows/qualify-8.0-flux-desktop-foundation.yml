@@ -34,6 +34,8 @@ on:
       - 'tests/test_system_metrics_sampling.cpp'
       - 'tests/test_flux_ui_state.cpp'
       - 'tests/test_sdk_abi.cpp'
+      - 'kernel/user/child_termination_policy.hpp'
+      - 'tests/test_child_termination_policy.cpp'
       - 'kernel/user/ui_event_queue.hpp'
       - 'tests/test_ui_event_queue.cpp'
       - 'sdk/include/kurogane/ui.h'
@@ -74,6 +76,14 @@ jobs:
             -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
             kernel/ui/window_manager.cpp -o build/tests/desktop/wm-ubsan
           build/tests/desktop/wm-ubsan
+      - name: Ring-3 parent-only termination policy with UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_child_termination_policy.cpp -o build/tests/desktop/child-policy
+          build/tests/desktop/child-policy
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_child_termination_policy.cpp -o build/tests/desktop/child-policy-ubsan
+          build/tests/desktop/child-policy-ubsan
       - name: Flux pointer overlay and rounded geometry optimized + UBSan
         run: |
           for unit in flux_cursor_overlay flux_rounded_geometry; do

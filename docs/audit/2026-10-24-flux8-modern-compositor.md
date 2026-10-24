@@ -158,3 +158,13 @@ stale desktop session roots after partial sessiond setup.
 Not a general process killer and not an authorization bypass. Static SDK
 ABI test asserts the append-only number. The full VM runtime must still
 confirm teardown and restart on target hardware.
+
+## Termination permission regression & COM1 diagnosis
+
+The Ring-3 terminate-child syscall uses the pure production policy
+`user::child_termination_policy::allowed`. A 125k-combination host test
+covers parent-only access, denial of self/PID1, sibling and orphan processes.
+Host suite and scoped Flux UBSan workflow compile it. COM1 diagnostics now
+list account lookup, session registration, Home creation/first frame, Login
+handoff, recovery and child cleanup (5000-line tail). Guest qualification
+is still required.

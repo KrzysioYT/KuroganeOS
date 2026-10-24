@@ -101,6 +101,10 @@ bash tests/test_network_smoke_state.sh
 
 "$OUT_DIR/test_sdk_abi"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_child_termination_policy.cpp -o "$OUT_DIR/test_child_termination_policy"
+"$OUT_DIR/test_child_termination_policy"
+
 # Exercise the production Device Model and Driver Manager lifecycle, including
 # stale-handle rejection, partial-attach cleanup, fallback and slot reuse.
 "$HOST_CXX" \

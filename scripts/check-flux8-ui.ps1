@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Name = '',
-    [int]$Tail = 500
+    [int]$Tail = 5000
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -35,10 +35,17 @@ Write-Host "[Flux 8] Note: interact with dock and one app tile before interpreti
 $steps = [ordered]@{
     'Kernel Flux session'           = '[TEST] desktop_session: PASS'
     'Login window presented'        = '[TEST] red_flux_login_surface: PASS'
+    'Account lookup verified'       = '[SESSION] flux_account_lookup: PASS'
+    'Session service connected'     = '[SESSION] flux_session_connect: PASS'
+    'Session created'               = '[SESSION] flux_session_create: PASS'
     'Launcher child spawned'        = '[SESSION] flux_launcher_spawn: PASS'
+    'Home window created'           = '[SESSION] flux_home_ui_create: PASS'
+    'Home first frame accepted'     = '[SESSION] flux_home_ui_present: PASS'
     'Session owner verified'        = '[TEST] red_flux_owned_session: PASS'
     'Home first real frame'         = '[SESSION] flux_home_first_frame: PASS'
     'Login handoff completed'       = '[TEST] red_flux_login_to_desktop: PASS'
+    'Login recovery rendered'       = '[SESSION] flux_login_error_render: PASS'
+    'Launcher cleanup'              = '[SESSION] flux_launcher_cleanup: PASS'
     'Ring-3 launcher created'       = '[TEST] desktop_launcher_ring3: PASS'
     'Home scene presented'          = '[TEST] red_flux_home_surface: PASS'
     'Physical mouse left-click'     = '[INPUT] flux_primary_button_delivered: PASS'

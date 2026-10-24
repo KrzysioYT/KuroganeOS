@@ -30,6 +30,7 @@
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
 #include "ui_event_queue.hpp"
+#include "child_termination_policy.hpp"
 
 struct UserReturnState {
     uint64_t kernel_rsp;
@@ -1414,7 +1415,8 @@ void syscall_handler(
             }
             // Never allow arbitrary-PID termination from Ring-3, including
             // login/sessiond, system services, siblings or the kernel init.
-            if (child.parent_pid != context->pid) {
+            if (!child_termination_policy::allowed(
+                    context->pid, child.pid, child.parent_pid)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
                 return;
             }
