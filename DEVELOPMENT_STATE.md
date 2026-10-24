@@ -1,6 +1,6 @@
 # KuroganeOS Development State
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 ## Integration branch
 
@@ -13,6 +13,28 @@ Last updated: 2026-10-23
 Merged through PR #45 as integration commit:
 
 `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`
+
+## 2026-10-24 — active native text and application identity rebuild
+
+Current candidate branch: `codex/road-to-15-stability`, Draft PR #55.
+Release identity stays `7.0.0-dev`. This work does **not** qualify 8.0 or
+claim the whole system is stable.
+
+- Added bounded UTF-8 text-cell parsing and transitional Polish glyph
+  fallback for kernel software rendering; Modern labels preserve character
+  boundaries and handle malformed input. This is not a proportional font.
+- Canonical `sdk/include/kurogane/flux_app_catalog.h` now centralizes
+  the application window titles and executable paths shared by the Dock,
+  Home and eight native GUI programs. Fixed the Dock expecting `FLUX TERMINAL`
+  while the live app actually opens `RED FLUX TERMINAL`.
+- Added host C/C++ catalog checks, source parity checks and UTF-8 fitting
+  regressions. QEMU/VirtualBox live acceptance has not yet been recorded on
+  this source SHA.
+- Existing `SESSION HOME NOT READY` VirtualBox incident remains an open
+  P0 until the freshly built ISO produces authenticated Home first frame,
+  an actual Files/Terminal process spawn and a live interactive window.
+- The unified rebuild acceptance plan is
+  `docs/roadmap/KUROGANEOS_REBUILD_7_TO_15.md`.
 
 ## Active development evidence
 

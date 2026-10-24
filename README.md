@@ -1,3 +1,21 @@
+# KuroganeOS — x86-64 UEFI operating system
+
+> **Development branch (24.10.2026):** `codex/road-to-15-stability` is
+> integrating the 7.0 Iron Shield candidate and Flux Modern 8.x.
+> Current kernel version string remains **7.0.0-dev**. Neither Flux 8.0.0 nor
+> the planned KuroganeOS 15.0.0 is stable yet. For the exact source and
+> qualification status see [DEVELOPMENT_STATE.md](DEVELOPMENT_STATE.md) and
+> [the rebuild roadmap](docs/roadmap/KUROGANEOS_REBUILD_7_TO_15.md).
+> The historical Steel instructions below document the older 5.0 track,
+> not the current development ISO name.
+>
+> Windows 11 VirtualBox development: from the repository root on the active
+> branch, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+> .\\scripts\\run-flux8-virtualbox.ps1`. This rebuilds media and starts
+> the VM; it does not certify the runtime.
+
+## Historical Steel 5.0 developer guide
+
 # KuroganeOS 5.0.0-dev — STEEL DEV
 
 KuroganeOS to eksperymentalny, 64-bitowy system operacyjny rozwijany od zera
