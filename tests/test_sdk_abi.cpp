@@ -87,6 +87,8 @@ int main() {
     static_assert(KU_SYS_DEVICE_RESOURCE == 66);
     static_assert(KU_SYS_SOCKET_WAIT == 67);
     static_assert(KU_SYS_DESKTOP_THEME == 68);
+    static_assert(KU_SYS_DESKTOP_STYLE == 69);
+    static_assert(sizeof(ku_desktop_style_request) == 16);
     static_assert(sizeof(ku_desktop_theme_request) == 16);
     static_assert(KU_FLUX_THEME_COUNT == 6);
 

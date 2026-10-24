@@ -412,7 +412,7 @@ void desktop(const char* title) {
         graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
         graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
         graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
-        graphics::draw_text(status_x + 14, 19, "SESSION / RED FLUX 3.2",
+        graphics::draw_text(status_x + 14, 19, "SESSION / FLUX 8 PREVIEW",
                             kTheme.text_muted, kTheme.panel_alt, 1U, true);
     }
 

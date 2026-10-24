@@ -425,3 +425,11 @@ True per-core idle accounting, disk volume capacity, modern font rendering,
 GOP resolution switching, drag-and-drop, generalized clipboard integration
 and final end-to-end QEMU qualification remain OPEN 8.0 work. No release
 version bump is justified solely by the theme infrastructure.
+
+### Flux 8 visual mode preview
+
+A bounded desktop-style syscall selects Classic or Modern window chrome.
+Modern defaults to subtle titlebar edges, slim Dock and continuous progress
+tracks, while Classic keeps the legacy angular Red Flux look. Settings saves
+`ui.style` as typed U64 and Home restores it when a session starts. This is
+an engineering preview, not a full new font renderer or qualified release.
