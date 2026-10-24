@@ -105,3 +105,14 @@ The persistent flag writes **only** to an independent
 `build/tests/flux8-manual/flux8-persistent.img` copy and reuses it between
 runs. It does not modify the build image, host Windows/Arch disks, or source.
 No VM run constitutes acceptance without checking logs and interaction.
+
+## Flux Files keyboard navigation — follow-up candidate
+
+Files Explorer routes Ring-3 KEY events via a bounded, testable policy. Arrows,
+Home/End and Page Up/Down select visible entries; Enter activates,
+Backspace/Escape goes to parent, Ctrl+C copies the selected path via
+clipboard.v1. Ctrl/Alt navigation does not override WM shortcuts. The app
+prints `flux_files_keyboard_navigation: PASS` only after a real key selection.
+C11/C++17 optimized and UBSan host regression covers bounds, empty pages,
+modifiers and physical Ctrl+C with ASCII ETX. QEMU live input qualification
+on the new exact SHA remains outstanding; no release version change.

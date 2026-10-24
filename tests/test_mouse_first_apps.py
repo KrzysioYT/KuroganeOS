@@ -12,7 +12,8 @@ for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
     text = read(path)
     assert "KU_UI_EVENT_POINTER" in text, f"{path}: pointer path missing"
     assert "kui_scene_hit_test" in text, f"{path}: libui hit test missing"
-    assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
+    if path.endswith("/settings/main.c"):
+        assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
     for helper in (
         "gui_key_down(", "gui_key_up(", "gui_key_left(", "gui_key_right(",
         "gui_key_tab(", "gui_key_activate(", "gui_key_cancel(",
@@ -33,7 +34,10 @@ assert "COPY SELECTED PATH" in files
 assert "flux_clipboard_set_text" in files
 assert "flux_files_copy_path_clipboard: PASS" in files
 assert "desktop_files_mouse_navigation: PASS" in files
-assert "desktop_files_keyboard_shortcuts_detached: PASS" in files
+assert "desktop_files_keyboard_navigation: READY" in files
+assert "flux_files_keyboard_navigation: PASS" in files
+assert "KU_UI_EVENT_KEY" in files and "flux_files_keyboard(" in files
+assert '#include "navigation.h"' in files
 
 settings = read("userspace/gui/settings/main.c")
 assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"

@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "paging.h"
+#include "navigation.h"
 #include "../clipboard_actions.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 24U
@@ -347,7 +348,7 @@ int main(void) {
     puts("[TEST] desktop_files_real_vfs: PASS");
     puts("[TEST] flux_scene_files: PASS");
     puts("[TEST] desktop_files_mouse_navigation: PASS");
-    puts("[TEST] desktop_files_keyboard_shortcuts_detached: PASS");
+    puts("[TEST] desktop_files_keyboard_navigation: READY");
     puts("[TEST] flux_files_readdir: PASS");
     puts("[TEST] flux_files_directory_grid: PASS");
     puts("[TEST] flux_files_breadcrumb: PASS");
@@ -372,17 +373,31 @@ int main(void) {
             }
             continue;
         }
-        if (event.type != KU_UI_EVENT_POINTER) continue;
-        {
+        if (event.type == KU_UI_EVENT_KEY) {
+            const flux_files_key_action action = flux_files_keyboard(
+                &event, entry_count, PAGE_SIZE, &page_start, &selected);
+            if (action == FLUX_FILES_KEY_NONE) continue;
+            if (action == FLUX_FILES_KEY_SELECT) {
+                (void)strlcpy(preview, "KEYBOARD / ITEM SELECTED", sizeof(preview));
+                build_scene(&scene, path, entries, entry_count,
+                            page_start, selected, preview);
+                (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_files_keyboard_navigation: PASS");
+                continue;
+            }
+            target = action == FLUX_FILES_KEY_PARENT ? 30U :
+                     action == FLUX_FILES_KEY_OPEN ? 31U : 34U;
+        } else if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
                 (event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U;
             pointer_buttons = event.buttons;
             if (!primary_pressed) continue;
+            target = kui_scene_hit_test(&scene, event.x, event.y);
+        } else {
+            continue;
         }
-
-        target = kui_scene_hit_test(&scene, event.x, event.y);
         if (target >= 10U && target < 10U + PAGE_SIZE) {
             const size_t index = page_start + (size_t)(target - 10U);
             if (index >= entry_count) continue;

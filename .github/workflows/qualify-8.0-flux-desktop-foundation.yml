@@ -34,6 +34,8 @@ on:
       - 'sdk/include/kurogane/ui.h'
       - 'userspace/gui/files/**'
       - 'tests/test_files_wheel_paging.c'
+      - 'tests/test_flux_files_keyboard.c'
+      - 'tests/test_mouse_first_apps.py'
       - 'docs/ROAD_TO_15_STATUS.md'
   workflow_dispatch:
 
@@ -97,6 +99,20 @@ jobs:
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
             tests/test_files_wheel_paging.c -o build/tests/desktop/files-wheel-ubsan
           build/tests/desktop/files-wheel-ubsan
+      - name: Flux Files keyboard navigation C/C++ and UBSan
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key
+          build/tests/desktop/files-key
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include -x c++ tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key-cpp
+          build/tests/desktop/files-key-cpp
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key-ubsan
+          build/tests/desktop/files-key-ubsan
       - name: Ring-3 event queue / pressure and click-edge regression
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
