@@ -24,7 +24,7 @@ required = [
     "--require-marker '[TEST] desktop_terminal_ring3: PASS'",
     "--require-marker-count '[INPUT] flux_app_spawn: PASS' 2",
     "--require-marker-count '[INPUT] flux_app_surface_ready: PASS' 2",
-    "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 525 754",
+    "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 410 726",
     "--require-marker '[TEST] flux_files_usb_wheel_input: PASS'",
 ]
 for text in required:
