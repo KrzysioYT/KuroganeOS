@@ -511,6 +511,20 @@ int main(void) {
         g_child_apps[index] = NO_APP_ID;
     }
 
+    // The first Home frame is the authenticated desktop handoff contract.
+    // Never block this milestone on settingsd, notifd or persistent pin IO.
+    // Live services can load after the window is already displayed.
+    build_scene(&scene);
+    if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+        puts("[SESSION] flux_home_ui_present: FAIL");
+        (void)ku_ui_close(window);
+        return 2;
+    }
+    puts("[SESSION] flux_home_ui_present: PASS");
+    puts("[TEST] red_flux_home_surface: PASS");
+    puts("[TEST] red_flux_tile_launcher: PASS");
+    puts("[TEST] flux_home_system_pulse: PASS");
+
     if (restore_desktop_theme()) {
         puts("[TEST] flux_theme_restore: PASS");
     } else {
@@ -542,16 +556,12 @@ int main(void) {
         puts("[TEST] flux_home_public_notification: FAIL");
     }
 
+    // Optional services might be temporarily unavailable; Home must remain
+    // alive and allow Dock/keyboard commands even if this refresh fails.
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
-        puts("[SESSION] flux_home_ui_present: FAIL");
-        (void)ku_ui_close(window);
-        return 2;
+        puts("[SESSION] flux_home_optional_refresh: FAIL");
     }
-    puts("[SESSION] flux_home_ui_present: PASS");
-    puts("[TEST] red_flux_home_surface: PASS");
-    puts("[TEST] red_flux_tile_launcher: PASS");
-    puts("[TEST] flux_home_system_pulse: PASS");
 
     for (;;) {
         ku_ui_event event;

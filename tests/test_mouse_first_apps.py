@@ -77,6 +77,9 @@ assert 'flux_login_retry_available: PASS' in login
 assert 'flux_login_error_render: PASS' in login
 assert 'flux_home_ui_create: FAIL' in read("userspace/gui/launcher/main.c")
 assert 'flux_home_ui_present: FAIL' in read("userspace/gui/launcher/main.c")
+assert 'Never block this milestone on settingsd' in read("userspace/gui/launcher/main.c")
+assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (restore_desktop_theme())")
+assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (publish_session_notification())")
 assert 'return start_session(window, &profile);' not in login
 assert 'desktop_status = -8' in login
 assert 'flux_login_boot_retry: PASS' in read("userspace/system/init/main.c")

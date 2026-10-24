@@ -130,3 +130,17 @@ ownership is committed only after a real window slot is allocated, preventing
 an unsuccessful allocation from poisoning subsequent application ownership.
 The fallback remains a last resort after bounded attempts; there is no
 unauthenticated kernel shell launch of GUI apps.
+
+## Early Home first frame — avoid service-dependency startup deadlock
+
+Launcher now creates and presents its first usable Ring-3 native Home scene
+before restoring theme/style from settingsd, reading its persisted pins or
+publishing a notification to notifd. These optional dependencies can take
+multiple bounded waits on slow emulated hardware, so they must not block the
+authenticated first-frame handoff. A post-service refresh failure is
+diagnosed but cannot close an otherwise healthy Home application. The UI
+still performs later normal event-loop refreshes.
+
+Expected serial ordering: `flux_home_ui_present: PASS` occurs before
+theme/style/notification restore markers. Real emulated-boot proof remains
+outstanding for exact commit.
