@@ -70,6 +70,16 @@ jobs:
             -o build/tests/desktop/clipboard-ubsan
           build/tests/desktop/clipboard-ubsan
 
+      - name: Ring-3 event queue / pressure and click-edge regression
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_ui_event_queue.cpp \
+            -o build/tests/desktop/ui-event-queue
+          build/tests/desktop/ui-event-queue
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_ui_event_queue.cpp \
+            -o build/tests/desktop/ui-event-queue-ubsan
+          build/tests/desktop/ui-event-queue-ubsan
       - name: Ring-3 UI wheel ABI and libui scene scroll
         run: |
           cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \

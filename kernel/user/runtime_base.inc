@@ -28,6 +28,7 @@
 #include "../drivers/framebuffer.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
+#include "ui_event_queue.hpp"
 
 struct UserReturnState {
     uint64_t kernel_rsp;
@@ -71,14 +72,10 @@ struct Allocation {
     bool active;
 };
 
-constexpr size_t kMaximumUiEvents = 16U;
-
 struct UiState {
     ku_ui_frame frame;
-    ku_ui_event events[kMaximumUiEvents];
+    ui_event_queue::Queue events;
     windowing::WindowId window;
-    uint8_t head;
-    uint8_t tail;
     bool active;
 };
 
@@ -368,14 +365,7 @@ void draw_user_window(
 }
 
 void queue_user_event(Context& context, const ku_ui_event& event) {
-    const uint8_t next = static_cast<uint8_t>(
-        (context.ui.head + 1U) % kMaximumUiEvents);
-    if (next == context.ui.tail) {
-        context.ui.tail = static_cast<uint8_t>(
-            (context.ui.tail + 1U) % kMaximumUiEvents);
-    }
-    context.ui.events[context.ui.head] = event;
-    context.ui.head = next;
+    static_cast<void>(ui_event_queue::push(context.ui.events, event));
 }
 
 void input_user_window(
@@ -383,7 +373,8 @@ void input_user_window(
     const input::Event& input_event,
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
-    if (context == nullptr || !context->active || !context->ui.active) return;
+    if (context == nullptr || !context->active || !context->ui.active ||
+        context->ui.window != window) return;
     ku_ui_event event{};
     event.structure_size = sizeof(event);
     if (input_event.type == input::EventType::KeyDown) {
@@ -1551,13 +1542,10 @@ void syscall_handler(
                 frame.rax = KU_STATUS_OK;
                 return;
             }
-            if (context->ui.tail == context->ui.head) {
+            if (!ui_event_queue::pop(context->ui.events, user_event)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
                 return;
             }
-            *user_event = context->ui.events[context->ui.tail];
-            context->ui.tail = static_cast<uint8_t>(
-                (context->ui.tail + 1U) % kMaximumUiEvents);
             frame.rax = KU_STATUS_OK;
             return;
         }
