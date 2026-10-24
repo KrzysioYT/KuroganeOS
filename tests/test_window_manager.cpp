@@ -136,6 +136,19 @@ int main() {
         first == second || window_count() != 2U ||
         focused_window() != second) return 3;
 
+    // Floating dock must not consume a full desktop taskbar reservation.
+    if (workspace.work_area.height < 520 ||
+        workspace.pulse_ribbon.height > 64 ||
+        workspace.pulse_ribbon.width >= 800 ||
+        !dock_visible()) return 155;
+    input::Event dock_probe{};
+    dock_probe.type = input::EventType::MouseMove;
+    dock_probe.x = 400; dock_probe.y = 180;
+    if (dispatch(dock_probe) != Status::Ok || dock_visible()) return 156;
+    dock_probe.x = workspace.pulse_ribbon.x + workspace.pulse_ribbon.width / 2;
+    dock_probe.y = workspace.pulse_ribbon.y + workspace.pulse_ribbon.height / 2;
+    if (dispatch(dock_probe) != Status::Ok || !dock_visible()) return 157;
+
     WindowInfo info{};
     if (query(second, &info) != Status::Ok || !info.focused ||
         info.owner_pid != 11U || info.z_order != 1U) return 4;
@@ -428,8 +441,30 @@ int main() {
     if (present_surface(home, 4U, 4U, 4U, home_payload, sizeof(home_payload)) !=
             Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Normal) return 58;
+    // Clicking the APPS item on an already-focused Home must NOT minimize it.
+    const WorkspaceGeometry dock_at_home = workspace_geometry();
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = dock_at_home.pulse_ribbon.x + 22;
+    event.y = dock_at_home.pulse_ribbon.y + dock_at_home.pulse_ribbon.height / 2;
+    if (dispatch(event) != Status::Ok || query(home, &info) != Status::Ok ||
+        info.state != WindowState::Normal) return 158;
     if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
         info.state != WindowState::Minimized) return 59;
+    // Keyboard escape hatch works even with completely unavailable pointer.
+    event = {};
+    event.type = input::EventType::KeyDown;
+    event.control = true;
+    event.alt = true;
+    event.key = drivers::keyboard::KeyCode::F1;
+    if (dispatch(event) != Status::Ok ||
+        query(home, &info) != Status::Ok ||
+        info.state != WindowState::Normal ||
+        focused_window() != home) return 159;
+    if (dismiss(home) != Status::Ok || query(home, &info) != Status::Ok ||
+        info.state != WindowState::Minimized) return 160;
     SurfaceView home_surface{};
     if (read_surface(home, &home_surface) != Status::Ok ||
         home_surface.size != sizeof(home_payload) || home_surface.data == nullptr ||

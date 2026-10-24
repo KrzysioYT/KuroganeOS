@@ -47,3 +47,20 @@ high-contrast strips and modern switch tracks. Classic is unchanged. The
 integer raster rounds use 64-bit intermediates to avoid signed i32 overflow
 at extreme coordinates. These remain software-GOP surfaces, not Wayland or
 GPU-accelerated clients.
+
+## Input and Dock functionality recovery
+
+- APPS no longer minimizes the session-root Home window when already focused.
+  This removes an easy way to hide the command broker for every app tile.
+- Floating Dock work-area reservation is now 18 px, down from 82 px.
+  The 58-px floating Dock appears on pointer proximity and collapses to a
+  52x3-px bottom handle when the pointer leaves. Geometry/hit-testing share
+  the same `calculate_workspace().pulse_ribbon` source.
+- Added Ctrl+Alt+F1…F8 keyboard rescue chords to focus/launch Home,
+  Terminal, Files, Forge, Web, Monitor, Settings, and About. Normal physical
+  typing and unchorded desktop keys remain with the focused Ring-3 client.
+- First eight real primary mouse button-down events write a runtime marker
+  to serial to distinguish driver/input delivery from UI hit-testing.
+- `tests/test_window_manager.cpp` now checks floating Dock bounds/visibility,
+  HOME persistence on Dock clicks, and Ctrl+Alt+F1 restoration. This is host
+  logic evidence; QEMU and VirtualBox guest verification remain required.

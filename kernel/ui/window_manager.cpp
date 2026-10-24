@@ -17,7 +17,9 @@ constexpr int32_t WORKSPACE_TOP = 50;
 constexpr int32_t WORKSPACE_RIGHT = 12;
 constexpr int32_t DOCK_HEIGHT = 58;
 constexpr int32_t DOCK_BOTTOM = 12;
-constexpr int32_t WORKSPACE_BOTTOM = DOCK_HEIGHT + DOCK_BOTTOM + 12;
+// A floating dock is an overlay. Only a slim bottom safety margin belongs
+// to the maximized window work area, never the full dock height.
+constexpr int32_t WORKSPACE_BOTTOM = 18;
 constexpr int32_t SPINE_X = 8;
 constexpr int32_t SPINE_WIDTH = 18;
 constexpr int32_t CONTROL_WIDTH = 22;
@@ -105,6 +107,9 @@ ui::Rect g_damage_regions[MAX_DAMAGE_REGIONS]{};
 size_t g_damage_count = 0U;
 bool g_initialized = false;
 bool g_rendering = false;
+// Mouse proximity reveals the floating dock; moving away collapses it into
+// a narrow bottom-edge handle. This state never changes the work-area size.
+bool g_dock_visible = true;
 #ifndef KUROGANE_HOST_TEST
 process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 #endif
@@ -663,9 +668,9 @@ Status activate_dock_pin(size_t position) {
         if (existing->info.state == WindowState::Minimized) {
             return restore(existing->info.id);
         }
-        if (position == 0U && existing->info.focused) {
-            return minimize(existing->info.id);
-        }
+        // APPS is the session rescue entry point. Never hide an already
+        // focused Home surface here: the launcher is also the command
+        // broker for all pinned native application tiles.
         return focus(existing->info.id);
     }
     if (pin.command == 0) return Status::NotFound;
@@ -860,8 +865,9 @@ void render_layers() {
         if (slot != nullptr) draw_window_slot(*slot);
     }
 
-    ui::dock_bar(workspace.pulse_ribbon, tasks);
-    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+    if (g_dock_visible) {
+        ui::dock_bar(workspace.pulse_ribbon, tasks);
+        for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         const Slot* running = find_by_title(kDockPins[index].title);
         const bool active = running != nullptr && running->info.focused;
         if (index == 0U) {
@@ -875,14 +881,22 @@ void render_layers() {
                 running != nullptr, active);
         }
     }
-    for (size_t position = 0U; position < tasks; ++position) {
-        const Slot* slot = exposed_at(position);
-        if (slot == nullptr) continue;
-        ui::dock_task(
-            ribbon_item_rect(position),
-            slot->info.title,
-            slot->info.focused,
-            slot->info.state == WindowState::Minimized);
+        for (size_t position = 0U; position < tasks; ++position) {
+            const Slot* slot = exposed_at(position);
+            if (slot == nullptr) continue;
+            ui::dock_task(
+                ribbon_item_rect(position),
+                slot->info.title,
+                slot->info.focused,
+                slot->info.state == WindowState::Minimized);
+        }
+    } else {
+        // A tiny centered grabber replaces the full dock when the mouse is
+        // elsewhere. No opaque 1/10-screen footer or permanent reservation.
+        const ui::Theme& colors = ui::default_theme();
+        graphics::fill_rounded_rect(
+            g_screen_width / 2 - 26, g_screen_height - 5,
+            52, 3, 1U, colors.text_muted);
     }
 }
 #endif
@@ -913,6 +927,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_resized = INVALID_WINDOW;
     g_hovered = INVALID_WINDOW;
     g_pointer_capture = INVALID_WINDOW;
+    g_dock_visible = true;
 #ifndef KUROGANE_HOST_TEST
     g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
@@ -1264,6 +1279,7 @@ Status list(ListCallback callback, void* context) {
 }
 
 WorkspaceGeometry workspace_geometry() { return calculate_workspace(); }
+bool dock_visible() { return g_dock_visible; }
 
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     if (!g_initialized) return Status::NotInitialized;
@@ -1338,6 +1354,38 @@ Status dispatch(const input::Event& event) {
     const bool system_release = primary_release &&
         (g_dragged != INVALID_WINDOW || g_resized != INVALID_WINDOW);
 
+    // Flux rescue shortcuts are intentionally chorded to avoid intercepting
+    // text input or normal function keys: Ctrl+Alt+F1..F8 brings up/focuses
+    // Home, Terminal, Files, Forge, Web, Monitor, Settings and About.
+    if (event.type == input::EventType::KeyDown && event.control && event.alt) {
+        size_t pin = DOCK_PIN_COUNT;
+        switch (event.key) {
+            case drivers::keyboard::KeyCode::F1: pin = 0U; break;
+            case drivers::keyboard::KeyCode::F2: pin = 1U; break;
+            case drivers::keyboard::KeyCode::F3: pin = 2U; break;
+            case drivers::keyboard::KeyCode::F4: pin = 3U; break;
+            case drivers::keyboard::KeyCode::F5: pin = 4U; break;
+            case drivers::keyboard::KeyCode::F6: pin = 5U; break;
+            case drivers::keyboard::KeyCode::F7: pin = 6U; break;
+            case drivers::keyboard::KeyCode::F8: pin = 7U; break;
+            default: break;
+        }
+        if (pin < DOCK_PIN_COUNT && login_surface() == nullptr) {
+            const Status result = activate_dock_pin(pin);
+            // A missing session launcher must not corrupt keyboard state.
+            return result == Status::NotFound ? Status::Ok : result;
+        }
+    }
+
+    if (event.type == input::EventType::MouseMove && login_surface() == nullptr) {
+        const bool visible = rect_contains(
+            calculate_workspace().pulse_ribbon, event.x, event.y);
+        if (visible != g_dock_visible) {
+            g_dock_visible = visible;
+            mark_full_dirty();  // Reveal/hide must repaint the old dock pixels.
+        }
+    }
+
     // Red Flux is mouse-first: physical desktop/window shortcuts are not
     // intercepted globally. Keyboard events continue to the focused app so
     // text entry, terminals and accessibility paths remain available.
@@ -1352,6 +1400,10 @@ Status dispatch(const input::Event& event) {
         const WorkspaceGeometry workspace = calculate_workspace();
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+            if (!g_dock_visible) {
+                g_dock_visible = true;
+                mark_full_dirty();
+            }
             for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
                 if (rect_contains(dock_pin_rect(index), event.x, event.y)) {
                     return activate_dock_pin(index);

@@ -133,6 +133,9 @@ Status list(ListCallback callback, void* context);
 // but chrome, dock and desktop commands consume their own gestures.
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
+// Floating dock is rendered over the work area and collapses on pointer exit.
+// These queries expose exact geometry and visibility for host/runtime tests.
+bool dock_visible();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
 // Returns the drawable application-content rectangle in screen coordinates.
 // Login owns its full surface; normal Flux windows exclude chrome.
