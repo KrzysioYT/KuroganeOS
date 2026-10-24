@@ -6,7 +6,7 @@ int main() {
     using namespace flux_cursor;
     static_assert(kWidth == 16 && kHeight == 21, "cursor dimensions");
     static_assert(sample(0,0) == Ink::Outline, "hotspot");
-    static_assert(sample(2,3) == Ink::Fill, "filled arrow");
+    static_assert(sample(1,3) == Ink::Fill, "filled arrow");
     static_assert(sample(-1,0) == Ink::Transparent, "negative clip");
     static_assert(sample(kWidth,kHeight) == Ink::Transparent, "far clip");
     uint32_t background[64]{};
