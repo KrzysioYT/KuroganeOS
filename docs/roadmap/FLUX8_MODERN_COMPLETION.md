@@ -84,3 +84,16 @@ Ring-3 windows now share title/path declarations in
 `sdk/include/kurogane/flux_app_catalog.h`; host C/C++ and source parity
 tests reject drifting titles. The catalog conveys identity metadata only:
 PID ancestry and session authorization remain mandatory for privileged UI.
+
+## Ring-3 app readiness / recovery increment — 2026-10-24
+
+Home now queries an append-only read-only desktop-pin action for a real
+presented app surface. A successful process spawn does not imply a usable
+window. Home focuses an already-ready window, holds a pending child for an
+initial 15-second grace, and allows the **user to click again** after the
+grace to retry a stalled child process. Only the session-owned direct child
+can be terminated through the preexisting child termination API. The
+append-only request layout and SDK syscall number remain unchanged;
+C11/C++17 and UBSan policy tests cover timeouts and monotonic clock edges.
+Normal slow launches are not automatically killed by a background thread.
+This is a reliability slice, not live VirtualBox qualification.

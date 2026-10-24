@@ -4,6 +4,7 @@
 #include <kurogane/notification.h>
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
+#include <kurogane/flux_app_lifecycle.h>
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
@@ -146,6 +147,7 @@ static int restore_desktop_style(void) {
 
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
+static uint64_t g_child_spawned_at[CHILD_CAPACITY];
 static size_t g_selected = 0U;
 static char g_status[64] = "FLUX DECK / READY";
 static ku_service_connection_t g_notification_connection = 0U;
@@ -247,6 +249,7 @@ static void reap_children(void) {
             if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
                 g_children[index] = 0U;
                 g_child_apps[index] = NO_APP_ID;
+                g_child_spawned_at[index] = 0U;
             }
         }
     }
@@ -261,6 +264,30 @@ static int app_is_running(uint32_t app_id) {
     return 0;
 }
 
+static uint64_t launch_clock_ticks(void) {
+    ku_system_snapshot sample;
+    return read_system(&sample) ? sample.uptime_ticks : 0U;
+}
+
+static int native_app_ready(uint32_t desktop_id) {
+    ku_desktop_pin_request request;
+    if (desktop_id >= KU_DESKTOP_APP_COUNT) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = desktop_id;
+    request.action = KU_DESKTOP_PIN_APP_READY;
+    return ku_desktop_pin(&request) == KU_STATUS_OK && request.pinned != 0U;
+}
+
+static int child_slot_for_app(uint32_t app_id) {
+    size_t slot;
+    reap_children();
+    for (slot = 0U; slot < CHILD_CAPACITY; ++slot)
+        if (g_children[slot] != 0U && g_child_apps[slot] == app_id)
+            return (int)slot;
+    return -1;
+}
+
 static int remember_child(uint64_t pid, uint32_t app_id) {
     size_t index;
     reap_children();
@@ -268,6 +295,7 @@ static int remember_child(uint64_t pid, uint32_t app_id) {
         if (g_children[index] == 0U) {
             g_children[index] = pid;
             g_child_apps[index] = app_id;
+            g_child_spawned_at[index] = launch_clock_ticks();
             return 1;
         }
     }
@@ -280,23 +308,57 @@ static int launch_app(size_t index, int quiet_if_running) {
     char number[24];
     if (index >= APP_COUNT) return 0;
     app = &g_apps[index];
-    if (app_is_running((uint32_t)index)) {
-        ku_desktop_pin_request focus_request;
-        ku_status_t focused = KU_STATUS_NOT_FOUND;
-        memset(&focus_request, 0, sizeof(focus_request));
-        focus_request.structure_size = sizeof(focus_request);
-        focus_request.app_id = app->desktop_id;
-        focus_request.action = KU_DESKTOP_PIN_FOCUS_RUNNING;
-        if (app->pinnable) focused = ku_desktop_pin(&focus_request);
-        if (focused == KU_STATUS_OK) {
-            puts("[INPUT] flux_app_existing_focused: PASS");
-            if (!quiet_if_running) {
-                (void)strlcpy(g_status, "FOCUSED EXISTING APP", sizeof(g_status));
+    const int child_slot = child_slot_for_app((uint32_t)index);
+    if (child_slot >= 0) {
+        const int ready = app->pinnable && native_app_ready(app->desktop_id);
+        if (ready) {
+            ku_desktop_pin_request focus_request;
+            memset(&focus_request, 0, sizeof(focus_request));
+            focus_request.structure_size = sizeof(focus_request);
+            focus_request.app_id = app->desktop_id;
+            focus_request.action = KU_DESKTOP_PIN_FOCUS_RUNNING;
+            if (ku_desktop_pin(&focus_request) == KU_STATUS_OK) {
+                puts("[INPUT] flux_app_existing_focused: PASS");
+                if (!quiet_if_running) {
+                    (void)strlcpy(g_status, "FOCUSED EXISTING APP", sizeof(g_status));
+                }
+                return 1;
             }
-        } else if (!quiet_if_running) {
-            (void)strlcpy(g_status, "APP STARTING / WAIT FOR WINDOW", sizeof(g_status));
         }
-        return 1;
+        // The process exists but has not produced a usable window. Do not
+        // mistake PID creation for a working application and do not spawn a
+        // duplicate while the first process is still starting.
+        const uint64_t now = launch_clock_ticks();
+        if (!app->pinnable ||
+            !ku_flux_app_retry_eligible(g_child_spawned_at[child_slot],
+                                        now, ready)) {
+            if (!quiet_if_running)
+                (void)strlcpy(g_status, "APP STARTING / WAIT FOR WINDOW",
+                              sizeof(g_status));
+            return 1;
+        }
+        // Explicit user click after 15 seconds requests a bounded restart.
+        // Only our own child is terminated. Never kill another user's PID.
+        const uint64_t stalled_pid = g_children[child_slot];
+        const ku_status_t stopped = ku_process_terminate_child(stalled_pid, 1);
+        if (stopped != KU_STATUS_OK && stopped != KU_STATUS_NOT_FOUND) {
+            (void)strlcpy(g_status, "APP RETRY BLOCKED / CHILD ACTIVE",
+                          sizeof(g_status));
+            return 0;
+        }
+        g_children[child_slot] = 0U;
+        g_child_apps[child_slot] = NO_APP_ID;
+        g_child_spawned_at[child_slot] = 0U;
+        puts("[INPUT] flux_app_stalled_retry: PASS");
+    }
+    // Avoid untracked children if the table ever fills unexpectedly.
+    reap_children();
+    size_t free_slot = CHILD_CAPACITY;
+    for (size_t i = 0U; i < CHILD_CAPACITY; ++i)
+        if (g_children[i] == 0U) { free_slot = i; break; }
+    if (free_slot == CHILD_CAPACITY) {
+        (void)strlcpy(g_status, "APP LIMIT REACHED", sizeof(g_status));
+        return 0;
     }
 
     result = ku_process_spawn(app->path, strlen(app->path));
@@ -522,6 +584,7 @@ int main(void) {
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
         g_children[index] = 0U;
         g_child_apps[index] = NO_APP_ID;
+        g_child_spawned_at[index] = 0U;
     }
 
     // The first Home frame is the authenticated desktop handoff contract.

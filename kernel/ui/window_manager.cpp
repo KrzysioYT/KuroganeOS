@@ -46,6 +46,7 @@ constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
 constexpr uint32_t DESKTOP_PIN_HOME_READY = 3U;
 constexpr uint32_t DESKTOP_PIN_FOCUS_RUNNING = 4U;
+constexpr uint32_t DESKTOP_PIN_APP_READY = 5U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -1363,6 +1364,11 @@ Status desktop_pin(
     if (action == DESKTOP_PIN_HOME_READY) {
         if (app_id != 0U) return Status::InvalidArgument;
         *out_pinned = home_surface_ready();
+        return Status::Ok;
+    }
+    if (action == DESKTOP_PIN_APP_READY) {
+        const Slot* existing = find_by_title(kDockPins[app_id].title);
+        *out_pinned = existing != nullptr && existing->surface.valid;
         return Status::Ok;
     }
     if (action == DESKTOP_PIN_FOCUS_RUNNING) {

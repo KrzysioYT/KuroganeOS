@@ -459,16 +459,28 @@ int main() {
                       draw, receive, nullptr, &running_files) != Status::Ok ||
         minimize(running_files) != Status::Ok) return 163;
     bool files_pin_before = false;
+    bool app_ready = true;
+    if (desktop_pin(2U, 5U, false, &app_ready) != Status::Ok ||
+        app_ready) return 167;
+    uint8_t files_frame[16]{};
+    if (present_surface(running_files, 4U, 4U, 4U,
+                        files_frame, sizeof(files_frame)) != Status::Ok ||
+        desktop_pin(2U, 5U, false, &app_ready) != Status::Ok ||
+        !app_ready) return 168;
     if (desktop_pin(2U, 0U, false, &files_pin_before) != Status::Ok ||
         desktop_pin(2U, 4U, false, &reported_ready) != Status::Ok ||
         query(running_files, &info) != Status::Ok ||
         info.state != WindowState::Normal ||
         focused_window() != running_files ||
         desktop_pin(2U, 0U, false, &reported_ready) != Status::Ok ||
-        reported_ready != files_pin_before) return 164;
+        reported_ready != files_pin_before ||
+        desktop_pin(2U, 5U, false, &app_ready) != Status::Ok ||
+        !app_ready) return 164;
     if (desktop_pin(7U, 4U, false, &reported_ready) != Status::NotFound ||
         desktop_pin(8U, 4U, false, &reported_ready) != Status::InvalidArgument ||
-        close(running_files) != Status::Ok) return 165;
+        close(running_files) != Status::Ok ||
+        desktop_pin(2U, 5U, false, &app_ready) != Status::Ok ||
+        app_ready) return 165;
     if (focus(home) != Status::Ok) return 166;
 
     // Clicking the APPS item on an already-focused Home must NOT minimize it.

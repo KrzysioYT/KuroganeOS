@@ -108,6 +108,9 @@ assert "red_flux_tile_launcher: PASS" in launcher
 assert "KU_DESKTOP_PIN_FOCUS_RUNNING" in launcher
 assert "flux_app_existing_focused: PASS" in launcher
 assert "FOCUSED EXISTING APP" in launcher
+assert "KU_DESKTOP_PIN_APP_READY" in launcher
+assert "flux_app_stalled_retry: PASS" in launcher
+assert "ku_process_terminate_child(stalled_pid, 1)" in launcher
 for marker in (
     "flux_launcher_action_received: PASS",
     "flux_home_tile_hit: PASS",

@@ -10,6 +10,8 @@ on:
       - 'sdk/include/kurogane/flux_app_catalog.h'
       - 'tests/test_flux_app_catalog.c'
       - 'tests/test_flux_app_catalog_sources.py'
+      - 'sdk/include/kurogane/flux_app_lifecycle.h'
+      - 'tests/test_flux_app_lifecycle.c'
       - 'tests/test_flux_label_fitting.cpp'
       - 'tests/test_flux_session_owner_policy.cpp'
       - 'kernel/drivers/framebuffer.cpp'
@@ -140,6 +142,17 @@ jobs:
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
             -x c++ tests/test_flux_app_catalog.c -o build/tests/desktop/app-registry-cpp
           build/tests/desktop/app-registry-cpp
+      - name: Flux app startup grace and retry policy (C, C++, UBSan)
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-c
+          build/tests/desktop/app-lifecycle-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -x c++ tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-cpp
+          build/tests/desktop/app-lifecycle-cpp
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Isdk/include \
+            tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-ubsan
+          build/tests/desktop/app-lifecycle-ubsan
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

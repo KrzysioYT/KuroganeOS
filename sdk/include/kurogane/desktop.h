@@ -32,7 +32,11 @@ enum ku_desktop_pin_action {
     KU_DESKTOP_PIN_HOME_READY = 3,
     // Privileged to the live Home process. Focus an existing app window only;
     // never spawn an executable or alter its pinning state.
-    KU_DESKTOP_PIN_FOCUS_RUNNING = 4
+    KU_DESKTOP_PIN_FOCUS_RUNNING = 4,
+    // Read-only: app window has presented a native/legacy UI surface.
+    // A minimized app is still ready. "pinned" is the returned readiness
+    // flag; the on-disk pin state is untouched.
+    KU_DESKTOP_PIN_APP_READY = 5
 };
 
 typedef struct ku_desktop_pin_request {

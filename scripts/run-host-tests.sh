@@ -384,6 +384,15 @@ python3 tests/test_flux8_virtualbox_runner.py
   -x c++ tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_cpp"
 "$OUT_DIR/test_flux_app_catalog_cpp"
 
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_app_lifecycle.c \
+  -o "$OUT_DIR/test_flux_app_lifecycle"
+"$OUT_DIR/test_flux_app_lifecycle"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_app_lifecycle.c \
+  -o "$OUT_DIR/test_flux_app_lifecycle_cpp"
+"$OUT_DIR/test_flux_app_lifecycle_cpp"
+
 # Test the real per-process Ring-3 UI event queue and overload policy.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
