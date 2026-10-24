@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "../../../common/version.h"
+#include "../clipboard_actions.h"
 
 #define BROWSER_URL_CAPACITY 192U
 #define BROWSER_STATUS_CAPACITY 96U
@@ -626,20 +627,18 @@ static void build_scene(kui_scene* scene, int omnibox_active) {
        interactive browser control inside that real ABI instead of building
        off-screen rows that the renderer can never present. */
     scene->visible_rows = KU_UI_MAX_LINES;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
     (void)kui_flow_button(&root, 3U, "GO / SEARCH");
     (void)kui_flow_button(&root, 4U, "CLEAR ADDRESS");
+    (void)kui_flow_button(&root, 7U, "COPY ADDRESS");
+    (void)kui_flow_button(&root, 8U, "PASTE ADDRESS");
     (void)kui_flow_label(&root, 5U, g_browser.network);
     (void)kui_flow_label(&root, 6U, navigation);
-    for (index = 0U; index < BROWSER_RENDER_LINES && index < 6U; ++index) {
+    for (index = 0U; index < BROWSER_RENDER_LINES && index < 4U; ++index) {
         (void)kui_flow_label(
             &root,
             10U + (uint32_t)index,
@@ -696,6 +695,25 @@ int main(void) {
             } else if (target == 3U) {
                 (void)navigation_controller_load(&g_browser);
                 omnibox_active = 0;
+            } else if (target == 7U) {
+                if (flux_clipboard_set_text(g_browser.url)) {
+                    (void)strlcpy(g_browser.status, "ADDRESS COPIED", sizeof(g_browser.status));
+                    puts("[TEST] flux_browser_copy_clipboard: PASS");
+                } else {
+                    (void)strlcpy(g_browser.status, "CLIPBOARD UNAVAILABLE", sizeof(g_browser.status));
+                }
+                omnibox_active = 0;
+            } else if (target == 8U) {
+                char pasted[BROWSER_URL_CAPACITY];
+                if (flux_clipboard_get_text(pasted, sizeof(pasted))) {
+                    (void)strlcpy(g_browser.url, pasted, sizeof(g_browser.url));
+                    g_browser.url_length = strlen(g_browser.url);
+                    (void)strlcpy(g_browser.status, "ADDRESS PASTED", sizeof(g_browser.status));
+                    puts("[TEST] flux_browser_paste_clipboard: PASS");
+                } else {
+                    (void)strlcpy(g_browser.status, "CLIPBOARD UNAVAILABLE", sizeof(g_browser.status));
+                }
+                omnibox_active = 1;
             } else if (target == 4U) {
                 g_browser.url_length = 0U;
                 g_browser.url[0] = '\0';

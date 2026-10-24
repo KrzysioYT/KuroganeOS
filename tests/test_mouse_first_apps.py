@@ -29,6 +29,9 @@ assert "quick_entry" not in files and "g_entries" not in files
 assert "flux_files_readdir: PASS" in files
 assert "flux_files_directory_grid: PASS" in files
 assert "flux_files_breadcrumb: PASS" in files
+assert "COPY SELECTED PATH" in files
+assert "flux_clipboard_set_text" in files
+assert "flux_files_copy_path_clipboard: PASS" in files
 assert "desktop_files_mouse_navigation: PASS" in files
 assert "desktop_files_keyboard_shortcuts_detached: PASS" in files
 
@@ -120,6 +123,8 @@ browser = read("userspace/gui/browser/main.c")
 assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"
 assert "kui_scene_hit_test" in browser, "browser: hit test missing"
 assert "GO / SEARCH" in browser and "CLEAR ADDRESS" in browser
+assert "COPY ADDRESS" in browser and "PASTE ADDRESS" in browser
+assert "flux_clipboard_set_text" in browser and "flux_clipboard_get_text" in browser
 assert "KU_UI_EVENT_KEY" in browser, "browser: omnibox keyboard input removed"
 assert "event.type != KU_UI_EVENT_KEY || !omnibox_active" in browser
 assert "KU_UI_KEY_BACKSPACE" in browser and "KU_UI_KEY_ENTER" in browser

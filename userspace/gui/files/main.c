@@ -1,5 +1,6 @@
 #include "../common.h"
 #include "paging.h"
+#include "../clipboard_actions.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 24U
 #define PAGE_SIZE 6U
@@ -258,12 +259,16 @@ static void build_scene(
     (void)kui_flow_button(&root, 30U, "PARENT FOLDER");
     (void)kui_flow_button(&root, 31U, "OPEN / ENTER");
     (void)kui_flow_button(&root, 32U, "NEXT PAGE");
+    (void)kui_flow_button(&root, 34U, "COPY SELECTED PATH");
     (void)kui_flow_label(&root, 33U, preview);
     if (path[0] == '/' && path[1] == '\0') {
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
     }
     if (entry_count <= PAGE_SIZE) {
         (void)kui_scene_set_flags(scene, 32U, KUI_VIEW_DISABLED);
+    }
+    if (selected == NO_SELECTION || selected >= entry_count) {
+        (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
     }
 }
 
@@ -406,6 +411,18 @@ int main(void) {
             (void)activate_selected(
                 path, entries, &entry_count, &page_start, &selected,
                 status, sizeof(status), preview, sizeof(preview));
+        } else if (target == 34U) {
+            char selected_path[PATH_CAPACITY];
+            if (selected == NO_SELECTION || selected >= entry_count ||
+                !join_path(path, entries[selected].name,
+                           selected_path, sizeof(selected_path))) {
+                (void)strlcpy(preview, "COPY PATH / INVALID SELECTION", sizeof(preview));
+            } else if (flux_clipboard_set_text(selected_path)) {
+                (void)strlcpy(preview, "COPY PATH / CLIPBOARD READY", sizeof(preview));
+                puts("[TEST] flux_files_copy_path_clipboard: PASS");
+            } else {
+                (void)strlcpy(preview, "COPY PATH / CLIPBOARD UNAVAILABLE", sizeof(preview));
+            }
         } else if (target == 32U) {
             if (entry_count > PAGE_SIZE) {
                 page_start += PAGE_SIZE;
