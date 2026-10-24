@@ -148,6 +148,7 @@ static int restore_desktop_style(void) {
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static uint64_t g_child_spawned_at[CHILD_CAPACITY];
+static uint8_t g_child_ready_logged[CHILD_CAPACITY];
 static size_t g_selected = 0U;
 static char g_status[64] = "FLUX DECK / READY";
 static ku_service_connection_t g_notification_connection = 0U;
@@ -250,6 +251,7 @@ static void reap_children(void) {
                 g_children[index] = 0U;
                 g_child_apps[index] = NO_APP_ID;
                 g_child_spawned_at[index] = 0U;
+                g_child_ready_logged[index] = 0U;
             }
         }
     }
@@ -296,10 +298,24 @@ static int remember_child(uint64_t pid, uint32_t app_id) {
             g_children[index] = pid;
             g_child_apps[index] = app_id;
             g_child_spawned_at[index] = launch_clock_ticks();
+            g_child_ready_logged[index] = 0U;
             return 1;
         }
     }
     return 0;
+}
+
+static void report_ready_apps(void) {
+    size_t slot;
+    for (slot = 0U; slot < CHILD_CAPACITY; ++slot) {
+        if (g_children[slot] == 0U || g_child_ready_logged[slot] != 0U)
+            continue;
+        const uint32_t app_index = g_child_apps[slot];
+        if (app_index >= APP_COUNT || !g_apps[app_index].pinnable) continue;
+        if (!native_app_ready(g_apps[app_index].desktop_id)) continue;
+        g_child_ready_logged[slot] = 1U;
+        puts("[INPUT] flux_app_surface_ready: PASS");
+    }
 }
 
 static int launch_app(size_t index, int quiet_if_running) {
@@ -349,6 +365,7 @@ static int launch_app(size_t index, int quiet_if_running) {
         g_children[child_slot] = 0U;
         g_child_apps[child_slot] = NO_APP_ID;
         g_child_spawned_at[child_slot] = 0U;
+        g_child_ready_logged[child_slot] = 0U;
         puts("[INPUT] flux_app_stalled_retry: PASS");
     }
     // Avoid untracked children if the table ever fills unexpectedly.
@@ -560,7 +577,11 @@ static void build_scene(kui_scene* scene) {
         (void)kui_flow_tile(
             &apps, 10U + (uint32_t)index, label, g_apps[index].icon);
         if (g_apps[index].pinnable && pin_state(g_apps[index].desktop_id)) flags |= KUI_VIEW_PINNED;
-        if (app_is_running((uint32_t)index)) flags |= KUI_VIEW_RUNNING;
+        // A PID without a presented surface is STARTING, not RUNNING.
+        if (app_is_running((uint32_t)index) &&
+            (!g_apps[index].pinnable ||
+             native_app_ready(g_apps[index].desktop_id)))
+            flags |= KUI_VIEW_RUNNING;
         (void)kui_scene_set_flags(scene, 10U + (uint32_t)index, flags);
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
@@ -585,6 +606,7 @@ int main(void) {
         g_children[index] = 0U;
         g_child_apps[index] = NO_APP_ID;
         g_child_spawned_at[index] = 0U;
+        g_child_ready_logged[index] = 0U;
     }
 
     // The first Home frame is the authenticated desktop handoff contract.
@@ -649,6 +671,7 @@ int main(void) {
             ++refresh_ticks;
             if (refresh_ticks >= KU_SYSTEM_TICKS_PER_SECOND) {
                 refresh_ticks = 0U;
+                report_ready_apps();
                 build_scene(&scene);
                 if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
             }

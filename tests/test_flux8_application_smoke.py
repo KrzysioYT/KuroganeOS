@@ -23,6 +23,7 @@ required = [
     "--require-marker '[TEST] flux_files_directory_grid: PASS'",
     "--require-marker '[TEST] desktop_terminal_ring3: PASS'",
     "--require-marker-count '[INPUT] flux_app_spawn: PASS' 2",
+    "--require-marker-count '[INPUT] flux_app_surface_ready: PASS' 2",
     "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 525 754",
     "--require-marker '[TEST] flux_files_usb_wheel_input: PASS'",
 ]
@@ -49,6 +50,7 @@ assert 'constexpr int32_t DOCK_PIN_GAP = 8' in wm
 assert "KU_FLUX_TITLE_FILES, 'f'" in wm
 assert '"[INPUT] flux_dock_shortcut_received: PASS"' in launcher
 assert '"[INPUT] flux_app_spawn: PASS"' in launcher
+assert '"[INPUT] flux_app_surface_ready: PASS"' in launcher
 assert '"[SESSION] flux_home_ui_present: PASS"' in launcher
 assert '"[SESSION] flux_home_first_frame: PASS"' in login
 print("Flux 8 application-launch smoke contract: PASS")

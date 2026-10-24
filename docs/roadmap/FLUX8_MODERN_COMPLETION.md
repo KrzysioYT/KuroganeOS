@@ -114,3 +114,9 @@ movement: a root directory with <= PAGE_SIZE entries must not fail merely
 because scrolling cannot change its page. The host paging-policy test still
 covers offset changes separately. The QEMU command's static shell checker
 now uses a scoped, syntactically valid assertion.
+
+The Home Deck running badge now requires a **presented** native app surface,
+not just a live child PID. A once-per-second observation emits a first-frame
+marker for each ready app. The exact-SHA QEMU check requires two child spawns
+and two compositor-observed surfaces (Files + Terminal); the app creation
+marker alone is insufficient evidence of working UI.

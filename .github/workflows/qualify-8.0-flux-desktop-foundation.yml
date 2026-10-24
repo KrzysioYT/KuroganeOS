@@ -290,6 +290,7 @@ jobs:
             --require-marker '[TEST] flux_files_usb_wheel_input: PASS' \
             --require-marker '[TEST] desktop_terminal_ring3: PASS' \
             --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \
+            --require-marker-count '[INPUT] flux_app_surface_ready: PASS' 2 \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \

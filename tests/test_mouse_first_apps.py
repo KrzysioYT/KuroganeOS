@@ -110,6 +110,8 @@ assert "flux_app_existing_focused: PASS" in launcher
 assert "FOCUSED EXISTING APP" in launcher
 assert "KU_DESKTOP_PIN_APP_READY" in launcher
 assert "flux_app_stalled_retry: PASS" in launcher
+assert "flux_app_surface_ready: PASS" in launcher
+assert "report_ready_apps();" in launcher
 assert "ku_process_terminate_child(stalled_pid, 1)" in launcher
 for marker in (
     "flux_launcher_action_received: PASS",
