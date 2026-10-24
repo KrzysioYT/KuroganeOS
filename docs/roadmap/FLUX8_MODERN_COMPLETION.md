@@ -173,3 +173,17 @@ response errors and service rejection. The PowerShell verifier now prints
 PID1/accountd startup from the beginning of the boot log even when thousands
 of retry clicks push those markers beyond the tail window. It does not bypass
 login or weaken installed account validation.
+
+## 2026-10-25: diagnosing VirtualBox accountd restart loop
+
+The user's live COM1 log shows installed-first-boot PASS, PID1 accountd
+spawn PASS, **three accountd restart markers**, a later supervisor liveness
+PASS, and repeated Login account lookup FAIL. There is **no accountd ready
+marker** in that logged old ISO. Restart + process spawn is not a service
+response or a successful account lookup, so status remains P0.
+
+New COM1 startup markers delimit accountd ELF entry, IPC binding, and profile
+load; supervisor logs each service's child exit kind/code and an exhausted
+restart budget. A new ISO is needed for these markers. The root cause
+(service bind, fault or invalid installed root) is not yet proven; keep
+account verification intact and never infer login success from liveness PASS.

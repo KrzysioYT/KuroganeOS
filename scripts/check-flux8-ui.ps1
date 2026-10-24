@@ -40,7 +40,7 @@ Write-Host ("[Flux 8] Serial bytes: {0}; last write: {1}" -f
 $boot = @(Get-Content -LiteralPath $log -TotalCount 5000 -ErrorAction Stop)
 Write-Host '--- Account daemon and PID1 startup markers (first 5000 lines) ---'
 $boot | Where-Object {
-    $_ -match 'accountd:|\[ACCOUNTD\]|\[TEST\] account_service|\[TEST\] userspace_init|\[TEST\] installed_first_boot|\[SESSION\] flux_account'
+    $_ -match 'accountd:|\[ACCOUNTD\]|\[SUPERVISOR\]|\[TEST\] account_service|\[TEST\] userspace_init|\[TEST\] installed_first_boot|\[SESSION\] flux_account'
 } | Select-Object -First 60 | ForEach-Object { Write-Host $_ }
 if ($boot.Count -eq 0 -and $lines.Count -eq 0) {
     Write-Warning 'Serial log is empty. Wait until guest boot completes and run again; absence of markers is not evidence of failure.'
@@ -85,7 +85,7 @@ if ($failed.Count -gt 0) {
 }
 Write-Host '--- Recent relevant serial lines ---'
 $lines | Where-Object {
-    $_ -match '^\[INPUT\]|^\[SESSION\]|^\[ACCOUNTD\]|\[TEST\] desktop_launcher|\[TEST\] red_flux_home_surface|PANIC_BEGIN|flux.*FAIL'
+    $_ -match '^\[INPUT\]|^\[SESSION\]|^\[ACCOUNTD\]|^\[SUPERVISOR\]|\[TEST\] desktop_launcher|\[TEST\] red_flux_home_surface|PANIC_BEGIN|flux.*FAIL'
 } | Select-Object -Last 60 | ForEach-Object { Write-Host $_ }
 
 # Diagnostic status is not a release verdict: require both Home and a

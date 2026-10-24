@@ -118,7 +118,22 @@ static int supervise_service(service_watch* watch) {
     status = ku_wait(watch->pid, &exit_code);
     if (status == KU_STATUS_WOULD_BLOCK) return 1;
     if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
-    if (watch->restarts >= SERVICE_RESTART_LIMIT) return 0;
+    // Restart is evidence of a DEAD child, not service readiness.
+    // Report exit reason adjacent to the existing per-service restart marker,
+    // without logging account identity or credential material.
+    (void)u_puts("[SUPERVISOR] child_exit_kind=");
+    (void)u_puts(status == KU_STATUS_OK ? "REAPED\n" : "NOT_FOUND\n");
+    if (status == KU_STATUS_OK) {
+        (void)u_puts("[SUPERVISOR] child_exit_code=");
+        if (exit_code < 0) (void)u_puts("-");
+        (void)u_put_u64(exit_code < 0
+            ? (uint64_t)(-(int64_t)exit_code) : (uint64_t)exit_code);
+        (void)u_puts("\n");
+    }
+    if (watch->restarts >= SERVICE_RESTART_LIMIT) {
+        (void)u_puts("[SUPERVISOR] restart_limit_exhausted: FAIL\n");
+        return 0;
+    }
 
     delay = SERVICE_RESTART_BASE_DELAY * (uint64_t)(watch->restarts + 1U);
     (void)u_puts("init: supervised service terminated; restarting\n");

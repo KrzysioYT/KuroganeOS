@@ -105,6 +105,13 @@ for stage in (
     assert stage in login, stage
 accountd = (root / "userspace/system/accountd/main.c").read_text()
 assert "[ACCOUNTD] profile_installed_ready: PASS" in accountd
+assert "[ACCOUNTD] process_entry: PASS" in accountd
+assert "[ACCOUNTD] bind_account_v1: PASS" in accountd
+assert "[ACCOUNTD] bind_account_v1: FAIL" in accountd
+init = (root / "userspace/system/init/main.c").read_text()
+assert "[SUPERVISOR] child_exit_code=" in init
+assert "[SUPERVISOR] child_exit_kind=" in init
+assert "[SUPERVISOR] restart_limit_exhausted: FAIL" in init
 assert "[ACCOUNTD] installed_profile_invalid: FAIL" in accountd
 assert 'g_failed_stage = "LAUNCHER SPAWN"' in login
 assert 'flux_home_first_frame: PASS' in login
