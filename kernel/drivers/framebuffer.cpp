@@ -526,7 +526,9 @@ void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
     if (scale == 0U) return;
     int64_t cursor_x = x;
     int64_t cursor_y = y;
-    const int64_t line_advance = static_cast<int64_t>(scale) * 9;
+    // Keep established console/window 8-cell line spacing until the
+    // scalable-font layout layer provides explicit line metrics.
+    const int64_t line_advance = static_cast<int64_t>(scale) * 8;
     const int64_t column_advance = static_cast<int64_t>(scale) * 6;
     while (*text != '\0') {
         const ku_text::Scalar decoded = ku_text::next_z(text);
