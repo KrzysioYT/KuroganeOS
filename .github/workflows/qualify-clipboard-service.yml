@@ -1,171 +1,78 @@
-# Requalify after fixing runtime self-PID validation in clipboard probe.
 name: Qualify Clipboard Service lifecycle
 
 on:
-  push:
-    branches:
-      - gpt/road-to-15-consolidation
+  pull_request:
+    branches: [gpt/road-to-15-consolidation]
     paths:
+      - 'userspace/system/clipboardd/**'
+      - 'userspace/system/clipboard-probe/**'
+      - 'sdk/include/kurogane/clipboard.h'
       - '.github/workflows/qualify-clipboard-service.yml'
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'userspace/system/clipboardd/**'
+      - 'userspace/system/clipboard-probe/**'
+      - 'sdk/include/kurogane/clipboard.h'
+      - '.github/workflows/qualify-clipboard-service.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  qualify-and-land:
+  clipboard-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     steps:
-      - name: Checkout candidate
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           submodules: recursive
-
-      - name: Integrate clipboard daemon and qualification probe
-        shell: python
-        run: |
-          from pathlib import Path
-
-          build = Path('scripts/build-linux.sh')
-          text = build.read_text()
-          anchor = '    "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"\n'
-          addition = (
-              '    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"\n'
-              '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
-          )
-          if text.count(anchor) != 1:
-              raise SystemExit(f'clipboard build anchor count={text.count(anchor)}')
-          build.write_text(text.replace(anchor, anchor + addition, 1))
-
-          init = Path('userspace/system/init/main.c')
-          text = init.read_text()
-          define_anchor = '#define SESSION_SERVICE_PATH "/system/sessiond"\n'
-          if text.count(define_anchor) != 1:
-              raise SystemExit('clipboard define anchor changed')
-          text = text.replace(
-              define_anchor,
-              define_anchor + '#define CLIPBOARD_SERVICE_PATH "/system/clipd"\n', 1)
-
-          spawn_anchor = '''static uint64_t spawn_session_service(void) {
-              const ku_result_t result = u_spawn(SESSION_SERVICE_PATH);
-              return result > 0 ? (uint64_t)result : 0U;
-          }
-          '''
-          spawn_new = spawn_anchor + '''
-          static uint64_t spawn_clipboard_service(void) {
-              const ku_result_t result = u_spawn(CLIPBOARD_SERVICE_PATH);
-              return result > 0 ? (uint64_t)result : 0U;
-          }
-          '''
-          if text.count(spawn_anchor) != 1:
-              raise SystemExit('clipboard spawn helper anchor changed')
-          text = text.replace(spawn_anchor, spawn_new, 1)
-
-          startup_anchor = '    (void)u_puts("[TEST] session_service_spawn: PASS\\n");\n'
-          startup = startup_anchor + (
-              '    const uint64_t clipboard_service_pid = spawn_clipboard_service();\n'
-              '    if (clipboard_service_pid == 0U) {\n'
-              '        (void)u_puts("init: cannot spawn /system/clipd\\n");\n'
-              '        (void)u_puts("[TEST] clipboard_service_spawn: FAIL\\n");\n'
-              '        ku_exit(28);\n'
-              '    }\n'
-              '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
-              '    const ku_result_t clipboard_probe_pid = u_spawn("/system/clipprb");\n'
-              '    if (clipboard_probe_pid <= 0) {\n'
-              '        (void)u_puts("[TEST] clipboard_service_roundtrip: FAIL\\n");\n'
-              '        ku_exit(29);\n'
-              '    }\n'
-          )
-          if text.count(startup_anchor) != 1:
-              raise SystemExit('clipboard startup anchor changed')
-          text = text.replace(startup_anchor, startup, 1)
-
-          live_anchor = '    (void)u_puts("[TEST] session_service_liveness: PASS\\n");\n\n'
-          live = live_anchor + (
-              '    service_status = 0;\n'
-              '    const ku_status_t clipboard_early = ku_wait(clipboard_service_pid, &service_status);\n'
-              '    if (clipboard_early != KU_STATUS_WOULD_BLOCK) {\n'
-              '        (void)u_puts("[TEST] clipboard_service_liveness: FAIL\\n");\n'
-              '        ku_exit(30);\n'
-              '    }\n'
-              '    (void)u_puts("[TEST] clipboard_service_liveness: PASS\\n");\n\n'
-          )
-          if text.count(live_anchor) != 1:
-              raise SystemExit('clipboard liveness anchor changed')
-          text = text.replace(live_anchor, live, 1)
-
-          loop_anchor = '''        status = 0;
-                  const ku_status_t wait_status = ku_wait(session_pid, &status);'''
-          loop_new = '''        service_status = 0;
-                  const ku_status_t clipboard_wait = ku_wait(clipboard_service_pid, &service_status);
-                  if (clipboard_wait == KU_STATUS_OK || clipboard_wait == KU_STATUS_NOT_FOUND) {
-                      (void)u_puts("init: clipboard service terminated\\n");
-                      (void)u_puts("[TEST] clipboard_service_liveness: FAIL\\n");
-                      ku_exit(31);
-                  }
-                  if (clipboard_wait != KU_STATUS_WOULD_BLOCK) {
-                      (void)u_puts("init: clipboard service supervision failed\\n");
-                      ku_exit(32);
-                  }
-
-                  status = 0;
-                  const ku_status_t wait_status = ku_wait(session_pid, &status);'''
-          if text.count(loop_anchor) != 1:
-              raise SystemExit(f'clipboard supervision anchor count={text.count(loop_anchor)}')
-          init.write_text(text.replace(loop_anchor, loop_new, 1))
-
-      - name: Validate candidate
-        run: |
-          git diff --check
-          grep -F 'system/clipd' scripts/build-linux.sh
-          grep -F 'system/clipprb' scripts/build-linux.sh
-          grep -F '[TEST] clipboard_service_liveness: PASS' userspace/system/init/main.c
-          [[ ${#clipd} -le 8 ]]
-          [[ ${#clipprb} -le 8 ]]
-
       - name: Install build and QEMU dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
-
-      - name: Build full release media
-        run: |
-          chmod +x scripts/*.sh
-          bash ./scripts/build-media-linux.sh --configuration release --rebuild
-          test -s build/images/KuroganeOS-linux.img
-
-      - name: Require real clipboard lifecycle
-        run: |
-          bash ./scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img \
-            --disk \
-            --require-marker '[TEST] clipboard_service_roundtrip: PASS' \
-            --timeout 180
-
-      - name: Remove qualification-only probe launch
+      - name: Launch and reap qualification probe before login
         shell: python
         run: |
           from pathlib import Path
           path = Path('userspace/system/init/main.c')
           text = path.read_text()
-          probe = (
-              '    const ku_result_t clipboard_probe_pid = u_spawn("/system/clipprb");\n'
-              '    if (clipboard_probe_pid <= 0) {\n'
-              '        (void)u_puts("[TEST] clipboard_service_roundtrip: FAIL\\n");\n'
-              '        ku_exit(29);\n'
-              '    }\n'
-          )
-          if text.count(probe) != 1:
-              raise SystemExit('clipboard qualification stanza changed')
-          path.write_text(text.replace(probe, '', 1))
-
-      - name: Land qualified clipboard integration
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          probe = r'''
+              {
+                  const ku_result_t pid = u_spawn("/system/clipprb");
+                  int32_t exit_status = -1;
+                  ku_status_t waited = KU_STATUS_WOULD_BLOCK;
+                  if (pid <= 0) ku_exit(80);
+                  for (uint32_t attempt = 0; attempt < 1000U; ++attempt) {
+                      waited = ku_wait((uint64_t)pid, &exit_status);
+                      if (waited != KU_STATUS_WOULD_BLOCK) break;
+                      (void)ku_sleep(1U);
+                  }
+                  if (waited != KU_STATUS_OK || exit_status != 0) ku_exit(81);
+                  (void)u_puts("[TEST] clipboard_probe_reaped: PASS\n");
+              }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit('clipboard probe launch anchor changed')
+          path.write_text(text.replace(anchor, anchor + probe, 1))
+      - name: Build full release media
+        run: bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require real kernel IPC and continued login
         run: |
-          git rm .github/workflows/qualify-clipboard-service.yml
-          git config user.name 'KuroganeOS CI'
-          git config user.email 'actions@users.noreply.github.com'
-          git add scripts/build-linux.sh userspace/system/init/main.c
-          git commit -m 'service(clipboard): integrate clipboard daemon lifecycle'
-          git push origin HEAD:gpt/road-to-15-consolidation
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none \
+            --log-dir build/tests/clipboard-runtime --timeout 180 \
+            --require-marker '[TEST] clipboard_unicode_validation: PASS' \
+            --require-marker '[TEST] clipboard_service_roundtrip: PASS' \
+            --require-marker '[TEST] clipboard_probe_reaped: PASS' \
+            --require-marker '[TEST] clipboard_service_liveness: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clipboard-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/clipboard-runtime
+          if-no-files-found: warn

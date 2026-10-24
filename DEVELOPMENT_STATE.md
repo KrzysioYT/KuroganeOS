@@ -1,6 +1,6 @@
 # KuroganeOS Development State
 
-Last updated: 2026-10-20
+Last updated: 2026-10-23
 
 ## Integration branch
 
@@ -13,6 +13,21 @@ Last updated: 2026-10-20
 Merged through PR #45 as integration commit:
 
 `8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`
+
+## Active development evidence
+
+PR #55 (`codex/road-to-15-stability`) carries the current candidate.
+At `507b242d046f2cf3ea242f0de058af227065898b`, the 5.1 through 5.5
+QEMU workflows, Steel Closeout, Scheduler 2.0 and focused Flux window-manager
+regression all pass. This establishes those automated profiles, not physical
+hardware certification. The 7.0 device and Intel GbE workflows passed on
+`95d96d099b4e4699985ad77f1201903d8257335f` before the compositor-only change.
+
+Current desktop hardening preserves redraw requests raised during rendering.
+Clipboard service hardening retains response snapshots under IPC backpressure
+and validates UTF-8; it has host regression coverage and a release build, with
+runtime qualification still required. 8.0–14.0 remain incomplete; no version
+promotion or product-level stable release is implied by these slices.
 
 ## Formal release track
 

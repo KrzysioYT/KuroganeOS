@@ -20,6 +20,11 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_keyboard_lifecycle"
 "$HOST_PYTHON" tests/test_qmp_pointer_selection.py
 
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
+  -Wl,--gc-sections -o "$OUT_DIR/test_clipboard_service"
+"$OUT_DIR/test_clipboard_service"
+
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"

@@ -1,0 +1,44 @@
+name: Check Clipboard Service
+
+on:
+  pull_request:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'userspace/system/clipboardd/**'
+      - 'sdk/include/kurogane/clipboard.h'
+      - 'tests/test_clipboard_service.c'
+      - '.github/workflows/check-clipboard-service.yml'
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'userspace/system/clipboardd/**'
+      - 'sdk/include/kurogane/clipboard.h'
+      - 'tests/test_clipboard_service.c'
+      - '.github/workflows/check-clipboard-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  service-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exercise production service with bounded IPC adapter
+        run: |
+          mkdir -p build/tests
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include -ffunction-sections -fdata-sections \
+            tests/test_clipboard_service.c -Wl,--gc-sections \
+            -o build/tests/clipboard-service
+          build/tests/clipboard-service
+      - name: Undefined behavior regression
+        run: |
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include -ffunction-sections -fdata-sections \
+            tests/test_clipboard_service.c -Wl,--gc-sections \
+            -o build/tests/clipboard-service-ubsan
+          build/tests/clipboard-service-ubsan
