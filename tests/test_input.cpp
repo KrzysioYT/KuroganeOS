@@ -216,5 +216,24 @@ int main() {
         decoder.position != 0U) return 18;
     mouse_publication_regression();
     pump_backpressure_regression();
+    assert(input::initialize(1000, 800));
+    const input::AbsolutePointerSample held{100, 100, 0, 100, 0, 100, 0, 1U, 1U};
+    assert(input::submit_absolute_pointer(held));
+    const size_t queued_before_resize = input::pending_events();
+    assert(queued_before_resize > 0 && input::pointer_buttons() == 1U);
+    assert(!input::set_screen_bounds(0, 100));
+    assert(input::pointer_x() == 999 && input::pending_events() == queued_before_resize);
+    assert(input::set_screen_bounds(320, 200));
+    assert(input::pointer_x() == 319 && input::pointer_y() == 199);
+    assert(input::pointer_buttons() == 1U && input::pending_events() == queued_before_resize);
+    bool saw_button = false;
+    while (input::try_read(&event)) {
+        assert(event.x <= 319 && event.y <= 199);
+        if (event.type == input::EventType::MouseButtonDown) saw_button = true;
+    }
+    assert(saw_button);
+    assert(input::set_screen_bounds(1280, 720));
+    assert(input::submit_absolute_pointer(held));
+    assert(input::pointer_x() == 1279 && input::pointer_y() == 719);
     return 0;
 }

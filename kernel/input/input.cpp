@@ -140,6 +140,22 @@ bool initialize(uint32_t screen_width, uint32_t screen_height) {
     return true;
 }
 
+bool set_screen_bounds(uint32_t screen_width, uint32_t screen_height) {
+    if (!g_initialized || screen_width == 0U || screen_height == 0U ||
+        screen_width > static_cast<uint32_t>(INT32_MAX) ||
+        screen_height > static_cast<uint32_t>(INT32_MAX)) return false;
+    g_max_x = static_cast<int32_t>(screen_width - 1U);
+    g_max_y = static_cast<int32_t>(screen_height - 1U);
+    g_pointer_x = clamp(g_pointer_x, g_max_x);
+    g_pointer_y = clamp(g_pointer_y, g_max_y);
+    for (uint16_t index = g_tail; index != g_head; ++index) {
+        Event& event = g_events[index & QUEUE_MASK];
+        event.x = clamp(event.x, g_max_x);
+        event.y = clamp(event.y, g_max_y);
+    }
+    return true;
+}
+
 size_t pump() {
     if (!g_initialized) return 0U;
     size_t processed = 0U;

@@ -5,13 +5,15 @@ size_t g_draws = 0U;
 size_t g_inputs = 0U;
 
 void draw(windowing::WindowId, const ui::Rect&, bool, void*) { ++g_draws; }
-struct RedrawFixture { unsigned mode = 0; bool nested_render = false; };
+struct RedrawFixture { unsigned mode = 0; bool nested_render = false;
+    windowing::Status resize_status = windowing::Status::Ok; };
 void invalidate_during_draw(windowing::WindowId, const ui::Rect&, bool, void* context) {
     auto& fixture = *static_cast<RedrawFixture*>(context);
     const unsigned mode = fixture.mode;
     fixture.mode = 0;
     if (mode == 1) windowing::invalidate_region({12, 15, 20, 25});
     if (mode == 2) windowing::invalidate();
+    if (mode == 3) fixture.resize_status = windowing::set_screen_size(640, 480);
     if (mode != 0) fixture.nested_render = windowing::render_if_needed();
 }
 struct MutationFixture {
@@ -47,6 +49,7 @@ void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
 
 int main() {
     using namespace windowing;
+    if (set_screen_size(640, 480) != Status::NotInitialized) return 126;
     if (initialize(0U, 0U) != Status::InvalidArgument ||
         initialize(800U, 600U) != Status::Ok) return 1;
 
@@ -611,5 +614,49 @@ int main() {
         damage_snapshot(&damage) != Status::Ok || !damage.full) return 112;
     if (!render_if_needed() || mutation.survivor_draws != 2U ||
         mutation.replacement_draws != 1U || render_if_needed()) return 113;
+    // Display changes preserve identities, surfaces and restore state.
+    if (initialize(1024U, 768U) != Status::Ok) return 114;
+    WindowId normal = INVALID_WINDOW, large = INVALID_WINDOW;
+    if (create_window("Normal", 50U, {600, 400, 300, 220},
+            draw, receive, nullptr, &normal) != Status::Ok ||
+        create_window("Large", 51U, {100, 100, 400, 300},
+            draw, receive, nullptr, &large) != Status::Ok) return 115;
+    uint8_t kept_payload[16]{};
+    kept_payload[0] = 71;
+    if (present_surface(normal, 4, 4, 4, kept_payload, sizeof(kept_payload)) != Status::Ok ||
+        maximize(large) != Status::Ok || minimize(large) != Status::Ok) return 116;
+    const WindowId kept_focus = focused_window();
+    if (set_screen_size(640, 480) != Status::Ok || window_count() != 2 ||
+        focused_window() != kept_focus || query(normal, &info) != Status::Ok) return 117;
+    const auto smaller = workspace_geometry().work_area;
+    if (info.bounds.x < smaller.x || info.bounds.y < smaller.y ||
+        info.bounds.x + info.bounds.width > smaller.x + smaller.width ||
+        info.bounds.y + info.bounds.height > smaller.y + smaller.height) return 118;
+    SurfaceView kept{};
+    if (read_surface(normal, &kept) != Status::Ok || kept.size != 16 ||
+        kept.data[0] != 71 || query(large, &info) != Status::Ok ||
+        info.state != WindowState::Minimized) return 119;
+    if (restore(large) != Status::Ok || query(large, &info) != Status::Ok ||
+        info.state != WindowState::Maximized || info.bounds.width != smaller.width ||
+        info.bounds.height != smaller.height) return 120;
+    if (restore(large) != Status::Ok || query(large, &info) != Status::Ok ||
+        info.state != WindowState::Normal || info.bounds.width != 400) return 121;
+    if (set_screen_size(0, 480) != Status::InvalidArgument ||
+        workspace_geometry().work_area.width != smaller.width) return 122;
+    if (set_screen_size(1280, 720) != Status::Ok ||
+        damage_snapshot(&damage) != Status::Ok || !damage.full) return 123;
+    if (!render_if_needed() || set_screen_size(1280, 720) != Status::Ok ||
+        render_if_needed()) return 124;
+    if (set_screen_size(320, 200) != Status::Ok || query(normal, &info) != Status::Ok ||
+        info.bounds.height > workspace_geometry().work_area.height) return 125;
+    if (set_screen_size(UINT32_MAX, 480) != Status::InvalidArgument) return 127;
+    if (initialize(800, 600) != Status::Ok) return 128;
+    RedrawFixture nested_resize{};
+    nested_resize.mode = 3;
+    WindowId resize_callback = INVALID_WINDOW;
+    if (create_window("Resize callback", 52U, {40, 50, 300, 220},
+        invalidate_during_draw, nullptr, &nested_resize, &resize_callback) != Status::Ok ||
+        !render_if_needed() || nested_resize.resize_status != Status::InvalidState ||
+        workspace_geometry().work_area.width != 754) return 129;
     return 0;
 }

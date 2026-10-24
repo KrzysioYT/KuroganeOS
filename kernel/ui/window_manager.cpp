@@ -63,6 +63,7 @@ struct Slot {
     void* context;
     uint16_t generation;
     bool occupied;
+    WindowState state_before_minimize;
 };
 
 struct DockPin {
@@ -683,11 +684,11 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
         workspace.work_area.y + workspace.work_area.height - slot.info.bounds.y;
     slot.info.bounds.width = clamp_size(
         pointer_x - slot.info.bounds.x + 1,
-        MINIMUM_WIDTH,
+        maximum_width < MINIMUM_WIDTH ? maximum_width : MINIMUM_WIDTH,
         maximum_width);
     slot.info.bounds.height = clamp_size(
         pointer_y - slot.info.bounds.y + 1,
-        MINIMUM_HEIGHT,
+        maximum_height < MINIMUM_HEIGHT ? maximum_height : MINIMUM_HEIGHT,
         maximum_height);
     slot.info.restore_bounds = slot.info.bounds;
     mark_full_dirty();
@@ -900,6 +901,49 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_cursor_y = input::pointer_y();
 #endif
     g_initialized = true;
+    mark_full_dirty();
+    return Status::Ok;
+}
+
+Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (g_rendering) return Status::InvalidState;
+    if (screen_width < 320U || screen_height < 200U ||
+        screen_width > static_cast<uint32_t>(INT32_MAX) ||
+        screen_height > static_cast<uint32_t>(INT32_MAX)) return Status::InvalidArgument;
+    if (screen_width == static_cast<uint32_t>(g_screen_width) &&
+        screen_height == static_cast<uint32_t>(g_screen_height)) return Status::Ok;
+#ifndef KUROGANE_HOST_TEST
+    if (graphics::width() != screen_width || graphics::height() != screen_height ||
+        !input::set_screen_bounds(screen_width, screen_height)) return Status::InvalidState;
+    // The old XOR cursor belongs to the old framebuffer; a full redraw below
+    // replaces it without applying its saved coordinates to the new surface.
+    g_cursor_visible = false;
+#endif
+    g_screen_width = static_cast<int32_t>(screen_width);
+    g_screen_height = static_cast<int32_t>(screen_height);
+    const ui::Rect area = calculate_workspace().work_area;
+    const auto fit = [&area](ui::Rect bounds) {
+        if (bounds.width > area.width) bounds.width = area.width;
+        if (bounds.height > area.height) bounds.height = area.height;
+        bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
+        bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
+        return bounds;
+    };
+    for (Slot& slot : g_slots) {
+        if (!slot.occupied) continue;
+        if (is_login_surface(slot)) {
+            slot.info.bounds = {0, 0, g_screen_width, g_screen_height};
+            slot.info.restore_bounds = slot.info.bounds;
+        } else {
+            slot.info.restore_bounds = fit(slot.info.restore_bounds);
+            const bool maximized = slot.info.state == WindowState::Maximized ||
+                (slot.info.state == WindowState::Minimized &&
+                 slot.state_before_minimize == WindowState::Maximized);
+            slot.info.bounds = maximized ? area : fit(slot.info.bounds);
+        }
+    }
+    g_dragged = g_resized = g_hovered = INVALID_WINDOW;
     mark_full_dirty();
     return Status::Ok;
 }
@@ -1125,6 +1169,7 @@ Status minimize(WindowId id) {
     }
     cancel_capture(id);
     clear_hover(id);
+    slot->state_before_minimize = slot->info.state;
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
@@ -1156,8 +1201,11 @@ Status restore(WindowId id) {
         return Status::InvalidState;
     }
     cancel_capture(id);
-    slot->info.state = WindowState::Normal;
-    slot->info.bounds = slot->info.restore_bounds;
+    const bool restore_maximized = slot->info.state == WindowState::Minimized &&
+        slot->state_before_minimize == WindowState::Maximized;
+    slot->info.state = restore_maximized ? WindowState::Maximized : WindowState::Normal;
+    slot->info.bounds = restore_maximized
+        ? calculate_workspace().work_area : slot->info.restore_bounds;
     static_cast<void>(focus(id));
     mark_full_dirty();
     return Status::Ok;
@@ -1395,6 +1443,13 @@ Status resource_snapshot(ResourceSnapshot* out_snapshot) {
 }
 
 bool render_if_needed() {
+#ifndef KUROGANE_HOST_TEST
+    if (g_initialized && !g_rendering && graphics::available() &&
+        (graphics::width() != static_cast<uint32_t>(g_screen_width) ||
+         graphics::height() != static_cast<uint32_t>(g_screen_height))) {
+        if (set_screen_size(graphics::width(), graphics::height()) != Status::Ok) return false;
+    }
+#endif
     if (!g_initialized || g_rendering || g_dirty == DirtyMode::None) return false;
     g_rendering = true;
 #ifndef KUROGANE_HOST_TEST

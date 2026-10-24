@@ -5,12 +5,16 @@ on:
     branches: [gpt/road-to-15-consolidation]
     paths:
       - 'kernel/ui/**'
+      - 'kernel/input/**'
+      - 'tests/test_input.cpp'
       - 'tests/test_window_manager.cpp'
       - '.github/workflows/check-window-manager.yml'
   push:
     branches: [gpt/road-to-15-consolidation]
     paths:
       - 'kernel/ui/**'
+      - 'kernel/input/**'
+      - 'tests/test_input.cpp'
       - 'tests/test_window_manager.cpp'
       - '.github/workflows/check-window-manager.yml'
   workflow_dispatch:
@@ -39,3 +43,13 @@ jobs:
             tests/test_window_manager.cpp kernel/ui/window_manager.cpp \
             -o build/tests/window-manager-ubsan
           build/tests/window-manager-ubsan
+      - name: Pointer bounds and queued event preservation
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/input
+          build/tests/input
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/input-ubsan
+          build/tests/input-ubsan

@@ -48,6 +48,9 @@ struct Event {
 constexpr size_t EVENT_QUEUE_CAPACITY = 256U;
 
 bool initialize(uint32_t screen_width, uint32_t screen_height);
+// Serialized input/compositor context; preserves queued events and held buttons.
+// Coordinates of queued events are clamped to the new viewport.
+bool set_screen_bounds(uint32_t screen_width, uint32_t screen_height);
 size_t pump();
 bool submit_key(const drivers::keyboard::KeyEvent& event);
 // Serialized polling context. On false, queue and pointer/button state are
