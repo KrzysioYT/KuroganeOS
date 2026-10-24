@@ -238,3 +238,13 @@ only 4 corners of <=16px are supersampled. This improves widget edges
 without changing Classic layout. The rounded geometry host regression
 now asserts coverage symmetry, corner bounds and intermediate alpha.
 It is **not** yet a scalable font renderer, TTF support, or GPU compositor.
+
+
+## Flux Modern consistent desktop widgets (2026-10-24)
+
+Desktop top bar now uses restrained rounded identity/status surfaces instead
+of sharp red rails; the center chevron is Classic-only. Notifications, list
+rows, progress tracks and separators gain proper Modern render paths, while
+Classic keeps its old layout unchanged. Every change is paint-only: existing
+hitboxes, focus routing, window ownership and user events are untouched.
+The 5x7 bitmap font is still the typography blocker for a complete Modern UI.

@@ -420,24 +420,40 @@ void desktop(const char* title) {
 
     // Top identity rail.
     const int32_t brand_width = width > 480 ? 360 : width - 36;
-    graphics::fill_rect(18, 10, brand_width, 31,
-                        gStyleId == KU_FLUX_STYLE_MODERN ? kTheme.panel : kHeaderBand);
-    graphics::fill_rect(18, 10, 4, 31, kTheme.accent);
-    graphics::fill_rect(22, 39, brand_width > 156 ? 156 : brand_width - 4,
-                        2, kRedBright);
-    brand_mark(40, 25, 1, kRedBright, kRedMuted);
-    graphics::draw_text(61, 17, title ? title : "KUROGANE / RED FLUX",
-                        kTheme.text,
-                        gStyleId == KU_FLUX_STYLE_MODERN ? kTheme.panel : kHeaderBand,
-                        2U, true);
-
-    if (width > 640) {
-        const int32_t status_x = width - 238;
-        graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
-        graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
-        graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
-        graphics::draw_text(status_x + 14, 19, "SESSION / FLUX 8 PREVIEW",
-                            kTheme.text_muted, kTheme.panel_alt, 1U, true);
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        // Lightweight top rail; Classic retains the angled, red-band layout.
+        modern_surface({18, 10, brand_width, 33}, kTheme.panel,
+                       kTheme.border, 8U);
+        brand_mark(38, 26, 1, kTheme.accent, kRedMuted);
+        graphics::draw_text(62, 22,
+            title ? title : "KUROGANE / RED FLUX",
+            kTheme.text, kTheme.panel, 1U, true);
+        if (width > 640) {
+            const int32_t status_x = width - 238;
+            modern_surface({status_x, 11, 218, 28},
+                           kTheme.panel_alt, kTheme.border, 7U);
+            graphics::draw_text(status_x + 13, 21,
+                "FLUX MODERN / SESSION", kTheme.text_muted,
+                kTheme.panel_alt, 1U, true);
+        }
+    } else {
+        graphics::fill_rect(18, 10, brand_width, 31, kHeaderBand);
+        graphics::fill_rect(18, 10, 4, 31, kTheme.accent);
+        graphics::fill_rect(22, 39,
+            brand_width > 156 ? 156 : brand_width - 4, 2, kRedBright);
+        brand_mark(40, 25, 1, kRedBright, kRedMuted);
+        graphics::draw_text(61, 17,
+            title ? title : "KUROGANE / RED FLUX",
+            kTheme.text, kHeaderBand, 2U, true);
+        if (width > 640) {
+            const int32_t status_x = width - 238;
+            graphics::fill_rect(status_x + 3, 14, 218, 23, kSurfaceShadow);
+            graphics::fill_rect(status_x, 11, 218, 24, kTheme.panel_alt);
+            graphics::fill_rect(status_x, 11, 4, 24, kTheme.accent);
+            graphics::draw_text(status_x + 14, 19,
+                "SESSION / FLUX 8 PREVIEW",
+                kTheme.text_muted, kTheme.panel_alt, 1U, true);
+        }
     }
 
     // Signature rail retained from early Flux, now reduced to a background
@@ -450,7 +466,8 @@ void desktop(const char* title) {
         signal_node(14, 59, kRedBright);
     }
 
-    if (width > 620) red_chevron(width / 2, 24);
+    if (gStyleId == KU_FLUX_STYLE_CLASSIC && width > 620)
+        red_chevron(width / 2, 24);
 }
 
 void panel(const Rect& bounds, bool raised) {
@@ -798,6 +815,16 @@ void notice_card(
     if (priority >= 4U) signal = kRedBright;
     else if (priority == 3U) signal = kRedMuted;
     else if (priority == 2U) signal = graphics::rgb(176, 181, 191);
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        modern_surface(bounds, kTheme.panel_alt, kTheme.border, 10U);
+        graphics::fill_rounded_rect(
+            bounds.x + 13, bounds.y + 13, 8, 8, 4U, signal);
+        graphics::draw_text(bounds.x + 29, bounds.y + 10,
+            title ? title : "NOTIFICATION", kTheme.text, kTheme.panel_alt, 1U, true);
+        graphics::draw_text(bounds.x + 29, bounds.y + 30,
+            detail ? detail : "", kTheme.text_muted, kTheme.panel_alt, 1U, true);
+        return;
+    }
     graphics::fill_rect(bounds.x + 4, bounds.y + 4, bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
@@ -923,6 +950,17 @@ void list_row(
     const Rect& bounds, const char* text, bool selected, bool disabled,
     bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const graphics::Color surface = pressed || selected
+            ? kTheme.panel : (hovered ? kGraphiteRaised : kTheme.panel_alt);
+        modern_surface(bounds, surface,
+            selected || pressed ? kTheme.accent : kTheme.border, 7U);
+        const graphics::Color ink = disabled ? kTheme.text_muted : kTheme.text;
+        graphics::draw_text(bounds.x + 13,
+            bounds.y + (bounds.height - 8) / 2,
+            text ? text : "", ink, surface, 1U, true);
+        return;
+    }
     const graphics::Color background = pressed
         ? graphics::rgb(55, 18, 27)
         : (selected ? graphics::rgb(43, 20, 25)
@@ -945,21 +983,27 @@ void list_row(
 }
 
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (gStyleId == KU_FLUX_STYLE_MODERN) {
+        const uint32_t track_radius = bounds.height > 10 ? 5U : 2U;
+        graphics::fill_rounded_rect(bounds.x, bounds.y,
+            bounds.width, bounds.height, track_radius, kTheme.border);
+        if (maximum == 0U) return;
+        if (value > maximum) value = maximum;
+        const int32_t filled = static_cast<int32_t>(
+            (static_cast<uint64_t>(value) * static_cast<uint64_t>(bounds.width)) /
+            maximum);
+        if (filled > 0)
+            graphics::fill_rounded_rect(bounds.x, bounds.y,
+                filled, bounds.height, track_radius, kTheme.accent);
+        return;
+    }
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
                         kTheme.panel_alt);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
                         kTheme.border);
     if (maximum == 0U || bounds.width < 8 || bounds.height <= 4) return;
     if (value > maximum) value = maximum;
-    if (gStyleId == KU_FLUX_STYLE_MODERN) {
-        const int32_t inner = bounds.width - 6;
-        const int32_t active = static_cast<int32_t>(
-            (static_cast<uint64_t>(value) * static_cast<uint64_t>(inner)) / maximum);
-        graphics::fill_rect(bounds.x + 3, bounds.y + 3, inner, bounds.height - 6, kTheme.border);
-        if (active > 0) graphics::fill_rect(bounds.x + 3, bounds.y + 3, active,
-                                            bounds.height - 6, kTheme.accent);
-        return;
-    }
 
     constexpr uint32_t segments = 12U;
     const int32_t inner_width = bounds.width - 6;
@@ -985,7 +1029,8 @@ void progress(const Rect& bounds, uint32_t value, uint32_t maximum) {
 void separator(int32_t x, int32_t y, int32_t width) {
     if (width <= 0) return;
     graphics::fill_rect(x, y, width, 1, kTheme.border);
-    if (width > 24) graphics::fill_rect(x, y, 22, 2, kTheme.accent);
+    if (gStyleId == KU_FLUX_STYLE_CLASSIC && width > 24)
+        graphics::fill_rect(x, y, 22, 2, kTheme.accent);
 }
 
 void taskbar(const char* status) {
