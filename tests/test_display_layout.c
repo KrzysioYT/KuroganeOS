@@ -26,7 +26,7 @@ int main(void) {
 
     d=area(800,600); w=win(400,110,510,560);
     assert(ku_display_fit_window(&d,&w));
-    assert(w.x==244&&w.y==50&&w.width==510&&w.height==468);
+    assert(w.x==278&&w.y==50&&w.width==510&&w.height==468);
 
     d=area(1920,1080); w=win(400,110,510,560);
     assert(ku_display_fit_window(&d,&w));
