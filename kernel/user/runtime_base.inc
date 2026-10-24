@@ -15,6 +15,7 @@
 #include "file_handle.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
+#include "../core/string.hpp"
 #include "../core/system_metrics.hpp"
 #include "../drivers/audio/audio_backend.hpp"
 #include "../fs/root_volume.hpp"
@@ -1652,9 +1653,20 @@ void syscall_handler(
                 static_cast<uintptr_t>(frame.rdi));
             if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
                 request->app_id >= KU_DESKTOP_APP_COUNT ||
-                request->action > KU_DESKTOP_PIN_HOME_READY) {
+                request->action > KU_DESKTOP_PIN_FOCUS_RUNNING) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
+            }
+            if (request->action == KU_DESKTOP_PIN_FOCUS_RUNNING) {
+                windowing::WindowInfo caller_window{};
+                if (!context->ui.active ||
+                    windowing::query(context->ui.window, &caller_window) !=
+                        windowing::Status::Ok ||
+                    caller_window.owner_pid != context->pid ||
+                    !kstd::streq(caller_window.title, "RED FLUX HOME")) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                    return;
+                }
             }
             bool pinned = false;
             const windowing::Status status = windowing::desktop_pin(
@@ -1665,7 +1677,9 @@ void syscall_handler(
             request->pinned = pinned ? 1U : 0U;
             frame.rax = status == windowing::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
-                : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                : status == windowing::Status::NotFound
+                    ? static_cast<uint64_t>(KU_STATUS_NOT_FOUND)
+                    : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
             return;
         }
         case KU_SYS_DISPLAY_INFO: {

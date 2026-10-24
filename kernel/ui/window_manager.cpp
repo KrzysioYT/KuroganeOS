@@ -43,6 +43,7 @@ constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
 constexpr uint32_t DESKTOP_PIN_HOME_READY = 3U;
+constexpr uint32_t DESKTOP_PIN_FOCUS_RUNNING = 4U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -1343,6 +1344,16 @@ Status desktop_pin(
         if (app_id != 0U) return Status::InvalidArgument;
         *out_pinned = home_surface_ready();
         return Status::Ok;
+    }
+    if (action == DESKTOP_PIN_FOCUS_RUNNING) {
+        // The caller's Home-process identity is checked at the syscall
+        // boundary. This action never sends a synthetic command back to
+        // itself and cannot spawn a process.
+        Slot* existing = find_by_title(kDockPins[app_id].title);
+        if (existing == nullptr) return Status::NotFound;
+        *out_pinned = g_desktop_pinned[app_id];
+        return existing->info.state == WindowState::Minimized
+            ? restore(existing->info.id) : focus(existing->info.id);
     }
     if (app_id == 0U) {
         g_desktop_pinned[0U] = true;

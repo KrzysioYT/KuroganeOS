@@ -29,7 +29,10 @@ enum ku_desktop_pin_action {
     // Session-ready query: app_id must be HOME. 'pinned' reports whether
     // a live, visible Home window has submitted its first UI surface.
     // This cannot modify desktop pin state or launch an app.
-    KU_DESKTOP_PIN_HOME_READY = 3
+    KU_DESKTOP_PIN_HOME_READY = 3,
+    // Privileged to the live Home process. Focus an existing app window only;
+    // never spawn an executable or alter its pinning state.
+    KU_DESKTOP_PIN_FOCUS_RUNNING = 4
 };
 
 typedef struct ku_desktop_pin_request {

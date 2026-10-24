@@ -39,6 +39,7 @@ int main() {
     static_assert(KU_SYS_UI_CLOSE == 17);
     static_assert(KU_SYS_SYSTEM_SNAPSHOT == 18);
     static_assert(KU_SYS_DESKTOP_PIN == 19);
+    static_assert(KU_DESKTOP_PIN_FOCUS_RUNNING == 4);
     static_assert(KU_SYS_NET_STATUS == 20);
     static_assert(KU_SYS_HTTP_GET == 21);
     static_assert(KU_SYS_AUDIO_STATUS == 22);

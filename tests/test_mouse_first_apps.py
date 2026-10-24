@@ -105,6 +105,9 @@ assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
 assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
 assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
 assert "red_flux_tile_launcher: PASS" in launcher
+assert "KU_DESKTOP_PIN_FOCUS_RUNNING" in launcher
+assert "flux_app_existing_focused: PASS" in launcher
+assert "FOCUSED EXISTING APP" in launcher
 for marker in (
     "flux_launcher_action_received: PASS",
     "flux_home_tile_hit: PASS",

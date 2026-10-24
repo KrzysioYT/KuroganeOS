@@ -190,3 +190,15 @@ application. Replace that with post-authentication Files Dock click at
 Ring-3 child spawn and Files directory grid. This makes a launch regression
 block the exact-SHA desktop gate. This alone does **not** qualify VBox or
 indicate 8.0.0 stable; guest smoke must run successfully.
+
+## Existing application focus from Home
+
+The Home launcher previously returned "ALREADY RUNNING / USE DOCK TO FOCUS"
+and did not activate an existing window. `KU_DESKTOP_PIN_FOCUS_RUNNING`
+is now an append-only action on the existing 24-byte pin request; only the
+current `RED FLUX HOME` UI owner may request it via Ring-3 syscall.
+WindowManager focuses/restores the exact existing title without synthetic
+Home commands, spawning new processes, or changing pin state. Missing
+windows return `NOT_FOUND`, and the launcher displays "APP STARTING"
+instead of misleading success. Host regression covers minimized Files restore,
+stable pin state, unknown applications and boundary validation.

@@ -280,8 +280,20 @@ static int launch_app(size_t index, int quiet_if_running) {
     if (index >= APP_COUNT) return 0;
     app = &g_apps[index];
     if (app_is_running((uint32_t)index)) {
-        if (!quiet_if_running) {
-            (void)strlcpy(g_status, "ALREADY RUNNING / USE DOCK TO FOCUS", sizeof(g_status));
+        ku_desktop_pin_request focus_request;
+        ku_status_t focused = KU_STATUS_NOT_FOUND;
+        memset(&focus_request, 0, sizeof(focus_request));
+        focus_request.structure_size = sizeof(focus_request);
+        focus_request.app_id = app->desktop_id;
+        focus_request.action = KU_DESKTOP_PIN_FOCUS_RUNNING;
+        if (app->pinnable) focused = ku_desktop_pin(&focus_request);
+        if (focused == KU_STATUS_OK) {
+            puts("[INPUT] flux_app_existing_focused: PASS");
+            if (!quiet_if_running) {
+                (void)strlcpy(g_status, "FOCUSED EXISTING APP", sizeof(g_status));
+            }
+        } else if (!quiet_if_running) {
+            (void)strlcpy(g_status, "APP STARTING / WAIT FOR WINDOW", sizeof(g_status));
         }
         return 1;
     }
