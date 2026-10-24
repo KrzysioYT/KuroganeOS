@@ -248,3 +248,13 @@ rows, progress tracks and separators gain proper Modern render paths, while
 Classic keeps its old layout unchanged. Every change is paint-only: existing
 hitboxes, focus routing, window ownership and user events are untouched.
 The 5x7 bitmap font is still the typography blocker for a complete Modern UI.
+
+
+## Modern labels fit their panels
+
+Modern app tiles, notification cards and list rows now bound ASCII labels to
+their available width and show an ellipsis for long text. This prevents
+text from painting over neighboring controls; bounded stack buffers and
+host optimized/UBSan regressions cover short, empty and long labels.
+The legacy 5x7 renderer is deliberately untouched, pending a real Unicode
+font engine and fractional scaling.

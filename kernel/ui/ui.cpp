@@ -1,4 +1,5 @@
 #include "ui.hpp"
+#include "text_fit.hpp"
 
 #include "../../common/version.h"
 #include <kurogane/design.h>
@@ -819,10 +820,18 @@ void notice_card(
         modern_surface(bounds, kTheme.panel_alt, kTheme.border, 10U);
         graphics::fill_rounded_rect(
             bounds.x + 13, bounds.y + 13, 8, 8, 4U, signal);
+        char fitted_title[96]{};
+        char fitted_detail[96]{};
+        const size_t cols = bounds.width > 42
+            ? static_cast<size_t>((bounds.width - 42) / 6) : 0U;
+        text_fit::fit_ascii(title ? title : "NOTIFICATION",
+                            fitted_title, sizeof(fitted_title), cols);
+        text_fit::fit_ascii(detail ? detail : "",
+                            fitted_detail, sizeof(fitted_detail), cols);
         graphics::draw_text(bounds.x + 29, bounds.y + 10,
-            title ? title : "NOTIFICATION", kTheme.text, kTheme.panel_alt, 1U, true);
+            fitted_title, kTheme.text, kTheme.panel_alt, 1U, true);
         graphics::draw_text(bounds.x + 29, bounds.y + 30,
-            detail ? detail : "", kTheme.text_muted, kTheme.panel_alt, 1U, true);
+            fitted_detail, kTheme.text_muted, kTheme.panel_alt, 1U, true);
         return;
     }
     graphics::fill_rect(bounds.x + 4, bounds.y + 4, bounds.width, bounds.height, kSurfaceShadow);
@@ -898,10 +907,18 @@ void app_tile(
                 : (hovered ? kRedMuted : kTheme.border), 9U);
         app_icon_glyph(bounds, icon, kTheme.text,
             selected || hovered || pressed ? kTheme.accent : kRedMuted);
+        char fitted_title[64]{};
+        char fitted_subtitle[64]{};
+        const size_t available = bounds.width > 62
+            ? static_cast<size_t>((bounds.width - 62) / 6) : 0U;
+        text_fit::fit_ascii(title ? title : "APP",
+                            fitted_title, sizeof(fitted_title), available);
+        text_fit::fit_ascii(subtitle ? subtitle : "",
+                            fitted_subtitle, sizeof(fitted_subtitle), available);
         graphics::draw_text(bounds.x + 50, bounds.y + 13,
-            title ? title : "APP", kTheme.text, background, 1U, true);
+            fitted_title, kTheme.text, background, 1U, true);
         graphics::draw_text(bounds.x + 50, bounds.y + 31,
-            subtitle ? subtitle : "", kTheme.text_muted, background, 1U, true);
+            fitted_subtitle, kTheme.text_muted, background, 1U, true);
         if (pinned) graphics::fill_rect(bounds.x + bounds.width - 12,
             bounds.y + 10, 4, 4, kTheme.accent);
         if (running) graphics::fill_rect(bounds.x + 12,
@@ -956,9 +973,13 @@ void list_row(
         modern_surface(bounds, surface,
             selected || pressed ? kTheme.accent : kTheme.border, 7U);
         const graphics::Color ink = disabled ? kTheme.text_muted : kTheme.text;
+        char fitted[128]{};
+        text_fit::fit_ascii(text ? text : "", fitted, sizeof(fitted),
+            bounds.width > 24 ? static_cast<size_t>((bounds.width - 24) / 6)
+                              : 0U);
         graphics::draw_text(bounds.x + 13,
             bounds.y + (bounds.height - 8) / 2,
-            text ? text : "", ink, surface, 1U, true);
+            fitted, ink, surface, 1U, true);
         return;
     }
     const graphics::Color background = pressed

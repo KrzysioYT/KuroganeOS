@@ -372,6 +372,10 @@ python3 tests/test_flux8_virtualbox_runner.py
   tests/test_flux_session_owner_policy.cpp -o "$OUT_DIR/test_flux_session_owner_policy"
 "$OUT_DIR/test_flux_session_owner_policy"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_label_fitting.cpp -o "$OUT_DIR/test_flux_label_fitting"
+"$OUT_DIR/test_flux_label_fitting"
+
 # Test the real per-process Ring-3 UI event queue and overload policy.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
