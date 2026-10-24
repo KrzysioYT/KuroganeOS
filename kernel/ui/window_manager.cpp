@@ -1223,8 +1223,19 @@ Status query(WindowId id, WindowInfo* out_info) {
 Status list(ListCallback callback, void* context) {
     if (!g_initialized) return Status::NotInitialized;
     if (callback == nullptr) return Status::InvalidArgument;
-    for (size_t position = 0U; position < g_count; ++position) {
-        if (!callback(g_slots[g_order[position]].info, context)) return Status::IterationStopped;
+
+    // A callback may close, create or focus windows, mutating g_order and
+    // reclaiming a slot. Snapshot metadata before calling it. Generation-safe
+    // lookup excludes closed windows and avoids passing a replacement as if
+    // it were the former occupant; new windows appear on the next listing.
+    WindowInfo snapshot[MAX_WINDOWS]{};
+    const size_t count = g_count;
+    for (size_t position = 0U; position < count; ++position) {
+        snapshot[position] = g_slots[g_order[position]].info;
+    }
+    for (size_t position = 0U; position < count; ++position) {
+        if (find(snapshot[position].id) == nullptr) continue;
+        if (!callback(snapshot[position], context)) return Status::IterationStopped;
     }
     return Status::Ok;
 }

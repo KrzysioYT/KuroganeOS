@@ -1,0 +1,131 @@
+name: Qualify 8.0 Flux desktop foundation
+
+on:
+  push:
+    branches:
+      - codex/road-to-15-stability
+    paths:
+      - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
+      - 'kernel/ui/**'
+      - 'kernel/input/**'
+      - 'kernel/apps/desktop_session.cpp'
+      - 'userspace/gui/login/**'
+      - 'userspace/gui/launcher/**'
+      - 'tests/test_window_manager.cpp'
+      - 'tests/test_input.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'docs/ROAD_TO_15_STATUS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-ui:
+    name: Flux window/input sanitizer gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - name: Validate candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          git diff --check
+      - name: Window Manager optimized + UBSan
+        run: |
+          mkdir -p build/tests/desktop
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
+            kernel/ui/window_manager.cpp -o build/tests/desktop/wm
+          build/tests/desktop/wm
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
+            kernel/ui/window_manager.cpp -o build/tests/desktop/wm-ubsan
+          build/tests/desktop/wm-ubsan
+      - name: Input event/viewport optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/desktop/input
+          build/tests/desktop/input
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/desktop/input-ubsan
+          build/tests/desktop/input-ubsan
+      - name: Production Clipboard Service optimized + UBSan
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
+            -Wl,--gc-sections -o build/tests/desktop/clipboard
+          build/tests/desktop/clipboard
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include -ffunction-sections -fdata-sections \
+            tests/test_clipboard_service.c -Wl,--gc-sections \
+            -o build/tests/desktop/clipboard-ubsan
+          build/tests/desktop/clipboard-ubsan
+
+  desktop-qemu:
+    name: Flux live session QEMU / USB-only input
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Build release image from exact source
+        run: |
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+      - name: Log in to real Ring-3 desktop using USB HID
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic none --no-ps2 --usb-keyboard --usb-mouse \
+            --log-dir build/tests/flux-8-foundation --timeout 240 \
+            --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL' \
+            build/tests/flux-8-foundation/serial.log
+      - name: Retain desktop serial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-8-foundation-${{ github.sha }}
+          path: build/tests/flux-8-foundation
+          if-no-files-found: warn
+
+  scoped-desktop-gate:
+    name: Same-SHA Flux desktop foundation gate
+    if: always()
+    needs: [host-ui, desktop-qemu]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce both optimized/UBSan and real QEMU login
+        env:
+          HOST: ${{ needs.host-ui.result }}
+          QEMU: ${{ needs.desktop-qemu.result }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = success
+          test "$QEMU" = success
+          echo "Flux 8.0 foundation (scoped): PASS"

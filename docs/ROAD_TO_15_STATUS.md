@@ -213,3 +213,22 @@ past configuration space. Both driver workflows target this candidate branch.
 
 This is an engineering candidate, not qualified 7.0 or stable 15.0.
 See `docs/audit/2026-10-20-consolidation.md` for validation and remaining gates.
+
+## 2026-10-24 supported-device integration checkpoint
+
+Status: **QUALIFIED SUPPORTED SUBSET**, not full 7.0 milestone.
+Commit `faceb4526acbbee3bc3ab544d7af76f12132766d` passed
+all 26 same-SHA checks in GitHub Actions, including
+`qualify-7.0-supported-devices.yml` run `40055252545`:
+E1000e and VirtIO-net combined with VirtIO block, USB keyboard/mouse and SMP;
+also USB-only boot without NIC or PS/2. Broad USB hubs, physical Realtek NICs
+and complete suspend/resume are outside this scoped qualification.
+
+## 2026-10-24 Flux Desktop 8.0 foundation candidate
+
+Window listing now snapshots generation-safe identities and metadata before
+user callbacks; stale windows cannot be confused with newly reused slots,
+survivors are not skipped and changed z-order does not corrupt iteration.
+The desktop foundation gate is an independent 8.0 **engineering checkpoint**,
+not a completed 8.0 release. Full graphics mode switching, drag-and-drop,
+the general shell API and physical hardware validation remain open.

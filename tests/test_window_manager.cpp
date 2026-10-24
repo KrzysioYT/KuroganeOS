@@ -45,6 +45,49 @@ void mutate_during_draw(windowing::WindowId id, const ui::Rect&, bool, void* con
 }
 
 void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
+
+struct WindowListFixture {
+    windowing::WindowId first = windowing::INVALID_WINDOW;
+    windowing::WindowId second = windowing::INVALID_WINDOW;
+    windowing::WindowId replacement = windowing::INVALID_WINDOW;
+    windowing::WindowId seen[3]{};
+    uint8_t positions[3]{};
+    bool focused[3]{};
+    size_t count = 0U;
+    bool mutate = true;
+    bool changed = false;
+    bool retained_first_metadata = false;
+};
+
+bool list_during_mutation(const windowing::WindowInfo& info, void* context) {
+    auto& fixture = *static_cast<WindowListFixture*>(context);
+    if (fixture.count >= 3U) return false;
+    const size_t index = fixture.count++;
+    fixture.seen[index] = info.id;
+    fixture.positions[index] = info.z_order;
+    fixture.focused[index] = info.focused;
+    if (fixture.mutate && index == 0U) {
+        const windowing::WindowId original_id = info.id;
+        const uint8_t original_z = info.z_order;
+        if (windowing::close(fixture.first) != windowing::Status::Ok) return false;
+        if (windowing::create_window(
+                "Enumerated Replacement", 64U, {140, 150, 330, 220},
+                draw, receive, nullptr, &fixture.replacement) !=
+            windowing::Status::Ok) return false;
+        fixture.changed = windowing::focus(fixture.replacement) ==
+            windowing::Status::Ok;
+        fixture.retained_first_metadata =
+            info.id == original_id && info.z_order == original_z &&
+            info.owner_pid == 62U;
+    }
+    return true;
+}
+
+bool stop_during_list(const windowing::WindowInfo&, void* context) {
+    ++*static_cast<size_t*>(context);
+    return false;
+}
+
 } // namespace
 
 int main() {
@@ -658,5 +701,34 @@ int main() {
         invalidate_during_draw, nullptr, &nested_resize, &resize_callback) != Status::Ok ||
         !render_if_needed() || nested_resize.resize_status != Status::InvalidState ||
         workspace_geometry().work_area.width != 754) return 129;
+
+    // A window-list callback may destroy its own window and reuse its slot.
+    // Listing must still enumerate survivors exactly once with metadata from
+    // before the callback changed focus/z-order.
+    if (initialize(800U, 600U) != Status::Ok) return 130;
+    WindowListFixture listing{};
+    if (create_window("Enumerated A", 62U, {60, 70, 300, 220},
+            draw, receive, nullptr, &listing.first) != Status::Ok ||
+        create_window("Enumerated B", 63U, {90, 100, 300, 220},
+            draw, receive, nullptr, &listing.second) != Status::Ok ||
+        list(nullptr, nullptr) != Status::InvalidArgument) return 131;
+    if (list(list_during_mutation, &listing) != Status::Ok ||
+        listing.count != 2U || !listing.changed ||
+        !listing.retained_first_metadata ||
+        listing.seen[0] != listing.first ||
+        listing.seen[1] != listing.second ||
+        listing.positions[0] != 0U || listing.positions[1] != 1U ||
+        listing.focused[0] || !listing.focused[1] ||
+        listing.replacement == listing.first ||
+        query(listing.first, &info) != Status::NotFound ||
+        query(listing.replacement, &info) != Status::Ok) return 132;
+    listing.count = 0U;
+    listing.mutate = false;
+    if (list(list_during_mutation, &listing) != Status::Ok ||
+        listing.count != 2U || listing.seen[0] != listing.second ||
+        listing.seen[1] != listing.replacement) return 133;
+    size_t stopped = 0U;
+    if (list(stop_during_list, &stopped) != Status::IterationStopped ||
+        stopped != 1U) return 134;
     return 0;
 }

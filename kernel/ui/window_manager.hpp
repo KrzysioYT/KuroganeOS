@@ -124,6 +124,9 @@ Status minimize(WindowId id);
 Status maximize(WindowId id);
 Status restore(WindowId id);
 Status query(WindowId id, WindowInfo* out_info);
+// Iterates a stable z-ordered metadata snapshot. Callbacks may modify
+// windows; closed generations are skipped, and newly created windows are
+// visible only on the next iteration. Callback metadata remains immutable.
 Status list(ListCallback callback, void* context);
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
