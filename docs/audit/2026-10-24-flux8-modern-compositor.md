@@ -119,3 +119,14 @@ HOME registration, launcher window creation and first frame.
 
 This prevents one blank-session mechanism; diagnosis of the actual user's guest
 still requires its serial log and a full VirtualBox/QEMU execution.
+
+## Login retry and session-root correctness
+
+An installed-profile valid credential that hits a Home startup error now
+retains the useful retry error instead of falling through to INCORRECT PASSWORD.
+PID 1 retries a prematurely exited login gate up to four bounded attempts
+rather than immediately handing off to an invisible serial shell. Home root
+ownership is committed only after a real window slot is allocated, preventing
+an unsuccessful allocation from poisoning subsequent application ownership.
+The fallback remains a last resort after bounded attempts; there is no
+unauthenticated kernel shell launch of GUI apps.

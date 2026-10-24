@@ -1020,9 +1020,8 @@ Status create_window(
     if (login) {
         purge_exposed_session();
         g_session_root_pid = process::INVALID_PROCESS_ID;
-    } else if (home) {
-        g_session_root_pid = owner_pid;
-    } else if (owner_pid != 0U && !belongs_to_session_tree(owner_pid)) {
+    } else if (!home && owner_pid != 0U &&
+               !belongs_to_session_tree(owner_pid)) {
         return Status::InvalidState;
     }
 #endif
@@ -1053,6 +1052,10 @@ Status create_window(
     slot.context = context;
     clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
+#ifndef KUROGANE_HOST_TEST
+    // Commit the session owner only after the Home window really exists.
+    if (home) g_session_root_pid = owner_pid;
+#endif
     if (owner_pid != 0U) g_focused = slot.info.id;
     update_z_order();
     mark_full_dirty();

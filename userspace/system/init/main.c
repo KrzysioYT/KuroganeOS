@@ -250,18 +250,31 @@ __attribute__((noreturn)) void _start(void) {
         "[TEST] clipboard_service_restart: PASS\n"
     };
 
+    // A transient accountd/sessiond/login startup race must not strand the
+    // GUI in an invisible serial-only console. Retry the trusted login gate
+    // with bounded backoff; never spawn Home or an app from PID 1.
     uint64_t session_pid = spawn_session_gate();
-    if (session_pid == 0U) run_console_fallback();
-
-    (void)ku_sleep(UINT64_C(25));
+    uint32_t login_boot_attempt = 0U;
+    for (; login_boot_attempt < 4U; ++login_boot_attempt) {
+        int32_t early_status = 0;
+        if (session_pid != 0U) {
+            (void)ku_sleep(UINT64_C(25));
+            const ku_status_t early = ku_wait(session_pid, &early_status);
+            if (early == KU_STATUS_WOULD_BLOCK) break;
+            if (early != KU_STATUS_OK && early != KU_STATUS_NOT_FOUND) {
+                (void)u_puts("[SESSION] flux_login_boot_wait_error: FAIL\n");
+                run_console_fallback();
+            }
+        }
+        (void)u_puts("[SESSION] flux_login_boot_retry: PASS\n");
+        if (login_boot_attempt + 1U == 4U) {
+            (void)u_puts("[SESSION] flux_login_boot_exhausted: FAIL\n");
+            run_console_fallback();
+        }
+        (void)ku_sleep(UINT64_C(8) * (uint64_t)(login_boot_attempt + 1U));
+        session_pid = spawn_session_gate();
+    }
     int32_t status = 0;
-    const ku_status_t early = ku_wait(session_pid, &status);
-    if (early == KU_STATUS_OK || early == KU_STATUS_NOT_FOUND) {
-        run_console_fallback();
-    }
-    if (early != KU_STATUS_WOULD_BLOCK) {
-        run_console_fallback();
-    }
 
     if (!supervise_service(&event_watch)) {
         (void)u_puts("[TEST] event_broker_liveness: FAIL\n");
@@ -372,6 +385,11 @@ __attribute__((noreturn)) void _start(void) {
             (void)u_puts("init: session gate ended; returning to login\n");
             (void)ku_sleep(UINT64_C(8));
             session_pid = spawn_session_gate();
+            if (session_pid == 0U) {
+                (void)u_puts("[SESSION] flux_login_restart_spawn: FAIL\n");
+                (void)ku_sleep(UINT64_C(8));
+                session_pid = spawn_session_gate();
+            }
             if (session_pid == 0U) run_console_fallback();
         } else if (wait_status != KU_STATUS_WOULD_BLOCK) {
             run_console_fallback();

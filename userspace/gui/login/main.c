@@ -491,10 +491,10 @@ int main(void) {
 
         if (!profile.password_required) {
             if (gui_key_activate(&event)) {
-                    const int launched = try_start_session(
-                        window, &profile, password, &password_length, &error, &scene);
-                    if (launched >= 0) return launched;
-                }
+                const int launched = try_start_session(
+                    window, &profile, password, &password_length, &error, &scene);
+                if (launched >= 0) return launched;
+            }
             continue;
         }
 
@@ -509,11 +509,12 @@ int main(void) {
             if (ku_dev_credential_verify(
                     profile.username, password, profile.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
-                {
-                    const int launched = try_start_session(
-                        window, &profile, password, &password_length, &error, &scene);
-                    if (launched >= 0) return launched;
-                }
+                const int launched = try_start_session(
+                    window, &profile, password, &password_length, &error, &scene);
+                if (launched >= 0) return launched;
+                // A valid password followed by Home failure is NOT an
+                // incorrect password and must not overwrite the retry UI.
+                continue;
             }
             puts("[TEST] installed_login_bad_password_rejected: PASS");
             password_length = 0U;
