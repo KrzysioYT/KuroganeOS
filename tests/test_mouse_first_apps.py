@@ -38,8 +38,13 @@ assert "ku_settings_connect" in settings, "settings: persistent settingsd integr
 assert "UI_LOW_CONTRAST_KEY" in settings
 assert "desktop_settings_profile_persist: PASS" in settings
 assert "desktop_settings_profile_restore: PASS" in settings
-for control in ("LOW CONTRAST RED", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE"):
+for control in ("LOW CONTRAST ACCENT", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE", "NEXT COLOR", "PREVIOUS COLOR", "FLUX MODERN"):
     assert control in settings, f"settings: missing modern control {control}"
+assert "UI_THEME_KEY" in settings and "UI_STYLE_KEY" in settings
+assert "read_theme_setting" in settings and "write_theme_setting" in settings
+assert "read_style_setting" in settings and "write_style_setting" in settings
+assert "flux_theme_persistence: PASS" in settings
+assert "flux_style_persistence: PASS" in settings
 assert "RED CORE" not in settings, "settings: legacy theme-button UI returned"
 assert "MUTE / UNMUTE" not in settings, "settings: legacy audio button returned"
 assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
