@@ -1,11 +1,14 @@
 #include "../common.h"
 #include "../../../common/version.h"
 #include <kurogane/notification.h>
+#include <kurogane/settings.h>
+#include <kurogane/desktop.h>
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
 #define NO_APP_ID UINT32_C(0xFFFFFFFF)
 #define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
+#define DESKTOP_THEME_STATE_KEY "ui.theme"
 
 typedef struct launcher_app {
     const char* label;
@@ -26,6 +29,64 @@ static const launcher_app g_apps[APP_COUNT] = {
     {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT, KU_UI_NATIVE_ICON_ABOUT, 1},
     {"NOTIFICATIONS", "public system activity", "/gui/notify", NO_APP_ID, KU_UI_NATIVE_ICON_NOTIFICATION, 0},
 };
+
+
+/* Restore theme from the persistent Settings Service at every new session.
+ * A failure leaves the kernel default untouched, never blocks login.
+ */
+static int restore_desktop_theme(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_theme = KU_FLUX_THEME_RED;
+    ku_desktop_theme_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_THEME_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_theme)) break;
+        memcpy(&saved_theme, response.value, sizeof(saved_theme));
+        if (saved_theme >= KU_FLUX_THEME_COUNT) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_THEME_SET;
+        apply.theme_id = (uint32_t)saved_theme;
+        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK;
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
 
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
@@ -297,9 +358,9 @@ static void build_scene(kui_scene* scene) {
     const int system_valid = read_system(&system);
     const int network_valid = read_network(&network);
     const int audio_valid = read_audio(&audio);
-    char cpu[64] = "CPU\n";
+    char cpu[64] = "SCHED LOAD*\n";
     char ram[64] = "RAM\n";
-    char disk[64] = "DISK\n";
+    char disk[64] = "DISK I/O*\n";
     char net[64] = "NETWORK\n";
     char sound[64] = "AUDIO\n";
     uint32_t net_value = 0U;
@@ -308,7 +369,12 @@ static void build_scene(kui_scene* scene) {
 
     if (system_valid) {
         append_percent(cpu, sizeof(cpu), system.cpu_percent);
-        append_percent(ram, sizeof(ram), system.ram_percent);
+        if (system.ram_percent == 0U &&
+            system.memory_total_bytes > system.memory_free_bytes) {
+            append_text(ram, sizeof(ram), "<1%");
+        } else {
+            append_percent(ram, sizeof(ram), system.ram_percent);
+        }
         append_percent(disk, sizeof(disk), system.disk_percent);
     } else {
         append_text(cpu, sizeof(cpu), "--");
@@ -338,11 +404,7 @@ static void build_scene(kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX HOME / SYSTEM PULSE");
@@ -387,6 +449,11 @@ int main(void) {
         g_child_apps[index] = NO_APP_ID;
     }
 
+    if (restore_desktop_theme()) {
+        puts("[TEST] flux_theme_restore: PASS");
+    } else {
+        puts("[TEST] flux_theme_restore: DEFAULT");
+    }
     if (load_pin_state()) {
         (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
         puts("[TEST] desktop_pin_persistence_load: PASS");

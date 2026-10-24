@@ -94,13 +94,17 @@ static void build_scene(
         audio_valid && audio != NULL && audio->available != 0U;
 
     build_percent_metric(
-        cpu_metric, sizeof(cpu_metric), "CPU", snapshot->cpu_percent);
+        cpu_metric, sizeof(cpu_metric), "SCHED LOAD*", snapshot->cpu_percent);
     build_percent_metric(
         ram_metric, sizeof(ram_metric), "RAM", snapshot->ram_percent);
+    if (snapshot->ram_percent == 0U &&
+        snapshot->memory_total_bytes > snapshot->memory_free_bytes) {
+        (void)strlcpy(ram_metric, "RAM\n<1%", sizeof(ram_metric));
+    }
     build_percent_metric(
         gpu_metric, sizeof(gpu_metric), "GPU", snapshot->gpu_percent);
     build_percent_metric(
-        disk_metric, sizeof(disk_metric), "STORAGE", snapshot->disk_percent);
+        disk_metric, sizeof(disk_metric), "DISK I/O*", snapshot->disk_percent);
 
     append_mib(memory_line, sizeof(memory_line),
                snapshot->memory_total_bytes - snapshot->memory_free_bytes);
@@ -200,6 +204,7 @@ static void build_scene(
         (void)kui_flow_metric(
             &root, 14U, disk_metric, snapshot->disk_percent, 100U);
         (void)kui_flow_label(&root, 15U, memory_line);
+        (void)kui_flow_label(&root, 17U, "* ESTIMATED SCHEDULER / BLOCK I/O ACTIVITY");
         (void)kui_flow_label(
             &root, 16U, status != NULL ? status : "LIVE / READY");
     }
