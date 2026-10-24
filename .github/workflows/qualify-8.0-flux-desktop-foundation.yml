@@ -219,7 +219,10 @@ jobs:
             --log-dir build/tests/flux-8-foundation --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
-            --click-after-marker '[TEST] red_flux_home_surface: PASS' 440 726 \
+            # Home first-frame marker occurs before Login is dismissed.
+            # Click only AFTER authenticated handoff, at the actual Files Dock
+            # button: 1280x800 -> dock x=406..874, y=730..788; Files x=554..596.
+            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 573 754 \
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 400 300 down \
             --require-marker '[TEST] flux_files_usb_wheel_paging: PASS' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
@@ -227,8 +230,15 @@ jobs:
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS' \
             --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
-            --require-marker '[TEST] desktop_launcher_ring3: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS' \
+            --require-marker '[SESSION] flux_home_ui_create: PASS' \
+            --require-marker '[SESSION] flux_home_ui_present: PASS' \
+            --require-marker '[SESSION] flux_home_first_frame: PASS' \
+            --require-marker '[INPUT] flux_dock_shortcut_received: PASS' \
+            --require-marker '[INPUT] flux_launcher_action_received: PASS' \
+            --require-marker '[INPUT] flux_app_spawn: PASS' \
+            --require-marker '[TEST] flux_files_directory_grid: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL|flux_home_.*: FAIL|flux_app_spawn: FAIL' \
             build/tests/flux-8-foundation/serial.log
       - name: Retain desktop serial evidence
         if: always()

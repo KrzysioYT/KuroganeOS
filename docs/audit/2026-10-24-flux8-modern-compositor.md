@@ -179,3 +179,14 @@ assertions intact. The portable input job also reported a Python NameError:
 static launcher ordering assertions referred to an undefined `launcher`
 variable before its later initialization. These assertions now read the
 launcher source explicitly without weakening the required ordering check.
+
+## Gate restored: UI must launch a real application
+
+The 2026-10-24 Flux-8 scoped QEMU workflow previously clicked `440,726`,
+which is **above** the floating Dock (`y=730..788` at 1280x800). It only
+required optimistic launcher startup markers, not a genuine user-visible
+application. Replace that with post-authentication Files Dock click at
+`573,754` and require first-frame, real Dock command receipt, successful
+Ring-3 child spawn and Files directory grid. This makes a launch regression
+block the exact-SHA desktop gate. This alone does **not** qualify VBox or
+indicate 8.0.0 stable; guest smoke must run successfully.

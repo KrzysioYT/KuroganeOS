@@ -70,3 +70,19 @@ Write-Host '--- Recent relevant serial lines ---'
 $lines | Where-Object {
     $_ -match '^\[INPUT\]|^\[SESSION\]|\[TEST\] desktop_launcher|\[TEST\] red_flux_home_surface|PANIC_BEGIN|flux.*FAIL'
 } | Select-Object -Last 60 | ForEach-Object { Write-Host $_ }
+
+# Diagnostic status is not a release verdict: require both Home and a
+# concrete child-process spawn after interacting with the desktop.
+$launchSeen = @($lines | Where-Object {
+    $_.Contains('[INPUT] flux_app_spawn: PASS')
+}).Count -gt 0
+$homeSeen = @($lines | Where-Object {
+    $_.Contains('[SESSION] flux_home_first_frame: PASS')
+}).Count -gt 0
+if (-not $homeSeen) {
+    Write-Warning 'Home did not report a complete authenticated handoff in the selected log.'
+} elseif (-not $launchSeen) {
+    Write-Warning 'Home is ready but no successful application spawn was recorded; click Files after login and rerun.'
+} else {
+    Write-Host '[Flux 8] Home ready + application spawned: OBSERVED'
+}
