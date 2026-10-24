@@ -10,7 +10,8 @@ Status list(ListCallback callback, void* context) {
     Stat stat{};
     stat.state = State::Ready;
     stat.switches = switches;
-    return callback(stat, context) ? Status::Ok : Status::IterationStopped;
+    (void)callback(stat, context);
+    return Status::Ok;
 }
 }
 int main() {
