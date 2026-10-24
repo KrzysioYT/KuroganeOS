@@ -577,6 +577,14 @@ done
 
 "$OUT_DIR/test_diagnostic_event_ring"
 
+# Link real production Flux palette/style state transitions under the
+# linker GC, without bringing up a framebuffer in the host process.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections -Isdk/include \
+  tests/test_flux_ui_state.cpp kernel/ui/ui.cpp \
+  -Wl,--gc-sections -o "$OUT_DIR/test_flux_ui_state"
+"$OUT_DIR/test_flux_ui_state"
+
 # System activity is sampled on a fixed shared interval. Home and Forge
 # Control must not consume counters from each other's independent reads.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
