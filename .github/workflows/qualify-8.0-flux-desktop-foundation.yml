@@ -43,6 +43,7 @@ on:
       - 'tests/test_files_wheel_paging.c'
       - 'tests/test_flux_files_keyboard.c'
       - 'tests/test_mouse_first_apps.py'
+      - 'tests/test_flux8_application_smoke.py'
       - 'docs/ROAD_TO_15_STATUS.md'
   workflow_dispatch:
 
@@ -94,6 +95,10 @@ jobs:
               "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}-ubsan"
             "build/tests/desktop/${unit}-ubsan"
           done
+      - name: Assert actual authenticated Files launch is in QEMU contract
+        run: |
+          python3 tests/test_flux8_application_smoke.py
+          python3 tests/test_mouse_first_apps.py
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

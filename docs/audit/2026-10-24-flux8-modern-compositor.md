@@ -202,3 +202,5 @@ Home commands, spawning new processes, or changing pin state. Missing
 windows return `NOT_FOUND`, and the launcher displays "APP STARTING"
 instead of misleading success. Host regression covers minimized Files restore,
 stable pin state, unknown applications and boundary validation.
+
+The end-to-end smoke contract now runs inside scoped CI and the full host suite; a future regression cannot silently remove the authenticated Files click.
