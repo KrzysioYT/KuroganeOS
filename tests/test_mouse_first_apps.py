@@ -78,8 +78,8 @@ assert 'flux_login_error_render: PASS' in login
 assert 'flux_home_ui_create: FAIL' in read("userspace/gui/launcher/main.c")
 assert 'flux_home_ui_present: FAIL' in read("userspace/gui/launcher/main.c")
 assert 'Never block this milestone on settingsd' in read("userspace/gui/launcher/main.c")
-assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (restore_desktop_theme())")
-assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (publish_session_notification())")
+assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < read("userspace/gui/launcher/main.c").index("if (restore_desktop_theme())")
+assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < read("userspace/gui/launcher/main.c").index("if (publish_session_notification())")
 assert 'return start_session(window, &profile);' not in login
 assert 'desktop_status = -8' in login
 assert "ku_process_terminate_child(launcher_pid, 1)" in login

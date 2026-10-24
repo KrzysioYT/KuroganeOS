@@ -143,7 +143,10 @@ int main() {
         !dock_visible()) return 155;
     input::Event dock_probe{};
     dock_probe.type = input::EventType::MouseMove;
-    dock_probe.x = 400; dock_probe.y = 180;
+    // Keep this visibility probe outside every live window; the old
+    // coordinates (400,180) hit Second and incremented g_inputs before the
+    // preexisting chrome-capture test asserted that count is zero.
+    dock_probe.x = 760; dock_probe.y = 400;
     if (dispatch(dock_probe) != Status::Ok || dock_visible()) return 156;
     dock_probe.x = workspace.pulse_ribbon.x + workspace.pulse_ribbon.width / 2;
     dock_probe.y = workspace.pulse_ribbon.y + workspace.pulse_ribbon.height / 2;

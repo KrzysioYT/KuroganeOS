@@ -168,3 +168,14 @@ Host suite and scoped Flux UBSan workflow compile it. COM1 diagnostics now
 list account lookup, session registration, Home creation/first frame, Login
 handoff, recovery and child cleanup (5000-line tail). Guest qualification
 is still required.
+
+## CI-discovered regression corrections
+
+GitHub's first completed host-regression job returned test_window_manager.cpp
+code 16 because a new Dock visibility probe at (400,180) was inside an existing
+client window, incrementing its input-event counter. The probe now runs at
+(760,400), outside the live windows, keeping original no-application-callback
+assertions intact. The portable input job also reported a Python NameError:
+static launcher ordering assertions referred to an undefined `launcher`
+variable before its later initialization. These assertions now read the
+launcher source explicitly without weakening the required ordering check.
