@@ -586,6 +586,15 @@ done
 # Kurogane TCP BIO, entropy and trust-store pieces are wired together.
 bash ./scripts/probe-mbedtls-freestanding.sh
 
+# Exercise production HTTPS request construction/read loop with scripted TLS I/O.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Wno-builtin-declaration-mismatch -ffunction-sections -fdata-sections \
+  -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
+  -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
+  tests/test_tls_http_io.cpp -Wl,--gc-sections -o "$OUT_DIR/test_tls_http_io"
+"$OUT_DIR/test_tls_http_io"
+
+
 # The project-generator integration test consumes the real SDK sysroot rather
 # than an ad-hoc header copy. Building it here also validates that public ABI
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.

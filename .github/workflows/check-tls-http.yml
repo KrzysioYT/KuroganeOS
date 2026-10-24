@@ -1,0 +1,40 @@
+name: Check HTTPS Request and Read Lifecycle
+
+on:
+  pull_request:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'kernel/net/tls/**'
+      - 'tests/test_tls_http_io.cpp'
+      - '.github/workflows/check-tls-http.yml'
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'kernel/net/tls/**'
+      - 'tests/test_tls_http_io.cpp'
+      - '.github/workflows/check-tls-http.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  http-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+      - name: Optimized and UBSan production client regression
+        run: |
+          mkdir -p build/tests
+          flags=(-std=c++17 -Wall -Wextra -Wpedantic -Werror
+            -Wno-builtin-declaration-mismatch -ffunction-sections -fdata-sections
+            -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library
+            '-DMBEDTLS_CONFIG_FILE="kurogane_mbedtls_config.h"')
+          c++ "${flags[@]}" -O2 tests/test_tls_http_io.cpp -Wl,--gc-sections -o build/tests/tls-http
+          build/tests/tls-http
+          c++ "${flags[@]}" -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_tls_http_io.cpp -Wl,--gc-sections -o build/tests/tls-http-ubsan
+          build/tests/tls-http-ubsan
