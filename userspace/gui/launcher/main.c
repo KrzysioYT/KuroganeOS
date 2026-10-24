@@ -268,7 +268,7 @@ static int app_is_running(uint32_t app_id) {
 
 static uint64_t launch_clock_ticks(void) {
     ku_system_snapshot sample;
-    return read_system(&sample) ? sample.uptime_ticks : 0U;
+    return read_system(&sample) ? sample.uptime_ticks : UINT64_MAX;
 }
 
 static int native_app_ready(uint32_t desktop_id) {
@@ -359,6 +359,24 @@ static int launch_app(size_t index, int quiet_if_running) {
         const ku_status_t stopped = ku_process_terminate_child(stalled_pid, 1);
         if (stopped != KU_STATUS_OK && stopped != KU_STATUS_NOT_FOUND) {
             (void)strlcpy(g_status, "APP RETRY BLOCKED / CHILD ACTIVE",
+                          sizeof(g_status));
+            return 0;
+        }
+        int finished = stopped == KU_STATUS_NOT_FOUND;
+        if (stopped == KU_STATUS_OK) {
+            for (uint32_t attempt = 0U; attempt < 200U; ++attempt) {
+                int32_t exit_code = 0;
+                const ku_status_t waited = ku_process_wait(stalled_pid, &exit_code);
+                if (waited == KU_STATUS_OK || waited == KU_STATUS_NOT_FOUND) {
+                    finished = 1;
+                    break;
+                }
+                if (waited != KU_STATUS_WOULD_BLOCK) break;
+                (void)kuro_sleep(1U);
+            }
+        }
+        if (!finished) {
+            (void)strlcpy(g_status, "APP RETRY WAIT / CHILD EXIT",
                           sizeof(g_status));
             return 0;
         }

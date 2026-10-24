@@ -9,7 +9,8 @@ int main(void) {
     assert(ku_flux_app_retry_eligible(start, expiry, 0));
     assert(!ku_flux_app_retry_eligible(start, expiry, 1));
     assert(!ku_flux_app_retry_eligible(start, start-1U, 0));
-    assert(ku_flux_app_retry_eligible(0U, UINT64_MAX, 0));
+    assert(!ku_flux_app_retry_eligible(0U, UINT64_MAX, 0));
+    assert(!ku_flux_app_retry_eligible(UINT64_MAX, expiry, 0));
     assert(!ku_flux_app_retry_eligible(UINT64_MAX-1U, 0U, 0));
     return 0;
 }

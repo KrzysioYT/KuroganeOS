@@ -12,7 +12,10 @@
 static inline int ku_flux_app_retry_eligible(uint64_t started_ticks,
                                              uint64_t current_ticks,
                                              int surface_ready) {
-    return !surface_ready && current_ticks >= started_ticks &&
+    // UINT64_MAX means no monotonic clock sample, not a timed-out child.
+    return !surface_ready &&
+        started_ticks != UINT64_MAX && current_ticks != UINT64_MAX &&
+        current_ticks >= started_ticks &&
         current_ticks - started_ticks >= KU_FLUX_APP_LAUNCH_TIMEOUT_TICKS;
 }
 #endif

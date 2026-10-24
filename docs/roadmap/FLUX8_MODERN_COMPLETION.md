@@ -120,3 +120,7 @@ not just a live child PID. A once-per-second observation emits a first-frame
 marker for each ready app. The exact-SHA QEMU check requires two child spawns
 and two compositor-observed surfaces (Files + Terminal); the app creation
 marker alone is insufficient evidence of working UI.
+
+Stalled child recovery now waits up to 200 ticks for a real child reap before
+reusing its launch slot; failed waits keep the child tracked. Missing monotonic
+time is an explicit unknown sentinel and never triggers forced termination.
