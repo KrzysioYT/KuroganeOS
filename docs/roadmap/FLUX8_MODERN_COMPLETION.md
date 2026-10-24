@@ -124,3 +124,20 @@ marker alone is insufficient evidence of working UI.
 Stalled child recovery now waits up to 200 ticks for a real child reap before
 reusing its launch slot; failed waits keep the child tracked. Missing monotonic
 time is an explicit unknown sentinel and never triggers forced termination.
+
+
+## 2026-10-25 — CI compiler blocker and visible Login stage
+
+The latest exact-SHA CI failure exposed a root-level compilation regression:
+`kernel/ui/window_manager.cpp` included `flux_app_catalog.h` only in the
+non-host block but its pinned Dock table uses these symbols in both host
+and guest builds. The shared metadata header is now included unconditionally.
+The C/C++ keyboard-shortcut test uses valid aggregate syntax for both
+languages to avoid `-Wmissing-field-initializers` failure under C++17.
+
+After a failed authenticated Login handoff, the on-screen error now reports
+the **specific failed stage** (ACCOUNT LOOKUP / SESSION SERVICE / CREATE
+SESSION / LAUNCHER SPAWN / SET HOME / ATTACH HOME / VERIFY HOME / HOME
+FIRST FRAME / CLEANUP), without exposing secrets. COM1 still contains the
+full bracketed status markers. The screenshot alone did not identify which
+stage failed on the previous media; live VirtualBox verification is open.

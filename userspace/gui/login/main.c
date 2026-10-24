@@ -10,6 +10,13 @@
 #define LOGIN_CONFIG_CAPACITY 384U
 #define LOGIN_SERVICE_ATTEMPTS 200U
 
+// On-screen, non-sensitive session-stage label. The specific transport and
+// account response codes remain on COM1; never reveal credentials or hashes.
+static const char* g_failed_stage = "UNKNOWN";
+static char g_retry_message[96];
+
+
+
 typedef struct login_profile {
     char username[LOGIN_USERNAME_CAPACITY];
     char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
@@ -322,14 +329,17 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     uint64_t session_id = 0U;
     uint64_t launcher_pid = 0U;
     int desktop_status = -4; // Window stays open until a real Home frame.
+    g_failed_stage = "PREPARING";
 
     if (!current_account(profile, &account_id)) {
+        g_failed_stage = "ACCOUNT LOOKUP";
         puts("[SESSION] flux_account_lookup: FAIL");
         return -5;
     }
     puts("[SESSION] flux_account_lookup: PASS");
     connected = connect_service(KU_SESSION_SERVICE_NAME, KU_SESSION_SERVICE_NAME_SIZE);
     if (connected <= 0) {
+        g_failed_stage = "SESSION SERVICE";
         puts("[SESSION] flux_session_connect: FAIL");
         return -6;
     }
@@ -339,6 +349,7 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     if (!session_request(connection, KU_SESSION_CREATE, 0U, account_id, 0U, &response) ||
         response.session_id == 0U || response.account_id != account_id ||
         response.owner_pid != ku_process_id() || response.state != KU_SESSION_STATE_ACTIVE) {
+        g_failed_stage = "CREATE SESSION";
         puts("[SESSION] flux_session_create: FAIL");
         (void)ku_service_close(connection);
         return -7;
@@ -351,6 +362,7 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     {
         const ku_result_t spawned = ku_process_spawn(launcher, sizeof(launcher) - 1U);
         if (spawned <= 0) {
+            g_failed_stage = "LAUNCHER SPAWN";
             puts("[SESSION] flux_launcher_spawn: FAIL");
             goto cleanup;
         }
@@ -360,12 +372,14 @@ static int start_session(ku_window_t window, const login_profile* profile) {
 
     if (!session_request(
             connection, KU_SESSION_SET_HOME, session_id, 0U, launcher_pid, &response)) {
+        g_failed_stage = "SET HOME";
         puts("[SESSION] flux_session_set_home: FAIL");
         goto cleanup;
     }
     if (!session_request(
             connection, KU_SESSION_ATTACH_APPLICATION, session_id, 0U,
             launcher_pid, &response)) {
+        g_failed_stage = "ATTACH HOME";
         puts("[SESSION] flux_session_attach_home: FAIL");
         goto cleanup;
     }
@@ -373,18 +387,21 @@ static int start_session(ku_window_t window, const login_profile* profile) {
         response.account_id != account_id || response.owner_pid != ku_process_id() ||
         response.home_pid != launcher_pid || response.state != KU_SESSION_STATE_ACTIVE ||
         !response_has_application(&response, launcher_pid)) {
+        g_failed_stage = "VERIFY HOME";
         puts("[SESSION] flux_session_verify: FAIL");
         goto cleanup;
     }
 
     puts("[TEST] red_flux_owned_session: PASS");
     if (!wait_for_home_surface(launcher_pid)) {
+        g_failed_stage = "HOME FIRST FRAME";
         desktop_status = -8;
         goto cleanup;
     }
     // The launcher has presented a real retained surface. It is now safe
     // to dismiss Login and release pointer ownership to the Home window.
     if (ku_ui_close(window) != KU_STATUS_OK) {
+        g_failed_stage = "CLOSE LOGIN";
         puts("[SESSION] flux_login_window_close: FAIL");
         desktop_status = 9;
         goto cleanup;
@@ -413,6 +430,7 @@ cleanup:
             }
         }
         if (!child_finished) {
+            g_failed_stage = "CLEANUP";
             puts("[SESSION] flux_launcher_cleanup: FAIL");
             desktop_status = 11; // Exit Login rather than spawn a duplicate.
         } else {
@@ -446,9 +464,14 @@ static int try_start_session(
     if (status >= 0) return status;
     memset(password, 0, LOGIN_PASSWORD_CAPACITY);
     *password_length = 0U;
-    *error = is_polish(profile)
-        ? "SESJA NIE DZIALA / SPROBUJ PONOWNIE"
-        : "SESSION FAILED / CLICK OR ENTER TO RETRY";
+    // The stage is deliberately short enough for the fixed-width Login
+    // panel. A screenshot now points to the failing component.
+    (void)strlcpy(g_retry_message, is_polish(profile)
+        ? "SESJA: " : "SESSION: ", sizeof(g_retry_message));
+    size_t used = strlen(g_retry_message);
+    (void)strlcpy(g_retry_message + used, g_failed_stage,
+                  sizeof(g_retry_message) - used);
+    *error = g_retry_message;
     build_scene(scene, profile, password, *error);
     if (kui_scene_present(window, scene) != KU_STATUS_OK) {
         puts("[SESSION] flux_login_error_render: FAIL");

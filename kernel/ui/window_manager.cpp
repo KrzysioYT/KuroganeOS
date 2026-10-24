@@ -1,11 +1,11 @@
 #include "window_manager.hpp"
+#include "../../sdk/include/kurogane/flux_app_catalog.h"
 
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
 #include "cursor_sprite.hpp"
 #include "session_owner_policy.hpp"
-#include "../../sdk/include/kurogane/flux_app_catalog.h"
 #endif
 
 namespace windowing {

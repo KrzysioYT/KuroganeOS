@@ -2,7 +2,11 @@
 #include <assert.h>
 
 int main(void) {
+#ifdef __cplusplus
+    ku_ui_event e{};
+#else
     ku_ui_event e = {0};
+#endif
     e.structure_size = sizeof(e);
     e.type = KU_UI_EVENT_KEY;
     e.modifiers = KU_UI_MOD_CONTROL;

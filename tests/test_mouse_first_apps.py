@@ -88,6 +88,10 @@ assert 'flux_login_boot_retry: PASS' in read("userspace/system/init/main.c")
 assert 'A valid password followed by Home failure' in login
 assert login.index('flux_login_retry_available: PASS') < login.index('static int try_start_session(')
 assert "wait_for_home_surface(launcher_pid)" in login
+assert '"SESSION: "' in login and '"SESJA: "' in login
+assert 'g_failed_stage = "HOME FIRST FRAME"' in login
+assert 'g_failed_stage = "SESSION SERVICE"' in login
+assert 'g_failed_stage = "LAUNCHER SPAWN"' in login
 assert 'flux_home_first_frame: PASS' in login
 assert 'flux_launcher_exited_before_ui: FAIL' in login
 assert "ku_ui_close(window) != KU_STATUS_OK" in login
