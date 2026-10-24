@@ -38,6 +38,7 @@ inline void fit_utf8(const char* input, char* output, size_t capacity,
     const size_t dots = truncated && max_columns >= 4U && capacity >= 4U
         ? 3U : 0U;
     const size_t visible = max_columns - dots;
+    const size_t prefix_bytes = capacity - 1U - dots;
     size_t columns = 0U, used = 0U;
     walk = input;
     while (columns < visible && *walk != '\0' &&
@@ -45,8 +46,7 @@ inline void fit_utf8(const char* input, char* output, size_t capacity,
         const ku_text::Scalar scalar = ku_text::next_z(walk);
         if (scalar.bytes == 0U) break;
         const size_t bytes = scalar.valid ? scalar.bytes : 1U;
-        if (used >= capacity - 1U ||
-            bytes > capacity - 1U - used - dots) break;
+        if (used >= prefix_bytes || bytes > prefix_bytes - used) break;
         if (scalar.valid) {
             for (size_t i = 0U; i < bytes; ++i) output[used++] = walk[i];
         } else {

@@ -19,6 +19,12 @@ int main() {
     assert(std::strcmp(b,"Zażółć gęślą jaźń")==0);
     fit_utf8("Zażółć gęślą jaźń", b, 9U, 40U);
     assert(std::strcmp(b,"Zaż...")==0);
+    char tiny[4] = {'X','X','X','X'};
+    fit_utf8("Łódź", tiny, sizeof(tiny), 12U);
+    assert(std::strcmp(tiny,"...")==0);
+    char one[1] = {'X'};
+    fit_utf8("Łódź", one, sizeof(one), 12U);
+    assert(one[0]=='\0');
     fit_utf8("Łódź\nnext", b, sizeof(b), 30U);
     assert(std::strcmp(b,"Łódź")==0);
     fit_utf8(nullptr, b, sizeof(b), 10U);
