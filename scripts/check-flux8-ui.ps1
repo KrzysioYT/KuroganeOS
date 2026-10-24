@@ -36,6 +36,7 @@ $steps = [ordered]@{
     'Kernel Flux session'           = '[TEST] desktop_session: PASS'
     'Login window presented'        = '[TEST] red_flux_login_surface: PASS'
     'Account lookup verified'       = '[SESSION] flux_account_lookup: PASS'
+    'Account profile matched'       = '[SESSION] flux_account_profile_match: PASS'
     'Session service connected'     = '[SESSION] flux_session_connect: PASS'
     'Session created'               = '[SESSION] flux_session_create: PASS'
     'Launcher child spawned'        = '[SESSION] flux_launcher_spawn: PASS'

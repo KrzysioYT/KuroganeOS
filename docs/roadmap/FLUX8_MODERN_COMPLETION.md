@@ -152,3 +152,9 @@ Files is now targeted at logical (450,726) and Terminal (410,726), within
 their respective pins for both 1024x768 and 1280x800 GOP. The wheel point
 is independently inside a Files client window. The static test enforces
 QMP scaling assumptions and rejects the old raw-pixel positions.
+
+A persistent installed account may differ between Login and accountd.
+The account lookup now emits separate no-secrets COM1 markers for connection
+failure, service reply failure and profile mismatch, plus a confirmed match.
+This distinguishes a stale installed profile from a launcher/UI failure without
+logging usernames, hashes, passwords or personal account data.

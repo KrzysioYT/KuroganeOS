@@ -225,7 +225,10 @@ static int current_account(const login_profile* profile, uint64_t* account_id) {
     if (profile == NULL || account_id == NULL) return 0;
     *account_id = 0U;
     connected = connect_service(KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
-    if (connected <= 0) return 0;
+    if (connected <= 0) {
+        puts("[SESSION] flux_account_connect: FAIL");
+        return 0;
+    }
     connection = (ku_service_connection_t)connected;
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
@@ -233,11 +236,19 @@ static int current_account(const login_profile* profile, uint64_t* account_id) {
     request.operation = KU_ACCOUNT_GET_CURRENT;
     status = account_transact(connection, &request, &response);
     (void)ku_service_close(connection);
-    if (status != KU_STATUS_OK || response.account_id == 0U ||
-        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
-        strcmp(response.username, profile->username) != 0) {
+    if (status != KU_STATUS_OK) {
+        puts("[SESSION] flux_account_reply: FAIL");
         return 0;
     }
+    if (response.account_id == 0U ||
+        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
+        strcmp(response.username, profile->username) != 0) {
+        // No user/profile values are written to serial; a mismatch is
+        // important when booting with a persisted installed account.
+        puts("[SESSION] flux_account_profile_mismatch: FAIL");
+        return 0;
+    }
+    puts("[SESSION] flux_account_profile_match: PASS");
     *account_id = response.account_id;
     return 1;
 }

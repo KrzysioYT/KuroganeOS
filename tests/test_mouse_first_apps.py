@@ -91,6 +91,9 @@ assert "wait_for_home_surface(launcher_pid)" in login
 assert '"SESSION: "' in login and '"SESJA: "' in login
 assert 'g_failed_stage = "HOME FIRST FRAME"' in login
 assert 'g_failed_stage = "SESSION SERVICE"' in login
+assert "flux_account_connect: FAIL" in login
+assert "flux_account_reply: FAIL" in login
+assert "flux_account_profile_mismatch: FAIL" in login
 assert 'g_failed_stage = "LAUNCHER SPAWN"' in login
 assert 'flux_home_first_frame: PASS' in login
 assert 'flux_launcher_exited_before_ui: FAIL' in login
