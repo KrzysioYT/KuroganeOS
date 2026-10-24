@@ -64,3 +64,7 @@ GPU-accelerated clients.
 - `tests/test_window_manager.cpp` now checks floating Dock bounds/visibility,
   HOME persistence on Dock clicks, and Ctrl+Alt+F1 restoration. This is host
   logic evidence; QEMU and VirtualBox guest verification remain required.
+
+Host test isolation: the hovering-window partial-raster test first consumes any
+floating Dock visibility transition; otherwise expected one-window damage is
+contaminated by a legitimate Dock full-frame transition.

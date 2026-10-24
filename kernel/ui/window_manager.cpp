@@ -868,19 +868,18 @@ void render_layers() {
     if (g_dock_visible) {
         ui::dock_bar(workspace.pulse_ribbon, tasks);
         for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
-        const Slot* running = find_by_title(kDockPins[index].title);
-        const bool active = running != nullptr && running->info.focused;
-        if (index == 0U) {
-            // The session-root Home surface is also the system application
-            // menu. Present it as an explicit Start-style APPS button while
-            // keeping the HOME desktop shortcut permanently pinned.
-            ui::button(dock_pin_rect(index), "APPS", active);
-        } else {
-            ui::dock_item(
-                dock_pin_rect(index), kDockPins[index].icon,
-                running != nullptr, active);
+            const Slot* running = find_by_title(kDockPins[index].title);
+            const bool active = running != nullptr && running->info.focused;
+            if (index == 0U) {
+                // HOME is the session application broker: APPS always focuses
+                // or restores it, never hides it when already focused.
+                ui::button(dock_pin_rect(index), "APPS", active);
+            } else {
+                ui::dock_item(
+                    dock_pin_rect(index), kDockPins[index].icon,
+                    running != nullptr, active);
+            }
         }
-    }
         for (size_t position = 0U; position < tasks; ++position) {
             const Slot* slot = exposed_at(position);
             if (slot == nullptr) continue;

@@ -633,6 +633,15 @@ int main() {
         owner_after.retained_surfaces != owner_baseline.retained_surfaces ||
         owner_after.retained_bytes != owner_baseline.retained_bytes) return 91;
 
+    // Floating Dock transitions are intentionally full-desktop repaints;
+    // keep them distinct from the bounded per-window hover damage contract.
+    // Prime the collapsed state outside all windows before inspecting damage.
+    event = {};
+    event.type = input::EventType::MouseMove;
+    event.x = 700; event.y = 400;
+    if (dispatch(event) != Status::Ok) return 161;
+    static_cast<void>(render_if_needed());
+
     // Native pointer feedback is owned by the topmost live WindowId. Pointer
     // movement and button transitions invalidate only window regions so hover
     // and pressed visuals never require a full compositor repaint.
