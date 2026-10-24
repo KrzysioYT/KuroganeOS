@@ -216,3 +216,14 @@ output, clear the stale compositor image and then spawn the existing shell.
 Unprivileged processes and nonzero/reserved arguments are rejected. Console
 fallback policy has optimized and UBSan host regression; the real guest
 fallback still needs a fault-injected QEMU/VirtualBox exercise.
+
+## Session title-spoofing guard
+
+Before this fix, window names `KUROGANE LOGIN` and `RED FLUX HOME` acted
+as an implicit privilege: a Ring-3 process could create a LOGIN window
+and trigger `purge_exposed_session()`, or impersonate HOME and take the
+session root. The window manager now requires Login to be PID1's direct
+child, and Home to be the live Login's direct child with no existing Home.
+This preserves the authenticated handoff, rejects spoofed title privilege,
+and leaves every other user application under existing session-tree checks.
+An independent no-hardware unit covers the new origin policy.

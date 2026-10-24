@@ -4,6 +4,7 @@
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
 #include "cursor_sprite.hpp"
+#include "session_owner_policy.hpp"
 #endif
 
 namespace windowing {
@@ -1018,11 +1019,29 @@ Status create_window(
 #ifndef KUROGANE_HOST_TEST
     const bool home = is_home_surface(title);
     const bool login = text_equals(title, "KUROGANE LOGIN");
-    if (login) {
-        purge_exposed_session();
-        g_session_root_pid = process::INVALID_PROCESS_ID;
-    } else if (!home && owner_pid != 0U &&
-               !belongs_to_session_tree(owner_pid)) {
+    if (login || home) {
+        process::Stat caller{};
+        if (process::stat(owner_pid, &caller) != process::Status::Ok) {
+            return Status::InvalidState;
+        }
+        if (login) {
+            // Otherwise any Ring-3 process could name its window LOGIN and
+            // trigger purge_exposed_session() against the real user.
+            if (!session_owner_policy::login_allowed(
+                    owner_pid, caller.parent_pid)) return Status::InvalidState;
+            purge_exposed_session();
+            g_session_root_pid = process::INVALID_PROCESS_ID;
+        } else {
+            const Slot* authenticated_login = login_surface();
+            if (authenticated_login == nullptr ||
+                find_by_title("RED FLUX HOME") != nullptr ||
+                !session_owner_policy::home_allowed(
+                    owner_pid, caller.parent_pid,
+                    authenticated_login->info.owner_pid)) {
+                return Status::InvalidState;
+            }
+        }
+    } else if (owner_pid != 0U && !belongs_to_session_tree(owner_pid)) {
         return Status::InvalidState;
     }
 #endif
