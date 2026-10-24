@@ -433,3 +433,13 @@ Modern defaults to subtle titlebar edges, slim Dock and continuous progress
 tracks, while Classic keeps the legacy angular Red Flux look. Settings saves
 `ui.style` as typed U64 and Home restores it when a session starts. This is
 an engineering preview, not a full new font renderer or qualified release.
+
+### 2026-10-24 — Flux 8 palette-consistent desktop render pass
+
+The software wallpaper now derives subtle gradient tints from the selected
+palette's desktop color. The large Kurogane mark and top identity rail follow
+the active theme, and Modern hides Classic's vertical signal-spine decoration.
+Titlebars remain legible at 2x glyph scale. Selected app tiles and active
+window controls use subdued neutral surfaces instead of fixed red backgrounds.
+The 5x7 bitmap font remains a deliberate outstanding limitation until a
+separate text-rendering replacement has passed QEMU visual/clip tests.
