@@ -286,8 +286,8 @@ jobs:
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
             --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 573 754 \
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 400 300 down \
-            --click-after-marker '[TEST] flux_files_usb_wheel_paging: PASS' 525 754 \
-            --require-marker '[TEST] flux_files_usb_wheel_paging: PASS' \
+            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 525 754 \
+            --require-marker '[TEST] flux_files_usb_wheel_input: PASS' \
             --require-marker '[TEST] desktop_terminal_ring3: PASS' \
             --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \

@@ -360,6 +360,10 @@ int main(void) {
         const int wait_result = gui_wait_event(window, &event);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (event.type == KU_UI_EVENT_SCROLL) {
+            // A scroll event proves HID delivery even in directories with
+            // fewer items than a page, where the offset cannot change.
+            if (event.wheel_y != 0)
+                puts("[TEST] flux_files_usb_wheel_input: PASS");
             // Preserve combined wheel detents without integer overflow.
             const size_t before = page_start;
             page_start = flux_files_wheel_page(

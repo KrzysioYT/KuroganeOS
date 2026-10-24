@@ -108,3 +108,9 @@ Terminal after a real Files wheel event; requires two distinct child spawns
 and a Terminal Ring-3 marker. The static test rejects future comments in
 continued shell option lists. This gate must pass on the exact SHA before
 considering any release promotion.
+
+The guest wheel gate distinguishes **input delivery** from actual page
+movement: a root directory with <= PAGE_SIZE entries must not fail merely
+because scrolling cannot change its page. The host paging-policy test still
+covers offset changes separately. The QEMU command's static shell checker
+now uses a scoped, syntactically valid assertion.

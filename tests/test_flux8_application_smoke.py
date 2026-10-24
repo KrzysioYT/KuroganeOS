@@ -23,7 +23,8 @@ required = [
     "--require-marker '[TEST] flux_files_directory_grid: PASS'",
     "--require-marker '[TEST] desktop_terminal_ring3: PASS'",
     "--require-marker-count '[INPUT] flux_app_spawn: PASS' 2",
-    "--click-after-marker '[TEST] flux_files_usb_wheel_paging: PASS' 525 754",
+    "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 525 754",
+    "--require-marker '[TEST] flux_files_usb_wheel_input: PASS'",
 ]
 for text in required:
     assert text in workflow, f"Flux release gate missing: {text}"
@@ -34,10 +35,11 @@ for text in required:
 # dock top=800-58-12=730, center=759.
 assert '573 754' in workflow, "QEMU smoke not pointing inside Files Dock button"
 assert '525 754' in workflow, "QEMU smoke not pointing inside Terminal Dock button"
-assert not any(line.lstrip().startswith("#") and
-               i > 0 and lines[i-1].rstrip().endswith(chr(92))
-               for lines in [[z for z in workflow.splitlines()]] for i, line in enumerate(lines)),
-               "Comment in continued shell command truncates QEMU invocation"
+qemu_command = workflow.split("bash scripts/smoke-uefi-iso-qemu.sh", 1)[1]
+qemu_command = qemu_command.split("\n          ! grep -Eq", 1)[0]
+assert not any(line.lstrip().startswith("#") for line in qemu_command.splitlines()), (
+    "Comment inside a backslash-continued QEMU command truncates its options"
+)
 assert 'constexpr int32_t DOCK_PIN_SIZE = 42' in wm
 assert 'constexpr int32_t DOCK_HOME_WIDTH = 78' in wm
 assert 'constexpr int32_t DOCK_HEIGHT = 58' in wm
