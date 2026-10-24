@@ -4,7 +4,11 @@
 #include <limits.h>
 
 static ku_display_info area(uint32_t w,uint32_t h) {
+#ifdef __cplusplus
+    ku_display_info info{};
+#else
     ku_display_info info = {0};
+#endif
     info.structure_size=sizeof(info);
     info.version=KU_DISPLAY_INFO_VERSION;
     info.screen_width=w;
