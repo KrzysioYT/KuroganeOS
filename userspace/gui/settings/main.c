@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
 
@@ -317,7 +318,7 @@ static void build_scene(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SETTINGS", 400, 110, 510, 560);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_SETTINGS, 400, 110, 510, 560);
     settings_client settings;
     ku_audio_state audio;
     kui_scene scene;

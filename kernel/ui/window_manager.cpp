@@ -5,6 +5,7 @@
 #include "../task/process.hpp"
 #include "cursor_sprite.hpp"
 #include "session_owner_policy.hpp"
+#include "../../sdk/include/kurogane/flux_app_catalog.h"
 #endif
 
 namespace windowing {
@@ -81,14 +82,14 @@ struct DockPin {
 
 // Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
-    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
-    {"FILES", 'f', ui::DockIcon::Files, "FILES"},
-    {"FORGE CONTROL", 'v', ui::DockIcon::Monitor, "CTRL"},
-    {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
-    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
-    {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
-    {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About, "ABOUT"},
+    {KU_FLUX_TITLE_HOME, 0, ui::DockIcon::Home, "HOME"},
+    {KU_FLUX_TITLE_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
+    {KU_FLUX_TITLE_FILES, 'f', ui::DockIcon::Files, "FILES"},
+    {KU_FLUX_TITLE_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
+    {KU_FLUX_TITLE_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
+    {KU_FLUX_TITLE_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
+    {KU_FLUX_TITLE_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
+    {KU_FLUX_TITLE_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};

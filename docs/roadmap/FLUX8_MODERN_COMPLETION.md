@@ -74,3 +74,13 @@ block promotion. Windows support, PS/2 fallback, and Classic are retained.
 - [ ] Replace transitional 5x7 raster with licensed, scalable anti-aliased
       fonts, shaped text, full Unicode and proportional layout.
 - [ ] Host/QEMU exact SHA green gates and VirtualBox first-frame acceptance.
+
+## Application registry refactor — 2026-10-24
+
+The pinned Dock previously expected `FLUX TERMINAL` while the actual
+Terminal process created `RED FLUX TERMINAL`; app focus/running detection
+therefore failed even if the process existed. Kernel, launcher and native
+Ring-3 windows now share title/path declarations in
+`sdk/include/kurogane/flux_app_catalog.h`; host C/C++ and source parity
+tests reject drifting titles. The catalog conveys identity metadata only:
+PID ancestry and session authorization remain mandatory for privileged UI.

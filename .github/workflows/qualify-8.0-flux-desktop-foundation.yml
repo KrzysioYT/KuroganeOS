@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
       - 'kernel/ui/**'
+      - 'sdk/include/kurogane/flux_app_catalog.h'
+      - 'tests/test_flux_app_catalog.c'
+      - 'tests/test_flux_app_catalog_sources.py'
       - 'tests/test_flux_label_fitting.cpp'
       - 'tests/test_flux_session_owner_policy.cpp'
       - 'kernel/drivers/framebuffer.cpp'
@@ -103,6 +106,7 @@ jobs:
       - name: Assert actual authenticated Files launch is in QEMU contract
         run: |
           python3 tests/test_flux8_application_smoke.py
+          python3 tests/test_flux_app_catalog_sources.py
           python3 tests/test_mouse_first_apps.py
       - name: PID1-only visible console fallback policy optimized + UBSan
         run: |
@@ -128,6 +132,14 @@ jobs:
           c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
             tests/test_flux_label_fitting.cpp -o build/tests/desktop/label-fit-ubsan
           build/tests/desktop/label-fit-ubsan
+      - name: Flux app registry shared C and C++ regression
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_flux_app_catalog.c -o build/tests/desktop/app-registry-c
+          build/tests/desktop/app-registry-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -x c++ tests/test_flux_app_catalog.c -o build/tests/desktop/app-registry-cpp
+          build/tests/desktop/app-registry-cpp
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

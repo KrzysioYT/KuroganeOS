@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../common/terminal_shell.h"
 
 #define TERMINAL_INPUT_CAPACITY 160U
@@ -132,7 +133,7 @@ static void input_insert(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("RED FLUX TERMINAL", 235, 155, 760, 430);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_TERMINAL, 235, 155, 760, 430);
     if (window == KU_INVALID_WINDOW) return 1;
 
     ku_shell_initialize(&g_shell);

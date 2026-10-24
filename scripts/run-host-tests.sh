@@ -363,6 +363,7 @@ done
 "$OUT_DIR/test_flux_rounded_geometry"
 
 python3 tests/test_flux8_application_smoke.py
+python3 tests/test_flux_app_catalog_sources.py
 python3 tests/test_flux8_virtualbox_runner.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_console_fallback_policy.cpp -o "$OUT_DIR/test_console_fallback_policy"
@@ -375,6 +376,13 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_label_fitting.cpp -o "$OUT_DIR/test_flux_label_fitting"
 "$OUT_DIR/test_flux_label_fitting"
+
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_c"
+"$OUT_DIR/test_flux_app_catalog_c"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -x c++ tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_cpp"
+"$OUT_DIR/test_flux_app_catalog_cpp"
 
 # Test the real per-process Ring-3 UI event queue and overload policy.
 "$HOST_CXX" \

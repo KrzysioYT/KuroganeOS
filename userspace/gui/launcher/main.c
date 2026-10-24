@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
 #include <kurogane/notification.h>
 #include <kurogane/settings.h>
@@ -21,14 +22,14 @@ typedef struct launcher_app {
 } launcher_app;
 
 static const launcher_app g_apps[APP_COUNT] = {
-    {"TERMINAL", "shared shell / development", "/gui/terminal", KU_DESKTOP_APP_TERMINAL, KU_UI_NATIVE_ICON_TERMINAL, 1},
-    {"FILES", "persistent root / applications", "/gui/files", KU_DESKTOP_APP_FILES, KU_UI_NATIVE_ICON_FILES, 1},
-    {"FORGE CONTROL", "system pulse / network / audio", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
-    {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER, KU_UI_NATIVE_ICON_BROWSER, 1},
-    {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR, KU_UI_NATIVE_ICON_MONITOR, 1},
-    {"SETTINGS", "appearance / sound", "/gui/settings", KU_DESKTOP_APP_SETTINGS, KU_UI_NATIVE_ICON_SETTINGS, 1},
-    {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT, KU_UI_NATIVE_ICON_ABOUT, 1},
-    {"NOTIFICATIONS", "public system activity", "/gui/notify", NO_APP_ID, KU_UI_NATIVE_ICON_NOTIFICATION, 0},
+    {"TERMINAL", "shared shell / development", KU_FLUX_EXEC_TERMINAL, KU_DESKTOP_APP_TERMINAL, KU_UI_NATIVE_ICON_TERMINAL, 1},
+    {"FILES", "persistent root / applications", KU_FLUX_EXEC_FILES, KU_DESKTOP_APP_FILES, KU_UI_NATIVE_ICON_FILES, 1},
+    {"FORGE CONTROL", "system pulse / network / audio", KU_FLUX_EXEC_PERFORMANCE, KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
+    {"KUROGANE WEB", "native HTTP browser", KU_FLUX_EXEC_BROWSER, KU_DESKTOP_APP_BROWSER, KU_UI_NATIVE_ICON_BROWSER, 1},
+    {"MONITOR", "runtime / process health", KU_FLUX_EXEC_MONITOR, KU_DESKTOP_APP_MONITOR, KU_UI_NATIVE_ICON_MONITOR, 1},
+    {"SETTINGS", "appearance / sound", KU_FLUX_EXEC_SETTINGS, KU_DESKTOP_APP_SETTINGS, KU_UI_NATIVE_ICON_SETTINGS, 1},
+    {"ABOUT", "KuroganeOS platform", KU_FLUX_EXEC_ABOUT, KU_DESKTOP_APP_ABOUT, KU_UI_NATIVE_ICON_ABOUT, 1},
+    {"NOTIFICATIONS", "public system activity", KU_FLUX_EXEC_NOTIFICATIONS, NO_APP_ID, KU_UI_NATIVE_ICON_NOTIFICATION, 0},
 };
 
 
@@ -507,7 +508,7 @@ static void build_scene(kui_scene* scene) {
 
 int main(void) {
     /* Keep the window title stable: WindowManager treats it as session root. */
-    const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_HOME, 250, 135, 650, 460);
     kui_scene scene;
     size_t index;
     uint32_t pointer_buttons = 0U;

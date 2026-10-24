@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
 
 enum forge_control_section {
@@ -248,7 +249,7 @@ static int apply_audio_action(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FORGE CONTROL", 360, 80, 580, 500);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_PERFORMANCE, 360, 80, 580, 500);
     ku_system_snapshot snapshot;
     ku_network_status network;
     ku_audio_state audio;

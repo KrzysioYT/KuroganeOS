@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
 #include "../clipboard_actions.h"
 
@@ -648,7 +649,7 @@ static void build_scene(kui_scene* scene, int omnibox_active) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_BROWSER, 120, 90, 820, 570);
     kui_scene scene;
     int omnibox_active = 0;
     int omnibox_select_all = 0;

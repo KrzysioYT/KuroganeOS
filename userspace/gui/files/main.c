@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "paging.h"
 #include "navigation.h"
 #include "../clipboard_actions.h"
@@ -320,7 +321,7 @@ static int activate_selected(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FILES", 250, 110, 650, 480);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 110, 650, 480);
     explorer_entry entries[DIRECTORY_ENTRY_CAPACITY];
     size_t entry_count = 0U;
     size_t page_start = 0U;
