@@ -20,3 +20,8 @@ in the full host suite and with optimized/UBSan in the Flux gate.
 The QEMU probe uses the desktop's 1024x768 dock layout and is not a
 physical-hardware qualification; a future display-mode change may require
 adjusting the click coordinates. Not a full 8.0.0 or 15.0.0 release.
+
+QEMU launch sequencing was verified against the preceding qualified serial
+artifact: launcher Ring-3 starts before the login-supervision marker. The
+Files dock click is deferred until `red_flux_login_to_desktop: PASS` to avoid
+interacting with the still-transitioning login window.
