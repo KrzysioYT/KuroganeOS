@@ -89,16 +89,22 @@ void kui_scene_initialize(kui_scene* scene) {
 }
 
 void kui_scene_apply_flux_theme(kui_scene* scene) {
-    ku_desktop_theme_request request;
     ku_flux_palette palette;
+    uint32_t theme_id = KU_FLUX_THEME_RED;
     if (scene == (kui_scene*)0) return;
-    memset(&request, 0, sizeof(request));
-    request.structure_size = sizeof(request);
-    request.action = KU_DESKTOP_THEME_QUERY;
-    if (ku_desktop_theme(&request) != KU_STATUS_OK) {
-        request.theme_id = KU_FLUX_THEME_RED;
+#if !defined(KUROGANE_HOST_TEST)
+    {
+        ku_desktop_theme_request request;
+        memset(&request, 0, sizeof(request));
+        request.structure_size = sizeof(request);
+        request.action = KU_DESKTOP_THEME_QUERY;
+        if (ku_desktop_theme(&request) == KU_STATUS_OK &&
+            request.theme_id < KU_FLUX_THEME_COUNT) {
+            theme_id = request.theme_id;
+        }
     }
-    palette = ku_flux_theme_palette(request.theme_id);
+#endif
+    palette = ku_flux_theme_palette(theme_id);
     scene->background_rgb = palette.background;
     scene->foreground_rgb = palette.text;
     scene->accent_rgb = palette.accent;

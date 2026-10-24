@@ -2,6 +2,7 @@
 #include <kurogane/audio.h>
 #include <kurogane/dns_service.h>
 #include <kurogane/device.h>
+#include <kurogane/desktop.h>
 #include <kurogane/event.h>
 #include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
@@ -85,6 +86,9 @@ int main() {
     static_assert(KU_SYS_DEVICE_QUERY == 65);
     static_assert(KU_SYS_DEVICE_RESOURCE == 66);
     static_assert(KU_SYS_SOCKET_WAIT == 67);
+    static_assert(KU_SYS_DESKTOP_THEME == 68);
+    static_assert(sizeof(ku_desktop_theme_request) == 16);
+    static_assert(KU_FLUX_THEME_COUNT == 6);
 
     static_assert(KU_DEVICE_MAX_DEVICES == 192U);
     static_assert(KU_DEVICE_MAX_RESOURCES == 8U);

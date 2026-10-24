@@ -402,3 +402,26 @@ For every atomic work item:
 `AUDIT -> DESIGN -> IMPLEMENT -> BUILD -> TEST -> FIX -> REGRESSION -> DOCUMENT -> COMMIT -> NEXT`
 
 A real FAIL is fixed before dependent work continues. An unavailable external environment is documented but does not stop independent engineering.
+
+### 2026-10-24 — Flux 8 personalization integration (development candidate)
+
+Theme architecture is now implemented on the integration branch as an
+**8.0 foundation candidate**, not a qualified 8.0 release. The append-only
+desktop-theme syscall has QUERY and SET operations, bounded preset IDs and
+user-buffer validation. Kernel window chrome and Ring-3 scene rendering use
+the same pure design-token palette table. Settings offers previous/next
+selection across Red, Violet, Crimson, Steel, Ember and Mono, persists the
+selection through settings.v1 as a typed U64 and verifies readback; Home
+restores the saved choice at session start. Invalid/corrupt/absent settings
+fall back to default Red.
+
+Telemetry audit: the existing `cpu_percent` is an *estimated scheduler
+pressure* from runnable threads/switches, not a measured hardware CPU
+utilization. The `disk_percent` is a bounded block-I/O activity index,
+**not filesystem space used**. RAM is calculated from PMM frame accounting,
+where less than 1% usage previously rendered as 0%. Home/Forge Control
+now label estimates honestly and render nonzero sub-1% RAM as `<1%`.
+True per-core idle accounting, disk volume capacity, modern font rendering,
+GOP resolution switching, drag-and-drop, generalized clipboard integration
+and final end-to-end QEMU qualification remain OPEN 8.0 work. No release
+version bump is justified solely by the theme infrastructure.

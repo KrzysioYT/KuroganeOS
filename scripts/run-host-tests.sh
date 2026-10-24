@@ -361,10 +361,20 @@ done
   tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
 "$OUT_DIR/test_files_wheel_paging"
 
+# Exercise production Flux 8 palette contracts in hosted C and C++.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_theme_palette.c \
+  -o "$OUT_DIR/test_flux_theme_palette"
+"$OUT_DIR/test_flux_theme_palette"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_theme_palette.c \
+  -o "$OUT_DIR/test_flux_theme_palette_cpp"
+"$OUT_DIR/test_flux_theme_palette_cpp"
+
 # Exercise production libui row geometry and pointer hit-testing.
 "$HOST_CC" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
-  -Isdk/include \
+  -DKUROGANE_HOST_TEST -Isdk/include \
   tests/test_libui_pointer.c sdk/src/libui.c \
   -o "$OUT_DIR/test_libui_pointer"
 
