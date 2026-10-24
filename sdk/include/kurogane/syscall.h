@@ -80,7 +80,9 @@ enum ku_syscall_number {
     KU_SYS_SOCKET_WAIT = 67,
     KU_SYS_DESKTOP_THEME = 68,
     KU_SYS_DESKTOP_STYLE = 69,
-    KU_SYS_DISPLAY_INFO = 70
+    KU_SYS_DISPLAY_INFO = 70,
+    // Caller may terminate only an immediate child; enforced by the kernel.
+    KU_SYS_TERMINATE_CHILD = 71
 };
 
 enum ku_open_flags {

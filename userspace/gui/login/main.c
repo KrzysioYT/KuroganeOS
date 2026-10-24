@@ -393,6 +393,32 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     desktop_status = wait_for_desktop(launcher_pid);
 
 cleanup:
+    if (desktop_status < 0 && launcher_pid != 0U) {
+        // A partially registered launcher must never survive a failed
+        // authenticated handoff and poison the next retry with a duplicate
+        // RED FLUX HOME window or stale session root.
+        ku_status_t stopped = ku_process_terminate_child(launcher_pid, 1);
+        int child_finished = stopped == KU_STATUS_NOT_FOUND;
+        if (stopped == KU_STATUS_OK) {
+            for (uint32_t attempt = 0U; attempt < 600U; ++attempt) {
+                int32_t discarded_exit_code = 0;
+                const ku_status_t waited = ku_process_wait(
+                    launcher_pid, &discarded_exit_code);
+                if (waited == KU_STATUS_OK || waited == KU_STATUS_NOT_FOUND) {
+                    child_finished = 1;
+                    break;
+                }
+                if (waited != KU_STATUS_WOULD_BLOCK) break;
+                (void)kuro_sleep(1U);
+            }
+        }
+        if (!child_finished) {
+            puts("[SESSION] flux_launcher_cleanup: FAIL");
+            desktop_status = 11; // Exit Login rather than spawn a duplicate.
+        } else {
+            puts("[SESSION] flux_launcher_cleanup: PASS");
+        }
+    }
     if (desktop_status < 0) {
         // Nothing has dismissed Login: let the user retry on the same window.
         puts("[SESSION] flux_login_retry_available: PASS");

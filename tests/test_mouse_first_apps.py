@@ -82,6 +82,8 @@ assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (restor
 assert launcher.index("flux_home_ui_present: PASS") < launcher.index("if (publish_session_notification())")
 assert 'return start_session(window, &profile);' not in login
 assert 'desktop_status = -8' in login
+assert "ku_process_terminate_child(launcher_pid, 1)" in login
+assert "flux_launcher_cleanup: FAIL" in login
 assert 'flux_login_boot_retry: PASS' in read("userspace/system/init/main.c")
 assert 'A valid password followed by Home failure' in login
 assert login.index('flux_login_retry_available: PASS') < login.index('static int try_start_session(')

@@ -144,3 +144,17 @@ still performs later normal event-loop refreshes.
 Expected serial ordering: `flux_home_ui_present: PASS` occurs before
 theme/style/notification restore markers. Real emulated-boot proof remains
 outstanding for exact commit.
+
+## Parent-only launcher cleanup
+
+New ABI append-only `KU_SYS_TERMINATE_CHILD = 71` is a restricted process
+termination syscall. Kernel verifies the target is a live immediate child
+owned by the invoking Ring-3 process; self/PID0/system/sibling termination is
+rejected. Login uses this exclusively on a pre-handoff failure, waits a
+bounded interval for process release, and refuses an unsafe retry if an
+orphan launcher could survive. This prevents duplicate Home windows and
+stale desktop session roots after partial sessiond setup.
+
+Not a general process killer and not an authorization bypass. Static SDK
+ABI test asserts the append-only number. The full VM runtime must still
+confirm teardown and restart on target hardware.

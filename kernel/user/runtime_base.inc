@@ -1401,6 +1401,31 @@ void syscall_handler(
             frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
             return;
         }
+        case KU_SYS_TERMINATE_CHILD: {
+            if (frame.rdi == 0U || frame.rdi == context->pid || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            process::Stat child{};
+            if (process::stat(static_cast<process::ProcessId>(frame.rdi), &child)
+                    != process::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            // Never allow arbitrary-PID termination from Ring-3, including
+            // login/sessiond, system services, siblings or the kernel init.
+            if (child.parent_pid != context->pid) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            const process::Status terminated = process::terminate(
+                child.pid, static_cast<int32_t>(frame.rsi));
+            frame.rax = static_cast<uint64_t>(
+                terminated == process::Status::Ok ? KU_STATUS_OK :
+                terminated == process::Status::NotFound ? KU_STATUS_NOT_FOUND :
+                KU_STATUS_BAD_STATE);
+            return;
+        }
         case KU_SYS_WAIT: {
             if (!validate_user_buffer(*context, frame.rsi, sizeof(int32_t), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
