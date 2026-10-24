@@ -45,6 +45,9 @@ assert "read_theme_setting" in settings and "write_theme_setting" in settings
 assert "read_style_setting" in settings and "write_style_setting" in settings
 assert "flux_theme_persistence: PASS" in settings
 assert "flux_style_persistence: PASS" in settings
+assert "KU_UI_EVENT_SCROLL" in settings
+assert "kui_scene_scroll(&scene" in settings
+assert "flux_settings_wheel_navigation: PASS" in settings
 assert "RED CORE" not in settings, "settings: legacy theme-button UI returned"
 assert "MUTE / UNMUTE" not in settings, "settings: legacy audio button returned"
 assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"

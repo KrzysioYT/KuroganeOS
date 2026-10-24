@@ -284,7 +284,9 @@ static void build_scene(
     }
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 16U;
+    // The entire settings form is taller than the 560px window. A bounded
+    // row viewport keeps the lower audio/profile controls reachable by wheel.
+    scene->visible_rows = 10U;
     kui_scene_apply_flux_theme(scene);
     if (low_contrast) {
         const ku_flux_palette palette = ku_flux_theme_palette(theme_id);
@@ -370,6 +372,16 @@ int main(void) {
             puts("[TEST] desktop_settings_closed: PASS");
             break;
         }
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            const uint32_t before = scene.scroll_offset;
+            (void)kui_scene_scroll(&scene, event.wheel_y < 0 ? 1 :
+                (event.wheel_y > 0 ? -1 : 0));
+            if (scene.scroll_offset != before) {
+                (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_settings_wheel_navigation: PASS");
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_POINTER) continue;
         {
             const uint32_t previous_buttons = pointer_buttons;
@@ -436,7 +448,13 @@ int main(void) {
         } else {
             continue;
         }
-        build_scene(&scene, low_contrast, theme_id, style_id, &audio, settings.connected);
+        {
+            const uint32_t old_offset = scene.scroll_offset;
+            build_scene(&scene, low_contrast, theme_id, style_id,
+                        &audio, settings.connected);
+            scene.scroll_offset = old_offset;
+            (void)kui_scene_scroll(&scene, 0);
+        }
         (void)kui_scene_present(window, &scene);
     }
 
