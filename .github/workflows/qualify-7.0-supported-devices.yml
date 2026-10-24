@@ -1,0 +1,156 @@
+name: Qualify 7.0 supported-device integration
+
+on:
+  push:
+    branches:
+      - codex/road-to-15-stability
+    paths:
+      - '.github/workflows/qualify-7.0-supported-devices.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/virtio/**'
+      - 'kernel/drivers/pci_power.*'
+      - 'kernel/net/**'
+      - 'kernel/storage/**'
+      - 'kernel/main.cpp'
+      - 'tests/test_usb_hid_report.cpp'
+      - 'tests/test_virtio_pci_transport.cpp'
+      - 'tests/test_pci_power.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/build-media-linux.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-hardware:
+    name: Combined QEMU / ${{ matrix.nic }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nic: e1000e
+            marker: e1000e_link
+          - nic: virtio
+            marker: virtio_net_link
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Verify exact dev identity and static regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          git diff --check
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Full host, syscall and kernel regressions
+        run: |
+          bash scripts/run-host-tests.sh
+          bash scripts/test.sh
+      - name: Build fresh release IMG and installation package
+        run: |
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+      - name: Simultaneous USB HID / networking / VirtIO block / SMP
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic "${{ matrix.nic }}" --require-network --virtio-block \
+            --usb-keyboard --usb-mouse \
+            --log-dir build/tests/iron-shield-integrated-${{ matrix.nic }} \
+            --timeout 240 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] virtio_block_probe: PASS' \
+            --require-marker '[TEST] virtio_block_rw: PASS' \
+            --require-marker '[TEST] unified_storage_write_flush_readback_restore: PASS' \
+            --require-marker '[TEST] ${{ matrix.marker }}: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] scheduler2_topology: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|virtio_block_.*: FAIL|dhcp_lease: FAIL' \
+            build/tests/iron-shield-integrated-${{ matrix.nic }}/serial.log
+      - name: Retain serial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-integrated-${{ matrix.nic }}-${{ github.sha }}
+          path: build/tests/iron-shield-integrated-*
+          if-no-files-found: warn
+
+  no-nic-fallback:
+    name: USB desktop without NIC
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Build release image
+        run: |
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+      - name: Boot and operate USB-only desktop without a NIC
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic none --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir build/tests/iron-shield-no-nic --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/iron-shield-no-nic/serial.log
+      - name: Retain no-NIC serial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-no-nic-${{ github.sha }}
+          path: build/tests/iron-shield-no-nic
+          if-no-files-found: warn
+
+  supported-device-gate:
+    name: Same-SHA supported-device gate
+    needs: [integrated-hardware, no-nic-fallback]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Fail unless the exact-SHA hardware jobs passed
+        env:
+          INTEGRATED: ${{ needs.integrated-hardware.result }}
+          NO_NIC: ${{ needs.no-nic-fallback.result }}
+        run: |
+          set -euo pipefail
+          test "$INTEGRATED" = success
+          test "$NO_NIC" = success
+          echo "Iron Shield 7.0 supported-device integration: PASS"

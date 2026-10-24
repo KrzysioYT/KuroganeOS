@@ -131,6 +131,26 @@ int main() {
     assert(report.buttons == 0U && report.changed_buttons == 3U);
 
     // Malformed stack traffic is rejected rather than reading stale data.
+    // A PUSH around a new report ID must not erase the descriptor-wide
+    // Report ID prefix when the global state is restored.
+    const uint8_t pushed_id[] = {
+        0x05,0x01, 0x09,0x02, 0xA1,0x01,
+        0xA4, 0x85,0x0A,
+        0x05,0x01, 0x09,0x30, 0x09,0x31,
+        0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x02, 0x81,0x06,
+        0xB4, 0xC0
+    };
+    PointerReportLayout pushed{};
+    assert(parse_pointer_report_descriptor(
+        pushed_id, sizeof(pushed_id), &pushed));
+    assert(pushed.has_report_id && pushed.report_id == 10U &&
+           pushed.report_bytes == 3U && pushed.transfer_bytes == 3U);
+    const uint8_t pushed_report[] = {10U, 4U, 0xFAU};
+    reset_pointer_decoder(&decoder);
+    assert(decode_pointer_report(
+        pushed, &decoder, pushed_report, sizeof(pushed_report), &report));
+    assert(report.x == 4 && report.y == -6);
+
     const uint8_t unmatched_pop[] = {0xB4};
     const uint8_t unmatched_push[] = {0xA4};
     assert(!parse_pointer_report_descriptor(

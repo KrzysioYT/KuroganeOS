@@ -135,6 +135,7 @@ bool parse_pointer_report_descriptor(
     uint8_t active_report_id = 0U;
     uint8_t pointer_report_id = 0U;
     bool report_id_selected = false;
+    bool saw_any_report_id = false;
     bool pointer_selected = false;
     bool saw_pointer_collection = false;
     struct GlobalState {
@@ -206,11 +207,12 @@ bool parse_pointer_report_descriptor(
                     const uint8_t next_id = static_cast<uint8_t>(value);
                     // Mixed anonymous/numbered input reports are ambiguous:
                     // do not reinterpret a previously parsed ID-zero payload.
-                    if (!report_id_selected && input_bits[0U] != 0U) {
+                    if (!saw_any_report_id && input_bits[0U] != 0U) {
                         return false;
                     }
                     active_report_id = next_id;
                     report_id_selected = true;
+                    saw_any_report_id = true;
                     break;
                 }
                 case 9U:
@@ -301,6 +303,9 @@ bool parse_pointer_report_descriptor(
             report_count == 0U || report_count > 64U) {
             return false;
         }
+        // After any numbered report is observed, an implicit ID-zero input
+        // would have no unambiguous on-wire representation.
+        if (saw_any_report_id && active_report_id == 0U) return false;
         const uint64_t bits_added =
             static_cast<uint64_t>(report_size) * report_count;
         const uint32_t bit_offset = input_bits[active_report_id];
@@ -373,20 +378,20 @@ bool parse_pointer_report_descriptor(
     const uint32_t pointer_bytes =
         (input_bits[pointer_report_id] + 7U) / 8U;
     const uint32_t total_bytes =
-        pointer_bytes + (report_id_selected ? 1U : 0U);
+        pointer_bytes + (saw_any_report_id ? 1U : 0U);
     if (total_bytes == 0U || total_bytes > UINT16_MAX ||
-        (report_id_selected && pointer_report_id == 0U)) return false;
+        (saw_any_report_id && pointer_report_id == 0U)) return false;
     uint32_t maximum_bytes = total_bytes;
     for (size_t id = 0U; id < 256U; ++id) {
         if (input_bits[id] == 0U) continue;
-        if (report_id_selected && id == 0U) return false;
+        if (saw_any_report_id && id == 0U) return false;
         const uint32_t wire_bytes = (input_bits[id] + 7U) / 8U +
-            (report_id_selected ? 1U : 0U);
+            (saw_any_report_id ? 1U : 0U);
         if (wire_bytes > maximum_bytes) maximum_bytes = wire_bytes;
     }
     if (maximum_bytes > UINT16_MAX) return false;
     layout.report_id = pointer_report_id;
-    layout.has_report_id = report_id_selected;
+    layout.has_report_id = saw_any_report_id;
     layout.report_bytes = static_cast<uint16_t>(total_bytes);
     layout.transfer_bytes = static_cast<uint16_t>(maximum_bytes);
     layout.valid = true;
