@@ -99,3 +99,10 @@ failure markers are serialized rather than optimistic startup PASS labels.
 Host regression covers nonpresented Home, first surface, minimized state,
 restoration and window destruction. Manual VBox/UEFI and exact SHA CI remain
 necessary before claiming live functionality.
+
+No-Home renderer now shows a visible "SESSION HOME NOT READY" diagnostic
+when neither a Login screen nor a Home window exists. It does not attempt a
+privileged kernel-side bypass of login/session ownership. VirtualBox COM1
+helper auto-selects the latest VM log if -Name is omitted and reports
+launcher process creation, session verification, Home first frame and login
+handoff separately.

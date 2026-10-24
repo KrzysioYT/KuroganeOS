@@ -832,6 +832,18 @@ void render_layers() {
     }
 
     ui::desktop("KUROGANE / RED FLUX");
+    // Do not imply a healthy session when neither Login nor its Home app is
+    // present. This is deliberately shown only in the failure state, so
+    // users can distinguish a missing Ring-3 launcher from a dead pointer.
+    if (find_by_title("RED FLUX HOME") == nullptr) {
+        const ui::Theme& colors = ui::default_theme();
+        graphics::draw_text(
+            54, g_screen_height / 2 + 170, "SESSION HOME NOT READY",
+            colors.text, colors.desktop, 2U, true);
+        graphics::draw_text(
+            54, g_screen_height / 2 + 194, "CHECK COM1 LOG / FLUX DIAGNOSTIC",
+            colors.text_muted, colors.desktop, 1U, true);
+    }
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
     ui::signal_spine(workspace.signal_spine, tasks, focused_position());
