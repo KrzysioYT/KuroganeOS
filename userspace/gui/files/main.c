@@ -351,6 +351,24 @@ int main(void) {
         uint32_t target;
         const int wait_result = gui_wait_event(window, &event);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            // One wheel detent moves one six-tile directory page. Do not wrap
+            // at the ends, and never change selection on an inert scroll.
+            const size_t before = page_start;
+            if (event.wheel_y < 0 && page_start + PAGE_SIZE < entry_count) {
+                page_start += PAGE_SIZE;
+            } else if (event.wheel_y > 0 && page_start >= PAGE_SIZE) {
+                page_start -= PAGE_SIZE;
+            }
+            if (page_start != before) {
+                selected = NO_SELECTION;
+                (void)strlcpy(preview, "WHEEL / PAGE CHANGED", sizeof(preview));
+                build_scene(&scene, path, entries, entry_count,
+                            page_start, selected, preview);
+                (void)kui_scene_present(window, &scene);
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_POINTER) continue;
         {
             const uint32_t previous_buttons = pointer_buttons;

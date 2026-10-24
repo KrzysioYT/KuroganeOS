@@ -133,7 +133,9 @@ enum ku_ui_event_type {
     KU_UI_EVENT_NONE = 0,
     KU_UI_EVENT_CLOSE = 1,
     KU_UI_EVENT_KEY = 2,
-    KU_UI_EVENT_POINTER = 3
+    KU_UI_EVENT_POINTER = 3,
+    // Wheel scroll over a client surface; signed vertical steps in wheel_y.
+    KU_UI_EVENT_SCROLL = 4
 };
 
 /*
@@ -149,7 +151,12 @@ typedef struct ku_ui_event {
     int32_t x;
     int32_t y;
     uint32_t buttons;
-    uint32_t reserved;
+    // Reuse the original reserved ABI slot; size and alignment stay at 32.
+    // wheel_y is only defined for KU_UI_EVENT_SCROLL (positive = up).
+    union {
+        uint32_t reserved;
+        int32_t wheel_y;
+    };
 } ku_ui_event;
 
 static inline ku_result_t ku_ui_create(

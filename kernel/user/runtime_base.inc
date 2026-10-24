@@ -392,15 +392,20 @@ void input_user_window(
         event.character = static_cast<uint8_t>(input_event.character);
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
-               input_event.type == input::EventType::MouseButtonUp) {
+               input_event.type == input::EventType::MouseButtonUp ||
+               input_event.type == input::EventType::MouseWheel) {
         ui::Rect content{};
         if (windowing::content_geometry(window, &content) != windowing::Status::Ok) {
             return;
         }
-        event.type = KU_UI_EVENT_POINTER;
+        event.type = input_event.type == input::EventType::MouseWheel
+            ? KU_UI_EVENT_SCROLL : KU_UI_EVENT_POINTER;
         event.x = input_event.x - content.x;
         event.y = input_event.y - content.y;
         event.buttons = input_event.buttons;
+        if (input_event.type == input::EventType::MouseWheel) {
+            event.wheel_y = static_cast<int32_t>(input_event.wheel);
+        }
     } else {
         return;
     }

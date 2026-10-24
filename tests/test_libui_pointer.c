@@ -207,6 +207,26 @@ int main(void) {
                 "destructive button hit")) return 16;
     }
 
-    puts("libui native packet + mouse hit-test tests passed");
+    // Scroll is a public Ring-3 event without increasing the 32-byte ABI.
+    {
+        ku_ui_event wheel = {0};
+        wheel.structure_size = sizeof(wheel);
+        wheel.type = KU_UI_EVENT_SCROLL;
+        wheel.wheel_y = -3;
+        if (sizeof(wheel) != 32U ||
+            offsetof(ku_ui_event, wheel_y) != offsetof(ku_ui_event, reserved) ||
+            KU_UI_EVENT_POINTER != 3 || KU_UI_EVENT_SCROLL != 4 ||
+            wheel.reserved != UINT32_C(0xFFFFFFFD) ||
+            (int32_t)wheel.reserved != -3) return 17;
+        wheel.reserved = 2U;
+        if (wheel.wheel_y != 2) return 18;
+    }
+    if (kui_scene_scroll(&scene, -1) != KU_STATUS_OK ||
+        scene.scroll_offset != 0U ||
+        kui_scene_build_native(&scene, &native) != KU_STATUS_OK ||
+        native.commands[0].type != KU_UI_NATIVE_PANEL ||
+        kui_scene_scroll(&scene, -100) != KU_STATUS_OK ||
+        scene.scroll_offset != 0U) return 19;
+    puts("libui native packet + mouse hit-test + scroll ABI tests passed");
     return 0;
 }

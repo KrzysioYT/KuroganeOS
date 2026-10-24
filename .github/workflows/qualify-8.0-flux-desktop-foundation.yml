@@ -70,6 +70,17 @@ jobs:
             -o build/tests/desktop/clipboard-ubsan
           build/tests/desktop/clipboard-ubsan
 
+      - name: Ring-3 UI wheel ABI and libui scene scroll
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+            -Isdk/include tests/test_libui_pointer.c sdk/src/libui.c \
+            -o build/tests/desktop/libui
+          build/tests/desktop/libui
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -ffreestanding -Isdk/include tests/test_libui_pointer.c \
+            sdk/src/libui.c -o build/tests/desktop/libui-ubsan
+          build/tests/desktop/libui-ubsan
+
   desktop-qemu:
     name: Flux live session QEMU / USB-only input
     runs-on: ubuntu-latest
