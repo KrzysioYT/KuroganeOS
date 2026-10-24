@@ -16,6 +16,8 @@
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
 #include "../core/string.hpp"
+#include "../apps/framework.hpp"
+#include "console_fallback_policy.hpp"
 #include "../core/system_metrics.hpp"
 #include "../drivers/audio/audio_backend.hpp"
 #include "../fs/root_volume.hpp"
@@ -1401,6 +1403,25 @@ void syscall_handler(
             // The saved Ring-3 frame cannot be selected while Blocked.
             // wake_user() overwrites RAX with readiness or a terminal status.
             frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
+            return;
+        }
+        case KU_SYS_CONSOLE_FALLBACK: {
+            if (!console_fallback_policy::allowed(
+                    context->pid, frame.rdi, frame.rsi, frame.rdx)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            // Flux's stop callback hands GOP back to the boot/emergency
+            // terminal. A userspace shell spawned by init can now actually
+            // be seen rather than running behind an inert desktop.
+            if (applications::running() &&
+                kstd::streq(applications::active_name(), "flux-session")) {
+                static_cast<void>(applications::stop());
+            }
+            terminal::set_framebuffer_output(true);
+            terminal::clear();
+            terminal::println("[RECOVERY] GUI unavailable, entering console");
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
             return;
         }
         case KU_SYS_TERMINATE_CHILD: {

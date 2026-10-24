@@ -35,6 +35,9 @@ on:
       - 'tests/test_flux_ui_state.cpp'
       - 'tests/test_sdk_abi.cpp'
       - 'kernel/user/child_termination_policy.hpp'
+      - 'kernel/user/console_fallback_policy.hpp'
+      - 'tests/test_console_fallback_policy.cpp'
+      - 'userspace/system/init/main.c'
       - 'tests/test_child_termination_policy.cpp'
       - 'kernel/user/ui_event_queue.hpp'
       - 'tests/test_ui_event_queue.cpp'
@@ -99,6 +102,14 @@ jobs:
         run: |
           python3 tests/test_flux8_application_smoke.py
           python3 tests/test_mouse_first_apps.py
+      - name: PID1-only visible console fallback policy optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_console_fallback_policy.cpp -o build/tests/desktop/console-policy
+          build/tests/desktop/console-policy
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_console_fallback_policy.cpp -o build/tests/desktop/console-policy-ubsan
+          build/tests/desktop/console-policy-ubsan
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

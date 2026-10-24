@@ -204,3 +204,15 @@ instead of misleading success. Host regression covers minimized Files restore,
 stable pin state, unknown applications and boundary validation.
 
 The end-to-end smoke contract now runs inside scoped CI and the full host suite; a future regression cannot silently remove the authenticated Files click.
+
+## Visible fallback instead of an invisible userspace shell
+
+Before this increment, PID1 spawned `/apps/shell` after repeated Login gate
+failure but `flux-session` kept terminal framebuffer output disabled. The
+result could be an apparently dead Flux Desktop with a hidden emergency
+shell. The append-only syscall 72 now allows **only PID1** to request an
+emergency console handoff: stop the Flux host, restore terminal framebuffer
+output, clear the stale compositor image and then spawn the existing shell.
+Unprivileged processes and nonzero/reserved arguments are rejected. Console
+fallback policy has optimized and UBSan host regression; the real guest
+fallback still needs a fault-injected QEMU/VirtualBox exercise.

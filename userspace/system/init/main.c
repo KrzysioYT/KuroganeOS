@@ -17,6 +17,12 @@
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
+    if (ku_enter_console_fallback() != KU_STATUS_OK) {
+        // Never claim that the shell is visible if ownership transfer failed.
+        (void)u_puts("[RECOVERY] console_display_handoff: FAIL\n");
+        ku_exit(40);
+    }
+    (void)u_puts("[RECOVERY] console_display_handoff: PASS\n");
     (void)u_puts("[TEST] desktop_session_fallback: PASS\n");
     for (;;) {
         const ku_result_t shell_pid = u_spawn("/apps/shell");
