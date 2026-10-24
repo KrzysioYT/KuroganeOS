@@ -104,8 +104,8 @@ int main() {
         0x05,0x01, 0x09,0x30, 0x09,0x31,
         0x15,0x81, 0x25,0x7F, 0x75,0x08, 0x95,0x02, 0x81,0x06,
         0xC0,
-        0x06,0x00,0xFF, 0x09,0x01, 0xA1,0x01, 0x85,0x09,
-        0x75,0x08, 0x95,0x08, 0x81,0x02, 0xC0
+        0x06,0x00,0xFF, 0x09,0x01, 0xA1,0x01, 0xA4, 0x85,0x09,
+        0x75,0x08, 0x95,0x08, 0x81,0x02, 0xB4, 0xC0
     };
     PointerReportLayout multi{};
     assert(parse_pointer_report_descriptor(composite, sizeof(composite), &multi));
@@ -129,6 +129,14 @@ int main() {
     assert(decode_pointer_report(
         multi, &decoder, release_mouse, sizeof(release_mouse), &report));
     assert(report.buttons == 0U && report.changed_buttons == 3U);
+
+    // Malformed stack traffic is rejected rather than reading stale data.
+    const uint8_t unmatched_pop[] = {0xB4};
+    const uint8_t unmatched_push[] = {0xA4};
+    assert(!parse_pointer_report_descriptor(
+        unmatched_pop, sizeof(unmatched_pop), &multi));
+    assert(!parse_pointer_report_descriptor(
+        unmatched_push, sizeof(unmatched_push), &multi));
 
     const uint8_t truncated[] = {0x05, 0x01, 0x09};
     assert(!parse_pointer_report_descriptor(

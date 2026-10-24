@@ -124,6 +124,24 @@ int main() {
     assert(discover(address, 0x00U, access(config), &layout) ==
         Status::MalformedList);
 
+    // The first Notify capability uses an unsupported BAR. VirtIO
+    // requires the driver to ignore it and accept a usable later instance.
+    config = valid_layout();
+    config.bytes[0x58U] = 7U;
+    config.bytes[0x69U] = 0x7CU;
+    add_capability(config, 0x7CU, 0U, 20U, 2U, 4U, 0x3000U, 64U, 4U);
+    assert(discover(address, 0x00U, access(config), &layout) == Status::Ok);
+    assert(layout.notify.present && layout.notify.bar == 4U &&
+           layout.notify.offset == 0x3000U);
+
+    // When several usable capabilities exist, keep their preferred order.
+    config = valid_layout();
+    config.bytes[0x69U] = 0x7CU;
+    add_capability(config, 0x7CU, 0U, 20U, 2U, 4U, 0x3000U, 64U, 5U);
+    assert(discover(address, 0x00U, access(config), &layout) == Status::Ok);
+    assert(layout.notify.offset == 0x1000U &&
+           layout.notify.notify_multiplier == 4U);
+
     config = valid_layout();
     assert(discover(address, 0x02U, access(config), &layout) ==
         Status::UnsupportedHeader);

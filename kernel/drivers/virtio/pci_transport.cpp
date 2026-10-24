@@ -74,7 +74,11 @@ Capability read_vendor_capability(
             address, static_cast<uint8_t>(pointer + 16U), access.context);
     }
 
-    if (result.bar > 5U || result.length == 0U ||
+    // VirtIO 1.2 §4.1.4.1 requires ignoring an unrecognized BAR,
+    // rather than failing the entire capability list. A later capability
+    // of this same type may describe a supported mapping.
+    if (result.bar > 5U) return {};
+    if (result.length == 0U ||
         result.offset > UINT32_MAX - result.length) {
         *malformed = true;
         return {};
@@ -134,7 +138,7 @@ Status discover(
                 const Capability candidate = read_vendor_capability(
                     address, pointer, length, type, access, &malformed);
                 if (malformed) return Status::MalformedList;
-                switch (type) {
+                if (candidate.present) switch (type) {
                     case kCommonConfigType:
                         if (!output->common.present) output->common = candidate;
                         break;

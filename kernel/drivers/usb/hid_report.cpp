@@ -137,6 +137,17 @@ bool parse_pointer_report_descriptor(
     bool report_id_selected = false;
     bool pointer_selected = false;
     bool saw_pointer_collection = false;
+    struct GlobalState {
+        uint16_t usage_page;
+        int32_t logical_minimum;
+        int32_t logical_maximum;
+        uint32_t report_size;
+        uint32_t report_count;
+        uint8_t active_report_id;
+        bool report_id_selected;
+    };
+    GlobalState globals[8]{};
+    size_t global_depth = 0U;
     size_t collection_depth = 0U;
     size_t pointer_collection_depth = 0U;
 
@@ -205,6 +216,26 @@ bool parse_pointer_report_descriptor(
                 case 9U:
                     report_count = read_unsigned(data, data_size);
                     break;
+                case 10U:  // Push global HID parser state.
+                    if (data_size != 0U || global_depth >= 8U) return false;
+                    globals[global_depth++] = {
+                        usage_page, logical_minimum, logical_maximum,
+                        report_size, report_count, active_report_id,
+                        report_id_selected
+                    };
+                    break;
+                case 11U: {  // Pop global state, preserving report bit positions.
+                    if (data_size != 0U || global_depth == 0U) return false;
+                    const GlobalState saved = globals[--global_depth];
+                    usage_page = saved.usage_page;
+                    logical_minimum = saved.logical_minimum;
+                    logical_maximum = saved.logical_maximum;
+                    report_size = saved.report_size;
+                    report_count = saved.report_count;
+                    active_report_id = saved.active_report_id;
+                    report_id_selected = saved.report_id_selected;
+                    break;
+                }
                 default:
                     break;
             }
@@ -332,7 +363,8 @@ bool parse_pointer_report_descriptor(
         clear_local();
     }
 
-    if (collection_depth != 0U || !pointer_selected ||
+    if (collection_depth != 0U || global_depth != 0U ||
+        !pointer_selected ||
         !saw_pointer_collection || !layout.x.present || !layout.y.present ||
         layout.x.relative != layout.y.relative) {
         return false;

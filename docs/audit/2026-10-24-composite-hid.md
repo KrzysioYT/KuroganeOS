@@ -19,3 +19,12 @@ release kernel and QEMU USB input qualification must pass before calling this a
 qualified 7.0 device feature.
 
 Version remains 7.0.0-dev; no 15.0 stable claim.
+
+## Follow-up: HID Global PUSH/POP
+
+Composite descriptors can PUSH global attributes before a vendor report and POP
+them afterward. A bounded 8-entry stack now restores usage page, logical
+limits, report size/count and current ID without rewinding per-ID input bit
+positions. Malformed underflow, overflow and unbalanced descriptor state are
+rejected. This remains intentionally narrower than a full general-purpose
+HID parser.
