@@ -106,3 +106,16 @@ privileged kernel-side bypass of login/session ownership. VirtualBox COM1
 helper auto-selects the latest VM log if -Name is omitted and reports
 launcher process creation, session verification, Home first frame and login
 handoff separately.
+
+## 2026-10-24: Login failure recovery
+
+Prior login code returned from main on failure to connect to accountd/sessiond,
+or to create/present Home. That destroyed Login before init could reliably
+restart it, leaving a GUI with no real launcher. Negative pre-handoff errors
+now keep the Login window alive, clear the submitted password and allow a click
+or Enter retry on the same process, showing a visible error instead of
+silently exiting. Added serial checkpoints at account lookup, session create,
+HOME registration, launcher window creation and first frame.
+
+This prevents one blank-session mechanism; diagnosis of the actual user's guest
+still requires its serial log and a full VirtualBox/QEMU execution.

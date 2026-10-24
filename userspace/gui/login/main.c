@@ -321,19 +321,29 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     uint64_t account_id = 0U;
     uint64_t session_id = 0U;
     uint64_t launcher_pid = 0U;
-    int desktop_status = 4;
+    int desktop_status = -4; // Window stays open until a real Home frame.
 
-    if (!current_account(profile, &account_id)) return 5;
+    if (!current_account(profile, &account_id)) {
+        puts("[SESSION] flux_account_lookup: FAIL");
+        return -5;
+    }
+    puts("[SESSION] flux_account_lookup: PASS");
     connected = connect_service(KU_SESSION_SERVICE_NAME, KU_SESSION_SERVICE_NAME_SIZE);
-    if (connected <= 0) return 6;
+    if (connected <= 0) {
+        puts("[SESSION] flux_session_connect: FAIL");
+        return -6;
+    }
+    puts("[SESSION] flux_session_connect: PASS");
     connection = (ku_service_connection_t)connected;
 
     if (!session_request(connection, KU_SESSION_CREATE, 0U, account_id, 0U, &response) ||
         response.session_id == 0U || response.account_id != account_id ||
         response.owner_pid != ku_process_id() || response.state != KU_SESSION_STATE_ACTIVE) {
+        puts("[SESSION] flux_session_create: FAIL");
         (void)ku_service_close(connection);
-        return 7;
+        return -7;
     }
+    puts("[SESSION] flux_session_create: PASS");
     session_id = response.session_id;
 
     // Keep the authenticated login surface visible while the Ring-3
@@ -350,23 +360,26 @@ static int start_session(ku_window_t window, const login_profile* profile) {
 
     if (!session_request(
             connection, KU_SESSION_SET_HOME, session_id, 0U, launcher_pid, &response)) {
+        puts("[SESSION] flux_session_set_home: FAIL");
         goto cleanup;
     }
     if (!session_request(
             connection, KU_SESSION_ATTACH_APPLICATION, session_id, 0U,
             launcher_pid, &response)) {
+        puts("[SESSION] flux_session_attach_home: FAIL");
         goto cleanup;
     }
     if (!session_request(connection, KU_SESSION_QUERY, session_id, 0U, 0U, &response) ||
         response.account_id != account_id || response.owner_pid != ku_process_id() ||
         response.home_pid != launcher_pid || response.state != KU_SESSION_STATE_ACTIVE ||
         !response_has_application(&response, launcher_pid)) {
+        puts("[SESSION] flux_session_verify: FAIL");
         goto cleanup;
     }
 
     puts("[TEST] red_flux_owned_session: PASS");
     if (!wait_for_home_surface(launcher_pid)) {
-        desktop_status = 8;
+        desktop_status = -8;
         goto cleanup;
     }
     // The launcher has presented a real retained surface. It is now safe
@@ -380,7 +393,10 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     desktop_status = wait_for_desktop(launcher_pid);
 
 cleanup:
-    if (desktop_status != 0) {
+    if (desktop_status < 0) {
+        // Nothing has dismissed Login: let the user retry on the same window.
+        puts("[SESSION] flux_login_retry_available: PASS");
+    } else if (desktop_status != 0) {
         puts("[SESSION] flux_login_handoff: FAIL");
     }
     if (launcher_pid != 0U) {
@@ -392,6 +408,28 @@ cleanup:
         connection, KU_SESSION_TERMINATE, session_id, 0U, 0U, &response);
     (void)ku_service_close(connection);
     return desktop_status;
+}
+
+/* A failed desktop launch must never exit this Login process.
+ * Negative results guarantee that the Login window is still alive.
+ */
+static int try_start_session(
+    ku_window_t window, const login_profile* profile, char* password,
+    size_t* password_length, const char** error, kui_scene* scene) {
+    const int status = start_session(window, profile);
+    if (status >= 0) return status;
+    memset(password, 0, LOGIN_PASSWORD_CAPACITY);
+    *password_length = 0U;
+    *error = is_polish(profile)
+        ? "SESJA NIE DZIALA / SPROBUJ PONOWNIE"
+        : "SESSION FAILED / CLICK OR ENTER TO RETRY";
+    build_scene(scene, profile, password, *error);
+    if (kui_scene_present(window, scene) != KU_STATUS_OK) {
+        puts("[SESSION] flux_login_error_render: FAIL");
+        return 10;
+    }
+    puts("[SESSION] flux_login_error_render: PASS");
+    return -1;
 }
 
 int main(void) {
@@ -441,14 +479,22 @@ int main(void) {
             if ((event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U &&
                 kui_scene_hit_test(&scene, event.x, event.y) == 10U) {
-                return start_session(window, &profile);
+                {
+                    const int launched = try_start_session(
+                        window, &profile, password, &password_length, &error, &scene);
+                    if (launched >= 0) return launched;
+                }
             }
             continue;
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (!profile.password_required) {
-            if (gui_key_activate(&event)) return start_session(window, &profile);
+            if (gui_key_activate(&event)) {
+                    const int launched = try_start_session(
+                        window, &profile, password, &password_length, &error, &scene);
+                    if (launched >= 0) return launched;
+                }
             continue;
         }
 
@@ -463,7 +509,11 @@ int main(void) {
             if (ku_dev_credential_verify(
                     profile.username, password, profile.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
-                return start_session(window, &profile);
+                {
+                    const int launched = try_start_session(
+                        window, &profile, password, &password_length, &error, &scene);
+                    if (launched >= 0) return launched;
+                }
             }
             puts("[TEST] installed_login_bad_password_rejected: PASS");
             password_length = 0U;

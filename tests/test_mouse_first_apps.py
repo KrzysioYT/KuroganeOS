@@ -73,6 +73,12 @@ assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
 assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
 assert "if (!profile.password_required)" in login
 assert "gui_key_activate(&event)" in login, "login: Enter activation missing for live profile"
+assert 'flux_login_retry_available: PASS' in login
+assert 'flux_login_error_render: PASS' in login
+assert 'flux_home_ui_create: FAIL' in read("userspace/gui/launcher/main.c")
+assert 'flux_home_ui_present: FAIL' in read("userspace/gui/launcher/main.c")
+assert 'return start_session(window, &profile);' not in login
+assert 'desktop_status = -8' in login
 assert "wait_for_home_surface(launcher_pid)" in login
 assert 'flux_home_first_frame: PASS' in login
 assert 'flux_launcher_exited_before_ui: FAIL' in login

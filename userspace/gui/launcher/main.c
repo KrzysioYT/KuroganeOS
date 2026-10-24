@@ -500,7 +500,11 @@ int main(void) {
     size_t index;
     uint32_t pointer_buttons = 0U;
     uint32_t refresh_ticks = 0U;
-    if (window == KU_INVALID_WINDOW) return 1;
+    if (window == KU_INVALID_WINDOW) {
+        puts("[SESSION] flux_home_ui_create: FAIL");
+        return 1;
+    }
+    puts("[SESSION] flux_home_ui_create: PASS");
 
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
         g_children[index] = 0U;
@@ -540,9 +544,11 @@ int main(void) {
 
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+        puts("[SESSION] flux_home_ui_present: FAIL");
         (void)ku_ui_close(window);
         return 2;
     }
+    puts("[SESSION] flux_home_ui_present: PASS");
     puts("[TEST] red_flux_home_surface: PASS");
     puts("[TEST] red_flux_tile_launcher: PASS");
     puts("[TEST] flux_home_system_pulse: PASS");
