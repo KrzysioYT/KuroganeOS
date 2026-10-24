@@ -172,7 +172,7 @@ jobs:
           set -euo pipefail
           bash scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
-            --nic none --no-ps2 --usb-keyboard --usb-mouse \
+            --nic none --no-ps2 --usb-keyboard --usb-tablet \
             --log-dir build/tests/flux-8-foundation --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
@@ -180,6 +180,7 @@ jobs:
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 400 300 down \
             --require-marker '[TEST] flux_files_usb_wheel_paging: PASS' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS' \
             --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
