@@ -115,14 +115,14 @@ static inline ku_flux_palette ku_flux_theme_palette(uint32_t theme_id) {
         {0x0D0804U,0x201711U,0x140E09U,0x52402EU,0xF9F0E5U,0xC0AD96U,0xE89034U,0xFFB95FU,0x543010U,0x996022U,0xFF5D4AU},
         {0x08090AU,0x17191BU,0x101214U,0x474B50U,0xF2F2F2U,0xB3B6BAU,0xCDD1D6U,0xFFFFFFU,0x383B40U,0x82868CU,0xF37581U}
     };
-    return presets[theme_id < KU_FLUX_THEME_COUNT ? theme_id : KU_FLUX_THEME_RED];
+    return presets[theme_id < (uint32_t)KU_FLUX_THEME_COUNT ? theme_id : (uint32_t)KU_FLUX_THEME_RED];
 }
 static inline const char* ku_flux_theme_name(uint32_t theme_id) {
     static const char* const names[KU_FLUX_THEME_COUNT] = {
         "KUROGANE RED", "KUROGANE VIOLET", "KUROGANE CRIMSON",
         "KUROGANE STEEL", "KUROGANE EMBER", "KUROGANE MONO"
     };
-    return names[theme_id < KU_FLUX_THEME_COUNT ? theme_id : KU_FLUX_THEME_RED];
+    return names[theme_id < (uint32_t)KU_FLUX_THEME_COUNT ? theme_id : (uint32_t)KU_FLUX_THEME_RED];
 }
 
 #endif
