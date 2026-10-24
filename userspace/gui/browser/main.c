@@ -733,8 +733,7 @@ int main(void) {
 
         if (event.type != KU_UI_EVENT_KEY || !omnibox_active) continue;
         if ((event.modifiers & KU_UI_MOD_CONTROL) != 0U) {
-            const uint32_t key = event.character >= 'A' && event.character <= 'Z'
-                ? event.character - 'A' + 'a' : event.character;
+            const char key = ku_ui_clipboard_shortcut(&event);
             if (key == 'a') {
                 omnibox_select_all = 1;
                 puts("[TEST] flux_browser_select_all: PASS");

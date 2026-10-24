@@ -97,6 +97,10 @@ enum ku_ui_key_code {
     KU_UI_KEY_BACKSPACE = 14,
     KU_UI_KEY_TAB = 15,
     KU_UI_KEY_ENTER = 28,
+    KU_UI_KEY_A = 30,
+    KU_UI_KEY_X = 45,
+    KU_UI_KEY_C = 46,
+    KU_UI_KEY_V = 47,
     KU_UI_KEY_HOME = 77,
     KU_UI_KEY_ARROW_UP = 78,
     KU_UI_KEY_PAGE_UP = 79,
@@ -166,6 +170,23 @@ typedef struct ku_ui_event {
         int32_t wheel_y;
     };
 } ku_ui_event;
+
+/* Physical keys, not character codes: Ctrl+C produces ASCII 0x03 on
+ * the keyboard transport, so looking for 'c' in event.character is wrong.
+ * Recognize shortcuts only when the real Control modifier is held.
+ */
+static inline char ku_ui_clipboard_shortcut(const ku_ui_event* event) {
+    if (event == NULL || event->type != KU_UI_EVENT_KEY ||
+        (event->modifiers & KU_UI_MOD_CONTROL) == 0U) return 0;
+    switch (event->key) {
+        case KU_UI_KEY_A: return 'a';
+        case KU_UI_KEY_C: return 'c';
+        case KU_UI_KEY_X: return 'x';
+        case KU_UI_KEY_V: return 'v';
+        default: return 0;
+    }
+}
+
 
 static inline ku_result_t ku_ui_create(
     const char* title,

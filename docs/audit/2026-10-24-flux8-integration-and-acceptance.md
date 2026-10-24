@@ -75,3 +75,8 @@ Kurogane Web now supports Ctrl+A/C/X/V in its focused omnibox, including
 bounded append/selection replacement and no accidental Ctrl-key text entry.
 Clipboard contents are served by production `clipboard.v1`; other apps
 remain mouse-first and must not see this as general clipboard completion.
+
+The keyboard driver translates Ctrl+C to ASCII 0x03 (not 'c'). An additional
+bounded `ku_ui_clipboard_shortcut()` helper matches the physical KeyCode A/C/X/V
+with Control in the 32-byte Ring-3 ABI. Native hosted C/C++ tests assert the
+real control-character behavior, non-control typing and wheel union exclusion.

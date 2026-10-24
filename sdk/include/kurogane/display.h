@@ -2,6 +2,7 @@
 #define KUROGANE_SDK_DISPLAY_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <kurogane/ui.h>
 
 #ifdef __cplusplus
