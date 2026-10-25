@@ -38,12 +38,20 @@ def safe_reset(workspace: Path, build_root: Path) -> None:
     workspace.mkdir(parents=True)
 
 
+def choose_cxx() -> str:
+    for candidate in ("x86_64-elf-g++", "g++"):
+        if shutil.which(candidate):
+            return candidate
+    return "g++"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--cxx", default="g++")
+    parser.add_argument("--cxx", default=None)
     parser.add_argument("--make", default="make")
     args = parser.parse_args()
+    cxx = args.cxx or choose_cxx()
 
     root = args.root.resolve()
     build_root = root / "build"
@@ -87,7 +95,7 @@ def main() -> int:
                 args.make,
                 "-C",
                 str(project),
-                f"CXX={args.cxx}",
+                f"CXX={cxx}",
                 f"KUROGANE_SYSROOT={sysroot}",
             ]
         )

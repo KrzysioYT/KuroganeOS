@@ -1,6 +1,6 @@
 .DELETE_ON_ERROR:
 
-CXX ?= g++
+CXX ?= $(if $(shell command -v x86_64-elf-g++ 2>/dev/null),x86_64-elf-g++,g++)
 KUROGANE_SYSROOT ?=
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror
 CPPFLAGS ?=
