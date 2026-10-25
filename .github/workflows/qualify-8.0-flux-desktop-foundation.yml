@@ -28,6 +28,10 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/build.ps1'
       - 'scripts/build-linux.sh'
+      - 'scripts/build-macos.sh'
+      - 'scripts/build-installer-macos.sh'
+      - 'scripts/verify-userspace-overlay.py'
+      - 'tests/test_userspace_overlay.py'
       - 'tests/test_userspace_build_parity.py'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'kernel/user/runtime_base.inc'
@@ -79,8 +83,10 @@ jobs:
           set -euo pipefail
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           git diff --check
-      - name: Windows and Linux userspace inventory parity
-        run: python3 tests/test_userspace_build_parity.py
+      - name: Windows, Linux and macOS userspace inventory parity
+        run: |
+          python3 tests/test_userspace_build_parity.py
+          python3 tests/test_userspace_overlay.py
       - name: Parse native Windows build script
         shell: pwsh
         run: |
