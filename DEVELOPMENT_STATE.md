@@ -45,6 +45,10 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
 
 ## Otwarte blokery
 
+- Hostowy build testowy `KUROGANE_HOST_TEST` teraz wyklucza funkcję
+  schedulera Ring-3 z kompilacji bez osi x86_64, zapobiegając błędowi
+  `-Werror` podczas testu `test_process` i utrzymując poprawny model hostowy.
+
 1. VirtualBox: zgłoszone restarty usług i `flux_account_lookup: FAIL` na starym
    zainstalowanym obrazie. Brak 22 programów w buildzie Windows został naprawiony,
    ale związek z całym incydentem wymaga świeżego logu. Nowe ISO nie aktualizuje

@@ -393,6 +393,7 @@ arch::x86_64::interrupts::InterruptFrame* prepare_blocked_return(
 }
 #endif
 
+#if !defined(KUROGANE_HOST_TEST)
 arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
     uint8_t vector,
     arch::x86_64::interrupts::InterruptFrame& frame) {
@@ -408,12 +409,10 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
         return &frame;
     }
 
-#if !defined(KUROGANE_HOST_TEST)
     // The syscall gate is a trap gate, so IF may still be set. Publish and
     // select frames with interrupts disabled; the chosen IRET frame restores
     // the destination's interrupt state atomically.
     __asm__ volatile("cli" : : : "memory");
-#endif
 
     // A software interrupt from Ring-3 is the only point where the complete
     // user return frame is guaranteed to be available while the syscall may
@@ -493,6 +492,7 @@ arch::x86_64::interrupts::InterruptFrame* software_interrupt_schedule(
 #endif
     }
 }
+#endif
 
 } // namespace
 
