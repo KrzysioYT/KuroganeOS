@@ -26,6 +26,9 @@ on:
       - 'tests/test_window_manager.cpp'
       - 'tests/test_input.cpp'
       - 'scripts/run-host-tests.sh'
+      - 'scripts/build.ps1'
+      - 'scripts/build-linux.sh'
+      - 'tests/test_userspace_build_parity.py'
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'kernel/user/runtime_base.inc'
       - 'sdk/include/kurogane/design.h'
@@ -76,6 +79,19 @@ jobs:
           set -euo pipefail
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           git diff --check
+      - name: Windows and Linux userspace inventory parity
+        run: python3 tests/test_userspace_build_parity.py
+      - name: Parse native Windows build script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/build.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop
