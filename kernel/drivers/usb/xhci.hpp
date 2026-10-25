@@ -5,6 +5,7 @@
 
 #include "../core/device_manager.hpp"
 #include "../pci.hpp"
+#include "../../storage/block_device.hpp"
 
 namespace drivers::usb::xhci {
 
@@ -25,6 +26,8 @@ enum class Status : uint8_t {
     DescriptorInvalid,
     HidKeyboardNotFound,
     DeviceRegistrationFailed,
+    ControllerHaltTimeout,
+    ResourceReleaseFailed,
 };
 
 Status initialize(
@@ -34,6 +37,11 @@ Status initialize(
 size_t poll(size_t budget);
 bool initialized();
 bool keyboard_ready();
+bool mouse_ready();
+const storage::block::Device* mass_storage_block_device();
+// Last runtime lifecycle result; NoDevice means a running controller retains
+// bounded resources while waiting for its first or a replacement HID device.
+Status runtime_status();
 uint64_t reports_received();
 const char* status_message(Status status);
 

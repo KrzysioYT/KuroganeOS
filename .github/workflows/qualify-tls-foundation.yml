@@ -1,0 +1,132 @@
+name: Qualify 3.3.7 real TLS handshake
+
+on:
+  push:
+    branches:
+      - dev/3.3.7-tls-foundation
+      - dev/3.3.9-red-flux-closeout
+    paths:
+      - '.github/workflows/qualify-tls-foundation.yml'
+      - 'kernel/drivers/rtc.cpp'
+      - 'kernel/drivers/rtc.hpp'
+      - 'kernel/net/tls/**'
+      - 'kernel/net/service.cpp'
+      - 'kernel/net/service.hpp'
+      - 'kernel/net/tcp_client.cpp'
+      - 'kernel/net/tcp_client.hpp'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/build-installer-linux.sh'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tls-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Add real guest TLS qualification probe
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/main.cpp')
+          text = path.read_text()
+          include_anchor = '#include "drivers/pit.hpp"\n'
+          include_replacement = '#include "drivers/pit.hpp"\n#include "drivers/rtc.hpp"\n'
+          if '#include "drivers/rtc.hpp"\n' not in text:
+              if text.count(include_anchor) != 1:
+                  raise SystemExit(f'expected exactly one PIT include anchor, found {text.count(include_anchor)}')
+              text = text.replace(include_anchor, include_replacement, 1)
+
+          marker = '[TEST] tls_https_optional: PASS'
+          if marker not in text:
+              anchor = '        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};\n'
+              replacement = r'''        // 3.3.7 qualification: this is deliberately an online, optional boot
+          // probe so ordinary offline boot remains possible. Dedicated release
+          // qualification requires the PASS marker. net::service::https_get()
+          // reaches the production DNS -> TCP/443 -> entropy/CTR_DRBG -> Mbed
+          // TLS handshake -> SNI -> X.509/hostname/time validation -> HTTP path.
+          rtc::DateTime tls_rtc{};
+          const bool tls_rtc_read = rtc::read(tls_rtc);
+          terminal::write("TLS RTC read=");
+          terminal::write_u64(tls_rtc_read ? 1U : 0U);
+          terminal::write(" y="); terminal::write_u64(tls_rtc.year);
+          terminal::write(" m="); terminal::write_u64(tls_rtc.month);
+          terminal::write(" d="); terminal::write_u64(tls_rtc.day);
+          terminal::write(" h="); terminal::write_u64(tls_rtc.hour);
+          terminal::write(" min="); terminal::write_u64(tls_rtc.minute);
+          terminal::write(" s="); terminal::write_u64(tls_rtc.second);
+          terminal::println();
+
+          uint8_t tls_probe_buffer[1024]{};
+          size_t tls_probe_length = 0U;
+          uint16_t tls_http_status = 0U;
+          const net::Status tls_probe_status = net::service::https_get(
+              "www.google.com",
+              "/",
+              tls_probe_buffer,
+              sizeof(tls_probe_buffer),
+              &tls_probe_length,
+              &tls_http_status);
+          const bool tls_probe_ok =
+              (tls_probe_status == net::Status::Ok ||
+               tls_probe_status == net::Status::BufferTooSmall) &&
+              tls_probe_length != 0U &&
+              tls_http_status >= 200U && tls_http_status < 500U;
+          if (tls_probe_ok) {
+              terminal::write("TLS HTTPS www.google.com status=");
+              terminal::write_u64(tls_http_status);
+              terminal::write(" bytes=");
+              terminal::write_u64(tls_probe_length);
+              terminal::println();
+              terminal::println("[TEST] tls_https_optional: PASS");
+          } else {
+              terminal::write("TLS HTTPS www.google.com optional probe unavailable status=");
+              terminal::write_u64(static_cast<uint64_t>(tls_probe_status));
+              terminal::write(" http=");
+              terminal::write_u64(tls_http_status);
+              terminal::println();
+              terminal::println("[TEST] tls_https_optional: SKIP");
+          }
+
+          const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+          '''
+              if text.count(anchor) != 1:
+                  raise SystemExit(f'expected exactly one public_probe anchor, found {text.count(anchor)}')
+              text = text.replace(anchor, replacement, 1)
+          path.write_text(text)
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Build release media with TLS probe
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require real TLS handshake and HTTPS response
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --nic e1000 \
+            --require-tls \
+            --timeout 240

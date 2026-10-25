@@ -297,7 +297,7 @@ if (Test-Path -LiteralPath $SerialLog -PathType Leaf) {
 
 Write-Host "[virtualbox-repair] VM: $Name"
 Write-Host "[virtualbox-repair] VBoxManage: $VBox"
-Write-Host '[virtualbox-repair] enforcing KuroganeOS VirtualBox contract: EFI64 + AHCI HDD + IDE DVD'
+Write-Host '[virtualbox-repair] enforcing KuroganeOS VirtualBox contract: EFI64 + AHCI HDD + IDE DVD + PS/2 input'
 if ($null -ne $IsoPath) { Write-Host "[virtualbox-repair] ISO: $IsoPath" }
 Write-Host "[virtualbox-repair] serial log: $SerialLog"
 
@@ -305,7 +305,8 @@ $null = Invoke-VBoxChecked -Arguments @(
     'modifyvm', $Name,
     '--firmware', 'efi64', '--ioapic', 'on',
     '--boot1', 'dvd', '--boot2', 'disk', '--boot3', 'none', '--boot4', 'none',
-    '--graphicscontroller', 'vmsvga', '--vram', '128'
+    '--graphicscontroller', 'vmsvga', '--vram', '128',
+    '--keyboard', 'ps2', '--mouse', 'ps2'
 ) -FailureMessage 'Failed to switch the VM to the supported EFI64/DVD-first profile.'
 
 $null = Invoke-VBoxChecked -Arguments @(
@@ -446,9 +447,14 @@ $firmware = $finalInfo | Where-Object { $_ -like 'firmware=*' } | Select-Object 
 $boot1 = $finalInfo | Where-Object { $_ -like 'boot1=*' } | Select-Object -First 1
 $boot2 = $finalInfo | Where-Object { $_ -like 'boot2=*' } | Select-Object -First 1
 $graphics = $finalInfo | Where-Object { $_ -like 'graphicscontroller=*' } | Select-Object -First 1
+$keyboard = $finalInfo | Where-Object { $_ -like 'keyboard=*' } | Select-Object -First 1
+$mouse = $finalInfo | Where-Object { $_ -like 'mouse=*' } | Select-Object -First 1
 
 if ($firmware -ne 'firmware="EFI64"' -or $boot1 -ne 'boot1="dvd"' -or $boot2 -ne 'boot2="disk"') {
     throw 'Final VirtualBox firmware/boot-order verification failed.'
+}
+if ($keyboard -notmatch 'PS2' -or $mouse -notmatch 'PS2') {
+    throw "Final VirtualBox input verification failed: expected PS/2 keyboard and PS/2 mouse, got '$keyboard' / '$mouse'."
 }
 if ($null -eq $finalSata) {
     throw 'Final VirtualBox storage verification failed: IntelAHCI controller is missing.'
@@ -473,6 +479,8 @@ Write-Host "[virtualbox-repair] $firmware"
 Write-Host "[virtualbox-repair] $boot1"
 Write-Host "[virtualbox-repair] $boot2"
 Write-Host "[virtualbox-repair] $graphics"
+Write-Host "[virtualbox-repair] $keyboard"
+Write-Host "[virtualbox-repair] $mouse"
 Write-Host "[virtualbox-repair] IntelAHCI controller: $($finalSata.Name)"
 Write-Host '[virtualbox-repair] SATA/IntelAHCI HDD: PASS'
 if ($null -ne $IsoPath) {

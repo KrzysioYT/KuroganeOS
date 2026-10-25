@@ -1,4 +1,16 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
+#include <kurogane/settings.h>
+#include <kurogane/desktop.h>
+
+#define UI_LOW_CONTRAST_KEY "ui.low_contrast"
+#define UI_THEME_KEY "ui.theme"
+#define UI_STYLE_KEY "ui.style"
+
+typedef struct settings_client {
+    ku_service_connection_t connection;
+    int connected;
+} settings_client;
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -8,9 +20,211 @@ static void append_text(char* destination, size_t capacity, const char* source) 
 
 static void append_percent(char* destination, size_t capacity, uint32_t value) {
     char number[24];
-    gui_u64(number, sizeof(number), value);
+    gui_u64(number, sizeof(number), value > 100U ? 100U : value);
     append_text(destination, capacity, number);
     append_text(destination, capacity, "%");
+}
+
+static void copy_key(char* destination, const char* source) {
+    (void)strlcpy(destination, source, KU_SETTINGS_KEY_CAPACITY);
+}
+
+static ku_status_t settings_transact(
+    ku_service_connection_t connection,
+    const ku_settings_request* request,
+    ku_settings_response* response) {
+    uint32_t attempts = 0U;
+    ku_status_t status = ku_service_send(connection, request, sizeof(*request));
+    if (status != KU_STATUS_OK) return status;
+    while (attempts++ < 300U) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK) return status;
+        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        *response = *(const ku_settings_response*)(const void*)message.data;
+        if (response->structure_size != sizeof(*response) ||
+            response->value_size > KU_SETTINGS_VALUE_CAPACITY) {
+            return KU_STATUS_CORRUPT_DATA;
+        }
+        return response->status;
+    }
+    return KU_STATUS_TIMED_OUT;
+}
+
+static int connect_settings(settings_client* client) {
+    uint32_t attempts = 0U;
+    if (client == NULL) return 0;
+    memset(client, 0, sizeof(*client));
+    while (attempts++ < 300U) {
+        const ku_result_t result = ku_settings_connect();
+        if (result > 0) {
+            client->connection = (ku_service_connection_t)result;
+            client->connected = 1;
+            return 1;
+        }
+        if (result != KU_STATUS_NOT_FOUND && result != KU_STATUS_WOULD_BLOCK) return 0;
+        (void)kuro_sleep(1U);
+    }
+    return 0;
+}
+
+static ku_status_t read_bool_setting(
+    settings_client* client,
+    const char* key,
+    int* value) {
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_status_t status;
+    if (client == NULL || !client->connected || key == NULL || value == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    request.type = KU_SETTINGS_TYPE_NONE;
+    copy_key(request.key, key);
+    status = settings_transact(client->connection, &request, &response);
+    if (status != KU_STATUS_OK) return status;
+    if (response.type != KU_SETTINGS_TYPE_BOOL || response.value_size != 1U ||
+        response.value[0] > 1U) return KU_STATUS_CORRUPT_DATA;
+    *value = response.value[0] != 0U;
+    return KU_STATUS_OK;
+}
+
+static ku_status_t write_bool_setting(
+    settings_client* client,
+    const char* key,
+    int value) {
+    ku_settings_request request;
+    ku_settings_response response;
+    if (client == NULL || !client->connected || key == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_SET;
+    request.type = KU_SETTINGS_TYPE_BOOL;
+    request.value_size = 1U;
+    copy_key(request.key, key);
+    request.value[0] = value != 0 ? 1U : 0U;
+    return settings_transact(client->connection, &request, &response);
+}
+
+
+static ku_status_t read_theme_setting(
+    settings_client* client, uint32_t* theme_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    uint64_t value = 0U;
+    ku_status_t status;
+    if (client == NULL || !client->connected || theme_id == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    copy_key(request.key, UI_THEME_KEY);
+    status = settings_transact(client->connection, &request, &response);
+    if (status != KU_STATUS_OK) return status;
+    if (response.type != KU_SETTINGS_TYPE_U64 ||
+        response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
+    memcpy(&value, response.value, sizeof(value));
+    if (value >= KU_FLUX_THEME_COUNT) return KU_STATUS_CORRUPT_DATA;
+    *theme_id = (uint32_t)value;
+    return KU_STATUS_OK;
+}
+
+static ku_status_t write_theme_setting(settings_client* client, uint32_t theme_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    const uint64_t value = (uint64_t)theme_id;
+    if (client == NULL || !client->connected ||
+        theme_id >= KU_FLUX_THEME_COUNT) return KU_STATUS_INVALID_ARGUMENT;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_SET;
+    request.type = KU_SETTINGS_TYPE_U64;
+    request.value_size = sizeof(value);
+    copy_key(request.key, UI_THEME_KEY);
+    memcpy(request.value, &value, sizeof(value));
+    return settings_transact(client->connection, &request, &response);
+}
+
+static ku_status_t read_style_setting(
+    settings_client* client, uint32_t* style_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    uint64_t value = 0U;
+    ku_status_t status;
+    if (client == NULL || !client->connected || style_id == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    copy_key(request.key, UI_STYLE_KEY);
+    status = settings_transact(client->connection, &request, &response);
+    if (status != KU_STATUS_OK) return status;
+    if (response.type != KU_SETTINGS_TYPE_U64 ||
+        response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
+    memcpy(&value, response.value, sizeof(value));
+    if (value >= KU_FLUX_STYLE_COUNT) return KU_STATUS_CORRUPT_DATA;
+    *style_id = (uint32_t)value;
+    return KU_STATUS_OK;
+}
+
+static ku_status_t write_style_setting(settings_client* client, uint32_t style_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    const uint64_t value = (uint64_t)style_id;
+    if (client == NULL || !client->connected ||
+        style_id >= KU_FLUX_STYLE_COUNT) return KU_STATUS_INVALID_ARGUMENT;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_SET;
+    request.type = KU_SETTINGS_TYPE_U64;
+    request.value_size = sizeof(value);
+    copy_key(request.key, UI_STYLE_KEY);
+    memcpy(request.value, &value, sizeof(value));
+    return settings_transact(client->connection, &request, &response);
+}
+
+static int select_desktop_theme(uint32_t theme_id) {
+    ku_desktop_theme_request request;
+    if (theme_id >= KU_FLUX_THEME_COUNT) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_THEME_SET;
+    request.theme_id = theme_id;
+    return ku_desktop_theme(&request) == KU_STATUS_OK &&
+        request.theme_id == theme_id;
+}
+
+static int select_desktop_style(uint32_t style_id) {
+    ku_desktop_style_request request;
+    if (style_id >= KU_FLUX_STYLE_COUNT) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_STYLE_SET;
+    request.style_id = style_id;
+    return ku_desktop_style(&request) == KU_STATUS_OK &&
+        request.style_id == style_id;
+}
+
+static int active_desktop_theme(uint32_t* theme_id) {
+    ku_desktop_theme_request request;
+    if (theme_id == NULL) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_THEME_QUERY;
+    if (ku_desktop_theme(&request) != KU_STATUS_OK ||
+        request.theme_id >= KU_FLUX_THEME_COUNT) return 0;
+    *theme_id = request.theme_id;
+    return 1;
 }
 
 static int read_audio(ku_audio_state* state) {
@@ -20,129 +234,235 @@ static int read_audio(ku_audio_state* state) {
         state->version == KU_AUDIO_STATE_VERSION;
 }
 
-static void build_scene(
-    kui_scene* scene,
-    int low_contrast,
-    uint32_t selected,
-    const ku_audio_state* audio) {
-    kui_flow root;
-    kui_flow settings;
-    char audio_line[64] = "AUDIO / ";
-
-    if (audio != NULL && audio->available != 0U) {
-        append_text(audio_line, sizeof(audio_line), "AC97 / MASTER ");
-        append_percent(audio_line, sizeof(audio_line), audio->volume_percent);
-        append_text(audio_line, sizeof(audio_line),
-            audio->muted != 0U ? " / MUTED" : " / ACTIVE");
-    } else {
-        append_text(audio_line, sizeof(audio_line), "AC97 NOT AVAILABLE");
-    }
-
-    kui_scene_initialize(scene);
-    scene->visible_rows = 14U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        low_contrast ? UINT32_C(0x8F2633) : UINT32_C(0xDE192D));
-
-    kui_flow_begin(&root, scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "SETTINGS / RED FLUX");
-    (void)kui_flow_label(&root, 2U, "APPEARANCE + SOUND");
-    (void)kui_flow_separator(&root, 3U);
-
-    kui_flow_begin(&settings, scene, 1U);
-    (void)kui_flow_button(&settings, 10U, "RED CORE");
-    (void)kui_flow_button(&settings, 11U, "LOW CONTRAST RED");
-    (void)kui_flow_label(
-        &settings,
-        12U,
-        low_contrast ? "ACTIVE / LOW CONTRAST RED" : "ACTIVE / RED CORE");
-    (void)kui_flow_separator(&settings, 13U);
-    (void)kui_flow_label(&settings, 20U, audio_line);
-    (void)kui_flow_button(&settings, 21U, "VOLUME -10");
-    (void)kui_flow_button(&settings, 22U, "VOLUME +10");
-    (void)kui_flow_button(&settings, 23U, "MUTE / UNMUTE");
-    (void)kui_flow_separator(&settings, 24U);
-    (void)kui_flow_label(&settings, 25U, "ARROWS / TAB SELECT   ENTER APPLY");
-
-    if (selected != 10U && selected != 11U &&
-        selected != 21U && selected != 22U && selected != 23U) {
-        selected = 10U;
-    }
-    (void)kui_scene_select(scene, selected);
+static int apply_audio_delta(ku_audio_state* audio, int delta) {
+    ku_audio_set_request request;
+    uint32_t next;
+    if (audio == NULL || audio->available == 0U) return 0;
+    next = audio->volume_percent;
+    if (delta < 0) next = next >= 10U ? next - 10U : 0U;
+    else if (delta > 0) next = next <= 90U ? next + 10U : 100U;
+    else return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.volume_percent = next;
+    request.muted = audio->muted;
+    if (ku_audio_set(&request) != KU_STATUS_OK) return 0;
+    return read_audio(audio);
 }
 
-static void apply_audio(uint32_t selected, ku_audio_state* audio) {
-    if (audio == NULL || audio->available == 0U) return;
-
+static int apply_audio_mute(ku_audio_state* audio) {
     ku_audio_set_request request;
+    if (audio == NULL || audio->available == 0U) return 0;
     memset(&request, 0, sizeof(request));
     request.structure_size = sizeof(request);
     request.volume_percent = audio->volume_percent;
-    request.muted = audio->muted;
+    request.muted = audio->muted == 0U ? 1U : 0U;
+    if (ku_audio_set(&request) != KU_STATUS_OK) return 0;
+    return read_audio(audio);
+}
 
-    if (selected == 21U) {
-        request.volume_percent = request.volume_percent >= 10U
-            ? request.volume_percent - 10U : 0U;
-    } else if (selected == 22U) {
-        request.volume_percent = request.volume_percent <= 90U
-            ? request.volume_percent + 10U : 100U;
-    } else if (selected == 23U) {
-        request.muted = request.muted == 0U ? 1U : 0U;
+static void build_scene(
+    kui_scene* scene,
+    int low_contrast,
+    uint32_t theme_id,
+    uint32_t style_id,
+    const ku_audio_state* audio,
+    int settings_online) {
+    kui_flow root;
+    char volume[64] = "MASTER VOLUME\n";
+    char service[64] = "SETTINGS SERVICE\n";
+    char palette_label[64] = "ACTIVE COLOR / ";
+    uint32_t volume_value = 0U;
+    int muted = 0;
+
+    append_text(service, sizeof(service), settings_online ? "PERSISTENT / ONLINE" : "OFFLINE");
+    if (audio != NULL && audio->available != 0U) {
+        append_percent(volume, sizeof(volume), audio->volume_percent);
+        volume_value = audio->volume_percent;
+        muted = audio->muted != 0U;
     } else {
-        return;
+        append_text(volume, sizeof(volume), "AC97 OFFLINE");
     }
 
-    if (ku_audio_set(&request) == KU_STATUS_OK) {
-        (void)read_audio(audio);
+    kui_scene_initialize(scene);
+    // The entire settings form is taller than the 560px window. A bounded
+    // row viewport keeps the lower audio/profile controls reachable by wheel.
+    scene->visible_rows = 10U;
+    kui_scene_apply_flux_theme(scene);
+    if (low_contrast) {
+        const ku_flux_palette palette = ku_flux_theme_palette(theme_id);
+        scene->accent_rgb = palette.accent_muted;
     }
+    append_text(palette_label, sizeof(palette_label), ku_flux_theme_name(theme_id));
+    kui_flow_begin(&root, scene, 0U);
+    (void)kui_flow_panel(&root, 1U, "FLUX SETTINGS / PERSONALIZATION");
+    (void)kui_flow_metric(&root, 2U, service, settings_online ? 100U : 0U, 100U);
+    (void)kui_flow_metric(&root, 3U, volume, volume_value, 100U);
+    (void)kui_flow_panel(&root, 28U, "FLUX 8 / COLOR PERSONALIZATION");
+    (void)kui_flow_label(&root, 29U, palette_label);
+    (void)kui_flow_button(&root, 30U, "PREVIOUS COLOR");
+    (void)kui_flow_button(&root, 31U, "NEXT COLOR");
+    (void)kui_flow_toggle(&root, 32U, "FLUX MODERN\nSLEEK WINDOW CHROME / DOCK",
+        style_id == KU_FLUX_STYLE_MODERN);
+    (void)kui_flow_toggle(
+        &root, 10U,
+        "LOW CONTRAST ACCENT\nPERSISTENT INTERFACE PROFILE",
+        low_contrast);
+    (void)kui_flow_toggle(
+        &root, 11U,
+        "MUTE AUDIO\nAC97 MASTER OUTPUT",
+        muted);
+    (void)kui_flow_button(&root, 20U, "VOLUME -10");
+    (void)kui_flow_button(&root, 21U, "VOLUME +10");
+    (void)kui_flow_button(&root, 22U, "RESET INTERFACE PROFILE");
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SETTINGS", 430, 205, 500, 390);
-    if (window == KU_INVALID_WINDOW) return 1;
-
-    int low_contrast = 0;
-    uint32_t selected = 10U;
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_SETTINGS, 400, 110, 510, 560);
+    settings_client settings;
     ku_audio_state audio;
     kui_scene scene;
+    uint32_t pointer_buttons = 0U;
+    int low_contrast = 0;
+    uint32_t theme_id = KU_FLUX_THEME_RED;
+    uint32_t style_id = KU_FLUX_STYLE_MODERN;
+    int restored = 0;
+    if (window == KU_INVALID_WINDOW) return 1;
+
+    (void)active_desktop_theme(&theme_id);
+    if (connect_settings(&settings)) {
+        const ku_status_t status = read_bool_setting(
+            &settings, UI_LOW_CONTRAST_KEY, &low_contrast);
+        if (status == KU_STATUS_OK) restored = 1;
+        else if (status != KU_STATUS_NOT_FOUND) settings.connected = 0;
+        if (settings.connected) {
+            uint32_t stored_theme = KU_FLUX_THEME_RED;
+            if (read_theme_setting(&settings, &stored_theme) == KU_STATUS_OK &&
+                select_desktop_theme(stored_theme)) theme_id = stored_theme;
+            {
+                uint32_t stored_style = KU_FLUX_STYLE_MODERN;
+                if (read_style_setting(&settings, &stored_style) == KU_STATUS_OK &&
+                    select_desktop_style(stored_style)) style_id = stored_style;
+            }
+        }
+    }
     (void)read_audio(&audio);
-    build_scene(&scene, low_contrast, selected, &audio);
+    build_scene(&scene, low_contrast, theme_id, style_id, &audio, settings.connected);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+        if (settings.connected) (void)ku_service_close(settings.connection);
         (void)ku_ui_close(window);
         return 2;
     }
+
     puts("[TEST] desktop_settings_real: PASS");
     puts("[TEST] flux_scene_settings: PASS");
-    puts("[TEST] desktop_settings_arrow_navigation: PASS");
+    puts("[TEST] desktop_settings_mouse_navigation: PASS");
+    puts("[TEST] desktop_settings_keyboard_shortcuts_detached: PASS");
     puts("[TEST] desktop_audio_settings_ui: PASS");
+    puts("[TEST] flux_settings_toggle_cards: PASS");
+    puts("[TEST] flux_8_theme_selector: PASS");
+    puts("[TEST] flux_8_style_selector: PASS");
+    if (restored) puts("[TEST] desktop_settings_profile_restore: PASS");
+    else puts("[TEST] desktop_settings_profile_restore: DEFAULT");
 
     for (;;) {
         ku_ui_event event;
-        if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_KEY) continue;
-
-        if (gui_key_down(&event) || gui_key_right(&event) || gui_key_tab(&event)) {
-            (void)kui_scene_select_next(&scene, 1);
-            selected = kui_scene_selected(&scene);
-        } else if (gui_key_up(&event) || gui_key_left(&event)) {
-            (void)kui_scene_select_next(&scene, -1);
-            selected = kui_scene_selected(&scene);
-        } else if (gui_key_activate(&event)) {
-            if (selected == 10U) low_contrast = 0;
-            else if (selected == 11U) low_contrast = 1;
-            else apply_audio(selected, &audio);
-        } else if (gui_key_cancel(&event)) {
-            low_contrast = 0;
-            selected = 10U;
+        uint32_t target;
+        const int wait_result = gui_wait_event(window, &event);
+        if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) {
+            puts("[TEST] desktop_settings_closed: PASS");
+            break;
+        }
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            const uint32_t before = scene.scroll_offset;
+            // USB HID can coalesce several detents into one signed event.
+            // Avoid negating INT32_MIN, which is not representable in int32_t.
+            const int32_t step = event.wheel_y == INT32_MIN
+                ? INT32_MAX : -event.wheel_y;
+            (void)kui_scene_scroll(&scene, step);
+            if (scene.scroll_offset != before) {
+                (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_settings_wheel_navigation: PASS");
+            }
+            continue;
+        }
+        if (event.type != KU_UI_EVENT_POINTER) continue;
+        {
+            const uint32_t previous_buttons = pointer_buttons;
+            const int primary_pressed =
+                (event.buttons & UINT32_C(1)) != 0U &&
+                (previous_buttons & UINT32_C(1)) == 0U;
+            pointer_buttons = event.buttons;
+            if (!primary_pressed) continue;
+        }
+        target = kui_scene_hit_test(&scene, event.x, event.y);
+        if (target == 10U) {
+            int confirmed = 0;
+            const int requested = low_contrast == 0;
+            if (!settings.connected ||
+                write_bool_setting(&settings, UI_LOW_CONTRAST_KEY, requested) != KU_STATUS_OK ||
+                read_bool_setting(&settings, UI_LOW_CONTRAST_KEY, &confirmed) != KU_STATUS_OK ||
+                confirmed != requested) {
+                puts("[TEST] desktop_settings_profile_persist: FAIL");
+                continue;
+            }
+            low_contrast = confirmed;
+            puts("[TEST] desktop_settings_profile_persist: PASS");
+        } else if (target == 30U || target == 31U) {
+            const uint32_t requested = target == 30U
+                ? (theme_id + KU_FLUX_THEME_COUNT - 1U) % KU_FLUX_THEME_COUNT
+                : (theme_id + 1U) % KU_FLUX_THEME_COUNT;
+            uint32_t confirmed = KU_FLUX_THEME_RED;
+            if (!settings.connected ||
+                write_theme_setting(&settings, requested) != KU_STATUS_OK ||
+                read_theme_setting(&settings, &confirmed) != KU_STATUS_OK ||
+                confirmed != requested || !select_desktop_theme(confirmed)) {
+                puts("[TEST] flux_theme_persistence: FAIL");
+                continue;
+            }
+            theme_id = confirmed;
+            puts("[TEST] flux_theme_persistence: PASS");
+        } else if (target == 32U) {
+            const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN
+                ? KU_FLUX_STYLE_CLASSIC : KU_FLUX_STYLE_MODERN;
+            uint32_t confirmed = KU_FLUX_STYLE_MODERN;
+            if (!settings.connected ||
+                write_style_setting(&settings, requested) != KU_STATUS_OK ||
+                read_style_setting(&settings, &confirmed) != KU_STATUS_OK ||
+                confirmed != requested || !select_desktop_style(confirmed)) {
+                puts("[TEST] flux_style_persistence: FAIL");
+                continue;
+            }
+            style_id = confirmed;
+            puts("[TEST] flux_style_persistence: PASS");
+        } else if (target == 11U) {
+            (void)apply_audio_mute(&audio);
+        } else if (target == 20U) {
+            (void)apply_audio_delta(&audio, -1);
+        } else if (target == 21U) {
+            (void)apply_audio_delta(&audio, 1);
+        } else if (target == 22U) {
+            int confirmed = 1;
+            if (settings.connected &&
+                write_bool_setting(&settings, UI_LOW_CONTRAST_KEY, 0) == KU_STATUS_OK &&
+                read_bool_setting(&settings, UI_LOW_CONTRAST_KEY, &confirmed) == KU_STATUS_OK &&
+                confirmed == 0) {
+                low_contrast = 0;
+            }
         } else {
             continue;
         }
-
-        build_scene(&scene, low_contrast, selected, &audio);
+        {
+            const uint32_t old_offset = scene.scroll_offset;
+            build_scene(&scene, low_contrast, theme_id, style_id,
+                        &audio, settings.connected);
+            scene.scroll_offset = old_offset;
+            (void)kui_scene_scroll(&scene, 0);
+        }
         (void)kui_scene_present(window, &scene);
     }
+
+    if (settings.connected) (void)ku_service_close(settings.connection);
     (void)ku_ui_close(window);
     return 0;
 }

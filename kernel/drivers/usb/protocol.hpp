@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "../keyboard.hpp"
+#include "../mouse_protocol.hpp"
 
 namespace drivers::usb {
 
@@ -29,6 +30,9 @@ struct KeyboardDecoder {
 constexpr size_t MAXIMUM_KEYBOARD_EVENTS_PER_REPORT = 20U;
 
 void reset_keyboard_decoder(KeyboardDecoder* decoder);
+// Allocation-free, all-or-nothing publication: on failure decoder/events are
+// unchanged and *event_count is zero (when supplied). Rollover preserves the
+// non-modifier set while applying valid modifier changes.
 bool decode_boot_keyboard_report(
     KeyboardDecoder* decoder,
     const uint8_t* report,
@@ -36,5 +40,52 @@ bool decode_boot_keyboard_report(
     keyboard::KeyEvent* events,
     size_t event_capacity,
     size_t* event_count);
+
+struct HidBootMouseInterface {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+};
+
+bool find_boot_mouse_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidBootMouseInterface* output);
+
+struct HidReportInterface {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+    uint16_t report_descriptor_length;
+};
+
+bool find_hid_report_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidReportInterface* output);
+
+bool find_hid_report_interface_for_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    uint8_t interface_number,
+    HidReportInterface* output);
+
+struct MouseDecoder {
+    uint8_t previous_buttons;
+};
+
+void reset_mouse_decoder(MouseDecoder* decoder);
+// HID boot mouse reports are decoded transactionally into the shared mouse
+// sample contract. The boot protocol defines buttons + X + Y; wheel remains
+// zero until a report-protocol extension is explicitly negotiated.
+bool decode_boot_mouse_report(
+    MouseDecoder* decoder,
+    const uint8_t* report,
+    size_t report_length,
+    mouse::Sample* sample);
 
 } // namespace drivers::usb

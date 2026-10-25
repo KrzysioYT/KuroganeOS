@@ -1287,8 +1287,12 @@ char ascii_upper(char character) {
         : character;
 }
 
-Status encode_short_name(const char* name, uint8_t output[11]) {
-    if (name == nullptr || output == nullptr || name[0] == '\0') {
+Status encode_short_name(
+    const char* name,
+    uint8_t output[11],
+    uint8_t* case_flags) {
+    if (name == nullptr || output == nullptr || case_flags == nullptr ||
+        name[0] == '\0') {
         return Status::InvalidArgument;
     }
     size_t length = 0U;
@@ -1314,22 +1318,35 @@ Status encode_short_name(const char* name, uint8_t output[11]) {
     for (size_t index = 0U; index < 11U; ++index) {
         output[index] = static_cast<uint8_t>(' ');
     }
+    bool base_lower = false;
+    bool base_upper = false;
+    bool extension_lower = false;
+    bool extension_upper = false;
     for (size_t index = 0U; index < base_length; ++index) {
-        const char character = ascii_upper(name[index]);
+        const char source = name[index];
+        const char character = ascii_upper(source);
         const uint8_t value = static_cast<uint8_t>(character);
         if (character == ' ' || !valid_short_name_byte(value)) {
             return Status::Unsupported;
         }
+        if (source >= 'a' && source <= 'z') base_lower = true;
+        if (source >= 'A' && source <= 'Z') base_upper = true;
         output[index] = value;
     }
     for (size_t index = 0U; index < extension_length; ++index) {
-        const char character = ascii_upper(name[dot + 1U + index]);
+        const char source = name[dot + 1U + index];
+        const char character = ascii_upper(source);
         const uint8_t value = static_cast<uint8_t>(character);
         if (character == ' ' || !valid_short_name_byte(value)) {
             return Status::Unsupported;
         }
+        if (source >= 'a' && source <= 'z') extension_lower = true;
+        if (source >= 'A' && source <= 'Z') extension_upper = true;
         output[8U + index] = value;
     }
+    *case_flags = 0U;
+    if (base_lower && !base_upper) *case_flags |= 0x08U;
+    if (extension_lower && !extension_upper) *case_flags |= 0x10U;
     return Status::Ok;
 }
 
@@ -1414,6 +1431,7 @@ Status publish_directory_entry(
     FileSystem* filesystem,
     const DirectorySlot& slot,
     const uint8_t short_name[11],
+    uint8_t case_flags,
     uint8_t attributes,
     uint32_t first_cluster,
     uint32_t size) {
@@ -1430,6 +1448,7 @@ Status publish_directory_entry(
         entry[index] = short_name[index];
     }
     entry[11] = attributes;
+    entry[12] = static_cast<uint8_t>(case_flags & 0x18U);
     // A deterministic, valid FAT date is preferable to zeroed month/day
     // fields when no wall-clock timestamp service is supplied to the backend.
     constexpr uint16_t minimum_fat_date = 0x0021U; // 1980-01-01
@@ -2401,7 +2420,8 @@ Status create(FileSystem* filesystem, const char* path) {
         return status;
     }
     uint8_t short_name[11]{};
-    status = encode_short_name(leaf, short_name);
+    uint8_t short_name_case_flags = 0U;
+    status = encode_short_name(leaf, short_name, &short_name_case_flags);
     if (status != Status::Ok) {
         return status;
     }
@@ -2421,7 +2441,13 @@ Status create(FileSystem* filesystem, const char* path) {
         return status;
     }
     return publish_directory_entry(
-        filesystem, free_slot, short_name, 0x20U, 0U, 0U);
+        filesystem,
+        free_slot,
+        short_name,
+        short_name_case_flags,
+        0x20U,
+        0U,
+        0U);
 }
 
 Status write(
@@ -2565,7 +2591,9 @@ Status rename(
         return status;
     }
     uint8_t short_name[11]{};
-    status = encode_short_name(destination_leaf, short_name);
+    uint8_t short_name_case_flags = 0U;
+    status = encode_short_name(
+        destination_leaf, short_name, &short_name_case_flags);
     if (status != Status::Ok) {
         return status;
     }
@@ -2577,6 +2605,8 @@ Status rename(
     for (size_t index = 0U; index < 11U; ++index) {
         sector[source_slot.offset + index] = short_name[index];
     }
+    sector[source_slot.offset + 12U] =
+        static_cast<uint8_t>(short_name_case_flags & 0x18U);
     return write_sector(filesystem, source_slot.sector, sector);
 }
 
@@ -2594,7 +2624,8 @@ Status mkdir(FileSystem* filesystem, const char* path) {
         return status;
     }
     uint8_t short_name[11]{};
-    status = encode_short_name(leaf, short_name);
+    uint8_t short_name_case_flags = 0U;
+    status = encode_short_name(leaf, short_name, &short_name_case_flags);
     if (status != Status::Ok) {
         return status;
     }
@@ -2633,6 +2664,7 @@ Status mkdir(FileSystem* filesystem, const char* path) {
         filesystem,
         DirectorySlot{directory_sector, 0U, 0U},
         dot,
+        0U,
         ATTRIBUTE_DIRECTORY,
         cluster,
         0U);
@@ -2645,6 +2677,7 @@ Status mkdir(FileSystem* filesystem, const char* path) {
             filesystem,
             DirectorySlot{directory_sector, DIRECTORY_ENTRY_SIZE, 0U},
             dot_dot,
+            0U,
             ATTRIBUTE_DIRECTORY,
             parent_cluster,
             0U);
@@ -2654,6 +2687,7 @@ Status mkdir(FileSystem* filesystem, const char* path) {
             filesystem,
             parent_slot,
             short_name,
+            short_name_case_flags,
             ATTRIBUTE_DIRECTORY,
             cluster,
             0U);

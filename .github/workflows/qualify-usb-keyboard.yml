@@ -1,0 +1,180 @@
+name: Qualify 5.0 xHCI USB Keyboard
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-keyboard.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/keyboard.hpp'
+      - 'kernel/input/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/inject-usb-hid-runtime.py'
+      - 'scripts/qualification/usb-hotplug-qmp.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-keyboard.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/keyboard.hpp'
+      - 'kernel/input/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/inject-usb-hid-runtime.py'
+      - 'scripts/qualification/usb-hotplug-qmp.py'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_usb*'
+      - 'tests/test_xhci*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  usb-keyboard:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [runtime, empty-cleanup]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify candidate and production isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git status --porcelain)" = ""
+          ! grep -Fq '[TEST] usb_hid_f12_press:' kernel/drivers/usb/xhci.cpp
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        if: matrix.mode == 'runtime'
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Instrument real USB input delivery
+        run: |
+          args=()
+          if [[ '${{ matrix.mode }}' == 'empty-cleanup' ]]; then
+            args+=(--cleanup-empty)
+          fi
+          python3 scripts/qualification/inject-usb-hid-runtime.py "${args[@]}"
+          git diff --check
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require real HID delivery through transfer and event ring wrap
+        if: matrix.mode == 'runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 130 acknowledged pairs exceed both the 255-entry transfer ring
+          # and the 256-entry event ring. Each next key waits for guest release.
+          key_steps=()
+          for count in $(seq 1 129); do
+            key_steps+=(--send-key-after-marker-count \
+              '[TEST] usb_hid_f12_release: PASS' "$count" f12)
+          done
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-keyboard \
+            --log-dir build/tests/usb-runtime --timeout 240 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            "${key_steps[@]}" \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_f12_press: PASS' \
+            --require-marker '[TEST] usb_hid_f12_release: PASS' \
+            --require-marker '[TEST] usb_hid_ring_wrap: PASS' \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 130 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 130
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_f12_.*: FAIL' \
+            build/tests/usb-runtime/serial.log
+
+      - name: Require empty-controller halt and DMA cleanup
+        if: matrix.mode == 'empty-cleanup'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-controller \
+            --log-dir build/tests/usb-empty-runtime --timeout 120 \
+            --require-marker '[TEST] xhci_empty_cleanup: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_empty_cleanup: FAIL' \
+            build/tests/usb-empty-runtime/serial.log
+
+      - name: Require repeated real keyboard disconnect and re-enumeration
+        if: matrix.mode == 'runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-hotplug \
+            --log-dir build/tests/usb-hotplug-runtime --timeout 120 \
+            --require-marker '[TEST] usb_hid_shift_press: PASS' \
+            --require-marker '[TEST] usb_hid_disconnect_release: PASS' \
+            --require-marker '[TEST] usb_hid_disconnect: PASS' \
+            --require-marker '[TEST] usb_hid_reconnect: PASS' \
+            --require-marker '[TEST] usb_hid_f12_press: PASS' \
+            --require-marker '[TEST] usb_hid_f12_release: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL' \
+            build/tests/usb-hotplug-runtime/serial.log
+
+      - name: Require first attachment after empty-controller boot
+        if: matrix.mode == 'runtime'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --usb-late-attach \
+            --log-dir build/tests/usb-late-runtime --timeout 120 \
+            --require-marker '[TEST] xhci_empty_waiting: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_shift_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/usb-late-runtime/serial.log
+
+      - name: Retain serial and QEMU logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-keyboard-${{ matrix.mode }}-${{ github.sha }}
+          path: |
+            build/tests/usb-runtime
+            build/tests/usb-empty-runtime
+            build/tests/usb-hotplug-runtime
+            build/tests/usb-late-runtime
+          if-no-files-found: warn

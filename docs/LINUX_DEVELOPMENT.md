@@ -38,8 +38,8 @@ bash ./scripts/build-media-linux.sh --configuration release --rebuild
 Wynik:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-linux-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-7.0.0-dev-linux-qemu.img
+dist/KuroganeOS-7.0.0-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -74,7 +74,7 @@ Jeżeli masz OVMF:
 
 ```bash
 bash ./scripts/smoke-uefi-iso-qemu.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+  ./dist/KuroganeOS-7.0.0-dev-x86_64.iso \
   --timeout 60
 ```
 
@@ -87,7 +87,7 @@ Jeżeli masz Oracle VirtualBox z `VBoxManage`, możesz utworzyć referencyjną V
 
 ```bash
 bash ./scripts/create-virtualbox-vm.sh \
-  --iso ./dist/KuroganeOS-3.3.1-dev-x86_64.iso
+  --iso ./dist/KuroganeOS-7.0.0-dev-x86_64.iso
 ```
 
 Profil ustawia EFI64, SATA/AHCI, NAT + 82540EM oraz Intel AC'97.

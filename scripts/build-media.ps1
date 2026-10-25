@@ -16,6 +16,15 @@ $TrustExporter = Join-Path $PSScriptRoot 'export-windows-trust-store.ps1'
 $TrustOutput = Join-Path $RootDir 'build\userspace\rootfs\etc\ssl\certs.pem'
 $FoundationBuilder = Join-Path $PSScriptRoot 'build-foundation-image.ps1'
 $InstallerBuilder = Join-Path $PSScriptRoot 'build-installer.ps1'
+$VersionHeader = Join-Path $RootDir 'common\version.h'
+$Dist = Join-Path $RootDir 'dist'
+
+$versionText = Get-Content -LiteralPath $VersionHeader -Raw
+if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
+    throw "Cannot read KuroganeOS version from $VersionHeader"
+}
+$Version = $Matches[1]
+
 
 if (-not (Test-Path -LiteralPath $Toolchain -PathType Leaf)) {
     throw "Windows build toolchain is missing.`nRequired files: $WindowsBuildFilesUrl`nDownload and copy/extract them into the KuroganeOS repository root."
@@ -30,6 +39,26 @@ foreach ($requiredScript in @($WslBridge, $TrustExporter, $FoundationBuilder, $I
 }
 . $WslBridge
 Repair-KuroganeShellLineEndings -Directory $PSScriptRoot
+
+if ($Rebuild -and (Test-Path -LiteralPath $Dist -PathType Container)) {
+    $stalePatterns = @(
+        'KuroganeOS-*-virtualbox-x86_64.iso',
+        'KuroganeOS-*-qemu-x86_64.img',
+        'KuroganeOS-*-windows-qemu.img',
+        'KuroganeOS-*-x86_64.iso',
+        'KuroganeOS-*.iso.sha256',
+        'KuroganeOS-*.img.sha256',
+        'SHA256SUMS.txt'
+    )
+    foreach ($pattern in $stalePatterns) {
+        Get-ChildItem -LiteralPath $Dist -Filter $pattern -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Write-Host "[media-windows] removing stale rebuild artifact: $($_.FullName)"
+                Remove-Item -LiteralPath $_.FullName -Force
+            }
+    }
+}
+Write-Host "[media-windows] rebuild target: KuroganeOS $Version"
 
 $BuildScript = Join-Path $PSScriptRoot 'build.ps1'
 if ($Rebuild) {
@@ -52,15 +81,8 @@ if (-not $?) { throw 'Foundation image rebuild with Windows trust roots failed.'
 & $InstallerBuilder -Configuration $Configuration -NoBuild
 if (-not $?) { throw 'Installer ISO/package rebuild with Windows trust roots failed.' }
 
-$VersionHeader = Join-Path $RootDir 'common\version.h'
-$versionText = Get-Content -LiteralPath $VersionHeader -Raw
-if ($versionText -notmatch '#define\s+KUROGANE_VERSION_STRING\s+"([^"]+)"') {
-    throw "Cannot read KuroganeOS version from $VersionHeader"
-}
-$Version = $Matches[1]
 $BaseImage = Join-Path $RootDir 'build\images\KuroganeOS-base.img'
 $Package = Join-Path $RootDir 'build\install.pkg'
-$Dist = Join-Path $RootDir 'dist'
 
 # Canonical release media are intentionally hypervisor-specific. The QEMU
 # artifact below is setup/install media because install.pkg is injected into it.

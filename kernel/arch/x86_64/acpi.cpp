@@ -120,9 +120,14 @@ Status parse_madt(const uint8_t* table, Topology* output) {
 
 } // namespace
 
-Status parse_rsdp(const void* rsdp, Topology* output) {
-    if (rsdp == nullptr || output == nullptr) return Status::InvalidArgument;
-    *output = {};
+Status find_table(
+    const void* rsdp,
+    const char signature[4],
+    TableView* output) {
+    if (rsdp == nullptr || signature == nullptr || output == nullptr) {
+        return Status::InvalidArgument;
+    }
+
     const auto* bytes = static_cast<const uint8_t*>(rsdp);
     if (!signature_equal(bytes, "RSD PTR ", 8U) ||
         !checksum_valid(bytes, RSDP_V1_SIZE)) {
@@ -160,11 +165,13 @@ Status parse_rsdp(const void* rsdp, Topology* output) {
         !signature_equal(root, root_signature, 4U)) {
         return Status::InvalidRootTable;
     }
+
     const uint32_t root_length = read_u32(root + 4U);
     const size_t payload = root_length - SDT_HEADER_SIZE;
     if ((payload % entry_size) != 0U || payload / entry_size > 256U) {
         return Status::InvalidRootTable;
     }
+
     for (size_t offset = SDT_HEADER_SIZE; offset < root_length;
          offset += entry_size) {
         const uint64_t address = entry_size == 8U
@@ -173,11 +180,27 @@ Status parse_rsdp(const void* rsdp, Topology* output) {
         if (address == 0U) continue;
         const auto* table = reinterpret_cast<const uint8_t*>(
             static_cast<uintptr_t>(address));
-        if (valid_sdt(table) && signature_equal(table, "APIC", 4U)) {
-            return parse_madt(table, output);
+        if (valid_sdt(table) && signature_equal(table, signature, 4U)) {
+            const TableView staged{
+                table,
+                static_cast<size_t>(read_u32(table + 4U)),
+            };
+            *output = staged;
+            return Status::Ok;
         }
     }
-    return Status::MadtNotFound;
+    return Status::TableNotFound;
+}
+
+Status parse_rsdp(const void* rsdp, Topology* output) {
+    if (rsdp == nullptr || output == nullptr) return Status::InvalidArgument;
+    *output = {};
+
+    TableView madt{};
+    const Status lookup = find_table(rsdp, "APIC", &madt);
+    if (lookup == Status::TableNotFound) return Status::MadtNotFound;
+    if (lookup != Status::Ok) return lookup;
+    return parse_madt(static_cast<const uint8_t*>(madt.address), output);
 }
 
 Status discover(uint64_t rsdp_physical_address) {
@@ -201,6 +224,7 @@ const char* status_message(Status status) {
         case Status::InvalidArgument: return "missing ACPI RSDP";
         case Status::InvalidRsdp: return "invalid ACPI RSDP";
         case Status::InvalidRootTable: return "invalid ACPI root table";
+        case Status::TableNotFound: return "ACPI table not found";
         case Status::MadtNotFound: return "ACPI MADT not found";
         case Status::InvalidMadt: return "invalid ACPI MADT";
         case Status::TooManyEntries: return "ACPI topology exceeds bounds";

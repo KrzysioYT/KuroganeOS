@@ -163,16 +163,15 @@ Status parse(const void* bytes, size_t size, View* output) {
         const uint64_t file_offset = static_cast<uint64_t>(file.data - raw);
         if (file_offset < previous_end) return Status::InvalidFileRange;
         previous_end = file_offset + file.size;
+        const uint8_t* entry = raw + entries_offset + index * ENTRY_SIZE;
         for (size_t earlier = 0U; earlier < index; ++earlier) {
-            File candidate{};
-            if (file_at(result, earlier, &candidate) != Status::Ok) {
-                return Status::InvalidLayout;
-            }
-            bool same = candidate.destination == file.destination;
-            for (size_t character = 0U; same; ++character) {
-                if (candidate.path[character] != file.path[character]) same = false;
-                if (candidate.path[character] == '\0' ||
-                    file.path[character] == '\0') break;
+            const uint8_t* candidate =
+                raw + entries_offset + earlier * ENTRY_SIZE;
+            bool same = read_u32(candidate + 148U) == file.destination;
+            for (size_t character = 0U;
+                 same && character < PATH_FIELD_SIZE;
+                 ++character) {
+                if (candidate[character] != entry[character]) same = false;
             }
             if (same) return Status::InvalidPath;
         }

@@ -14,6 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RootDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+. (Join-Path $PSScriptRoot 'lib\virtualbox-vm-contract.ps1')
 
 function Resolve-KuroganePath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -171,7 +172,6 @@ $nicType = switch ($Nic) {
 $null = Invoke-VBoxNative -Arguments @(
     'createvm', '--name', $Name, '--ostype', 'Other_64', '--register'
 )
-$created = $true
 try {
     $null = Invoke-VBoxNative -Arguments @(
         'modifyvm', $Name,
@@ -244,23 +244,27 @@ try {
         'showvminfo', $Name, '--machinereadable'
     )
     $machine = $info.StdOut
-    $isoLeaf = [System.IO.Path]::GetFileName($Iso)
-    if ($machine -notmatch 'firmware="EFI64"' -or
-        $machine -notmatch 'boot1="dvd"' -or
-        $machine -notmatch 'boot2="disk"' -or
-        $machine -notmatch 'storagecontrollername\d+="SATA"' -or
-        $machine -notmatch 'storagecontrollertype\d+="IntelAhci"|storagecontrollertype\d+="IntelAHCI"' -or
-        $machine -notmatch '"SATA-0-0"=.*\.vdi"' -or
-        $machine -notmatch 'storagecontrollername\d+="IDE"' -or
-        $machine -notmatch [regex]::Escape($isoLeaf)) {
-        throw 'Created VM did not retain the required EFI64 + DVD-first + IntelAHCI HDD + IDE ISO contract.'
+    $problems = @(Test-KuroganeVBoxVmContract -MachineInfo $machine -ExpectedDisk $Disk -ExpectedIso $Iso)
+    if ($problems.Count -gt 0) {
+        # Preserve the machine and media instead of deleting them after a
+        # host-specific machine-readable output difference.
+        $diagnostics = Join-Path $VmDirectory 'vbox-machinereadable.txt'
+        [System.IO.File]::WriteAllText($diagnostics, $machine)
+        $details = [string]::Join([Environment]::NewLine + '  - ', [string[]]$problems)
+        throw ("Created VM failed contract verification:" +
+               [Environment]::NewLine + '  - ' + $details +
+               [Environment]::NewLine + "VM preserved: $Name" +
+               [Environment]::NewLine + "VBoxManage output: $diagnostics")
     }
-
-    $created = $false
-} finally {
-    if ($created) {
-        $null = Invoke-VBoxNative -Arguments @('unregistervm', $Name, '--delete') -AllowFailure
+    $reportedInput = ConvertFrom-KuroganeVBoxMachineInfo -Text $machine
+    if (-not $reportedInput.ContainsKey('keyboard') -or
+        -not $reportedInput.ContainsKey('mouse')) {
+        Write-Warning 'VBoxManage omitted keyboard/mouse fields from --machinereadable. The creator requested PS/2 and VBoxManage accepted it; actual guest input still requires testing.'
     }
+    Write-Host '[virtualbox-create] Firmware, boot order, SATA VDI and IDE ISO: PASS'
+} catch {
+    Write-Warning "Machine '$Name' was left registered for inspection; no automatic disk deletion."
+    throw
 }
 
 Write-Host "Created VirtualBox VM: $Name"
@@ -271,6 +275,7 @@ Write-Host "NIC: $Nic ($nicType), NAT"
 Write-Host 'Graphics: VMSVGA, 128 MiB VRAM'
 Write-Host 'Storage: IntelAHCI/SATA port 0 -> VDI; IDE/PIIX4 -> ISO DVD'
 Write-Host 'Firmware: EFI64; Boot order: DVD -> Disk'
+Write-Host 'Input: PS/2 keyboard + PS/2 mouse'
 
 if ($Start) {
     $startResult = Invoke-VBoxNative -Arguments @(

@@ -1,7 +1,11 @@
 #include "channel.hpp"
 
+#include "../sync/spinlock.hpp"
+
 namespace ipc {
 namespace {
+
+sync::TicketSpinLock g_state_lock{};
 
 constexpr uint64_t kIndexMask = UINT64_C(0xFF);
 constexpr uint64_t kKindMask = UINT64_C(0xFF) << 16U;
@@ -25,6 +29,8 @@ struct EndpointSlot {
     uint8_t pending_head;
     uint8_t pending_tail;
     uint8_t pending_count;
+    ServiceMetadata metadata;
+    bool versioned;
     bool active;
 };
 
@@ -225,6 +231,7 @@ Status pop_message(MessageQueue& queue, Message* output) {
 } // namespace
 
 Status initialize() {
+    sync::LockGuard state_guard(g_state_lock);
     if (g_initialized) return Status::AlreadyInitialized;
     clear_bytes(g_endpoints, sizeof(g_endpoints));
     clear_bytes(g_channels, sizeof(g_channels));
@@ -236,7 +243,9 @@ Status bind(
     ProcessId owner_pid,
     const char* name,
     size_t name_length,
-    Handle* endpoint) {
+    Handle* endpoint,
+    const ServiceMetadata* metadata) {
+    sync::LockGuard state_guard(g_state_lock);
     if (endpoint != nullptr) *endpoint = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || endpoint == nullptr) {
@@ -244,6 +253,12 @@ Status bind(
     }
     const Status name_status = validate_name(name, name_length);
     if (name_status != Status::Ok) return name_status;
+    if (metadata != nullptr &&
+        (metadata->service_version == 0U ||
+         metadata->minimum_client_version == 0U ||
+         metadata->minimum_client_version > metadata->service_version)) {
+        return Status::InvalidArgument;
+    }
     for (const EndpointSlot& slot : g_endpoints) {
         if (slot.active && name_equal(slot, name, name_length)) {
             return Status::AlreadyExists;
@@ -260,6 +275,10 @@ Status bind(
             slot.name[character] = name[character];
         }
         slot.name[name_length] = '\0';
+        if (metadata != nullptr) {
+            slot.metadata = *metadata;
+            slot.versioned = true;
+        }
         slot.active = true;
         *endpoint = encode_endpoint(index, generation);
         return Status::Ok;
@@ -267,11 +286,35 @@ Status bind(
     return Status::CapacityReached;
 }
 
+Status query(
+    const char* name,
+    size_t name_length,
+    ServiceInfo* info) {
+    sync::LockGuard state_guard(g_state_lock);
+    if (info != nullptr) *info = {};
+    if (!g_initialized) return Status::NotInitialized;
+    if (info == nullptr) return Status::InvalidArgument;
+    const Status name_status = validate_name(name, name_length);
+    if (name_status != Status::Ok) return name_status;
+    for (const EndpointSlot& slot : g_endpoints) {
+        if (!slot.active || !name_equal(slot, name, name_length)) continue;
+        if (!slot.versioned) return Status::VersionMismatch;
+        info->service_version = slot.metadata.service_version;
+        info->minimum_client_version = slot.metadata.minimum_client_version;
+        info->capabilities = slot.metadata.capabilities;
+        info->owner_pid = slot.owner_pid;
+        return Status::Ok;
+    }
+    return Status::NotFound;
+}
+
 Status connect(
     ProcessId client_pid,
     const char* name,
     size_t name_length,
-    Handle* channel) {
+    Handle* channel,
+    ServiceNegotiation* negotiation) {
+    sync::LockGuard state_guard(g_state_lock);
     if (channel != nullptr) *channel = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (client_pid == INVALID_PROCESS_ID || channel == nullptr) {
@@ -287,6 +330,24 @@ Status connect(
         }
     }
     if (endpoint == nullptr) return Status::NotFound;
+    uint32_t selected_version = 0U;
+    if (negotiation != nullptr) {
+        if (negotiation->minimum_version == 0U ||
+            negotiation->maximum_version < negotiation->minimum_version) {
+            return Status::InvalidArgument;
+        }
+        if (!endpoint->versioned) return Status::VersionMismatch;
+        const uint32_t lower = negotiation->minimum_version >
+                endpoint->metadata.minimum_client_version
+            ? negotiation->minimum_version
+            : endpoint->metadata.minimum_client_version;
+        const uint32_t upper = negotiation->maximum_version <
+                endpoint->metadata.service_version
+            ? negotiation->maximum_version
+            : endpoint->metadata.service_version;
+        if (lower > upper) return Status::VersionMismatch;
+        selected_version = upper;
+    }
     compact_pending(*endpoint);
     if (endpoint->pending_count >= MAX_PENDING_CONNECTIONS) return Status::WouldBlock;
 
@@ -306,12 +367,21 @@ Status connect(
             (endpoint->pending_tail + 1U) % MAX_PENDING_CONNECTIONS);
         ++endpoint->pending_count;
         *channel = encode_channel(index, generation, false);
+        if (negotiation != nullptr) {
+            negotiation->selected_version = selected_version;
+            negotiation->service_version = endpoint->metadata.service_version;
+            negotiation->minimum_client_version =
+                endpoint->metadata.minimum_client_version;
+            negotiation->capabilities = endpoint->metadata.capabilities;
+            negotiation->owner_pid = endpoint->owner_pid;
+        }
         return Status::Ok;
     }
     return Status::CapacityReached;
 }
 
 Status accept(ProcessId server_pid, Handle endpoint_handle, Handle* channel) {
+    sync::LockGuard state_guard(g_state_lock);
     if (channel != nullptr) *channel = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (server_pid == INVALID_PROCESS_ID || channel == nullptr) {
@@ -343,6 +413,7 @@ Status send(
     Handle channel_handle,
     const void* data,
     size_t size) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (sender_pid == INVALID_PROCESS_ID || size > MAX_MESSAGE_SIZE ||
         (size != 0U && data == nullptr)) {
@@ -362,6 +433,7 @@ Status receive(
     ProcessId receiver_pid,
     Handle channel_handle,
     Message* message) {
+    sync::LockGuard state_guard(g_state_lock);
     if (message != nullptr) *message = {};
     if (!g_initialized) return Status::NotInitialized;
     if (receiver_pid == INVALID_PROCESS_ID || message == nullptr) {
@@ -382,6 +454,7 @@ Status receive(
 }
 
 Status close(ProcessId owner_pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || handle == INVALID_HANDLE) {
         return Status::InvalidArgument;
@@ -414,6 +487,7 @@ Status close(ProcessId owner_pid, Handle handle) {
 }
 
 void release_process(ProcessId pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized || pid == INVALID_PROCESS_ID) return;
     for (EndpointSlot& endpoint : g_endpoints) {
         if (!endpoint.active || endpoint.owner_pid != pid) continue;
@@ -447,6 +521,7 @@ const char* status_message(Status status) {
         case Status::AccessDenied: return "IPC handle owner mismatch";
         case Status::CapacityReached: return "IPC capacity reached";
         case Status::WouldBlock: return "IPC operation would block";
+        case Status::VersionMismatch: return "service version mismatch";
         case Status::PeerClosed: return "IPC peer closed";
     }
     return "unknown IPC status";

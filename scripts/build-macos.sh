@@ -133,6 +133,8 @@ applications=(
     "monitor|userspace/apps/monitor/main.c|apps/monitor|c"
     "about|userspace/apps/about/main.c|apps/about|c"
     "init|userspace/system/init/main.c|system/init|c"
+    "deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c"
+    "statusprobe|userspace/system/status-probe/main.c|system/stprobe|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"
@@ -226,8 +228,7 @@ cp build/kernel.elf iso/EFI/BOOT/kernel.elf
 echo "[stage] iso/EFI/BOOT/BOOTX64.EFI"
 echo "[stage] iso/kernel.elf"
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-[[ -n "$version" ]] || { echo "cannot read KuroganeOS version" >&2; exit 1; }
+version="$(bash "$root/scripts/read-version.sh")"
 {
     echo "version=$version"
     echo "profile=$configuration"

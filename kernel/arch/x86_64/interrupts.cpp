@@ -1,6 +1,9 @@
 #include "interrupts.hpp"
+#include "apic.hpp"
 #include "gdt.hpp"
 
+#include "../../core/log.hpp"
+#include "../../diagnostics/panic.hpp"
 #include "../../drivers/pic.hpp"
 
 extern "C" void (*interrupt_stub_table[256])();
@@ -39,8 +42,13 @@ constexpr uint8_t kFirstSoftwareVector = IRQ_VECTOR_BASE + IRQ_COUNT;
 alignas(16) static IdtEntry g_idt[IDT_ENTRY_COUNT];
 static InterruptHandler g_handlers[IDT_ENTRY_COUNT];
 static IrqHandler g_irq_handlers[IRQ_COUNT];
+alignas(2) static uint16_t g_apic_legacy_irq_mask = 0U;
 static IrqScheduleHook g_irq_schedule_hook = nullptr;
+static SoftwareScheduleHook g_software_schedule_hook = nullptr;
+static FixedScheduleHook g_fixed_schedule_hook = nullptr;
+static uint8_t g_fixed_schedule_vector = 0U;
 alignas(8) static uint64_t g_interrupt_counts[IDT_ENTRY_COUNT];
+alignas(8) static uint8_t g_hardware_vector_lock = 0U;
 
 static bool g_initialized = false;
 static uint8_t g_last_exception_vector = 0xFF;
@@ -57,6 +65,17 @@ uintptr_t read_cr2() {
     uintptr_t value = 0;
     __asm__ volatile("mov %%cr2, %0" : "=r"(value));
     return value;
+}
+
+void lock_hardware_vectors() {
+    while (__atomic_test_and_set(
+        &g_hardware_vector_lock, __ATOMIC_ACQUIRE)) {
+        __asm__ volatile("pause");
+    }
+}
+
+void unlock_hardware_vectors() {
+    __atomic_clear(&g_hardware_vector_lock, __ATOMIC_RELEASE);
 }
 
 void set_gate(
@@ -97,6 +116,9 @@ void load_idt() {
 void initialize() {
     disable();
 
+    hardware_vectors::initialize();
+    __atomic_clear(&g_hardware_vector_lock, __ATOMIC_RELAXED);
+
     const uint16_t selector = code_segment_selector();
     for (size_t i = 0; i < IDT_ENTRY_COUNT; ++i) {
         set_gate(
@@ -110,7 +132,11 @@ void initialize() {
     for (size_t i = 0; i < IRQ_COUNT; ++i) {
         g_irq_handlers[i] = nullptr;
     }
+    __atomic_store_n(&g_apic_legacy_irq_mask, uint16_t{0U}, __ATOMIC_RELEASE);
     g_irq_schedule_hook = nullptr;
+    g_software_schedule_hook = nullptr;
+    g_fixed_schedule_hook = nullptr;
+    g_fixed_schedule_vector = 0U;
 
     g_last_exception_vector = 0xFF;
     g_last_exception_error_code = 0;
@@ -123,13 +149,66 @@ bool initialized() {
     return g_initialized;
 }
 
+bool load_current_cpu() {
+    if (!g_initialized) return false;
+    disable();
+    load_idt();
+    return true;
+}
+
 bool register_handler(uint8_t vector, InterruptHandler handler) {
-    if (handler == nullptr) {
+    if (handler == nullptr || hardware_vectors::is_allocatable(vector)) {
         return false;
     }
 
     __atomic_store_n(&g_handlers[vector], handler, __ATOMIC_RELEASE);
     return true;
+}
+
+hardware_vectors::Status allocate_hardware_vector(
+    InterruptHandler handler,
+    hardware_vectors::Lease* output) {
+    if (handler == nullptr || output == nullptr) {
+        return hardware_vectors::Status::InvalidArgument;
+    }
+    *output = {};
+    if (!g_initialized) return hardware_vectors::Status::NotInitialized;
+
+    lock_hardware_vectors();
+    hardware_vectors::Lease lease{};
+    const hardware_vectors::Status status = hardware_vectors::allocate(&lease);
+    if (status == hardware_vectors::Status::Ok) {
+        __atomic_store_n(&g_handlers[lease.vector], handler, __ATOMIC_RELEASE);
+        *output = lease;
+    }
+    unlock_hardware_vectors();
+    return status;
+}
+
+hardware_vectors::Status release_hardware_vector(
+    const hardware_vectors::Lease& lease) {
+    if (!hardware_vectors::is_allocatable(lease.vector) ||
+        lease.generation == 0U) {
+        return hardware_vectors::Status::InvalidArgument;
+    }
+    if (!g_initialized) return hardware_vectors::Status::NotInitialized;
+
+    lock_hardware_vectors();
+    if (!hardware_vectors::owns(lease)) {
+        unlock_hardware_vectors();
+        return hardware_vectors::Status::StaleLease;
+    }
+    __atomic_store_n(
+        &g_handlers[lease.vector],
+        static_cast<InterruptHandler>(nullptr),
+        __ATOMIC_RELEASE);
+    const hardware_vectors::Status status = hardware_vectors::release(lease);
+    unlock_hardware_vectors();
+    return status;
+}
+
+bool owns_hardware_vector(const hardware_vectors::Lease& lease) {
+    return g_initialized && hardware_vectors::owns(lease);
 }
 
 void unregister_handler(uint8_t vector) {
@@ -206,6 +285,27 @@ void unregister_irq_handler(uint8_t irq) {
     }
 }
 
+bool set_legacy_irq_apic_delivery(uint8_t irq, bool enabled) {
+    if (!g_initialized || irq >= IRQ_COUNT) return false;
+    const uint16_t bit = static_cast<uint16_t>(UINT16_C(1) << irq);
+    if (enabled) {
+        __atomic_fetch_or(&g_apic_legacy_irq_mask, bit, __ATOMIC_ACQ_REL);
+    } else {
+        __atomic_fetch_and(
+            &g_apic_legacy_irq_mask,
+            static_cast<uint16_t>(~bit),
+            __ATOMIC_ACQ_REL);
+    }
+    return true;
+}
+
+bool legacy_irq_uses_apic(uint8_t irq) {
+    if (irq >= IRQ_COUNT) return false;
+    const uint16_t mask =
+        __atomic_load_n(&g_apic_legacy_irq_mask, __ATOMIC_ACQUIRE);
+    return (mask & static_cast<uint16_t>(UINT16_C(1) << irq)) != 0U;
+}
+
 bool register_irq_schedule_hook(IrqScheduleHook hook) {
     if (!g_initialized || hook == nullptr || g_irq_schedule_hook != nullptr) {
         return false;
@@ -217,6 +317,41 @@ bool register_irq_schedule_hook(IrqScheduleHook hook) {
 void unregister_irq_schedule_hook(IrqScheduleHook hook) {
     if (hook != nullptr && g_irq_schedule_hook == hook) {
         g_irq_schedule_hook = nullptr;
+    }
+}
+
+bool register_software_schedule_hook(SoftwareScheduleHook hook) {
+    if (!g_initialized || hook == nullptr || g_software_schedule_hook != nullptr) {
+        return false;
+    }
+    g_software_schedule_hook = hook;
+    return true;
+}
+
+void unregister_software_schedule_hook(SoftwareScheduleHook hook) {
+    if (hook != nullptr && g_software_schedule_hook == hook) {
+        g_software_schedule_hook = nullptr;
+    }
+}
+
+bool register_fixed_schedule_hook(uint8_t vector, FixedScheduleHook hook) {
+    if (!g_initialized || hook == nullptr ||
+        vector < kFirstSoftwareVector ||
+        vector == apic::SPURIOUS_VECTOR ||
+        hardware_vectors::is_allocatable(vector) ||
+        __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE) == nullptr ||
+        g_fixed_schedule_hook != nullptr) {
+        return false;
+    }
+    g_fixed_schedule_vector = vector;
+    g_fixed_schedule_hook = hook;
+    return true;
+}
+
+void unregister_fixed_schedule_hook(FixedScheduleHook hook) {
+    if (hook != nullptr && g_fixed_schedule_hook == hook) {
+        g_fixed_schedule_hook = nullptr;
+        g_fixed_schedule_vector = 0U;
     }
 }
 
@@ -283,6 +418,25 @@ x86_64_interrupt_dispatch(
             g_last_page_fault_address = read_cr2();
         }
 
+        // A CPL0 exception is fatal kernel state. Capture it before entering
+        // the legacy registered handler so the production snapshot cannot be
+        // replaced by hard-coded PID/TID values or the invalid same-CPL RSP
+        // pseudo-fields beyond the hardware frame. Ring-3 exceptions still
+        // reach the userspace runtime handler first and retain process fault
+        // isolation instead of escalating every application fault to panic.
+        if ((frame->cs & UINT64_C(3)) == UINT64_C(0)) {
+            diagnostics::panic::fatal_exception(*frame);
+        }
+
+        if (vector == 13 && (frame->cs & UINT64_C(3)) == UINT64_C(3)) {
+            log::write_hex(log::Level::Warn, "GP", "error_code=", frame->error_code);
+            log::write_hex(log::Level::Warn, "GP", "rip=", frame->rip);
+            log::write_hex(log::Level::Warn, "GP", "cs=", frame->cs);
+            log::write_hex(log::Level::Warn, "GP", "rflags=", frame->rflags);
+            log::write_hex(log::Level::Warn, "GP", "rsp=", frame->rsp);
+            log::write_hex(log::Level::Warn, "GP", "ss=", frame->ss);
+        }
+
         InterruptHandler handler =
             __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
         if (handler != nullptr) {
@@ -296,7 +450,8 @@ x86_64_interrupt_dispatch(
     if (vector < IRQ_VECTOR_BASE + IRQ_COUNT) {
         const uint8_t irq =
             static_cast<uint8_t>(vector - IRQ_VECTOR_BASE);
-        if (!drivers::pic::begin_irq(irq)) {
+        const bool via_apic = legacy_irq_uses_apic(irq);
+        if (!via_apic && !drivers::pic::begin_irq(irq)) {
             return frame;
         }
 
@@ -305,7 +460,11 @@ x86_64_interrupt_dispatch(
             handler();
         }
 
-        drivers::pic::send_eoi(irq);
+        if (via_apic) {
+            arch::x86_64::apic::send_eoi();
+        } else {
+            drivers::pic::send_eoi(irq);
+        }
         IrqScheduleHook schedule_hook = g_irq_schedule_hook;
         if (schedule_hook != nullptr) {
             InterruptFrame* selected = schedule_hook(irq, *frame);
@@ -316,10 +475,52 @@ x86_64_interrupt_dispatch(
         return frame;
     }
 
+    // The dynamic hardware range is never a software-scheduling boundary.
+    // Even an unowned/late interrupt is acknowledged and returned without
+    // entering the Ring-3 syscall scheduling hook.
+    if (arch::x86_64::hardware_vectors::is_allocatable(vector)) {
+        InterruptHandler handler =
+            __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
+        if (handler != nullptr &&
+            arch::x86_64::hardware_vectors::claimed(vector)) {
+            handler(*frame);
+        }
+        arch::x86_64::apic::send_eoi();
+        return frame;
+    }
+
+    if (vector == arch::x86_64::apic::SPURIOUS_VECTOR &&
+        arch::x86_64::apic::local_enabled()) {
+        return frame;
+    }
+
     InterruptHandler handler =
         __atomic_load_n(&g_handlers[vector], __ATOMIC_ACQUIRE);
     if (handler != nullptr) {
         handler(*frame);
+    }
+
+    FixedScheduleHook fixed_hook = g_fixed_schedule_hook;
+    if (fixed_hook != nullptr && vector == g_fixed_schedule_vector) {
+        arch::x86_64::apic::send_eoi();
+        disable();
+        InterruptFrame* selected = fixed_hook(vector, *frame);
+        return selected != nullptr ? selected : frame;
+    }
+
+    // User-callable software gates are trap gates, so IF can remain set while
+    // the syscall handler runs. Once the handler has completed, frame state,
+    // process lifecycle transitions, and scheduler selection must be atomic.
+    // This also covers SYS_EXIT, whose handler rewrites CS to ring 0 before
+    // the scheduler hook can recognize the frame as a ring-3 origin.
+    disable();
+
+    SoftwareScheduleHook schedule_hook = g_software_schedule_hook;
+    if (schedule_hook != nullptr) {
+        InterruptFrame* selected = schedule_hook(vector, *frame);
+        if (selected != nullptr) {
+            return selected;
+        }
     }
     return frame;
 }

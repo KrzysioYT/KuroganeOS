@@ -116,9 +116,8 @@ void write_u64(uint8_t* output, uint64_t value) {
     write_u32(output + 4U, static_cast<uint32_t>(value >> 32U));
 }
 
-void tag_disk(MemoryDisk& disk) {
-    constexpr char magic[] = "KUROGANE_AHCI_SCRATCH_V1";
-    std::memcpy(disk.bytes.data(), magic, sizeof(magic) - 1U);
+void tag_disk_with_magic(MemoryDisk& disk, const char* magic) {
+    std::memcpy(disk.bytes.data(), magic, std::strlen(magic));
     write_u32(disk.bytes.data() + 32U, 1U);
     write_u32(disk.bytes.data() + 36U, 64U);
     write_u64(disk.bytes.data() + 40U, SECTOR_COUNT);
@@ -129,6 +128,14 @@ void tag_disk(MemoryDisk& disk) {
         disk.bytes[static_cast<size_t>(TEST_LBA) * SECTOR_SIZE + index] =
             static_cast<uint8_t>((index * 37U + 11U) & 0xFFU);
     }
+}
+
+void tag_disk(MemoryDisk& disk) {
+    tag_disk_with_magic(disk, "KUROGANE_AHCI_SCRATCH_V1");
+}
+
+void tag_generic_disk(MemoryDisk& disk) {
+    tag_disk_with_magic(disk, "KUROGANE_BLOCK_SCRATCH_V1");
 }
 
 bool expect(bool condition, const char* message) {
@@ -176,6 +183,19 @@ bool test_success_restores_original() {
            expect(disk.writes == 2U && disk.flushes == 2U && disk.reads == 4U,
                   "success I/O sequence") &&
            expect(disk.bytes == original, "success exact restoration");
+}
+
+bool test_generic_block_magic_restores_original() {
+    MemoryDisk disk{};
+    tag_generic_disk(disk);
+    const auto original = disk.bytes;
+    auto device = make_device(disk);
+    storage::scratch_test::Workspace workspace{};
+    const auto result = storage::scratch_test::run(&device, &workspace);
+    return expect(result.status == ScratchStatus::Ok, "generic magic status") &&
+           expect(result.write_attempted && result.restored,
+                  "generic magic lifecycle") &&
+           expect(disk.bytes == original, "generic magic exact restoration");
 }
 
 bool test_verification_mismatch_is_recovered() {
@@ -232,6 +252,7 @@ int main() {
     const bool ok = test_untagged_never_writes() &&
                     test_invalid_header_never_writes() &&
                     test_success_restores_original() &&
+                    test_generic_block_magic_restores_original() &&
                     test_verification_mismatch_is_recovered() &&
                     test_write_failure_is_recovered() &&
                     test_restore_failure_takes_precedence();

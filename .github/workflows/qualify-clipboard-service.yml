@@ -1,0 +1,78 @@
+name: Qualify Clipboard Service lifecycle
+
+on:
+  pull_request:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'userspace/system/clipboardd/**'
+      - 'userspace/system/clipboard-probe/**'
+      - 'sdk/include/kurogane/clipboard.h'
+      - '.github/workflows/qualify-clipboard-service.yml'
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - 'userspace/system/clipboardd/**'
+      - 'userspace/system/clipboard-probe/**'
+      - 'sdk/include/kurogane/clipboard.h'
+      - '.github/workflows/qualify-clipboard-service.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clipboard-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: recursive
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Launch and reap qualification probe before login
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          probe = r'''
+              {
+                  const ku_result_t pid = u_spawn("/system/clipprb");
+                  int32_t exit_status = -1;
+                  ku_status_t waited = KU_STATUS_WOULD_BLOCK;
+                  if (pid <= 0) ku_exit(80);
+                  for (uint32_t attempt = 0; attempt < 1000U; ++attempt) {
+                      waited = ku_wait((uint64_t)pid, &exit_status);
+                      if (waited != KU_STATUS_WOULD_BLOCK) break;
+                      (void)ku_sleep(1U);
+                  }
+                  if (waited != KU_STATUS_OK || exit_status != 0) ku_exit(81);
+                  (void)u_puts("[TEST] clipboard_probe_reaped: PASS\n");
+              }
+          '''
+          if text.count(anchor) != 1:
+              raise SystemExit('clipboard probe launch anchor changed')
+          path.write_text(text.replace(anchor, anchor + probe, 1))
+      - name: Build full release media
+        run: bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require real kernel IPC and continued login
+        run: |
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none \
+            --log-dir build/tests/clipboard-runtime --timeout 180 \
+            --require-marker '[TEST] clipboard_unicode_validation: PASS' \
+            --require-marker '[TEST] clipboard_service_roundtrip: PASS' \
+            --require-marker '[TEST] clipboard_probe_reaped: PASS' \
+            --require-marker '[TEST] clipboard_service_liveness: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clipboard-runtime-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/clipboard-runtime
+          if-no-files-found: warn

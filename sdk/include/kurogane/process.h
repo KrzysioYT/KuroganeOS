@@ -14,5 +14,9 @@ static inline ku_result_t ku_process_spawn(const char* path, size_t size) {
 static inline ku_status_t ku_process_wait(ku_pid_t pid, int32_t* status) {
     return ku_wait(pid, status);
 }
+static inline ku_status_t ku_process_terminate_child(ku_pid_t pid, int32_t status) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_TERMINATE_CHILD, pid, (uint64_t)(int64_t)status, 0U);
+}
 
 #endif

@@ -1,0 +1,90 @@
+name: Qualify 5.4 Platform Portability
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-platform-portability.yml'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/hardware/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_cpu_info.cpp'
+      - 'tests/test_acpi*.cpp'
+      - 'tests/test_hpet_table.cpp'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-platform-portability.yml'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/hardware/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_cpu_info.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  platform-portability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify platform-neutral source
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+          grep -Fq 'Vendor::Intel' kernel/arch/x86_64/cpu.cpp
+          grep -Fq 'Vendor::Amd' kernel/arch/x86_64/cpu.cpp
+          ! grep -R -E 'if[[:space:]]*\([^)]*(VirtualBox|QEMU|VMware)'             kernel --include='*.cpp' --include='*.hpp'
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Intel-like four-CPU UEFI ACPI SMP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --smp 4             --cpu-model 'max,vendor=GenuineIntel' --nic none             --log-dir build/tests/platform-intel --timeout 160             --require-marker '[TEST] cpu_vendor_intel: PASS'             --require-marker '[TEST] cpu_discovery: PASS'             --require-marker '[TEST] acpi_madt: PASS'             --require-marker '[TEST] hpet_main_counter: PASS'             --require-marker '[TEST] smp_ap_startup: PASS'             --require-marker '[TEST] smp_cross_cpu_work: PASS'             --require-marker '[TEST] smp_tlb_shootdown: PASS'             --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|cpu_discovery: FAIL|smp_.*: FAIL'             build/tests/platform-intel/serial.log
+
+      - name: AMD-like four-CPU UEFI ACPI SMP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --smp 4             --cpu-model 'max,vendor=AuthenticAMD' --nic none             --log-dir build/tests/platform-amd --timeout 160             --require-marker '[TEST] cpu_vendor_amd: PASS'             --require-marker '[TEST] cpu_discovery: PASS'             --require-marker '[TEST] acpi_madt: PASS'             --require-marker '[TEST] hpet_main_counter: PASS'             --require-marker '[TEST] smp_ap_startup: PASS'             --require-marker '[TEST] smp_cross_cpu_work: PASS'             --require-marker '[TEST] smp_tlb_shootdown: PASS'             --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|cpu_discovery: FAIL|smp_.*: FAIL'             build/tests/platform-amd/serial.log
+
+      - name: Retain platform portability logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-portability-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/tests/platform-intel
+            build/tests/platform-amd
+          if-no-files-found: warn

@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/display.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/network.h>
 #include <kurogane/status.h>
@@ -11,21 +12,28 @@
 
 #include "elf_loader.hpp"
 #include "console.hpp"
+#include "file_handle.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
+#include "../core/string.hpp"
+#include "../apps/framework.hpp"
+#include "console_fallback_policy.hpp"
 #include "../core/system_metrics.hpp"
-#include "../drivers/audio/ac97.hpp"
+#include "../drivers/audio/audio_backend.hpp"
 #include "../fs/root_volume.hpp"
 #include "../memory/allocator.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
+#include "../net/socket.hpp"
 #include "../task/process.hpp"
 #include "../task/thread.hpp"
 #include "../terminal.hpp"
 #include "../drivers/framebuffer.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
+#include "ui_event_queue.hpp"
+#include "child_termination_policy.hpp"
 
 struct UserReturnState {
     uint64_t kernel_rsp;
@@ -69,14 +77,10 @@ struct Allocation {
     bool active;
 };
 
-constexpr size_t kMaximumUiEvents = 16U;
-
 struct UiState {
     ku_ui_frame frame;
-    ku_ui_event events[kMaximumUiEvents];
+    ui_event_queue::Queue events;
     windowing::WindowId window;
-    uint8_t head;
-    uint8_t tail;
     bool active;
 };
 
@@ -94,6 +98,229 @@ struct Context {
     bool active;
 };
 
+bool native_text_terminated(const char text[KU_UI_NATIVE_TEXT_CAPACITY]) {
+    for (size_t index = 0U; index < KU_UI_NATIVE_TEXT_CAPACITY; ++index) {
+        if (text[index] == '\0') return true;
+    }
+    return false;
+}
+
+bool native_command_valid(
+    const ku_ui_native_command& command, uint32_t version) {
+    const uint32_t maximum_type = version >= KU_UI_NATIVE_VERSION_3
+        ? KU_UI_NATIVE_TOGGLE
+        : (version >= KU_UI_NATIVE_VERSION_2
+            ? KU_UI_NATIVE_TILE : KU_UI_NATIVE_SEPARATOR);
+    uint32_t allowed_flags = KU_UI_NATIVE_SELECTED | KU_UI_NATIVE_DISABLED;
+    if (version >= KU_UI_NATIVE_VERSION_2) {
+        allowed_flags |= KU_UI_NATIVE_PINNED | KU_UI_NATIVE_RUNNING;
+    }
+    if (version >= KU_UI_NATIVE_VERSION_4) {
+        allowed_flags |= KU_UI_NATIVE_DESTRUCTIVE;
+    }
+    if (command.type < KU_UI_NATIVE_PANEL || command.type > maximum_type ||
+        (command.flags & ~allowed_flags) != 0U || command.reserved != 0U ||
+        !native_text_terminated(command.text)) {
+        return false;
+    }
+    if (command.x < 0 || command.y < 0 || command.height <= 0 || command.width < 0 ||
+        command.x > KU_UI_NATIVE_COORD_LIMIT || command.y > KU_UI_NATIVE_COORD_LIMIT ||
+        command.width > KU_UI_NATIVE_COORD_LIMIT || command.height > KU_UI_NATIVE_COORD_LIMIT) {
+        return false;
+    }
+    if ((command.type == KU_UI_NATIVE_PROGRESS ||
+         command.type == KU_UI_NATIVE_METRIC ||
+         command.type == KU_UI_NATIVE_NOTICE ||
+         command.type == KU_UI_NATIVE_TOGGLE) && command.maximum == 0U) return false;
+    if (command.type == KU_UI_NATIVE_NOTICE &&
+        (command.value < 1U || command.value > 4U || command.maximum != 4U)) return false;
+    if (command.type == KU_UI_NATIVE_TOGGLE &&
+        (command.value > 1U || command.maximum != 1U)) return false;
+    if ((command.flags & KU_UI_NATIVE_DESTRUCTIVE) != 0U &&
+        command.type != KU_UI_NATIVE_BUTTON) return false;
+    if (command.type == KU_UI_NATIVE_TILE) {
+        const uint32_t icon_limit = version >= KU_UI_NATIVE_VERSION_3
+            ? static_cast<uint32_t>(KU_UI_NATIVE_ICON_COUNT) : UINT32_C(8);
+        if (command.value >= icon_limit) return false;
+    }
+    return true;
+}
+
+bool native_frame_valid(const ku_ui_native_frame& frame) {
+    if (frame.structure_size != sizeof(ku_ui_native_frame) ||
+        frame.magic != KU_UI_NATIVE_MAGIC ||
+        (frame.version != KU_UI_NATIVE_VERSION_1 &&
+         frame.version != KU_UI_NATIVE_VERSION_2 &&
+         frame.version != KU_UI_NATIVE_VERSION_3 &&
+         frame.version != KU_UI_NATIVE_VERSION_4) ||
+        frame.command_count > KU_UI_NATIVE_MAX_COMMANDS || frame.reserved != 0U) {
+        return false;
+    }
+    for (uint32_t index = 0U; index < frame.command_count; ++index) {
+        if (!native_command_valid(frame.commands[index], frame.version)) return false;
+    }
+    return true;
+}
+
+ui::Rect native_bounds(
+    const ui::Rect& content,
+    const ku_ui_native_command& command) {
+    int32_t width = command.width;
+    if (width == 0) width = content.width - command.x - 16;
+    if (width < 1) width = 1;
+    const int32_t available_width = content.width - command.x;
+    if (available_width > 0 && width > available_width) width = available_width;
+    int32_t height = command.height;
+    const int32_t available_height = content.height - command.y;
+    if (available_height > 0 && height > available_height) height = available_height;
+    if (height < 1) height = 1;
+    return {content.x + command.x, content.y + command.y, width, height};
+}
+
+void split_native_tile_text(
+    const char* text, char title[32], char subtitle[32]) {
+    size_t source = 0U;
+    size_t title_size = 0U;
+    size_t subtitle_size = 0U;
+    bool second = false;
+    title[0] = '\0';
+    subtitle[0] = '\0';
+    if (text == nullptr) return;
+    while (source < KU_UI_NATIVE_TEXT_CAPACITY && text[source] != '\0') {
+        const char value = text[source++];
+        if (!second && value == '\n') {
+            second = true;
+            continue;
+        }
+        if (!second) {
+            if (title_size + 1U < 32U) title[title_size++] = value;
+        } else if (subtitle_size + 1U < 32U) {
+            subtitle[subtitle_size++] = value;
+        }
+    }
+    title[title_size] = '\0';
+    subtitle[subtitle_size] = '\0';
+}
+
+void draw_native_frame(
+    windowing::WindowId window,
+    const ku_ui_native_frame& frame,
+    const ui::Rect& content,
+    bool focused) {
+    windowing::InteractionSnapshot interaction{};
+    const bool pointer_owner =
+        windowing::interaction_snapshot(&interaction) == windowing::Status::Ok &&
+        interaction.hovered == window;
+    const int32_t pointer_x = input::pointer_x();
+    const int32_t pointer_y = input::pointer_y();
+    const bool primary_down =
+        (input::pointer_buttons() & drivers::mouse::Left) != 0U;
+    const ku_flux_scene_colors live = ku_flux_resolve_scene_colors(
+        frame.background_rgb & UINT32_C(0xFFFFFF),
+        frame.foreground_rgb & UINT32_C(0xFFFFFF),
+        frame.accent_rgb & UINT32_C(0xFFFFFF),
+        ui::desktop_theme_id());
+    const graphics::Color background = live.background;
+    const graphics::Color foreground = live.foreground;
+    const graphics::Color accent = live.accent;
+    graphics::fill_rect(content.x, content.y, content.width, content.height, background);
+    if (content.width > 48) {
+        graphics::fill_rect(content.x + 16, content.y + 7,
+                            content.width - 32, 1,
+                            focused ? accent : graphics::rgb(45, 47, 52));
+    }
+
+    for (uint32_t index = 0U; index < frame.command_count; ++index) {
+        const ku_ui_native_command& command = frame.commands[index];
+        const ui::Rect bounds = native_bounds(content, command);
+        const bool selected = (command.flags & KU_UI_NATIVE_SELECTED) != 0U;
+        const bool disabled = (command.flags & KU_UI_NATIVE_DISABLED) != 0U;
+        const bool destructive =
+            (command.flags & KU_UI_NATIVE_DESTRUCTIVE) != 0U;
+        const bool interactive = !disabled &&
+            (command.type == KU_UI_NATIVE_BUTTON ||
+             command.type == KU_UI_NATIVE_INPUT ||
+             command.type == KU_UI_NATIVE_LIST_ITEM ||
+             command.type == KU_UI_NATIVE_TILE ||
+             command.type == KU_UI_NATIVE_TOGGLE);
+        const bool hovered = pointer_owner && interactive &&
+            ui::contains(bounds, pointer_x, pointer_y);
+        const bool pressed = hovered && primary_down;
+        switch (command.type) {
+            case KU_UI_NATIVE_PANEL:
+                ui::panel(bounds, true);
+                graphics::draw_text(bounds.x + 12, bounds.y + 11, command.text,
+                                    foreground, background, 1U, true);
+                break;
+            case KU_UI_NATIVE_LABEL:
+                graphics::draw_text(bounds.x, bounds.y + 6, command.text,
+                                    disabled ? ui::default_theme().text_muted : foreground,
+                                    background, 1U, true);
+                break;
+            case KU_UI_NATIVE_BUTTON:
+                ui::button(
+                    bounds, command.text, selected, hovered, pressed, destructive);
+                break;
+            case KU_UI_NATIVE_INPUT:
+                ui::input_field(bounds, command.text, selected, hovered, pressed);
+                break;
+            case KU_UI_NATIVE_LIST_ITEM:
+                ui::list_row(bounds, command.text, selected, disabled, hovered, pressed);
+                break;
+            case KU_UI_NATIVE_PROGRESS: {
+                graphics::draw_text(bounds.x, bounds.y, command.text,
+                                    foreground, background, 1U, true);
+                const int32_t bar_y = bounds.y + 18;
+                const int32_t bar_height = bounds.height > 24 ? bounds.height - 20 : 8;
+                ui::progress({bounds.x, bar_y, bounds.width, bar_height},
+                             command.value, command.maximum);
+                break;
+            }
+            case KU_UI_NATIVE_SEPARATOR:
+                ui::separator(bounds.x, bounds.y + bounds.height / 2, bounds.width);
+                break;
+            case KU_UI_NATIVE_METRIC: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::metric_card(
+                    bounds, title, detail, command.value, command.maximum);
+                break;
+            }
+            case KU_UI_NATIVE_NOTICE: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::notice_card(bounds, title, detail, command.value);
+                break;
+            }
+            case KU_UI_NATIVE_TOGGLE: {
+                char title[32];
+                char detail[32];
+                split_native_tile_text(command.text, title, detail);
+                ui::toggle_switch(
+                    bounds, title, detail, command.value != 0U, hovered, pressed);
+                break;
+            }
+            case KU_UI_NATIVE_TILE: {
+                char title[32];
+                char subtitle[32];
+                split_native_tile_text(command.text, title, subtitle);
+                ui::app_tile(
+                    bounds, title, subtitle,
+                    static_cast<ui::AppIcon>(command.value),
+                    selected,
+                    (command.flags & KU_UI_NATIVE_PINNED) != 0U,
+                    (command.flags & KU_UI_NATIVE_RUNNING) != 0U,
+                    hovered, pressed);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+}
+
 void draw_user_window(
     windowing::WindowId,
     const ui::Rect& content,
@@ -101,7 +328,28 @@ void draw_user_window(
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
     if (context == nullptr || !context->active || !context->ui.active) return;
-    const ku_ui_frame& frame = context->ui.frame;
+
+    windowing::SurfaceView retained{};
+    if (windowing::read_surface(context->ui.window, &retained) == windowing::Status::Ok &&
+        retained.data != nullptr && retained.size == sizeof(ku_ui_native_frame)) {
+        ku_ui_native_frame native{};
+        auto* destination = reinterpret_cast<uint8_t*>(&native);
+        for (size_t index = 0U; index < sizeof(native); ++index) {
+            destination[index] = retained.data[index];
+        }
+        if (native_frame_valid(native)) {
+            draw_native_frame(context->ui.window, native, content, focused);
+            return;
+        }
+    }
+
+    ku_ui_frame frame = context->ui.frame;
+    if (retained.data != nullptr && retained.size == sizeof(frame)) {
+        auto* destination = reinterpret_cast<uint8_t*>(&frame);
+        for (size_t index = 0U; index < sizeof(frame); ++index) {
+            destination[index] = retained.data[index];
+        }
+    }
     const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
     const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
@@ -127,35 +375,42 @@ void draw_user_window(
 }
 
 void queue_user_event(Context& context, const ku_ui_event& event) {
-    const uint8_t next = static_cast<uint8_t>(
-        (context.ui.head + 1U) % kMaximumUiEvents);
-    if (next == context.ui.tail) {
-        context.ui.tail = static_cast<uint8_t>(
-            (context.ui.tail + 1U) % kMaximumUiEvents);
-    }
-    context.ui.events[context.ui.head] = event;
-    context.ui.head = next;
+    static_cast<void>(ui_event_queue::push(context.ui.events, event));
 }
 
 void input_user_window(
-    windowing::WindowId,
+    windowing::WindowId window,
     const input::Event& input_event,
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
-    if (context == nullptr || !context->active || !context->ui.active) return;
+    if (context == nullptr || !context->active || !context->ui.active ||
+        context->ui.window != window) return;
     ku_ui_event event{};
     event.structure_size = sizeof(event);
     if (input_event.type == input::EventType::KeyDown) {
         event.type = KU_UI_EVENT_KEY;
         event.key = static_cast<uint32_t>(input_event.key);
         event.character = static_cast<uint8_t>(input_event.character);
+        event.modifiers =
+            (input_event.shift ? KU_UI_MOD_SHIFT : 0U) |
+            (input_event.control ? KU_UI_MOD_CONTROL : 0U) |
+            (input_event.alt ? KU_UI_MOD_ALT : 0U);
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
-               input_event.type == input::EventType::MouseButtonUp) {
-        event.type = KU_UI_EVENT_POINTER;
-        event.x = input_event.x;
-        event.y = input_event.y;
+               input_event.type == input::EventType::MouseButtonUp ||
+               input_event.type == input::EventType::MouseWheel) {
+        ui::Rect content{};
+        if (windowing::content_geometry(window, &content) != windowing::Status::Ok) {
+            return;
+        }
+        event.type = input_event.type == input::EventType::MouseWheel
+            ? KU_UI_EVENT_SCROLL : KU_UI_EVENT_POINTER;
+        event.x = input_event.x - content.x;
+        event.y = input_event.y - content.y;
         event.buttons = input_event.buttons;
+        if (input_event.type == input::EventType::MouseWheel) {
+            event.wheel_y = static_cast<int32_t>(input_event.wheel);
+        }
     } else {
         return;
     }
@@ -164,8 +419,94 @@ void input_user_window(
 
 bool g_initialized = false;
 Context* g_contexts[kMaximumContexts]{};
+Context g_context_storage[kMaximumContexts]{};
+bool g_context_storage_used[kMaximumContexts]{};
 uint64_t g_process_identity = 0U;
 uint64_t g_audio_owner_pid = 0U;
+
+struct SocketWaiter {
+    uint64_t pid;
+    threading::ThreadId tid;
+    net::socket::Handle socket;
+    uint32_t requested;
+    uint64_t deadline_tick;
+    bool finite_timeout;
+    bool active;
+};
+
+SocketWaiter g_socket_waiters[kMaximumContexts]{};
+
+ku_status_t socket_wait_status(net::socket::Status status) {
+    using SocketStatus = net::socket::Status;
+    switch (status) {
+        case SocketStatus::Ok:
+        case SocketStatus::AlreadyInitialized: return KU_STATUS_OK;
+        case SocketStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
+        case SocketStatus::StaleHandle: return KU_STATUS_STALE_HANDLE;
+        case SocketStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
+        case SocketStatus::CapacityReached: return KU_STATUS_OUT_OF_MEMORY;
+        case SocketStatus::AccessDenied: return KU_STATUS_ACCESS_DENIED;
+        case SocketStatus::AddressInUse: return KU_STATUS_ALREADY_EXISTS;
+        case SocketStatus::WouldBlock: return KU_STATUS_WOULD_BLOCK;
+        case SocketStatus::BufferTooSmall:
+        case SocketStatus::PayloadTooLarge: return KU_STATUS_OUT_OF_RANGE;
+        case SocketStatus::ConnectionRefused: return KU_STATUS_CONNECTION_REFUSED;
+        case SocketStatus::ConnectionReset: return KU_STATUS_CONNECTION_RESET;
+        case SocketStatus::TimedOut: return KU_STATUS_TIMED_OUT;
+        case SocketStatus::NotInitialized:
+        case SocketStatus::NotBound:
+        case SocketStatus::NotConnected: return KU_STATUS_BAD_STATE;
+        case SocketStatus::TransportError: return KU_STATUS_IO_ERROR;
+    }
+    return KU_STATUS_IO_ERROR;
+}
+
+void clear_socket_waiter(threading::ThreadId tid) {
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (waiter.active && waiter.tid == tid) waiter = {};
+    }
+}
+
+SocketWaiter* reserve_socket_waiter(threading::ThreadId tid) {
+    clear_socket_waiter(tid);
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (!waiter.active) return &waiter;
+    }
+    return nullptr;
+}
+
+void socket_wait_pre_dispatch() {
+    const uint64_t now = threading::timer_ticks();
+    for (SocketWaiter& waiter : g_socket_waiters) {
+        if (!waiter.active) continue;
+        threading::Stat stat{};
+        if (threading::stat(waiter.tid, &stat) != threading::Status::Ok ||
+            stat.process_id != waiter.pid || stat.state != threading::State::Blocked) {
+            waiter = {};
+            continue;
+        }
+
+        uint32_t ready = net::socket::ReadyNone;
+        const net::socket::Status status = net::socket::readiness(
+            waiter.pid, waiter.socket, waiter.requested, &ready);
+        uint64_t completion = 0U;
+        bool complete = false;
+        if (status != net::socket::Status::Ok) {
+            completion = static_cast<uint64_t>(socket_wait_status(status));
+            complete = true;
+        } else if ((ready & waiter.requested) != 0U) {
+            completion = ready;
+            complete = true;
+        } else if (waiter.finite_timeout && now >= waiter.deadline_tick) {
+            completion = static_cast<uint64_t>(KU_STATUS_TIMED_OUT);
+            complete = true;
+        }
+        if (!complete) continue;
+        const threading::ThreadId tid = waiter.tid;
+        waiter = {};
+        static_cast<void>(threading::wake_user(tid, completion));
+    }
+}
 
 uint64_t save_and_disable_interrupts() {
     uint64_t flags = 0U;
@@ -179,6 +520,31 @@ void restore_interrupts(uint64_t flags) {
         :
         : "r"(flags)
         : "memory", "cc");
+}
+
+Context* acquire_context_storage() {
+    const uint64_t flags = save_and_disable_interrupts();
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        if (g_context_storage_used[index]) continue;
+        g_context_storage_used[index] = true;
+        g_context_storage[index] = {};
+        restore_interrupts(flags);
+        return &g_context_storage[index];
+    }
+    restore_interrupts(flags);
+    return nullptr;
+}
+
+void release_context_storage(Context* context) {
+    if (context == nullptr) return;
+    const uint64_t flags = save_and_disable_interrupts();
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        if (&g_context_storage[index] != context) continue;
+        g_context_storage[index] = {};
+        g_context_storage_used[index] = false;
+        break;
+    }
+    restore_interrupts(flags);
 }
 
 Context* current_context() {
@@ -326,15 +692,26 @@ bool validate_user_buffer(
 
 uint64_t encode_handle(size_t index, uint32_t generation) {
     return (static_cast<uint64_t>(generation) << 32U) |
-        static_cast<uint64_t>(index + 3U);
+        static_cast<uint64_t>(index + user::file_handle::FIRST_DESCRIPTOR);
 }
 
-HandleSlot* decode_handle(Context& context, uint64_t handle) {
-    const uint64_t encoded = handle & UINT64_C(0xFFFFFFFF);
-    const uint32_t generation = static_cast<uint32_t>(handle >> 32U);
-    if (encoded < 3U || encoded >= 3U + kMaximumHandles) return nullptr;
-    HandleSlot& slot = context.handles[static_cast<size_t>(encoded - 3U)];
-    return slot.active && slot.generation == generation ? &slot : nullptr;
+ku_status_t file_handle_status(user::file_handle::Resolution resolution) {
+    switch (resolution) {
+        case user::file_handle::Resolution::Ok: return KU_STATUS_OK;
+        case user::file_handle::Resolution::Invalid:
+            return KU_STATUS_INVALID_ARGUMENT;
+        case user::file_handle::Resolution::Stale:
+            return KU_STATUS_STALE_HANDLE;
+    }
+    return KU_STATUS_INVALID_ARGUMENT;
+}
+
+void sync_process_handle_count(Context& context) {
+    uint32_t count = 0U;
+    for (const HandleSlot& handle : context.handles) {
+        if (handle.active) ++count;
+    }
+    static_cast<void>(process::set_handle_count(context.pid, count));
 }
 
 ku_status_t vfs_status(fs::vfs::Status status) {
@@ -352,10 +729,10 @@ ku_status_t vfs_status(fs::vfs::Status status) {
         case fs::vfs::Status::InvalidFlags:
         case fs::vfs::Status::InvalidPath:
         case fs::vfs::Status::InvalidHandle:
-        case fs::vfs::Status::StaleHandle:
         case fs::vfs::Status::NameTooLong:
         case fs::vfs::Status::PathTooLong:
         case fs::vfs::Status::PathTooDeep: return KU_STATUS_INVALID_ARGUMENT;
+        case fs::vfs::Status::StaleHandle: return KU_STATUS_STALE_HANDLE;
         case fs::vfs::Status::OutOfRange:
         case fs::vfs::Status::ArithmeticOverflow:
         case fs::vfs::Status::BufferTooSmall: return KU_STATUS_OUT_OF_RANGE;
@@ -378,6 +755,7 @@ ku_status_t network_status(net::Status status) {
         case net::Status::Ok: return KU_STATUS_OK;
         case net::Status::WouldBlock:
         case net::Status::NeighborResolutionPending: return KU_STATUS_WOULD_BLOCK;
+        case net::Status::NameNotFound: return KU_STATUS_NOT_FOUND;
         case net::Status::InvalidArgument:
         case net::Status::InvalidConfiguration: return KU_STATUS_INVALID_ARGUMENT;
         case net::Status::BufferTooSmall:
@@ -390,20 +768,15 @@ ku_status_t network_status(net::Status status) {
     }
 }
 
-ku_status_t audio_status(drivers::audio::ac97::Status status) {
-    using AudioStatus = drivers::audio::ac97::Status;
+ku_status_t audio_status(drivers::audio::Status status) {
+    using AudioStatus = drivers::audio::Status;
     switch (status) {
         case AudioStatus::Ok: return KU_STATUS_OK;
-        case AudioStatus::AlreadyInitialized: return KU_STATUS_OK;
-        case AudioStatus::NotInitialized:
-        case AudioStatus::NoDevice: return KU_STATUS_BAD_STATE;
-        case AudioStatus::UnsupportedDevice: return KU_STATUS_NOT_SUPPORTED;
+        case AudioStatus::NotInitialized: return KU_STATUS_BAD_STATE;
+        case AudioStatus::NotSupported: return KU_STATUS_NOT_SUPPORTED;
         case AudioStatus::InvalidArgument: return KU_STATUS_INVALID_ARGUMENT;
         case AudioStatus::BufferTooLarge: return KU_STATUS_OUT_OF_RANGE;
         case AudioStatus::DeviceBusy: return KU_STATUS_WOULD_BLOCK;
-        case AudioStatus::InvalidBar:
-        case AudioStatus::DmaAllocationFailed:
-        case AudioStatus::CodecResetFailed:
         case AudioStatus::DeviceFault: return KU_STATUS_IO_ERROR;
     }
     return KU_STATUS_IO_ERROR;
@@ -572,6 +945,9 @@ void finish_from_interrupt(
     Context& context,
     arch::x86_64::interrupts::InterruptFrame& frame,
     int32_t exit_code) {
+    const uint64_t interrupt_flags = save_and_disable_interrupts();
+    const threading::Status retirement_status =
+        threading::retire_current_user_frame();
     context.result.exit_code = exit_code;
     context.active = false;
     frame.rip = reinterpret_cast<uint64_t>(&x86_64_interrupt_return_to_kernel);
@@ -580,6 +956,13 @@ void finish_from_interrupt(
     frame.ss = arch::x86_64::gdt::KERNEL_DATA_SELECTOR;
     frame.rflags = UINT64_C(0x2);
     frame.rdi = context.return_state.kernel_rflags;
+    restore_interrupts(interrupt_flags);
+    if (retirement_status != threading::Status::Ok) {
+        log::write(
+            log::Level::Error,
+            "RUNTIME",
+            threading::status_message(retirement_status));
+    }
 }
 
 void syscall_handler(
@@ -623,11 +1006,14 @@ void syscall_handler(
                 frame.rax = count;
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, descriptor);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, descriptor);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             size_t bytes_written = 0U;
             const fs::vfs::Status status = fs::root_volume::write(
                 handle->file,
@@ -665,11 +1051,14 @@ void syscall_handler(
                     ? static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK) : bytes_read;
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, descriptor);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, descriptor);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             size_t bytes_read = 0U;
             const fs::vfs::Status status = fs::root_volume::read(
                 handle->file,
@@ -713,19 +1102,24 @@ void syscall_handler(
             if (slot.generation == 0U) ++slot.generation;
             slot.file = file;
             slot.active = true;
+            sync_process_handle_count(*context);
             frame.rax = encode_handle(slot_index, slot.generation);
             return;
         }
         case KU_SYS_CLOSE: {
-            HandleSlot* slot = decode_handle(*context, frame.rdi);
-            if (slot == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, frame.rdi);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* slot = resolved.slot;
             const fs::vfs::Status status = fs::root_volume::close(slot->file);
             if (status == fs::vfs::Status::Ok) {
                 slot->active = false;
                 slot->file = {};
+                sync_process_handle_count(*context);
             }
             frame.rax = static_cast<uint64_t>(vfs_status(status));
             return;
@@ -766,11 +1160,14 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, frame.rdi);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, frame.rdi);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             fs::vfs::DirectoryEntry entry{};
             const fs::vfs::Status status = fs::root_volume::readdir(
                 handle->file, &entry);
@@ -857,11 +1254,14 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            HandleSlot* handle = decode_handle(*context, request->file);
-            if (handle == nullptr) {
-                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            const auto resolved = user::file_handle::resolve(
+                context->handles, kMaximumHandles, request->file);
+            if (resolved.resolution != user::file_handle::Resolution::Ok) {
+                frame.rax = static_cast<uint64_t>(
+                    file_handle_status(resolved.resolution));
                 return;
             }
+            HandleSlot* handle = resolved.slot;
             fs::vfs::SeekOrigin origin = fs::vfs::SeekOrigin::Begin;
             switch (request->origin) {
                 case KU_FILE_SEEK_BEGIN:
@@ -960,6 +1360,96 @@ void syscall_handler(
                         ? KU_STATUS_OUT_OF_MEMORY : KU_STATUS_BAD_STATE);
             return;
         }
+        case KU_SYS_SOCKET_WAIT: {
+            if (frame.rdi == KU_SOCKET_INVALID || frame.rsi == 0U ||
+                (frame.rsi & ~static_cast<uint64_t>(KU_SOCKET_READY_ALL)) != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            uint32_t ready = net::socket::ReadyNone;
+            const net::socket::Status readiness_status = net::socket::readiness(
+                context->pid, static_cast<net::socket::Handle>(frame.rdi),
+                static_cast<uint32_t>(frame.rsi), &ready);
+            if (readiness_status != net::socket::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(socket_wait_status(readiness_status));
+                return;
+            }
+            if ((ready & static_cast<uint32_t>(frame.rsi)) != 0U) {
+                frame.rax = ready;
+                return;
+            }
+            if (frame.rdx == 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_TIMED_OUT);
+                return;
+            }
+            SocketWaiter* waiter = reserve_socket_waiter(context->tid);
+            if (waiter == nullptr) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_MEMORY);
+                return;
+            }
+            const uint64_t now = threading::timer_ticks();
+            const bool finite = frame.rdx != UINT64_MAX;
+            const uint64_t deadline = !finite || frame.rdx > UINT64_MAX - now
+                ? UINT64_MAX : now + frame.rdx;
+            *waiter = {
+                context->pid, context->tid,
+                static_cast<net::socket::Handle>(frame.rdi),
+                static_cast<uint32_t>(frame.rsi), deadline, finite, true};
+            if (threading::block_current() != threading::Status::Ok) {
+                *waiter = {};
+                frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
+                return;
+            }
+            // The saved Ring-3 frame cannot be selected while Blocked.
+            // wake_user() overwrites RAX with readiness or a terminal status.
+            frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
+            return;
+        }
+        case KU_SYS_CONSOLE_FALLBACK: {
+            if (!console_fallback_policy::allowed(
+                    context->pid, frame.rdi, frame.rsi, frame.rdx)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            // Flux's stop callback hands GOP back to the boot/emergency
+            // terminal. A userspace shell spawned by init can now actually
+            // be seen rather than running behind an inert desktop.
+            if (applications::running() &&
+                kstd::streq(applications::active_name(), "flux-session")) {
+                static_cast<void>(applications::stop());
+            }
+            terminal::set_framebuffer_output(true);
+            terminal::clear();
+            terminal::println("[RECOVERY] GUI unavailable, entering console");
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
+            return;
+        }
+        case KU_SYS_TERMINATE_CHILD: {
+            if (frame.rdi == 0U || frame.rdi == context->pid || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            process::Stat child{};
+            if (process::stat(static_cast<process::ProcessId>(frame.rdi), &child)
+                    != process::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            // Never allow arbitrary-PID termination from Ring-3, including
+            // login/sessiond, system services, siblings or the kernel init.
+            if (!child_termination_policy::allowed(
+                    context->pid, child.pid, child.parent_pid)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            const process::Status terminated = process::terminate(
+                child.pid, static_cast<int32_t>(frame.rsi));
+            frame.rax = static_cast<uint64_t>(
+                terminated == process::Status::Ok ? KU_STATUS_OK :
+                terminated == process::Status::NotFound ? KU_STATUS_NOT_FOUND :
+                KU_STATUS_BAD_STATE);
+            return;
+        }
         case KU_SYS_WAIT: {
             if (!validate_user_buffer(*context, frame.rsi, sizeof(int32_t), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
@@ -1029,11 +1519,36 @@ void syscall_handler(
         }
         case KU_SYS_UI_PRESENT: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
-                frame.rdx != sizeof(ku_ui_frame) ||
-                !validate_user_buffer(*context, frame.rsi, sizeof(ku_ui_frame))) {
+                (frame.rdx != sizeof(ku_ui_frame) &&
+                 frame.rdx != sizeof(ku_ui_native_frame)) ||
+                frame.rdx > SIZE_MAX ||
+                !validate_user_buffer(
+                    *context, frame.rsi, static_cast<size_t>(frame.rdx))) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+
+            if (frame.rdx == sizeof(ku_ui_native_frame)) {
+                const auto* user_native = reinterpret_cast<const ku_ui_native_frame*>(
+                    static_cast<uintptr_t>(frame.rsi));
+                if (!native_frame_valid(*user_native)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_CORRUPT_DATA);
+                    return;
+                }
+                const windowing::Status surface_status = windowing::present_surface(
+                    context->ui.window, sizeof(ku_ui_native_frame), 1U,
+                    sizeof(ku_ui_native_frame), user_native,
+                    sizeof(ku_ui_native_frame));
+                if (surface_status != windowing::Status::Ok) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                system_metrics::record_graphics_work(
+                    UINT64_C(1) + static_cast<uint64_t>(user_native->command_count));
+                frame.rax = KU_STATUS_OK;
+                return;
+            }
+
             const auto* user_frame = reinterpret_cast<const ku_ui_frame*>(
                 static_cast<uintptr_t>(frame.rsi));
             if (user_frame->structure_size != sizeof(ku_ui_frame) ||
@@ -1054,10 +1569,16 @@ void syscall_handler(
                     return;
                 }
             }
+            const windowing::Status surface_status = windowing::present_surface(
+                context->ui.window, sizeof(ku_ui_frame), 1U, sizeof(ku_ui_frame),
+                user_frame, sizeof(ku_ui_frame));
+            if (surface_status != windowing::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
             context->ui.frame = *user_frame;
             system_metrics::record_graphics_work(
                 UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
-            windowing::invalidate();
             frame.rax = KU_STATUS_OK;
             return;
         }
@@ -1080,13 +1601,10 @@ void syscall_handler(
                 frame.rax = KU_STATUS_OK;
                 return;
             }
-            if (context->ui.tail == context->ui.head) {
+            if (!ui_event_queue::pop(context->ui.events, user_event)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
                 return;
             }
-            *user_event = context->ui.events[context->ui.tail];
-            context->ui.tail = static_cast<uint8_t>(
-                (context->ui.tail + 1U) % kMaximumUiEvents);
             frame.rax = KU_STATUS_OK;
             return;
         }
@@ -1156,9 +1674,20 @@ void syscall_handler(
                 static_cast<uintptr_t>(frame.rdi));
             if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
                 request->app_id >= KU_DESKTOP_APP_COUNT ||
-                request->action > KU_DESKTOP_PIN_TOGGLE) {
+                request->action > KU_DESKTOP_PIN_APP_READY) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
+            }
+            if (request->action == KU_DESKTOP_PIN_FOCUS_RUNNING) {
+                windowing::WindowInfo caller_window{};
+                if (!context->ui.active ||
+                    windowing::query(context->ui.window, &caller_window) !=
+                        windowing::Status::Ok ||
+                    caller_window.owner_pid != context->pid ||
+                    !kstd::streq(caller_window.title, "RED FLUX HOME")) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                    return;
+                }
             }
             bool pinned = false;
             const windowing::Status status = windowing::desktop_pin(
@@ -1169,7 +1698,95 @@ void syscall_handler(
             request->pinned = pinned ? 1U : 0U;
             frame.rax = status == windowing::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
-                : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                : status == windowing::Status::NotFound
+                    ? static_cast<uint64_t>(KU_STATUS_NOT_FOUND)
+                    : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            return;
+        }
+        case KU_SYS_DISPLAY_INFO: {
+            if (frame.rsi != sizeof(ku_display_info) ||
+                !validate_user_buffer(*context, frame.rdi,
+                                      sizeof(ku_display_info), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* info = reinterpret_cast<ku_display_info*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (info->structure_size != sizeof(*info)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            if (!graphics::available() || !windowing::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            const windowing::WorkspaceGeometry workspace =
+                windowing::workspace_geometry();
+            *info = {};
+            info->structure_size = sizeof(*info);
+            info->version = KU_DISPLAY_INFO_VERSION;
+            info->screen_width = graphics::width();
+            info->screen_height = graphics::height();
+            info->work_x = workspace.work_area.x;
+            info->work_y = workspace.work_area.y;
+            info->work_width = workspace.work_area.width;
+            info->work_height = workspace.work_area.height;
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_STYLE: {
+            if (frame.rsi != sizeof(ku_desktop_style_request) ||
+                !validate_user_buffer(*context, frame.rdi, sizeof(ku_desktop_style_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_style_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_STYLE_SET ||
+                (request->action == KU_DESKTOP_STYLE_SET &&
+                 request->style_id >= KU_FLUX_STYLE_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_STYLE_SET) {
+                if (!ui::set_desktop_style(request->style_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->style_id = ui::desktop_style_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_THEME: {
+            if (frame.rsi != sizeof(ku_desktop_theme_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_theme_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_theme_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_THEME_SET ||
+                (request->action == KU_DESKTOP_THEME_SET &&
+                 request->theme_id >= KU_FLUX_THEME_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_THEME_SET) {
+                if (!ui::set_desktop_theme(request->theme_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->theme_id = ui::desktop_theme_id();
+            frame.rax = KU_STATUS_OK;
             return;
         }
         case KU_SYS_NET_STATUS: {
@@ -1262,6 +1879,34 @@ void syscall_handler(
             frame.rax = static_cast<uint64_t>(network_status(status));
             return;
         }
+        case KU_SYS_DNS_RESOLVE_A: {
+    if (frame.rsi != sizeof(ku_dns_a_request) || frame.rdx != 0U ||
+        !validate_user_buffer(
+            *context, frame.rdi, sizeof(ku_dns_a_request), true)) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+        return;
+    }
+    auto* request = reinterpret_cast<ku_dns_a_request*>(
+        static_cast<uintptr_t>(frame.rdi));
+    if (request->structure_size != sizeof(*request)) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+        return;
+    }
+    if (request->flags != KU_DNS_FLAG_NONE || request->reserved != 0U ||
+        !fixed_string_terminated(request->host, sizeof(request->host))) {
+        frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+        return;
+    }
+    net::IPv4Address address{};
+    const net::Status status = net::service::resolve_a(request->host, &address);
+    if (status == net::Status::Ok) {
+        for (size_t index = 0U; index < 4U; ++index) {
+            request->address[index] = address.bytes[index];
+        }
+    }
+    frame.rax = static_cast<uint64_t>(network_status(status));
+    return;
+}
         case KU_SYS_AUDIO_STATUS: {
             if (frame.rsi != sizeof(ku_audio_state) ||
                 !validate_user_buffer(
@@ -1275,16 +1920,16 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
                 return;
             }
-            const bool available = drivers::audio::ac97::initialized();
-            const drivers::audio::ac97::Capabilities caps =
-                drivers::audio::ac97::capabilities();
+            const bool available = drivers::audio::initialized();
+            const drivers::audio::Capabilities caps =
+                drivers::audio::capabilities();
             *output = {};
             output->structure_size = sizeof(*output);
             output->version = KU_AUDIO_STATE_VERSION;
             output->available = available ? 1U : 0U;
-            output->muted = available && drivers::audio::ac97::muted() ? 1U : 0U;
+            output->muted = available && drivers::audio::muted() ? 1U : 0U;
             output->volume_percent = available
-                ? drivers::audio::ac97::master_volume_percent() : 0U;
+                ? drivers::audio::master_volume_percent() : 0U;
             output->sample_rate = available ? caps.sample_rate : 0U;
             output->channels = available ? caps.channels : 0U;
             output->bits_per_sample = available ? caps.bits_per_sample : 0U;
@@ -1306,17 +1951,17 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            if (!drivers::audio::ac97::initialized()) {
+            if (!drivers::audio::initialized()) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
                 return;
             }
-            const drivers::audio::ac97::Status status =
-                drivers::audio::ac97::set_master_volume(
+            const drivers::audio::Status status =
+                drivers::audio::set_master_volume(
                     request->volume_percent, request->muted != 0U);
-            frame.rax = status == drivers::audio::ac97::Status::Ok
+            frame.rax = status == drivers::audio::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
                 : static_cast<uint64_t>(
-                    status == drivers::audio::ac97::Status::InvalidArgument
+                    status == drivers::audio::Status::InvalidArgument
                         ? KU_STATUS_INVALID_ARGUMENT : KU_STATUS_IO_ERROR);
             return;
         }
@@ -1325,12 +1970,12 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            if (!drivers::audio::ac97::initialized()) {
+            if (!drivers::audio::initialized()) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
                 return;
             }
-            const drivers::audio::ac97::Capabilities caps =
-                drivers::audio::ac97::capabilities();
+            const drivers::audio::Capabilities caps =
+                drivers::audio::capabilities();
             if (frame.rsi > caps.maximum_frames_per_buffer ||
                 frame.rsi > SIZE_MAX / (sizeof(int16_t) * 2U)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_OUT_OF_RANGE);
@@ -1344,14 +1989,14 @@ void syscall_handler(
             }
             if (g_audio_owner_pid != 0U &&
                 g_audio_owner_pid != context->pid) {
-                const drivers::audio::ac97::Status poll_status =
-                    drivers::audio::ac97::poll();
-                if (poll_status != drivers::audio::ac97::Status::Ok) {
+                const drivers::audio::Status poll_status =
+                    drivers::audio::poll();
+                if (poll_status != drivers::audio::Status::Ok) {
                     g_audio_owner_pid = 0U;
                     frame.rax = static_cast<uint64_t>(audio_status(poll_status));
                     return;
                 }
-                if (drivers::audio::ac97::busy()) {
+                if (drivers::audio::busy()) {
                     frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
                     return;
                 }
@@ -1359,9 +2004,9 @@ void syscall_handler(
             }
             const auto* samples = reinterpret_cast<const int16_t*>(
                 static_cast<uintptr_t>(frame.rdi));
-            const drivers::audio::ac97::Status status =
-                drivers::audio::ac97::play_pcm16_stereo(samples, frame_count);
-            if (status == drivers::audio::ac97::Status::Ok) {
+            const drivers::audio::Status status =
+                drivers::audio::play_pcm16_stereo(samples, frame_count);
+            if (status == drivers::audio::Status::Ok) {
                 g_audio_owner_pid = context->pid;
             }
             frame.rax = static_cast<uint64_t>(audio_status(status));
@@ -1372,7 +2017,7 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            if (!drivers::audio::ac97::initialized()) {
+            if (!drivers::audio::initialized()) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
                 return;
             }
@@ -1381,14 +2026,14 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
                 return;
             }
-            const drivers::audio::ac97::Status status =
-                drivers::audio::ac97::poll();
-            if (status != drivers::audio::ac97::Status::Ok) {
+            const drivers::audio::Status status =
+                drivers::audio::poll();
+            if (status != drivers::audio::Status::Ok) {
                 g_audio_owner_pid = 0U;
                 frame.rax = static_cast<uint64_t>(audio_status(status));
                 return;
             }
-            if (drivers::audio::ac97::busy()) {
+            if (drivers::audio::busy()) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
                 return;
             }
@@ -1401,13 +2046,13 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            if (!drivers::audio::ac97::initialized()) {
+            if (!drivers::audio::initialized()) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_BAD_STATE);
                 return;
             }
             if (g_audio_owner_pid == 0U) {
                 frame.rax = static_cast<uint64_t>(
-                    drivers::audio::ac97::busy()
+                    drivers::audio::busy()
                         ? KU_STATUS_ACCESS_DENIED : KU_STATUS_OK);
                 return;
             }
@@ -1415,10 +2060,10 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
                 return;
             }
-            const drivers::audio::ac97::Status status =
-                drivers::audio::ac97::stop();
-            if (status == drivers::audio::ac97::Status::Ok ||
-                status == drivers::audio::ac97::Status::DeviceFault) {
+            const drivers::audio::Status status =
+                drivers::audio::stop();
+            if (status == drivers::audio::Status::Ok ||
+                status == drivers::audio::Status::DeviceFault) {
                 g_audio_owner_pid = 0U;
             }
             frame.rax = static_cast<uint64_t>(audio_status(status));
@@ -1432,10 +2077,11 @@ void syscall_handler(
 
 Status cleanup(Context& context) {
     Status result = Status::Ok;
+    clear_socket_waiter(context.tid);
     if (g_audio_owner_pid == context.pid) {
-        if (drivers::audio::ac97::initialized() &&
-            drivers::audio::ac97::busy() &&
-            drivers::audio::ac97::stop() != drivers::audio::ac97::Status::Ok) {
+        if (drivers::audio::initialized() &&
+            drivers::audio::busy() &&
+            drivers::audio::stop() != drivers::audio::Status::Ok) {
             result = Status::CleanupFailed;
         }
         g_audio_owner_pid = 0U;
@@ -1455,7 +2101,9 @@ Status cleanup(Context& context) {
             result = Status::CleanupFailed;
         }
         handle.active = false;
+        handle.file = {};
     }
+    sync_process_handle_count(context);
     static_cast<void>(threading::bind_address_space(nullptr));
     if (memory::kernel_virtual_memory::activate_kernel() !=
         memory::kernel_virtual_memory::Status::Ok) {
@@ -1488,6 +2136,15 @@ Status initialize() {
     if (g_initialized) return Status::AlreadyInitialized;
     if (!enable_memory_protection()) return Status::CpuUnsupported;
     for (Context*& context : g_contexts) context = nullptr;
+    for (size_t index = 0U; index < kMaximumContexts; ++index) {
+        g_context_storage[index] = {};
+        g_context_storage_used[index] = false;
+        g_socket_waiters[index] = {};
+    }
+    if (threading::set_pre_dispatch_hook(socket_wait_pre_dispatch) !=
+        threading::Status::Ok) {
+        return Status::SchedulerRegistrationFailed;
+    }
     if (!arch::x86_64::interrupts::register_handler(kSyscallVector, syscall_handler) ||
         !arch::x86_64::interrupts::set_gate_privilege(
             kSyscallVector, arch::x86_64::interrupts::GatePrivilege::User) ||
@@ -1545,7 +2202,12 @@ Status run(const char* path, uint64_t pid, Result* result) {
         return Status::FileReadFailed;
     }
 
-    Context context{};
+    Context* context_storage = acquire_context_storage();
+    if (context_storage == nullptr) {
+        memory::kfree(file_bytes);
+        return Status::Busy;
+    }
+    Context& context = *context_storage;
     context.pid = pid;
     context.tid = threading::current();
     context.next_heap = kHeapBase;
@@ -1553,6 +2215,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
     if (memory::kernel_virtual_memory::create_address_space(
             &context.address_space) != memory::kernel_virtual_memory::Status::Ok) {
         memory::kfree(file_bytes);
+        release_context_storage(context_storage);
         return Status::AddressSpaceFailed;
     }
     const elf::Status load_status = elf::load(
@@ -1561,6 +2224,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
     if (load_status != elf::Status::Ok) {
         static_cast<void>(cleanup(context));
         log::write(log::Level::Error, "ELF", elf::status_message(load_status));
+        release_context_storage(context_storage);
         return Status::ElfLoadFailed;
     }
 
@@ -1573,6 +2237,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
                 memory::virtual_memory::MapFlags::Writable |
                     memory::virtual_memory::MapFlags::NoExecute) != elf::Status::Ok) {
             static_cast<void>(cleanup(context));
+            release_context_storage(context_storage);
             return Status::StackMappingFailed;
         }
     }
@@ -1589,6 +2254,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
             fault_exit_code,
             sizeof(fault_exit_code)) != elf::Status::Ok) {
         static_cast<void>(cleanup(context));
+        release_context_storage(context_storage);
         return Status::TrampolineMappingFailed;
     }
 
@@ -1599,6 +2265,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::Busy;
     }
     const threading::Status bind_status = threading::bind_address_space(
@@ -1610,6 +2277,7 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::AddressSpaceActivationFailed;
     }
     if (memory::kernel_virtual_memory::activate(&context.address_space) !=
@@ -1618,12 +2286,14 @@ Status run(const char* path, uint64_t pid, Result* result) {
         const uint64_t saved_flags = context.return_state.kernel_rflags;
         static_cast<void>(cleanup(context));
         __asm__ volatile("pushq %0; popfq" : : "r"(saved_flags) : "memory", "cc");
+        release_context_storage(context_storage);
         return Status::AddressSpaceActivationFailed;
     }
     x86_64_enter_user(context.image.entry, kStackTop - 16U, &context.return_state);
 
     const Status cleanup_status = cleanup(context);
     *result = context.result;
+    release_context_storage(context_storage);
     return cleanup_status;
 }
 
@@ -1662,6 +2332,8 @@ const char* status_message(Status status) {
         case Status::CpuUnsupported: return "CPU lacks NX support";
         case Status::InterruptRegistrationFailed:
             return "cannot install ring-3 syscall gate";
+        case Status::SchedulerRegistrationFailed:
+            return "cannot install ring-3 readiness scheduler hook";
         case Status::NotInitialized: return "user runtime not initialized";
         case Status::Busy: return "another user image is active";
         case Status::RootUnavailable: return "persistent root unavailable";

@@ -4,6 +4,7 @@ param(
     [switch]$Writable,
     [string]$ScratchDiskPath,
     [switch]$ShellTest,
+    [switch]$SocketTest,
     [switch]$SafeMode,
     [switch]$DesktopMode,
     [ValidateRange(1, 120)]
@@ -55,6 +56,9 @@ if (-not [string]::IsNullOrWhiteSpace($ScratchDiskPath)) {
 }
 if ($ShellTest) {
     $runnerParameters.ShellTest = $true
+}
+if ($SocketTest) {
+    $runnerParameters.SocketTest = $true
 }
 if ($SafeMode) {
     $runnerParameters.SafeMode = $true

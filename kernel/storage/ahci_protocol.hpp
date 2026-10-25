@@ -12,6 +12,14 @@ constexpr uint64_t MAXIMUM_LBA48 = UINT64_C(0x0000FFFFFFFFFFFF);
 constexpr uint32_t AHCI_MINIMUM_REGISTER_SPAN = UINT32_C(0x180);
 constexpr uint32_t AHCI_REGISTER_SPAN = UINT32_C(0x1100);
 
+enum class LinkState : uint8_t {
+    NoDevice = 0,
+    Transitional,
+    Active,
+    Offline,
+    Unsupported
+};
+
 enum class AtaCommand : uint8_t {
     IdentifyDevice = 0xEC,
     ReadDmaExt = 0x25,
@@ -49,6 +57,8 @@ struct IdentifyInfo {
 // address bits were written as one. BAR5 cannot hold the high half of a 64-bit
 // BAR and is therefore rejected if it advertises that format.
 Status decode_bar5(uint32_t original, uint32_t size_probe, PciBar* output);
+
+LinkState classify_sata_status(uint32_t sata_status);
 
 Status parse_identify(
     const uint16_t words[ATA_IDENTIFY_WORD_COUNT],

@@ -64,8 +64,7 @@ internal_iso="$images/KuroganeOS-installer.iso"
 [[ -f "$efi" ]] || { echo "missing installer EFI loader: $efi" >&2; exit 1; }
 [[ -d "$overlay" ]] || { echo "missing userspace overlay: $overlay" >&2; exit 1; }
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-[[ -n "$version" ]] || { echo "cannot read KuroganeOS version" >&2; exit 1; }
+version="$(bash "$root/scripts/read-version.sh")"
 release_name="KuroganeOS-$version-x86_64.iso"
 release_iso="$root/dist/$release_name"
 release_image_name="KuroganeOS-$version-macos-qemu.img"

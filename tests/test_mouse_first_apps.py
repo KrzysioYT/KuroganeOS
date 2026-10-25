@@ -1,0 +1,210 @@
+#!/usr/bin/env python3
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
+    text = read(path)
+    assert "KU_UI_EVENT_POINTER" in text, f"{path}: pointer path missing"
+    assert "kui_scene_hit_test" in text, f"{path}: libui hit test missing"
+    if path.endswith("/settings/main.c"):
+        assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
+    for helper in (
+        "gui_key_down(", "gui_key_up(", "gui_key_left(", "gui_key_right(",
+        "gui_key_tab(", "gui_key_activate(", "gui_key_cancel(",
+    ):
+        assert helper not in text, f"{path}: shortcut helper returned: {helper}"
+
+files = read("userspace/gui/files/main.c")
+for control in ("PARENT FOLDER", "OPEN / ENTER", "NEXT PAGE"):
+    assert control in files, f"files: missing explorer control {control}"
+assert "ku_file_readdir" in files and "KU_FILE_OPEN_DIRECTORY" in files
+assert "kui_flow_tile" in files, "files: directory grid is not tile-based"
+assert "KU_UI_NATIVE_ICON_FOLDER" in files and "KU_UI_NATIVE_ICON_DOCUMENT" in files
+assert "quick_entry" not in files and "g_entries" not in files
+assert "flux_files_readdir: PASS" in files
+assert "flux_files_directory_grid: PASS" in files
+assert "flux_files_breadcrumb: PASS" in files
+assert "COPY SELECTED PATH" in files
+assert "flux_clipboard_set_text" in files
+assert "flux_files_copy_path_clipboard: PASS" in files
+assert "desktop_files_mouse_navigation: PASS" in files
+assert "desktop_files_keyboard_navigation: READY" in files
+assert "flux_files_keyboard_navigation: PASS" in files
+assert "KU_UI_EVENT_KEY" in files and "flux_files_keyboard(" in files
+assert '#include "navigation.h"' in files
+
+settings = read("userspace/gui/settings/main.c")
+assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
+assert "ku_settings_connect" in settings, "settings: persistent settingsd integration missing"
+assert "UI_LOW_CONTRAST_KEY" in settings
+assert "desktop_settings_profile_persist: PASS" in settings
+assert "desktop_settings_profile_restore: PASS" in settings
+for control in ("LOW CONTRAST ACCENT", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE", "NEXT COLOR", "PREVIOUS COLOR", "FLUX MODERN"):
+    assert control in settings, f"settings: missing modern control {control}"
+assert "UI_THEME_KEY" in settings and "UI_STYLE_KEY" in settings
+assert "read_theme_setting" in settings and "write_theme_setting" in settings
+assert "read_style_setting" in settings and "write_style_setting" in settings
+assert "flux_theme_persistence: PASS" in settings
+assert "flux_style_persistence: PASS" in settings
+assert "KU_UI_EVENT_SCROLL" in settings
+assert "kui_scene_scroll(&scene" in settings
+assert "flux_settings_wheel_navigation: PASS" in settings
+assert "RED CORE" not in settings, "settings: legacy theme-button UI returned"
+assert "MUTE / UNMUTE" not in settings, "settings: legacy audio button returned"
+assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
+assert "ku_settings_connect" in settings, "settings: persistent settingsd integration missing"
+assert "write_bool_setting" in settings and "read_bool_setting" in settings
+assert "desktop_settings_profile_persist: PASS" in settings
+assert "desktop_settings_profile_restore: PASS" in settings
+assert "desktop_settings_mouse_navigation: PASS" in settings
+assert "desktop_settings_keyboard_shortcuts_detached: PASS" in settings
+
+terminal = read("userspace/gui/terminal/main.c")
+assert "KU_UI_EVENT_KEY" in terminal, "terminal: required keyboard input was removed"
+
+login = read("userspace/gui/login/main.c")
+assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
+assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
+assert "if (!profile.password_required)" in login
+assert "gui_key_activate(&event)" in login, "login: Enter activation missing for live profile"
+assert 'flux_login_retry_available: PASS' in login
+assert 'flux_login_error_render: PASS' in login
+assert 'flux_home_ui_create: FAIL' in read("userspace/gui/launcher/main.c")
+assert 'flux_home_ui_present: FAIL' in read("userspace/gui/launcher/main.c")
+assert 'Never block this milestone on settingsd' in read("userspace/gui/launcher/main.c")
+assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < read("userspace/gui/launcher/main.c").index("if (restore_desktop_theme())")
+assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < read("userspace/gui/launcher/main.c").index("if (publish_session_notification())")
+assert 'return start_session(window, &profile);' not in login
+assert 'desktop_status = -8' in login
+assert "ku_process_terminate_child(launcher_pid, 1)" in login
+assert "flux_launcher_cleanup: FAIL" in login
+assert 'flux_login_boot_retry: PASS' in read("userspace/system/init/main.c")
+assert 'A valid password followed by Home failure' in login
+assert login.index('flux_login_retry_available: PASS') < login.index('static int try_start_session(')
+assert "wait_for_home_surface(launcher_pid)" in login
+assert '"SESSION: "' in login and '"SESJA: "' in login
+assert 'g_failed_stage = "HOME FIRST FRAME"' in login
+assert 'g_failed_stage = "SESSION SERVICE"' in login
+assert "flux_account_connect: FAIL" in login
+assert "flux_account_reply: FAIL" in login
+assert "flux_account_profile_mismatch: FAIL" in login
+for stage in (
+    "flux_account_ipc_send: FAIL",
+    "flux_account_ipc_receive: FAIL",
+    "flux_account_ipc_timeout: FAIL",
+    "flux_account_response_size: FAIL",
+    "flux_account_response_layout: FAIL",
+    "flux_account_service_rejected: FAIL",
+):
+    assert stage in login, stage
+accountd = (ROOT / "userspace/system/accountd/main.c").read_text()
+assert "[ACCOUNTD] profile_installed_ready: PASS" in accountd
+assert "[ACCOUNTD] process_entry: PASS" in accountd
+assert "[ACCOUNTD] bind_account_v1: PASS" in accountd
+assert "[ACCOUNTD] bind_account_v1: FAIL" in accountd
+init = (ROOT / "userspace/system/init/main.c").read_text()
+assert "[SUPERVISOR] child_exit_code=" in init
+assert "[SUPERVISOR] child_exit_kind=" in init
+assert "[SUPERVISOR] restart_limit_exhausted: FAIL" in init
+assert "[ACCOUNTD] installed_profile_invalid: FAIL" in accountd
+assert 'g_failed_stage = "LAUNCHER SPAWN"' in login
+assert 'flux_home_first_frame: PASS' in login
+assert 'flux_launcher_exited_before_ui: FAIL' in login
+assert "ku_ui_close(window) != KU_STATUS_OK" in login
+assert login.index("wait_for_home_surface(launcher_pid)") < login.index("ku_ui_close(window) != KU_STATUS_OK"), "login: closed before ready"
+
+window_manager = read("kernel/ui/window_manager.cpp")
+assert "slot.info.state = owner_pid == 0U" in window_manager, "desktop: HOME is still minimized on session entry"
+assert "owner_pid != 0U && !home" not in window_manager, "desktop: HOME does not receive initial focus"
+launcher_session = read("userspace/gui/launcher/main.c")
+assert "desktop_performance_autostart" not in launcher_session, "launcher: diagnostic Performance autostart returned"
+assert "FLUX DECK / READY" in launcher_session
+
+launcher = read("userspace/gui/launcher/main.c")
+assert "kui_flow_tile" in launcher, "launcher: Flux Deck tiles missing"
+assert "kui_flow_list_item" not in launcher, "launcher: text-list menu returned"
+assert "[PIN]" not in launcher, "launcher: ASCII pin decoration returned"
+assert "red_flux_tile_launcher: PASS" in launcher
+assert "KU_DESKTOP_PIN_FOCUS_RUNNING" in launcher
+assert "flux_app_existing_focused: PASS" in launcher
+assert "FOCUSED EXISTING APP" in launcher
+assert "KU_DESKTOP_PIN_APP_READY" in launcher
+assert "flux_app_stalled_retry: PASS" in launcher
+assert "flux_app_surface_ready: PASS" in launcher
+assert "report_ready_apps();" in launcher
+assert "ku_process_terminate_child(stalled_pid, 1)" in launcher
+assert "ku_process_wait(stalled_pid, &exit_code)" in launcher
+assert "APP RETRY WAIT / CHILD EXIT" in launcher
+for marker in (
+    "flux_launcher_action_received: PASS",
+    "flux_home_tile_hit: PASS",
+    "flux_dock_shortcut_received: PASS",
+    "flux_app_spawn: PASS",
+    "flux_app_spawn: FAIL",
+):
+    assert marker in launcher, f"missing real runtime trace: {marker}"
+assert "scene->visible_rows = 16U" in launcher, "launcher: LOG OUT action is clipped"
+assert "kui_flow_metric" in launcher, "launcher: System Pulse metric cards missing"
+assert "ku_system_get_snapshot" in launcher, "launcher: live CPU/RAM/disk source missing"
+assert "ku_network_get_status" in launcher, "launcher: live network source missing"
+assert "ku_audio_get_state" in launcher, "launcher: live audio source missing"
+assert "flux_home_system_pulse: PASS" in launcher
+assert "flux_home_public_notification: PASS" in launcher
+assert "KU_FLUX_EXEC_NOTIFICATIONS" in launcher and "KU_UI_NATIVE_ICON_NOTIFICATION" in launcher
+assert "SYSTEM APP / NOT PINNABLE" in launcher
+notifications = read("userspace/gui/notifications/main.c")
+assert "KU_NOTIFICATION_LIST_PUBLIC" in notifications
+assert "kui_flow_notice" in notifications
+assert "flux_notification_center_connected: PASS" in notifications
+assert "flux_notification_center_public_record: PASS" in notifications
+assert "CLICK A CARD TO OPEN" not in launcher, "launcher: instruction-banner UI returned"
+
+control_center = read("userspace/gui/performance/main.c")
+assert 'gui_open(KU_FLUX_TITLE_PERFORMANCE' in control_center
+assert '"FORGE CONTROL / LIVE SYSTEM"' in control_center
+assert "ku_system_get_snapshot" in control_center
+assert "ku_network_get_status" in control_center
+assert "ku_audio_get_state" in control_center and "ku_audio_set" in control_center
+assert "KU_UI_EVENT_POINTER" in control_center and "kui_scene_hit_test" in control_center
+assert "KU_UI_EVENT_KEY" not in control_center
+assert "kui_flow_metric" in control_center and "kui_flow_tile" in control_center
+assert "kui_flow_progress" in control_center and "kui_flow_toggle" in control_center
+assert "FORGE_SECTION_PERFORMANCE" in control_center
+assert "FORGE_SECTION_NETWORK" in control_center
+assert "FORGE_SECTION_AUDIO" in control_center
+assert "flux_control_center_live: PASS" in control_center
+assert "forge_control_audio_surface: PASS" in control_center
+assert "flux_control_center_audio_action: PASS" in control_center
+assert '"FORGE CONTROL"' in launcher
+assert '"system pulse / network / audio"' in launcher
+assert "KU_FLUX_TITLE_PERFORMANCE, 'v'" in window_manager
+assert 'text_equals(title, "CONTROL CENTER")' in window_manager
+
+browser = read("userspace/gui/browser/main.c")
+assert "KU_UI_EVENT_POINTER" in browser, "browser: pointer controls missing"
+assert "kui_scene_hit_test" in browser, "browser: hit test missing"
+assert "GO / SEARCH" in browser and "CLEAR ADDRESS" in browser
+assert "COPY ADDRESS" in browser and "PASTE ADDRESS" in browser
+assert "flux_clipboard_set_text" in browser and "flux_clipboard_get_text" in browser
+assert "KU_UI_EVENT_KEY" in browser, "browser: omnibox keyboard input removed"
+assert "event.type != KU_UI_EVENT_KEY || !omnibox_active" in browser
+assert "KU_UI_KEY_BACKSPACE" in browser and "KU_UI_KEY_ENTER" in browser
+assert "gui_key_cancel(" not in browser, "browser: Escape clear shortcut returned"
+assert "scene->visible_rows = KU_UI_MAX_LINES" in browser
+assert "chromium_port_mouse_navigation: PASS" in browser
+assert "chromium_port_keyboard_scoped_to_omnibox: PASS" in browser
+
+print("mouse-first application input contract tests passed")
+
+# Service-start failure telemetry must include path + runtime status so
+# installer regressions cannot hide behind a successful PID1 spawn.
+process = (ROOT / "kernel/task/process.cpp").read_text()
+assert 'log::write(log::Level::Error, "PROCESS", slot.executable)' in process
+assert "user::runtime::status_message(status)" in process
+assert '"isolated ring-3 fault vector="' in process

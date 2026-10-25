@@ -1,0 +1,63 @@
+name: Dev Apply KuroFS Read-only VFS Auto
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/dev-apply-kurofs-vfs-readonly-auto.yml
+      - scripts/dev-apply-kurofs-vfs-readonly.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Apply guarded KuroFS VFS patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-kurofs-vfs-readonly.py
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+      - name: Build release kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          make CONFIG=release kernel
+      - name: Commit and publish read-only KuroFS VFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch=gpt/road-to-15-consolidation
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add kernel/fs/kurofs.hpp kernel/fs/kurofs_vfs.hpp kernel/fs/kurofs_vfs.cpp tests/test_kurofs_vfs.cpp scripts/run-host-tests.sh
+          git diff --cached --quiet && { echo "guard produced no production changes"; exit 1; }
+          git commit -m "feat(4.0): expose KuroFS through read-only VFS"
+          for attempt in 1 2 3; do
+            git fetch origin "$branch"
+            git rebase "origin/$branch"
+            if git push origin "HEAD:$branch"; then exit 0; fi
+            echo "publish race on attempt $attempt; retrying"
+            sleep 1
+          done
+          exit 1

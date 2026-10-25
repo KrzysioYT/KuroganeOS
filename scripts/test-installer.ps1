@@ -37,7 +37,7 @@ if (-not $?) { throw 'Guest installer phase failed.' }
 
 & (Join-Path $PSScriptRoot 'run-qemu.ps1') `
     -UseDiskImage -DiskImagePath $Target -WritableDiskImage `
-    -ShellTest -Headless -TimeoutSeconds 90 -MonitorPort 45511 `
+    -ShellTest -DesktopMode -Headless -TimeoutSeconds 90 -MonitorPort 45511 `
     -LogName 'installer-first-boot'
 if (-not $?) { throw 'Installed first boot failed.' }
 $firstLog = Get-Content -LiteralPath `
@@ -48,7 +48,7 @@ if ($firstLog -notmatch '\[TEST\] installed_first_boot: PASS') {
 
 & (Join-Path $PSScriptRoot 'run-qemu.ps1') `
     -UseDiskImage -DiskImagePath $Target -WritableDiskImage `
-    -ShellTest -Headless -TimeoutSeconds 90 -MonitorPort 45512 `
+    -ShellTest -DesktopMode -Headless -TimeoutSeconds 90 -MonitorPort 45512 `
     -LogName 'installer-second-boot'
 if (-not $?) { throw 'Installed persistence boot failed.' }
 $secondLog = Get-Content -LiteralPath `

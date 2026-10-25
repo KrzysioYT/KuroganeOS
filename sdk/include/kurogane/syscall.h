@@ -64,7 +64,27 @@ enum ku_syscall_number {
     KU_SYS_EVENT_SIGNAL = 51,
     KU_SYS_EVENT_RESET = 52,
     KU_SYS_EVENT_POLL = 53,
-    KU_SYS_EVENT_CLOSE = 54
+    KU_SYS_EVENT_CLOSE = 54,
+    KU_SYS_IPC_QUERY = 55,
+    KU_SYS_DNS_RESOLVE_A = 56,
+    KU_SYS_SOCKET_CREATE = 57,
+    KU_SYS_SOCKET_BIND = 58,
+    KU_SYS_SOCKET_CONNECT = 59,
+    KU_SYS_SOCKET_SEND = 60,
+    KU_SYS_SOCKET_RECEIVE = 61,
+    KU_SYS_SOCKET_CLOSE = 62,
+    KU_SYS_SOCKET_POLL = 63,
+    KU_SYS_DEVICE_ENUMERATE = 64,
+    KU_SYS_DEVICE_QUERY = 65,
+    KU_SYS_DEVICE_RESOURCE = 66,
+    KU_SYS_SOCKET_WAIT = 67,
+    KU_SYS_DESKTOP_THEME = 68,
+    KU_SYS_DESKTOP_STYLE = 69,
+    KU_SYS_DISPLAY_INFO = 70,
+    // Caller may terminate only an immediate child; enforced by the kernel.
+    KU_SYS_TERMINATE_CHILD = 71,
+    // PID1-only recovery: release the GUI framebuffer before console shell.
+    KU_SYS_CONSOLE_FALLBACK = 72
 };
 
 enum ku_open_flags {
@@ -169,6 +189,10 @@ static inline ku_status_t ku_wait(uint64_t pid, int32_t* exit_code) {
         pid,
         (uint64_t)(uintptr_t)exit_code,
         0);
+}
+
+static inline ku_status_t ku_enter_console_fallback(void) {
+    return (ku_status_t)ku_syscall3(KU_SYS_CONSOLE_FALLBACK, 0U, 0U, 0U);
 }
 
 __attribute__((noreturn)) static inline void ku_exit(int32_t status) {

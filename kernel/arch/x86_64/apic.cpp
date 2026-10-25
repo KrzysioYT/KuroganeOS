@@ -1,4 +1,5 @@
 #include "apic.hpp"
+#include "io_apic_irq.hpp"
 
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
@@ -11,12 +12,45 @@ constexpr uint64_t IO_VIRTUAL_BASE = UINT64_C(0xFFFFB30000100000);
 constexpr uint64_t IO_VIRTUAL_STRIDE = UINT64_C(0x10000);
 constexpr size_t LOCAL_ID_REGISTER = 0x20U;
 constexpr size_t LOCAL_VERSION_REGISTER = 0x30U;
+constexpr size_t LOCAL_TASK_PRIORITY_REGISTER = 0x80U;
+constexpr size_t LOCAL_EOI_REGISTER = 0xB0U;
+constexpr size_t LOCAL_SPURIOUS_REGISTER = 0xF0U;
+constexpr size_t LOCAL_INTERRUPT_COMMAND_LOW_REGISTER = 0x300U;
+constexpr size_t LOCAL_INTERRUPT_COMMAND_HIGH_REGISTER = 0x310U;
+constexpr size_t LOCAL_LVT_TIMER_REGISTER = 0x320U;
+constexpr size_t LOCAL_TIMER_INITIAL_COUNT_REGISTER = 0x380U;
+constexpr size_t LOCAL_TIMER_CURRENT_COUNT_REGISTER = 0x390U;
+constexpr size_t LOCAL_TIMER_DIVIDE_REGISTER = 0x3E0U;
+constexpr uint32_t LOCAL_SPURIOUS_SOFTWARE_ENABLE = UINT32_C(1) << 8U;
+constexpr uint32_t LOCAL_LVT_MASKED = UINT32_C(1) << 16U;
+constexpr uint32_t LOCAL_LVT_TIMER_PERIODIC = UINT32_C(1) << 17U;
+constexpr uint32_t ICR_DELIVERY_PENDING = UINT32_C(1) << 12U;
+constexpr uint32_t ICR_LEVEL_ASSERT = UINT32_C(1) << 14U;
+constexpr uint32_t ICR_TRIGGER_LEVEL = UINT32_C(1) << 15U;
+constexpr uint32_t ICR_DELIVERY_MODE_INIT = UINT32_C(5) << 8U;
+constexpr uint32_t ICR_DELIVERY_MODE_STARTUP = UINT32_C(6) << 8U;
+constexpr uint32_t ICR_WAIT_BUDGET = UINT32_C(1000000);
+constexpr uint32_t CPUID_APIC_BIT = UINT32_C(1) << 9U;
+constexpr uint32_t MAXIMUM_IO_APIC_REDIRECTIONS = 120U;
+constexpr uint32_t IA32_APIC_BASE_MSR = 0x1BU;
+constexpr uint64_t IA32_APIC_BASE_ENABLE = UINT64_C(1) << 11U;
+constexpr uint64_t IA32_APIC_BASE_X2_MODE = UINT64_C(1) << 10U;
+constexpr uint64_t IA32_APIC_BASE_ADDRESS_MASK =
+    UINT64_C(0x000FFFFFFFFFF000);
 
 bool g_prepared = false;
+bool g_local_enabled = false;
+volatile uint32_t* g_local_registers = nullptr;
+uint64_t g_local_physical_address = 0U;
 uint32_t g_local_id = 0U;
 uint32_t g_local_version = 0U;
 uint32_t g_io_versions[acpi::MAXIMUM_IO_APICS]{};
+volatile uint32_t* g_io_registers[acpi::MAXIMUM_IO_APICS]{};
+uint32_t g_io_global_bases[acpi::MAXIMUM_IO_APICS]{};
+uint16_t g_io_redirection_counts[acpi::MAXIMUM_IO_APICS]{};
 size_t g_io_count = 0U;
+acpi::InterruptOverride g_overrides[acpi::MAXIMUM_OVERRIDES]{};
+size_t g_override_count = 0U;
 
 volatile uint32_t* map_register_page(uint64_t physical, uint64_t virtual_base) {
     if ((physical & (memory::virtual_memory::PAGE_SIZE - 1U)) != 0U) {
@@ -47,18 +81,104 @@ uint32_t io_read(volatile uint32_t* registers, uint8_t index) {
     return registers[4];
 }
 
+void io_write(volatile uint32_t* registers, uint8_t index, uint32_t value) {
+    registers[0] = index;
+    __asm__ volatile("mfence" : : : "memory");
+    registers[4] = value;
+    __asm__ volatile("mfence" : : : "memory");
+}
+
+bool cpu_supports_apic() {
+    uint32_t eax = 1U;
+    uint32_t ebx = 0U;
+    uint32_t ecx = 0U;
+    uint32_t edx = 0U;
+    __asm__ volatile(
+        "cpuid"
+        : "+a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx));
+    return (edx & CPUID_APIC_BIT) != 0U;
+}
+
+uint64_t read_msr(uint32_t index) {
+    uint32_t low = 0U;
+    uint32_t high = 0U;
+    __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(index));
+    return static_cast<uint64_t>(low) |
+        (static_cast<uint64_t>(high) << 32U);
+}
+
+void write_msr(uint32_t index, uint64_t value) {
+    __asm__ volatile(
+        "wrmsr"
+        :
+        : "c"(index),
+          "a"(static_cast<uint32_t>(value)),
+          "d"(static_cast<uint32_t>(value >> 32U))
+        : "memory");
+}
+
+uint32_t local_read(size_t offset) {
+    return g_local_registers[offset / sizeof(uint32_t)];
+}
+
+void local_write(size_t offset, uint32_t value) {
+    g_local_registers[offset / sizeof(uint32_t)] = value;
+    __asm__ volatile("mfence" : : : "memory");
+}
+
+bool wait_icr_idle() {
+    for (uint32_t attempt = 0U; attempt < ICR_WAIT_BUDGET; ++attempt) {
+        if ((local_read(LOCAL_INTERRUPT_COMMAND_LOW_REGISTER) &
+             ICR_DELIVERY_PENDING) == 0U) {
+            return true;
+        }
+        __asm__ volatile("pause");
+    }
+    return false;
+}
+
+Status send_icr(uint32_t destination_apic_id, uint32_t low) {
+    if (!g_prepared || g_local_registers == nullptr || !local_enabled()) {
+        return Status::NotPrepared;
+    }
+    if (destination_apic_id > UINT32_C(0xFF) || !wait_icr_idle()) {
+        return Status::IpiTimeout;
+    }
+    local_write(
+        LOCAL_INTERRUPT_COMMAND_HIGH_REGISTER,
+        destination_apic_id << 24U);
+    local_write(LOCAL_INTERRUPT_COMMAND_LOW_REGISTER, low);
+    return wait_icr_idle() ? Status::Ok : Status::IpiTimeout;
+}
+
 } // namespace
 
 Status prepare(const acpi::Topology& topology) {
     g_prepared = false;
+    g_local_enabled = false;
+    g_local_registers = nullptr;
+    g_local_physical_address = 0U;
     g_local_id = 0U;
     g_local_version = 0U;
     g_io_count = 0U;
+    g_override_count = 0U;
+    for (size_t index = 0U; index < acpi::MAXIMUM_IO_APICS; ++index) {
+        g_io_versions[index] = 0U;
+        g_io_registers[index] = nullptr;
+        g_io_global_bases[index] = 0U;
+        g_io_redirection_counts[index] = 0U;
+    }
     if (topology.local_apic_address == 0U ||
         topology.io_apic_count == 0U ||
-        topology.io_apic_count > acpi::MAXIMUM_IO_APICS) {
+        topology.io_apic_count > acpi::MAXIMUM_IO_APICS ||
+        topology.override_count > acpi::MAXIMUM_OVERRIDES) {
         return Status::InvalidTopology;
     }
+    g_override_count = topology.override_count;
+    for (size_t index = 0U; index < g_override_count; ++index) {
+        g_overrides[index] = topology.overrides[index];
+    }
+    if (!cpu_supports_apic()) return Status::CpuUnsupported;
     if (memory::kernel_virtual_memory::address_space() == nullptr) {
         return Status::PagingUnavailable;
     }
@@ -70,15 +190,38 @@ Status prepare(const acpi::Topology& topology) {
     if ((g_local_version & 0xFFU) == 0U || g_local_version == UINT32_MAX) {
         return Status::HardwareUnavailable;
     }
+    g_local_registers = local;
+    g_local_physical_address = topology.local_apic_address;
     for (size_t index = 0U; index < topology.io_apic_count; ++index) {
         volatile uint32_t* io = map_register_page(
             topology.io_apics[index].address,
             IO_VIRTUAL_BASE + index * IO_VIRTUAL_STRIDE);
         if (io == nullptr) return Status::MappingFailed;
         const uint32_t version = io_read(io, 1U);
-        if ((version & 0xFFU) == 0U || version == UINT32_MAX) {
+        const uint32_t redirection_count =
+            ((version >> 16U) & 0xFFU) + 1U;
+        if ((version & 0xFFU) == 0U ||
+            version == UINT32_MAX ||
+            redirection_count == 0U ||
+            redirection_count > MAXIMUM_IO_APIC_REDIRECTIONS) {
             return Status::HardwareUnavailable;
         }
+        const io_apic::RedirectionSpan candidate{
+            topology.io_apics[index].global_interrupt_base,
+            static_cast<uint16_t>(redirection_count)};
+        if (!io_apic::span_valid(candidate)) return Status::HardwareUnavailable;
+        for (size_t previous = 0U; previous < g_io_count; ++previous) {
+            const io_apic::RedirectionSpan existing{
+                g_io_global_bases[previous],
+                g_io_redirection_counts[previous]};
+            if (io_apic::spans_overlap(candidate, existing)) {
+                return Status::InvalidTopology;
+            }
+        }
+        g_io_registers[index] = io;
+        g_io_global_bases[index] = topology.io_apics[index].global_interrupt_base;
+        g_io_redirection_counts[index] =
+            static_cast<uint16_t>(redirection_count);
         g_io_versions[index] = version;
         ++g_io_count;
     }
@@ -86,12 +229,216 @@ Status prepare(const acpi::Topology& topology) {
     return Status::Ok;
 }
 
+Status enable_local() {
+    if (!g_prepared || g_local_registers == nullptr) return Status::NotPrepared;
+    if (!cpu_supports_apic()) return Status::CpuUnsupported;
+
+    const uint64_t base = read_msr(IA32_APIC_BASE_MSR);
+    if ((base & IA32_APIC_BASE_X2_MODE) != 0U) {
+        return Status::UnsupportedMode;
+    }
+    if ((base & IA32_APIC_BASE_ADDRESS_MASK) !=
+        (g_local_physical_address & IA32_APIC_BASE_ADDRESS_MASK)) {
+        return Status::BaseMismatch;
+    }
+    if ((base & IA32_APIC_BASE_ENABLE) == 0U) {
+        write_msr(IA32_APIC_BASE_MSR, base | IA32_APIC_BASE_ENABLE);
+    }
+
+    local_write(LOCAL_TASK_PRIORITY_REGISTER, 0U);
+    uint32_t spurious = local_read(LOCAL_SPURIOUS_REGISTER);
+    spurious &= ~UINT32_C(0xFF);
+    spurious |= static_cast<uint32_t>(SPURIOUS_VECTOR);
+    spurious |= LOCAL_SPURIOUS_SOFTWARE_ENABLE;
+    local_write(LOCAL_SPURIOUS_REGISTER, spurious);
+    g_local_enabled = true;
+    return Status::Ok;
+}
+
 bool prepared() { return g_prepared; }
+bool local_enabled() {
+    return __atomic_load_n(&g_local_enabled, __ATOMIC_ACQUIRE);
+}
+void send_eoi() {
+    if (!local_enabled() || g_local_registers == nullptr) return;
+    local_write(LOCAL_EOI_REGISTER, 0U);
+}
 uint32_t local_apic_id() { return g_local_id; }
+uint32_t current_apic_id() {
+    if (!g_prepared || g_local_registers == nullptr) return UINT32_MAX;
+    return local_read(LOCAL_ID_REGISTER) >> 24U;
+}
 uint32_t local_apic_version() { return g_local_version; }
+
+Status send_ipi(uint32_t destination_apic_id, uint8_t vector) {
+    if (vector < UINT8_C(0x20) || vector == SPURIOUS_VECTOR) {
+        return Status::InvalidRoute;
+    }
+    return send_icr(destination_apic_id, static_cast<uint32_t>(vector));
+}
+
+Status send_init(uint32_t destination_apic_id) {
+    Status status = send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_INIT | ICR_LEVEL_ASSERT | ICR_TRIGGER_LEVEL);
+    if (status != Status::Ok) return status;
+    return send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_INIT | ICR_TRIGGER_LEVEL);
+}
+
+Status send_startup(uint32_t destination_apic_id, uint8_t startup_vector) {
+    return send_icr(
+        destination_apic_id,
+        ICR_DELIVERY_MODE_STARTUP | static_cast<uint32_t>(startup_vector));
+}
+
+Status timer_begin_calibration(uint32_t divide_config) {
+    if (!local_enabled() || g_local_registers == nullptr) {
+        return Status::TimerUnavailable;
+    }
+    local_write(LOCAL_TIMER_DIVIDE_REGISTER, divide_config & UINT32_C(0xB));
+    local_write(
+        LOCAL_LVT_TIMER_REGISTER,
+        LOCAL_LVT_MASKED | static_cast<uint32_t>(SCHEDULER_TIMER_VECTOR));
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, UINT32_MAX);
+    return Status::Ok;
+}
+
+uint32_t timer_current_count() {
+    if (!local_enabled() || g_local_registers == nullptr) return 0U;
+    return local_read(LOCAL_TIMER_CURRENT_COUNT_REGISTER);
+}
+
+Status timer_start_periodic(
+    uint8_t vector,
+    uint32_t initial_count,
+    uint32_t divide_config) {
+    if (!local_enabled() || g_local_registers == nullptr) {
+        return Status::TimerUnavailable;
+    }
+    if (vector < UINT8_C(0x20) || vector == SPURIOUS_VECTOR ||
+        initial_count == 0U) {
+        return Status::InvalidRoute;
+    }
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, 0U);
+    local_write(LOCAL_TIMER_DIVIDE_REGISTER, divide_config & UINT32_C(0xB));
+    local_write(
+        LOCAL_LVT_TIMER_REGISTER,
+        LOCAL_LVT_TIMER_PERIODIC | static_cast<uint32_t>(vector));
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, initial_count);
+    return Status::Ok;
+}
+
+void timer_stop() {
+    if (!local_enabled() || g_local_registers == nullptr) return;
+    const uint32_t lvt = local_read(LOCAL_LVT_TIMER_REGISTER);
+    local_write(LOCAL_LVT_TIMER_REGISTER, lvt | LOCAL_LVT_MASKED);
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, 0U);
+}
+
 size_t io_apic_count() { return g_io_count; }
 uint32_t io_apic_version(size_t index) {
     return index < g_io_count ? g_io_versions[index] : 0U;
+}
+
+size_t io_apic_redirection_count(size_t index) {
+    return index < g_io_count ? g_io_redirection_counts[index] : 0U;
+}
+
+Status route_gsi(uint32_t global_system_interrupt,
+                 const io_apic::Route& route) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    if (!io_apic::validate(route)) return Status::InvalidRoute;
+
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (global_system_interrupt >= base &&
+            global_system_interrupt - base < count) {
+            selected = index;
+            pin = global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+
+    io_apic::Route masked = route;
+    masked.masked = true;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(registers, static_cast<uint8_t>(low_index + 1U),
+             io_apic::encode_high(route));
+    io_write(registers, low_index, io_apic::encode_low(masked));
+    io_write(registers, low_index, io_apic::encode_low(route));
+    return Status::Ok;
+}
+
+Status route_legacy_irq(uint8_t legacy_irq, const io_apic::Route& route) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    io_apic::LegacyRoute legacy{};
+    if (io_apic::resolve_legacy_irq(
+            legacy_irq, g_overrides, g_override_count, &legacy) !=
+        io_apic::LegacyStatus::Ok) {
+        return Status::InvalidLegacyIrq;
+    }
+    io_apic::Route effective = route;
+    effective.trigger = legacy.trigger;
+    effective.polarity = legacy.polarity;
+    if (!io_apic::validate_legacy(effective)) return Status::InvalidRoute;
+
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (legacy.global_system_interrupt >= base &&
+            legacy.global_system_interrupt - base < count) {
+            selected = index;
+            pin = legacy.global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+
+    io_apic::Route masked = effective;
+    masked.masked = true;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(
+        registers,
+        static_cast<uint8_t>(low_index + 1U),
+        io_apic::encode_high_legacy(effective));
+    io_write(registers, low_index, io_apic::encode_low_legacy(masked));
+    io_write(registers, low_index, io_apic::encode_low_legacy(effective));
+    return Status::Ok;
+}
+
+Status clear_gsi(uint32_t global_system_interrupt) {
+    if (!g_prepared || g_io_count == 0U) return Status::IoRouteUnavailable;
+    size_t selected = acpi::MAXIMUM_IO_APICS;
+    uint32_t pin = 0U;
+    for (size_t index = 0U; index < g_io_count; ++index) {
+        const uint32_t base = g_io_global_bases[index];
+        const uint32_t count = g_io_redirection_counts[index];
+        if (global_system_interrupt >= base &&
+            global_system_interrupt - base < count) {
+            selected = index;
+            pin = global_system_interrupt - base;
+            break;
+        }
+    }
+    if (selected >= g_io_count) return Status::GsiOutOfRange;
+    volatile uint32_t* registers = g_io_registers[selected];
+    const uint8_t low_index = static_cast<uint8_t>(
+        0x10U + static_cast<uint8_t>(pin * 2U));
+    io_write(registers, low_index, UINT32_C(1) << 16U);
+    io_write(registers, static_cast<uint8_t>(low_index + 1U), 0U);
+    return Status::Ok;
 }
 
 const char* status_message(Status status) {
@@ -101,6 +448,16 @@ const char* status_message(Status status) {
         case Status::PagingUnavailable: return "paging unavailable";
         case Status::MappingFailed: return "APIC MMIO mapping failed";
         case Status::HardwareUnavailable: return "APIC registers unavailable";
+        case Status::NotPrepared: return "Local APIC not prepared";
+        case Status::CpuUnsupported: return "CPU does not support Local APIC";
+        case Status::UnsupportedMode: return "x2APIC mode is not supported yet";
+        case Status::BaseMismatch: return "Local APIC base does not match MADT";
+        case Status::IoRouteUnavailable: return "I/O APIC route unavailable";
+        case Status::InvalidRoute: return "invalid I/O APIC route";
+        case Status::InvalidLegacyIrq: return "invalid legacy IRQ override";
+        case Status::GsiOutOfRange: return "GSI is outside every I/O APIC";
+        case Status::IpiTimeout: return "Local APIC IPI delivery timed out";
+        case Status::TimerUnavailable: return "Local APIC timer unavailable";
     }
     return "unknown APIC status";
 }

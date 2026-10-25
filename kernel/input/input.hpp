@@ -17,6 +17,18 @@ enum class EventType : uint8_t {
     MouseWheel,
 };
 
+struct AbsolutePointerSample {
+    int32_t x;
+    int32_t y;
+    int32_t logical_minimum_x;
+    int32_t logical_maximum_x;
+    int32_t logical_minimum_y;
+    int32_t logical_maximum_y;
+    int8_t wheel;
+    uint8_t buttons;
+    uint8_t changed_buttons;
+};
+
 struct Event {
     EventType type;
     drivers::keyboard::KeyCode key;
@@ -36,9 +48,18 @@ struct Event {
 constexpr size_t EVENT_QUEUE_CAPACITY = 256U;
 
 bool initialize(uint32_t screen_width, uint32_t screen_height);
+// Serialized input/compositor context; preserves queued events and held buttons.
+// Coordinates of queued events are clamped to the new viewport.
+bool set_screen_bounds(uint32_t screen_width, uint32_t screen_height);
 size_t pump();
 bool submit_key(const drivers::keyboard::KeyEvent& event);
+// Serialized polling context. On false, queue and pointer/button state are
+// unchanged; callers retaining the sample can retry without duplicate events.
 bool submit_mouse(const drivers::mouse::Sample& sample);
+// Transport-neutral absolute pointer path for USB tablets and future
+// touch/pen backends. Logical device coordinates are scaled to the current
+// framebuffer bounds before the event batch is published atomically.
+bool submit_absolute_pointer(const AbsolutePointerSample& sample);
 bool try_read(Event* out_event);
 size_t pending_events();
 uint64_t dropped_events();

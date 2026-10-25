@@ -1,0 +1,106 @@
+name: Qualify 6.0 Core Steel Closeout
+
+on:
+  push:
+    branches:
+      - chatgpt/6.0-core-steel
+    paths:
+      - '.github/workflows/qualify-core-steel-closeout.yml'
+      - 'common/version.h'
+      - 'dist/release-notes.txt'
+      - 'kernel/task/**'
+      - 'kernel/sync/**'
+      - 'kernel/ipc/**'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/main.cpp'
+      - 'kernel/drivers/**'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/test.sh'
+      - 'scripts/build-media-linux.sh'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'tests/test_scheduler2.cpp'
+      - 'tests/test_thread.cpp'
+      - 'tests/test_process.cpp'
+      - 'docs/ROAD_TO_15_STATUS.md'
+      - 'DEVELOPMENT_STATE.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-steel-closeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify Core Steel identity and contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "6.0.0-dev"
+          grep -Fq 'CORE STEEL DEV' common/version.h
+          grep -Fq 'cancel_dispatch' kernel/task/scheduler2.hpp
+          grep -Fq 'scheduler2_topology: PASS' kernel/main.cpp
+          grep -Fq '[TEST] smp_scheduler: PASS' kernel/main.cpp
+          ! grep -Fq '3.3.3-dev' kernel/drivers/builtin_drivers.cpp
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Run kernel thread process and IPC regression
+        run: bash ./scripts/test.sh
+
+      - name: Build clean 6.0 development media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+          test -s build/install.pkg
+
+      - name: Require four-CPU Core Steel runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic e1000 --require-network \
+            --log-dir build/tests/core-steel-closeout --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 378 379 \
+            --require-marker '[TEST] scheduler2_topology: PASS' \
+            --require-marker '[TEST] kernel_preemption: PASS' \
+            --require-marker '[TEST] ring3_preemption: PASS' \
+            --require-marker '[TEST] smp_ap_startup: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
+            --require-marker '[TEST] smp_ring3_execution: PASS' \
+            --require-marker '[TEST] smp_cross_cpu_work: PASS' \
+            --require-marker '[TEST] smp_tlb_shootdown: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS' \
+            --require-marker '[TEST] chromium_port_browser_context: PASS' \
+            --require-marker '[TEST] kurogane_web_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|scheduler2_topology: FAIL|kernel_preemption: FAIL|ring3_preemption: FAIL|smp_.*: FAIL|red_flux_.*: FAIL|chromium_port_.*: FAIL|kurogane_web_surface: FAIL' \
+            build/tests/core-steel-closeout/serial.log
+
+      - name: Retain Core Steel evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-steel-closeout-${{ github.sha }}
+          path: build/tests/core-steel-closeout
+          if-no-files-found: warn

@@ -1,16 +1,16 @@
-# Instalacja KuroganeOS 3.3.3-dev — DEV BETA
+# Instalacja KuroganeOS — build rozwojowy
 
 Ta dokumentacja opisuje bieżący kontrakt Red Flux Setup dla KuroganeOS
-3.3.3-dev. Dla VirtualBox używaj również [`VIRTUALBOX.md`](VIRTUALBOX.md).
+7.0.0-dev. Dla VirtualBox używaj również [`VIRTUALBOX.md`](VIRTUALBOX.md).
 
 ## Canonical media
 
 ```text
 VirtualBox:
-  dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+  dist/KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso
 
 QEMU:
-  dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
+  dist/KuroganeOS-7.0.0-dev-qemu-x86_64.img
 ```
 
 `.iso` jest nośnikiem optycznym x86-64 UEFI dla Oracle VirtualBox. `.img` jest
@@ -45,6 +45,11 @@ sprawdza:
 - destination `ESP` lub `ROOT`;
 - brak duplikatów;
 - ten sam bounded FAT 8.3 path contract co build-time package generator.
+
+Format zachowuje wspólny, testowany limit 128 plików po stronie generatora i
+parsera kernela oraz niezależny limit 16 MiB dla całej paczki. Produkcyjny
+payload i dodatkowy payload kwalifikacyjny muszą przejść te same kontrole;
+workflow nie omija kontraktu instalatora.
 
 Poprawny preflight emituje:
 
@@ -275,14 +280,14 @@ Po zmianach w kernelu/installerze wymagany jest pełny rebuild:
 Canonical VirtualBox ISO:
 
 ```text
-dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+dist\KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso
 ```
 
 ## Realny Oracle VirtualBox qualification
 
 ```powershell
 .\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso" `
     -TimeoutSeconds 180
 ```
 
@@ -358,7 +363,7 @@ Referencyjne helpery mogą skierować COM1 do pliku. Przykład:
 ```powershell
 .\scripts\repair-virtualbox-boot.ps1 `
     -Name "KuroganeOS-VB-Test" `
-    -Iso ".\dist\KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso" `
+    -Iso ".\dist\KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso" `
     -SerialLog ".\state\runlogs\virtualbox-manual.log"
 ```
 

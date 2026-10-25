@@ -5,12 +5,14 @@
 #include <kurogane/desktop.h>
 #include <kurogane/direct3d.h>
 #include <kurogane/event.h>
+#include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/graphics.h>
 #include <kurogane/ipc.h>
 #include <kurogane/memory.h>
 #include <kurogane/network.h>
 #include <kurogane/process.h>
+#include <kurogane/service.h>
 #include <kurogane/shared_memory.h>
 #include <kurogane/system.h>
 

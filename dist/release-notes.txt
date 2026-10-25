@@ -1,12 +1,35 @@
-KuroganeOS 1.0 live preview
+KuroganeOS 7.0.0-dev — Iron Shield / Driver & Device Expansion candidate
 
-This is a bootable UEFI kernel demonstration, not an installable desktop
-release. It was tested with QEMU q35 and EDK2 at 256 MiB RAM.
+Iron Shield broadens real hardware coverage without changing the generic
+network, storage, input, audio, UI or application contracts established by the
+5.x portability work and 6.0 Core Steel.
 
-Verified: UEFI loader, PIE kernel, framebuffer terminal, allocator self-test,
-IDT/PIC/PIT, PS/2 keyboard, PCI enumeration, RAMFS shell, loopback network
-algorithms and kernel-resident GUI applications.
+Current 7.0 implementation:
+- Intel Gigabit Ethernet family detection now covers the legacy 82540EM
+  (8086:100E) and the E1000e-class 82574L (8086:10D3);
+- both Intel NIC models continue to use the same bounded NetworkInterface
+  contract consumed by DHCP, IPv4, TCP/TLS and Kurogane Web;
+- E1000e keeps the existing legacy descriptor-ring ownership rules, dedicated
+  DMA pages, reset/link validation and polling-safe fallback when MSI delivery
+  cannot be retained;
+- the shared QEMU smoke harness can instantiate e1000e explicitly;
+- host regression validates PCI model classification and rejects unrelated
+  Intel/non-Intel device IDs;
+- a dedicated 7.0 Intel GbE gate requires real DHCP and gateway ICMP on both
+  QEMU e1000 and e1000e devices;
+- PCI power-management foundation validates PM capabilities and bounded
+  D0/D1/D2/D3hot transitions, rejects D3hot while Bus Master DMA is enabled,
+  verifies state writes and never replays the write-one-to-clear PME Status bit.
 
-Not implemented: user mode, process isolation, persistent storage, VFS,
-storage/NIC/audio drivers, installer, first boot, package manager, updates,
-recovery and Secure Boot.
+Qualified baseline carried forward:
+KuroganeOS 6.0.0-dev Core Steel is qualified at exact source SHA
+717e003b34d47c81495e8ac5c580ae57c5fb16b3. Scheduler 2.0, four-vCPU SMP,
+Ring-3 execution on APs, preemption, Red Flux login/desktop and mouse-launched
+Kurogane Web passed the exact-SHA Core Steel closeout.
+
+Qualification boundary:
+7.0 is an active development candidate until an exact Iron Shield candidate
+passes its dedicated driver/device matrix. The first Intel GbE slice does not
+claim RTL8111/8168, USB hub, device-power-management or broad physical-machine
+qualification yet. Oracle VirtualBox, VMware and physical Intel/AMD systems
+remain external validation targets unless explicitly tested.

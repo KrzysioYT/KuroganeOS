@@ -1,0 +1,109 @@
+name: Qualify 5.0 xHCI VirtIO coexistence
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-xhci-virtio-coexistence.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/net/virtio_net.*'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_driver_mmio_windows.py'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-xhci-virtio-coexistence.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/net/virtio_net.*'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_driver_mmio_windows.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coexistence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run host regressions
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require USB keyboard plus VirtIO MSI-X networking
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-keyboard --nic virtio --require-network \
+            --log-dir build/tests/xhci-virtio-keyboard --timeout 120 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/xhci-virtio-keyboard/serial.log
+
+      - name: Require USB mouse plus VirtIO MSI-X networking
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-mouse --nic virtio --require-network \
+            --log-dir build/tests/xhci-virtio-mouse --timeout 120 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_mouse_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/xhci-virtio-mouse/serial.log
+
+      - name: Require xHCI plus VirtIO legacy polling fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-keyboard --nic virtio --virtio-vectors 0 --require-network \
+            --log-dir build/tests/xhci-virtio-polling --timeout 120 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/xhci-virtio-polling/serial.log
+
+      - name: Retain coexistence logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhci-virtio-coexistence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/xhci-virtio-*
+          if-no-files-found: warn

@@ -1,0 +1,89 @@
+name: Qualify Service Version Negotiation
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-service-version-negotiation.yml'
+      - 'sdk/include/kurogane/service.h'
+      - 'kernel/ipc/channel.cpp'
+      - 'kernel/ipc/channel.hpp'
+      - 'kernel/user/runtime.cpp'
+      - 'userspace/system/service-meta-server/main.c'
+      - 'userspace/system/service-meta-probe/main.c'
+
+jobs:
+  service-version-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Inject qualification binaries and launch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "svcmeta|userspace/system/service-meta-server/main.c|system/svcmeta|c"\n'
+              '    "svcprobe|userspace/system/service-meta-probe/main.c|system/svcprobe|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'service metadata build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          addition = anchor + (
+              '    const ku_result_t service_meta_pid = u_spawn("/system/svcmeta");\n'
+              '    if (service_meta_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] service_version_negotiation: FAIL\\n");\n'
+              '        ku_exit(33);\n'
+              '    }\n'
+              '    const ku_result_t service_probe_pid = u_spawn("/system/svcprobe");\n'
+              '    if (service_probe_pid <= 0) {\n'
+              '        (void)u_puts("[TEST] service_version_negotiation: FAIL\\n");\n'
+              '        ku_exit(34);\n'
+              '    }\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'service metadata init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, addition, 1))
+
+      - name: Validate qualification patch
+        run: |
+          git diff --check
+          grep -F 'system/svcmeta' scripts/build-linux.sh
+          grep -F 'system/svcprobe' scripts/build-linux.sh
+          grep -F 'service_version_negotiation: FAIL' userspace/system/init/main.c
+          test -s userspace/system/service-meta-server/main.c
+          test -s userspace/system/service-meta-probe/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require end-to-end service version negotiation
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] service_version_negotiation: PASS' \
+            --timeout 180

@@ -1,6 +1,6 @@
 # KuroganeOS Audio
 
-## Status 3.3.3-dev
+## Backend AC'97 i publiczny transport PCM
 
 Referencyjnym kontrolerem audio dla VirtualBox jest **Intel ICH AC'97**.
 KuroganeOS ma własny minimalny kernelowy sterownik PCM output dla emulowanego
@@ -49,14 +49,15 @@ Po przyjęciu bufora wywołanie zwraca `KU_STATUS_OK`. `ku_audio_poll()` zwraca
 zakończeniu. `ku_audio_stop()` zatrzymuje playback należący do bieżącego
 procesu.
 
-Aktualny model jest **single-owner, per PID**. Jeden proces może posiadać
+Niskopoziomowy transport PCM jest **single-owner, per PID**. Jeden proces może posiadać
 aktywny playback na referencyjnym urządzeniu. Inny proces nie może zatrzymać ani
 pollować cudzego odtwarzania. Cleanup procesu automatycznie zatrzymuje DMA,
 jeżeli proces nadal jest właścicielem playbacku.
 
-To jest bezpieczny fundament aplikacyjnego audio, ale jeszcze nie pełny mixer
-ani wielostrumieniowy serwis. Per-process stream handles, miksowanie wielu
-aplikacji, resampling, capture/microphone i Intel HDA pozostają dalszą pracą.
+Nad transportem działa `audiod.v1` z ograniczonymi kolejkami, uchwytami
+strumieni i miksowaniem. Istnieje też backend Intel HDA PCM DMA. Te warstwy
+mają zakresowe dowody 3.5/5.0; nie oznacza to pełnego capture/resampling
+ani obsługi każdego kontrolera. Stan testów: [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
 
 ## VirtualBox
 

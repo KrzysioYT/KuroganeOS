@@ -1,0 +1,6 @@
+Runtime identity: 7.0.0-dev (common/version.h)
+Active priority: Flux Modern 8.0 completion; retain 7.x device/core regressions.
+Product target: 15.0.0 stable — NOT RELEASED.
+Status/evidence: ../DEVELOPMENT_STATE.md
+Acceptance: roadmap/FLUX8_MODERN_COMPLETION.md
+Canonical milestone numbering: roadmap/MASTER_ROADMAP_15.md

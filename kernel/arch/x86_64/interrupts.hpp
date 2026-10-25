@@ -3,15 +3,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "hardware_vectors.hpp"
+
 namespace arch::x86_64::interrupts {
 
 constexpr size_t IDT_ENTRY_COUNT = 256;
 constexpr uint8_t IRQ_VECTOR_BASE = 0x20;
 constexpr uint8_t IRQ_COUNT = 16;
 
-// Layout produced by interrupt_stubs.asm. In IA-32e mode the processor saves
-// a uniform SS:RSP/RFLAGS/CS:RIP frame, including same-privilege entries, so a
-// scheduler may resume a complete frame on another kernel stack.
+// Layout produced by interrupt_stubs.asm for 64-bit IDT gates. In 64-bit mode
+// the processor pushes SS:RSP unconditionally, including same-CPL kernel
+// interrupts and exceptions, and IRETQ pops that state unconditionally. This
+// gives every entry a fixed hardware tail: SS:RSP/RFLAGS:CS:RIP (plus an error
+// code for exceptions that define one; the stubs synthesize zero otherwise).
+//
+// A complete hardware frame does not make a nested CPL0 IRQ a resumable user
+// context: scheduler code must still switch process contexts only at the
+// explicit user/software scheduling boundary.
 struct InterruptFrame {
     uint64_t r15;
     uint64_t r14;
@@ -67,6 +75,12 @@ using IrqHandler = void (*)();
 using IrqScheduleHook = InterruptFrame* (*)(
     uint8_t irq,
     InterruptFrame& frame);
+using SoftwareScheduleHook = InterruptFrame* (*)(
+    uint8_t vector,
+    InterruptFrame& frame);
+using FixedScheduleHook = InterruptFrame* (*)(
+    uint8_t vector,
+    InterruptFrame& frame);
 
 enum class GatePrivilege : uint8_t {
     Kernel = 0,
@@ -81,9 +95,21 @@ enum class GateType : uint8_t {
 // Loads a complete 256-entry IDT and leaves maskable interrupts disabled.
 void initialize();
 bool initialized();
+// Loads the already-built shared IDT on another processor without resetting handlers.
+bool load_current_cpu();
 
 bool register_handler(uint8_t vector, InterruptHandler handler);
 void unregister_handler(uint8_t vector);
+
+// Installs a kernel-only hardware route from the bounded dynamic vector pool.
+// Callers must mask/disable the device and drain in-flight interrupts before
+// release_hardware_vector() makes the vector reusable.
+hardware_vectors::Status allocate_hardware_vector(
+    InterruptHandler handler,
+    hardware_vectors::Lease* output);
+hardware_vectors::Status release_hardware_vector(
+    const hardware_vectors::Lease& lease);
+bool owns_hardware_vector(const hardware_vectors::Lease& lease);
 
 // A ring-3 callable gate is permitted only for a software-defined vector that
 // already has a handler. Removing that handler first demotes the gate to ring
@@ -95,12 +121,30 @@ bool set_gate_type(uint8_t vector, GateType type);
 
 bool register_irq_handler(uint8_t irq, IrqHandler handler);
 void unregister_irq_handler(uint8_t irq);
+// Marks an already-programmed legacy IRQ as I/O-APIC delivered so the common
+// 0x20..0x2f path acknowledges the Local APIC instead of the 8259 PIC.
+bool set_legacy_irq_apic_delivery(uint8_t irq, bool enabled);
+bool legacy_irq_uses_apic(uint8_t irq);
 
 // Installs the single low-level scheduling hook invoked after an IRQ handler
 // and EOI. Returning a different complete interrupt frame performs the stack
 // switch in the common assembly epilogue. Intended for the thread scheduler.
 bool register_irq_schedule_hook(IrqScheduleHook hook);
 void unregister_irq_schedule_hook(IrqScheduleHook hook);
+
+// Installs a post-handler scheduler hook for software-defined interrupt gates.
+// This is the safe boundary for a blocking/yielding Ring-3 syscall: the frame
+// still contains the complete user return state, so the scheduler may save it
+// and return another process' frame without ever switching from a nested
+// kernel IRQ frame.
+bool register_software_schedule_hook(SoftwareScheduleHook hook);
+void unregister_software_schedule_hook(SoftwareScheduleHook hook);
+
+// Dedicated kernel-only fixed-vector scheduling boundary, used by the Local
+// APIC timer. It is intentionally separate from both legacy IRQ0 and user
+// software gates so an IPI can never be mistaken for a syscall boundary.
+bool register_fixed_schedule_hook(uint8_t vector, FixedScheduleHook hook);
+void unregister_fixed_schedule_hook(FixedScheduleHook hook);
 
 void enable();
 void disable();

@@ -9,6 +9,204 @@
 - 3.3.3-dev must not be treated as architecture-complete until the panic path uses real trap/kernel state, preserves the final kernel-event history, mirrors essential diagnostics to serial, handles nested panic safely and provides a bounded crash-dump path or a typed reason why dumping is unavailable.
 - A static mock screen, hard-coded diagnostic values or a PNG-only crash UI does not satisfy the completion gate.
 
+### Retryable mouse input publication
+
+- Stage the complete motion/button/wheel batch before publishing it. A full
+  queue now leaves both queued events and pointer/button state unchanged, so
+  callers retaining the sample can retry it without duplicating motion.
+- Reject pre-initialization input without changing button state. Tests cover
+  zero through four available slots, press/release retry and 16-bit queue wrap.
+- The PS/2 input pump retains one blocked key event and one mouse sample,
+  retries before reading another driver event, and preserves press/release
+  ordering. The host test now runs the production pump with driver fixtures.
+- This prepares the shared input contract for USB mouse; it does not add a
+  USB mouse backend. Hardware driver rings remain bounded and can overflow.
+
+### First USB keyboard attachment after boot
+
+- Keep an empty xHCI controller running with bounded owned DMA/MMIO and a
+  truthful NoDevice runtime status; the first keyboard can arrive after Login.
+- Drain idle event rings within the poll budget and reject stale transfers
+  while no keyboard is active. Host coverage exercises three idle ring wraps.
+- Extend QMP qualification with first attachment followed by three held-key
+  disconnect/reconnect cycles. A separate cleanup-only test build retains
+  acknowledged halt and DMA/MMIO release coverage. Qualified at `ad6a19b`
+  in Actions `35905197560` (runtime and cleanup jobs both passed).
+
+### Bounded xHCI keyboard hotplug
+
+- Added disconnect state progression: drain pending input, release held keys,
+  acknowledge Disable Slot, retire the device handle, and wait for replacement.
+- Re-enumerate into bounded existing endpoint/context buffers only after slot
+  retirement; command/event rings stay live. Missed disconnect/reconnect edges
+  are detected through PORTSC connection-change state.
+- Command/MMIO failures stop polling and quarantine resources with typed status.
+- Added host disconnect/backpressure/timeout regressions and a real QMP gate
+  requiring three held-Shift remove/add cycles, stale-handle rejection and
+  working F12 input after each reconnect. Qualified at `4b33bfb` by Actions
+  `35231888211`, alongside all nineteen other triggered workflows.
+
+### USB input backpressure
+
+- Retain up to 20 decoded key transitions while the shared input queue is full.
+  Resume publication at the first unaccepted event and defer the next report
+  transfer until the batch is drained; key releases are no longer discarded.
+- Host regression covers partial publication, repeated blocked polls and
+  exact-once key/modifier release. Runtime qualification remains required.
+
+### xHCI transfer completion ownership
+
+- Record the outstanding keyboard transfer's TRB address and require an exact
+  completion match before reading/reusing report DMA. Reject Event Data,
+  misaligned, unrelated and duplicate completions without mutating input state.
+- Added a production-poll host regression that failed before the fix: an event
+  for another TRB prematurely delivered a key and retired the pending report.
+  The fixed test also checks ordered key release and no-outstanding-transfer
+  rejection. Strict host build and ASan/UBSan pass. Exact-source QEMU run
+  `35086010272` / job `104760879337` passed on
+  `d96c9c8b631c1c60799aed1a9b80f85e0fb81865`: full host suite, clean release
+  IMG/ISO/install.pkg, 130 real F12 pairs, both ring wraps and empty-controller
+  DMA cleanup. USB hotplug, hubs, mouse and mass storage remain open.
+
+### xHCI ring-wrap qualification
+
+- Added host regression of the production producer/event ring paths across
+  eight cycle transitions, including Link TRB reuse, ERDP updates and stale
+  event rejection.
+- Extended real USB qualification to 130 ordered F12 press/release pairs,
+  requiring observed transfer/event cycle-bit wrap. The scope passed at
+  `cdb2af84bfeab5bf139f6b06fa810ca18d7e4c97` in run `35085875406` and again
+  after completion ownership validation in `35086010272`.
+- DMA-safe cleanup passed full host tests, clean release media, keyboard boot
+  and real empty-controller halt/release at `648b9d38cabf8fcabb66ab3e5071f676f18ad98a`
+  in run `35085130775`, job `104758052878`.
+
+### xHCI DMA-safe failure cleanup
+
+- Require acknowledged controller halt and verified PCI bus-master disable
+  before releasing published DMA. Halt/readback failures quarantine resources
+  and return typed errors instead of recycling memory still owned by hardware.
+- Retain failed DMA/MMIO cleanup for retry, including partial initial mappings;
+  remove registered USB children on failed claim and successful teardown.
+- Added host fault-injection tests for quarantine, exact-once retry, partial
+  unmap and stale child handles, plus a real empty-controller QEMU runtime gate.
+  Keyboard enumeration and two F12 press/release cycles also passed at
+  `17ca70f4afc9ef3deca770da91a5189f86565c52` in run `35060322848`.
+
+### HID report failure atomicity
+
+- Stage the bounded keyboard transition before publishing output or decoder
+  state. Capacity failure no longer toggles Caps Lock or emits partial events.
+- Deduplicate repeated usages and preserve held non-modifier keys during
+  rollover while still updating modifiers; reject keyboard error reports
+  without corrupting cached state.
+- Added retry, rollover, duplicate, malformed-input and maximum 20-event
+  transition regressions. The initial real xHCI keyboard gate passed at
+  `73aba709c535261b99d23182ecb4b2ead091b6e1` (run `35059962106`).
+
+### xHCI keyboard runtime gate
+
+- Added a real OVMF/QEMU xHCI + USB keyboard gate using the normal driver,
+  full host suite and clean release-media build.
+- Added an opt-in USB keyboard to the existing QEMU smoke harness.
+- The test-only qualifier requires two ordered F12 press/release pairs from
+  actual USB completion reports, accepted by the production input queue.
+  It does not inject reports or replace the transport; logs are retained.
+
+### xHCI bounded port access
+
+- Fixed the port-register MMIO bound to include the operational block's
+  CAPLENGTH offset; an exactly one-byte-short window is rejected.
+- Replaced the wrapping 8-bit, one-based port walk with a shared bounded
+  scanner used for reset and no-device diagnostics. MaxPorts=255 terminates.
+- Added host tests for exact MMIO boundaries and the production port scanner,
+  alongside the existing USB descriptor and HID report tests. This does not
+  qualify USB hotplug, hubs or mass storage.
+
+### APIC routing contract
+
+### ACPI legacy IRQ routing
+
+### I/O APIC GSI span validation
+
+- Added bounded redirection-span validation for zero-length, 32-bit-overflowing and overlapping I/O APIC GSI ranges.
+- APIC preparation rejects ambiguous GSI topology before retaining a controller, while route encoding remains allocation-free and hardware-vector bounded.
+- Added host coverage for adjacent, overlapping, invalid and overflowed spans.
+
+- Added an allocation-free ISA IRQ resolver that applies ACPI MADT interrupt overrides to effective GSI, trigger and polarity values, preserving ISA conforming defaults.
+- Rejects reserved override encodings, out-of-range ISA sources and conflicting duplicate overrides before hardware programming.
+- Wired `apic::route_legacy_irq()` to copy the validated effective route into the bounded I/O APIC programming path.
+- Added host qualification `[test_io_apic_irq] PASS`; real I/O APIC delivery and SMP qualification remain open.
+
+- Added an allocation-free fixed-delivery I/O APIC route encoder/decoder with explicit hardware-vector validation, physical destination encoding, polarity/trigger/mask bits and rejection of unsupported delivery/destination modes.
+- Wired the APIC runtime to map each MADT I/O APIC's redirection span, program routes masked-first then unmask, and clear routes before vector reuse. GSI selection is bounded by each controller's global interrupt base and advertised entry count.
+- Added host regression coverage for reserved vectors, level/active-low encoding, decode round-trips and unsupported route modes. This is an APIC routing foundation; real multi-CPU interrupt qualification remains open.
+
+### VirtIO completion validation and MSI-X qualification
+
+- Added allocation-free used-ring completion validation in VirtIO-net: bounded modular accounting, submitted-descriptor checks, invalid/duplicate ID rejection, legal 16-bit wrap handling and a latched device-fault state that prevents unsafe reuse.
+- Propagated completion faults through TX reclaim and RX receive paths instead of silently accepting malformed device state; validated completions are committed only after the full batch passes.
+- Extended host regressions for invalid IDs, duplicate IDs, over-reported completions, RX duplicates, legal wrap and no-partial-mutation ownership invariants. Existing production completion fixtures now model submitted descriptors explicitly.
+- Qualified exact source SHA `308f2fb75205dfa265c8a620cf88e84d0627742d` with Network Cleanup run `34950706350` / job `104320726734` and MSI-X Runtime run `34950706505` / jobs `104320726926`, `104320727235`; both passed clean release-media builds and the real one-/two-vector plus no-MSI-X polling matrix.
+
+### Steel VirtIO RX/TX interrupt groups
+
+- Adopted bounded MSI-X route groups in VirtIO-net: separate RX/TX handlers and pending bits, one-vector fallback after complete allocation rollback, and polling without MSI-X. Diagnostics preserve existing fields while adding real per-source vectors/counts; shared IRQs never invent a source.
+- Retained group/vector/table ownership across failed enable rollback and partial teardown. Host regressions cover independent source dispatch, deferred TX reclaim, vector exhaustion, unsafe table rejection and partial group release.
+- Extended QEMU qualification to one and two vectors with exact queue assignment, every retired generation, independent RX/TX progress and production no-MSI-X boot. This extension awaits exact-source runtime qualification.
+- Reconciled the preceding group implementation with exact-source evidence: all twelve workflows passed at `d42d9e31e98fbcb39577184475e36d97cb77d251`, including PCI MSI-X group/single run `34811940628`, VirtIO run `34811940595`, full Pre-Steel `34811940844` and Fatal Diagnostic `34811940618`.
+
+### Runtime gate correctness
+
+- Network smoke qualification now gives explicit guest failures precedence over success and requires a complete final boot marker. `ALL_REQUIRED_TESTS_PASSED: FAIL` could previously match the success prefix before the failure check ran. Added thirteen behavioral serial-parser cases, including contradictory logs, incomplete markers and required TLS failure/skip.
+
+### Pre-Steel closeout / Steel activation
+
+- Fixed process-local VFS descriptor resolution so malformed descriptors return `KU_STATUS_INVALID_ARGUMENT` while closed or generation-mismatched descriptors return `KU_STATUS_STALE_HANDLE`; added host and Ring-3 runtime regression coverage.
+- Qualified `4.0.0-dev — Pre-Steel` at source SHA `bbec12248773930d6f40aa98837ff13e99b7cf5e` through same-SHA Actions run `34260827773`, final authoritative job `102186252372`.
+- Activated `5.0.0-dev — Steel / Hardware` without relabelling the embedded `3.3.3-dev` runtime version. Existing MSI/MSI-X capability discovery remains explicitly incomplete until APIC delivery, programming, cleanup and real hardware-emulation runtime proof pass.
+
+### Steel interrupt delivery
+
+- Added bounded MSI-X route groups with distinct generation-owned vectors, all-or-nothing programming validation, partial-allocation rollback, posted-write readback and retryable teardown. A stale member rejects the entire cleanup before any register write; failed release retains ownership and INTx suppression.
+- Added host group lifecycle regressions and a separate e1000e two-vector runtime mode. The Steel MSI-X workflow now checks both single/group modes, rejects explicit failures before success and retains their serial/QEMU evidence. Group transport awaits exact-source Actions qualification and production-driver adoption.
+
+- Added a bounded, allocation-free hardware interrupt vector pool with atomic generation-safe leases, syscall-vector exclusion, stale release rejection and concurrent host regression.
+- Enabled the current CPU's xAPIC only after CPUID, MADT/MMIO and APIC-base validation; dynamic hardware vectors now bypass the software-syscall scheduler and send Local APIC EOI.
+- Added reversible single-vector PCI MSI programming with 32/64-bit layouts, optional per-vector masking, INTx exclusion and ordered teardown that quiesces the device before vector reuse.
+- Corrected the runtime target after proving QEMU's 82540EM `e1000` model exposes legacy INTA rather than MSI: the gate now uses the documented QEMU EDU endpoint to raise and acknowledge a real PCI MSI, then verifies route teardown. E1000 remains on its polling/INTx-compatible path when no MSI capability exists.
+- Reject truncated MSI and MSI-X capability layouts before 8-bit PCI configuration offsets can wrap into the header; per-vector MSI masking now requires the complete mask/PBA layout.
+- Added an E1000 MSI delivery probe using the real device Interrupt Cause Set register. Failure restores polling-safe PCI state; MSI-X and general multi-device interrupt qualification remain open.
+- Qualified bounded single-vector PCI MSI transport at exact SHA `718d8c546b4eb436be382f847f910a62b3714220` in Actions run `34292320432`, job `102281331383`; the real QEMU EDU interrupt reached the production IDT/LAPIC path and ordered teardown completed. MSI-X remains open.
+- Added the bounded single-entry MSI-X programming foundation: complete table/PBA span validation against driver-owned BAR mappings, generation-safe vector allocation, function/entry masking, ordered enable, quiesce, rollback and stale-route cleanup. Deterministic host tests cover malformed regions and exact register ordering; real MSI-X device delivery remains an open runtime gate.
+- Added reversible PCI BAR sizing for detached/decoding-disabled endpoints, with typed 32-bit MMIO, 64-bit MMIO and I/O results, upper-half rejection, full register restoration, size/alignment checks and deterministic host coverage. This provides the bounded mapping contract required by a future real-device MSI-X gate without probing active devices.
+- Added a bounded Intel 82574L qualification driver that sizes BARs only with PCI decoding disabled, maps complete MMIO regions with supervisor-only cache-disabled pages, programs one generation-owned MSI-X vector, triggers a real device interrupt, and restores the IVAR, MSI-X table, PCI command state, vector lease, and mappings during teardown.
+- Added a CI-only source injection and QEMU/OVMF gate using a separate `e1000e` endpoint. Normal release boot does not invoke the qualification transaction, while the exact release kernel code remains what CI exercises.
+- Qualified bounded single-vector MSI-X at `745793376abf6cb5f88a4410236b4b2ad6a2c1ca` in Actions run `34358861039`, job `102490389818`: real QEMU Intel 82574L delivery through the MSI-X table, Local APIC and production IDT followed by ordered teardown. The same source passed Pre-Steel closeout run `34358861380`. Multi-vector routing, production-driver adoption, SMP and broader hardware coverage remain open.
+
+### VirtIO-net failure ownership
+
+- Added shared RX/TX MSI-X notification to the production VirtIO-net driver: bounded complete BAR mappings, reset-before-sizing, vector assignment readback, an allocation-free IRQ signal and deferred queue service. Polling fallback remains explicit when resources are unavailable; rejected queue vectors fail initialization.
+- Integrated vector teardown and table/PBA ownership into reset cleanup, including route quarantine after reset/cleanup failure. Host tests and real QEMU run `34683815908`, job `103527144398`, passed at `6898c72f273207dbfd526f78a640433932e2291c`: IRQ delivery increased during successful gateway traffic, with four generation-safe route cleanup cycles. The same source passed 3.4 regression, real TLS/HTTPS and PCI MSI/MSI-X transport gates.
+- Extended VirtIO qualification with an uninjected production boot using a device without MSI-X (`vectors=0`), plus archived raw serial/QEMU logs. This additional fallback runtime gate awaits its own result.
+
+- Reset the real device before freeing exposed queue DMA, defer cleanup after partial queue configuration, track and remove capability MMIO mappings, and restore the saved PCI Command after successful reset. A reset timeout quarantines DMA/mappings and blocks reinitialization; failed releases retain their ownership records with typed errors.
+- Enable bus mastering only after the initial reset and use real 16-bit PCI configuration writes so updating Command does not clear adjacent write-one-to-clear Status bits.
+- Added host regressions for reset/free ordering, reset timeout quarantine, DMA release failure, partial MMIO mapping rollback, PCI restoration failure and adjacent PCI Status preservation. Exact-source QEMU/OVMF run `34546210440` passed at `bcbcd9b18a7b4a07d4d1022930acc29eb77e8075`: four real active-queue reset/retry cycles, former DMA/MMIO release and subsequent DHCP/gateway traffic. All eleven workflows on that source passed, including Pre-Steel closeout `34546210640`, 3.4 regression `34546210434` and Fatal Diagnostic `34546210350`.
+- Boot diagnostics now report the physical driver that owns the active interface. VirtIO-net and PCnet no longer emit the E1000 success marker; the VirtIO cleanup gate requires its own driver marker.
+
+### Road to 15 versioning
+
+- Normalized the formal Road-to-15 sequence: `3.3.3-dev` Red Flux is followed by `3.4.0-dev` System Services; patch-like `3.3.5`-`3.3.9` and `3.4.1` names are internal development workstreams rather than separate formal product releases.
+- Recorded `3.3.3-dev — Red Flux` as a QUALIFIED scoped DEV milestone based on completed host/kernel/ABI/SDK/media/OVMF/QEMU/network/TLS regressions, without claiming later Steel/Forge/security/update capabilities.
+- Reclassified Oracle VirtualBox host acceptance as OPTIONAL / EXTERNAL VALIDATION, excluded from Definition of Done and progress percentages when the environment is unavailable.
+
+### System Services
+
+- Added a public Service SDK over the real named IPC backend with PID-owned, generation-safe connections and process-exit cleanup.
+- Began the real Ring-3 Event Broker (`events.v1`) with bounded subscriptions, unsubscribe, publish dispatch through real waitable kernel events, PID ownership and a public Event Broker protocol.
+- Added a QEMU runtime qualification probe for subscribe → publish → event wait → unsubscribe; the current workstream keeps runtime failures explicit and unqualified until the roundtrip passes.
+
 ### Licensing
 
 - Adopted KuroganeOS Source-Available License 2.0 (KSAL-2.0) for current revisions.
@@ -85,58 +283,3 @@
 - Added native macOS builds for the x86-64 kernel, basic Ring-3 userspace, the SDK libraries, the external SDK example and the desktop userspace applications.
 - Added a portable Python PE32+ converter so `BOOTX64.EFI` can be rebuilt on macOS from the same standalone loader source.
 - Added a macOS GPT/FAT32 Foundation-image builder containing the EFI loader, kernel, persistent root filesystem and generated userspace overlay.
-- Added a QEMU macOS runner with Homebrew EDK2 discovery, E1000 user networking, serial logging, required-test failure detection and PID 1/global-success smoke-test gating.
-- Added `build-app-macos.sh` for compiling C/C++ applications against the KuroganeOS SDK and optionally installing them into the development root filesystem.
-- Added `docs/MACOS_DEVELOPMENT.md` with setup, build, application development and QEMU testing instructions.
-- Bumped the product version to KuroganeOS 2.1.1.
-
-### Compatibility
-
-- The guest architecture and application ABI remain x86-64; macOS is a development host, not a separate KuroganeOS target.
-- Apple Silicon hosts use QEMU TCG to emulate the x86-64 guest.
-- Existing Windows/WSL build and test workflows remain available and are not replaced by the macOS backend.
-
-## 2.1.0 - 2026-08-16
-
-### Installable system
-
-- Added UEFI installation media carrying `BOOTX64.EFI`, the kernel and the installer payload.
-- Added explicit SATA/AHCI installation-target discovery.
-- Added protective MBR plus primary and backup GPT creation.
-- Added FAT32 formatting for the EFI System Partition and the KuroganeOS persistent root.
-- Added installation of `EFI/BOOT/BOOTX64.EFI`, the kernel and the userspace filesystem.
-- Added installer verification and flush before reporting a successful installation.
-- Added installed-system UEFI boot from the virtual HDD after the installation medium is removed.
-- Added writable persistent-root mounting and reboot persistence checks.
-
-### Userspace and processes
-
-- Added the x86-64 Ring-3 runtime and the `int 0x80` syscall gate.
-- Added private user address spaces, ELF64 process loading and process spawn/wait/exit lifecycle support.
-- Added timer-preempted kernel threads and userspace processes.
-- Added `/system/init` as the userspace PID 1 entry point and userspace console bootstrap.
-- Added userspace shell/app images and experimental Ring-3 desktop applications.
-
-### Storage and platform
-
-- Added/expanded PCI, ACPI MADT and APIC discovery.
-- Added SATA/AHCI read, write and flush support.
-- Added GPT parsing and writable FAT32/VFS support.
-- Added PS/2 keyboard, PS/2 mouse and the common input queue.
-- Preserved loopback networking fallback while the physical network stack continues to evolve.
-
-### Release and testing
-
-- Bumped the product version to KuroganeOS 2.1.
-- Added canonical versioned installer output under `dist/`.
-- Added `dist/SHA256SUMS.txt` generation for the release ISO.
-- Kept a generated root `kurogane.iso` only as a compatibility artifact for existing emulator helpers.
-- Added generated-artifact ignores so build images and emulator state are not treated as source files.
-- Corrected required-test ordering so global success is emitted only after the required PID 1 userspace start succeeds.
-- The committed QEMU installer logs cover installer-medium boot, deployment to a blank AHCI disk and the subsequent installed-system boot.
-- VirtualBox has an EFI/AHCI smoke-test helper and documented manual installation acceptance flow.
-
-### Licensing
-
-- At this release, current revisions used the project's then-current custom source-available license.
-- Historical revisions previously distributed under MIT remain documented by `LICENSE-MIT-LEGACY`.

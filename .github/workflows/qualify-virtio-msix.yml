@@ -1,0 +1,93 @@
+name: Qualify 5.0 VirtIO MSI-X Runtime
+
+on:
+  push:
+    branches: [gpt/road-to-15-consolidation]
+    paths:
+      - '.github/workflows/qualify-virtio-msix.yml'
+      - 'kernel/net/virtio_net.*'
+      - 'kernel/main.cpp'
+      - 'kernel/arch/x86_64/interrupt*'
+      - 'kernel/arch/x86_64/hardware_vectors.*'
+      - 'kernel/arch/x86_64/apic.*'
+      - 'kernel/drivers/pci*'
+      - 'kernel/storage/dma.*'
+      - 'kernel/memory/**'
+      - 'scripts/qualification/inject-virtio-cleanup-runtime.py'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/qualification/network-smoke-state.sh'
+      - 'tests/test_virtio_net_cleanup.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtio-msix:
+    strategy:
+      fail-fast: false
+      matrix:
+        vectors: [1, 2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Verify exact candidate
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Host regressions including queue interrupt ownership
+        run: bash scripts/run-host-tests.sh
+      - name: Inject real MSI-X delivery and cleanup qualification
+        run: |
+          python3 scripts/qualification/inject-virtio-cleanup-runtime.py --require-msix --msix-routes ${{ matrix.vectors }}
+          git diff --check
+      - name: Build clean release media
+        run: |
+          chmod +x scripts/*.sh
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require real VirtIO queue IRQs, four route releases and network traffic
+        run: |
+          mode_marker='[TEST] virtio_msix_shared_delivery: PASS'
+          if [[ '${{ matrix.vectors }}' == 2 ]]; then
+            mode_marker='[TEST] virtio_msix_split_delivery: PASS'
+          fi
+          bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --accel tcg --timeout 180 --nic virtio --require-network \
+            --virtio-vectors ${{ matrix.vectors }} --require-marker "$mode_marker" \
+            --log-dir build/qualification/virtio-msix \
+            --require-marker '[TEST] virtio_msix_delivery: PASS' \
+            --require-marker '[TEST] virtio_msix_route_cleanup: PASS' \
+            --require-marker '[TEST] virtio_reset_cleanup: PASS' \
+            --require-marker '[TEST] virtio_reset_retry: PASS' \
+            --require-marker '[TEST] virtio_net_link: PASS' \
+            --require-marker-count '[VIRTIO-TEST] released DMA frames=' 4
+          grep -F '[VIRTIO-TEST]' build/qualification/virtio-msix/serial.log
+      - name: Rebuild uninjected production media for polling fallback
+        if: matrix.vectors == 2
+        run: |
+          git restore -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
+          git diff --exit-code -- kernel/main.cpp kernel/net/virtio_net.cpp kernel/net/physical.cpp
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+      - name: Require production VirtIO networking without MSI-X capability
+        if: matrix.vectors == 2
+        run: |
+          bash scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --accel tcg --timeout 180 --nic virtio --virtio-vectors 0 \
+            --log-dir build/qualification/virtio-polling --require-network \
+            --require-marker '[TEST] virtio_net_link: PASS' \
+            --require-marker 'VirtIO queue interrupts: CAPABILITY_UNAVAILABLE; vector=0'
+      - name: Preserve raw serial and QEMU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: virtio-interrupt-evidence-${{ matrix.vectors }}-${{ github.sha }}
+          path: build/qualification/
+          if-no-files-found: warn

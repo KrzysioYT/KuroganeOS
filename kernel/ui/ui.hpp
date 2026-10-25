@@ -32,7 +32,7 @@ enum class FluxControl : uint8_t {
 };
 
 enum class DockIcon : uint8_t {
-    Home = 0,
+    Home,
     Terminal,
     Files,
     Monitor,
@@ -40,7 +40,25 @@ enum class DockIcon : uint8_t {
     About,
 };
 
+enum class AppIcon : uint8_t {
+    Home = 0,
+    Terminal = 1,
+    Files = 2,
+    Performance = 3,
+    Browser = 4,
+    Monitor = 5,
+    Settings = 6,
+    About = 7,
+    Folder = 8,
+    Document = 9,
+    Notification = 10,
+};
+
 const Theme& default_theme();
+uint32_t desktop_theme_id();
+bool set_desktop_theme(uint32_t theme_id);
+uint32_t desktop_style_id();
+bool set_desktop_style(uint32_t style_id);
 bool contains(const Rect& rectangle, int32_t x, int32_t y);
 void boot_splash(const char* stage, uint32_t progress);
 void login_backdrop(const char* status);
@@ -61,7 +79,28 @@ void pulse_item(const Rect& bounds, const char* title, bool focused, bool minimi
 
 void label(const Rect& bounds, const char* text,
            graphics::Color color = 0, uint32_t scale = 1);
-void button(const Rect& bounds, const char* text, bool selected = false);
+void button(
+    const Rect& bounds, const char* text, bool selected = false,
+    bool hovered = false, bool pressed = false, bool destructive = false);
+void input_field(
+    const Rect& bounds, const char* text, bool focused = false,
+    bool hovered = false, bool pressed = false);
+void metric_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t value, uint32_t maximum);
+void notice_card(
+    const Rect& bounds, const char* title, const char* detail,
+    uint32_t priority);
+void toggle_switch(
+    const Rect& bounds, const char* title, const char* detail,
+    bool checked, bool hovered = false, bool pressed = false);
+void app_tile(
+    const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
+    bool selected = false, bool pinned = false, bool running = false,
+    bool hovered = false, bool pressed = false);
+void list_row(
+    const Rect& bounds, const char* text, bool selected = false,
+    bool disabled = false, bool hovered = false, bool pressed = false);
 void progress(const Rect& bounds, uint32_t value, uint32_t maximum);
 void separator(int32_t x, int32_t y, int32_t width);
 

@@ -1,0 +1,384 @@
+name: Apply AHCI q35 KVM Empty-Port Fix
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/apply-ahci-kvm-empty-port-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-commit:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify Kurogane build host
+        run: |
+          set -euo pipefail
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+
+      - name: Apply state-aware AHCI link detection
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: anchor count={count}')
+              path.write_text(text.replace(old, new, 1))
+
+          proto_h = Path('kernel/storage/ahci_protocol.hpp')
+          replace_once(
+              proto_h,
+              'enum class AtaCommand : uint8_t {\n',
+              'enum class LinkState : uint8_t {\n'
+              '    NoDevice = 0,\n'
+              '    Transitional,\n'
+              '    Active,\n'
+              '    Offline,\n'
+              '    Unsupported\n'
+              '};\n\n'
+              'enum class AtaCommand : uint8_t {\n',
+              'protocol LinkState enum')
+          replace_once(
+              proto_h,
+              'Status parse_identify(\n',
+              'LinkState classify_sata_status(uint32_t sata_status);\n\n'
+              'Status parse_identify(\n',
+              'protocol classifier declaration')
+
+          proto_cpp = Path('kernel/storage/ahci_protocol.cpp')
+          classifier = '''LinkState classify_sata_status(uint32_t sata_status) {
+              constexpr uint32_t det_mask = UINT32_C(0x0F);
+              constexpr uint32_t ipm_mask = UINT32_C(0x0F) << 8U;
+              constexpr uint32_t det_no_device = UINT32_C(0x00);
+              constexpr uint32_t det_present_no_link = UINT32_C(0x01);
+              constexpr uint32_t det_present_link = UINT32_C(0x03);
+              constexpr uint32_t det_offline = UINT32_C(0x04);
+              constexpr uint32_t ipm_active = UINT32_C(0x01) << 8U;
+
+              const uint32_t det = sata_status & det_mask;
+              const uint32_t ipm = sata_status & ipm_mask;
+              switch (det) {
+                  case det_no_device:
+                      return LinkState::NoDevice;
+                  case det_present_no_link:
+                      return LinkState::Transitional;
+                  case det_present_link:
+                      return ipm == ipm_active
+                          ? LinkState::Active
+                          : LinkState::Transitional;
+                  case det_offline:
+                      return LinkState::Offline;
+                  default:
+                      return LinkState::Unsupported;
+              }
+          }
+
+          '''
+          replace_once(
+              proto_cpp,
+              'Status parse_identify(\n',
+              classifier + 'Status parse_identify(\n',
+              'protocol classifier implementation')
+
+          ahci = Path('kernel/storage/ahci.cpp')
+          text = ahci.read_text()
+          text = text.replace(
+              'constexpr uint32_t CAP_SUPPORTS_CLO = UINT32_C(1) << 24U;\n'
+              'constexpr uint32_t CAP_SUPPORTS_64_BIT = UINT32_C(1) << 31U;\n',
+              'constexpr uint32_t CAP_SUPPORTS_CLO = UINT32_C(1) << 24U;\n'
+              'constexpr uint32_t CAP_SUPPORTS_STAGGERED_SPIN_UP =\n'
+              '    UINT32_C(1) << 27U;\n'
+              'constexpr uint32_t CAP_SUPPORTS_64_BIT = UINT32_C(1) << 31U;\n',
+              1)
+          if 'CAP_SUPPORTS_STAGGERED_SPIN_UP' not in text:
+              raise SystemExit('AHCI CAP.SSS insertion failed')
+
+          status_constants = (
+              'constexpr uint32_t SATA_STATUS_DET_MASK = UINT32_C(0x0F);\n'
+              'constexpr uint32_t SATA_STATUS_IPM_MASK = UINT32_C(0x0F) << 8U;\n'
+              'constexpr uint32_t SATA_STATUS_DEVICE_PRESENT = UINT32_C(0x03);\n'
+              'constexpr uint32_t SATA_STATUS_INTERFACE_ACTIVE = UINT32_C(0x01) << 8U;\n'
+          )
+          if text.count(status_constants) != 1:
+              raise SystemExit('AHCI legacy SATA status constants anchor mismatch')
+          text = text.replace(status_constants, '', 1)
+
+          old_struct = (
+              '    bool supports_64_bit_dma;\n'
+              '    bool supports_clo;\n'
+              '    bool active;\n'
+          )
+          new_struct = (
+              '    bool supports_64_bit_dma;\n'
+              '    bool supports_clo;\n'
+              '    bool supports_staggered_spin_up;\n'
+              '    bool active;\n'
+          )
+          if text.count(old_struct) != 1:
+              raise SystemExit('AHCI controller capability fields anchor mismatch')
+          text = text.replace(old_struct, new_struct, 1)
+
+          old_caps = (
+              '    controller.supports_clo =\n'
+              '        (controller.capabilities & CAP_SUPPORTS_CLO) != 0U;\n'
+          )
+          new_caps = old_caps + (
+              '    controller.supports_staggered_spin_up =\n'
+              '        (controller.capabilities &\n'
+              '         CAP_SUPPORTS_STAGGERED_SPIN_UP) != 0U;\n'
+          )
+          if text.count(old_caps) != 1:
+              raise SystemExit('AHCI capability decode anchor mismatch')
+          text = text.replace(old_caps, new_caps, 1)
+
+          old_presence = '''bool sata_device_present(Controller& controller, uint8_t port_number) {
+              Port probe{};
+              probe.controller = &controller;
+              probe.port_number = port_number;
+
+              // A global HBA reset may leave staggered-spin-up ports with SUD clear and
+              // the link in a transitional state. Request power/spin-up and active IPM,
+              // then poll a bounded interval before deciding that an implemented port
+              // is empty. No command structures or media accesses are involved here.
+              uint32_t command = read_port_register(probe, PORT_CMD);
+              command |= PORT_CMD_POWER_ON | PORT_CMD_SPIN_UP;
+              command &= ~PORT_CMD_INTERFACE_CONTROL_MASK;
+              command |= PORT_CMD_INTERFACE_ACTIVE;
+              write_port_register(probe, PORT_CMD, command);
+
+              for (uint32_t attempt = 0U;
+                   attempt < LINK_POLL_ITERATIONS;
+                   ++attempt) {
+                  const uint32_t sata_status = read_port_register(probe, PORT_SSTS);
+                  if ((sata_status & SATA_STATUS_DET_MASK) ==
+                          SATA_STATUS_DEVICE_PRESENT &&
+                      (sata_status & SATA_STATUS_IPM_MASK) ==
+                          SATA_STATUS_INTERFACE_ACTIVE) {
+                      return true;
+                  }
+                  cpu_relax();
+              }
+              return false;
+          }
+          '''
+          new_presence = '''bool sata_device_present(Controller& controller, uint8_t port_number) {
+              Port probe{};
+              probe.controller = &controller;
+              probe.port_number = port_number;
+
+              const protocol::LinkState initial_state =
+                  protocol::classify_sata_status(
+                      read_port_register(probe, PORT_SSTS));
+              if (initial_state == protocol::LinkState::Active) {
+                  return true;
+              }
+              if (initial_state == protocol::LinkState::Offline ||
+                  initial_state == protocol::LinkState::Unsupported) {
+                  return false;
+              }
+              // On controllers without staggered spin-up, DET=0 is a stable empty-port
+              // result. Polling it millions of times turns every MMIO read into an
+              // unnecessary virtualization exit and also delays real hardware boot.
+              if (initial_state == protocol::LinkState::NoDevice &&
+                  !controller.supports_staggered_spin_up) {
+                  return false;
+              }
+
+              // Transitional links and CAP.SSS controllers can legitimately need SUD
+              // after HBA reset. Request power/spin-up and active IPM, then retain the
+              // existing bounded wait only for those states where a transition can occur.
+              uint32_t command = read_port_register(probe, PORT_CMD);
+              command |= PORT_CMD_POWER_ON | PORT_CMD_SPIN_UP;
+              command &= ~PORT_CMD_INTERFACE_CONTROL_MASK;
+              command |= PORT_CMD_INTERFACE_ACTIVE;
+              write_port_register(probe, PORT_CMD, command);
+
+              for (uint32_t attempt = 0U;
+                   attempt < LINK_POLL_ITERATIONS;
+                   ++attempt) {
+                  const protocol::LinkState state =
+                      protocol::classify_sata_status(
+                          read_port_register(probe, PORT_SSTS));
+                  if (state == protocol::LinkState::Active) {
+                      return true;
+                  }
+                  if (state == protocol::LinkState::Offline ||
+                      state == protocol::LinkState::Unsupported ||
+                      (state == protocol::LinkState::NoDevice &&
+                       !controller.supports_staggered_spin_up)) {
+                      return false;
+                  }
+                  cpu_relax();
+              }
+              return false;
+          }
+          '''
+          if text.count(old_presence) != 1:
+              raise SystemExit(f'AHCI presence function anchor count={text.count(old_presence)}')
+          ahci.write_text(text.replace(old_presence, new_presence, 1))
+
+          tests = Path('tests/test_ahci.cpp')
+          test_text = tests.read_text()
+          using_anchor = 'using ProtocolStatus = storage::ahci::protocol::Status;\n'
+          if test_text.count(using_anchor) != 1:
+              raise SystemExit('AHCI test using anchor mismatch')
+          test_text = test_text.replace(
+              using_anchor,
+              using_anchor + 'using LinkState = storage::ahci::protocol::LinkState;\n',
+              1)
+
+          test_anchor = 'bool test_identify_512_byte_sectors() {\n'
+          link_test = '''bool test_sata_link_state_classification() {
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x000)) == LinkState::NoDevice);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x001)) == LinkState::Transitional);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x103)) == LinkState::Active);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x003)) == LinkState::Transitional);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x203)) == LinkState::Transitional);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x004)) == LinkState::Offline);
+              CHECK(storage::ahci::protocol::classify_sata_status(
+                        UINT32_C(0x002)) == LinkState::Unsupported);
+              return true;
+          }
+
+          '''
+          if test_text.count(test_anchor) != 1:
+              raise SystemExit('AHCI link test insertion anchor mismatch')
+          test_text = test_text.replace(test_anchor, link_test + test_anchor, 1)
+          case_anchor = '        {"BAR5 decode", test_bar_decode},\n'
+          if test_text.count(case_anchor) != 1:
+              raise SystemExit('AHCI test case anchor mismatch')
+          test_text = test_text.replace(
+              case_anchor,
+              case_anchor +
+              '        {"SATA link-state classification", test_sata_link_state_classification},\n',
+              1)
+          tests.write_text(test_text)
+
+      - name: Validate production patch
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'CAP_SUPPORTS_STAGGERED_SPIN_UP' kernel/storage/ahci.cpp
+          grep -F 'classify_sata_status' kernel/storage/ahci.cpp
+          grep -F 'classify_sata_status' kernel/storage/ahci_protocol.cpp
+          grep -F 'SATA link-state classification' tests/test_ahci.cpp
+
+      - name: Run full host regression suite
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build full release media
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require q35 KVM boot through PID1
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          pid=""
+          cleanup() {
+            if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+              kill "$pid" >/dev/null 2>&1 || true
+              wait "$pid" >/dev/null 2>&1 || true
+            fi
+            rm -rf -- "$tmp"
+          }
+          trap cleanup EXIT INT TERM
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]]
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          cp "$vars_template" "$vars"
+
+          qemu-system-x86_64 \
+            -machine q35,accel=kvm \
+            -cpu host \
+            -m 1024 \
+            -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+            -drive if=pflash,format=raw,unit=1,file="$vars" \
+            -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+            -netdev user,id=kurogane_net \
+            -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+            -serial "file:$serial" \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            >"$qemu_log" 2>&1 &
+          pid=$!
+
+          found=0
+          for _ in $(seq 1 300); do
+            if grep -Fq '[TEST] userspace_init_pid1: PASS' "$serial" 2>/dev/null; then
+              found=1
+              break
+            fi
+            if ! kill -0 "$pid" >/dev/null 2>&1; then break; fi
+            sleep 0.1
+          done
+          kill "$pid" >/dev/null 2>&1 || true
+          wait "$pid" >/dev/null 2>&1 || true
+          pid=""
+
+          cat "$qemu_log"
+          tail -n 6000 "$serial"
+          [[ "$found" -eq 1 ]] || {
+            echo 'q35 KVM did not reach Ring-3 PID1' >&2
+            exit 1
+          }
+          grep -F '[TEST] userspace_init_pid1: PASS' "$serial"
+          echo '[TEST] ahci_kvm_empty_ports: PASS'
+
+      - name: Commit qualified source fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch='gpt/road-to-15-consolidation'
+          git fetch origin "$branch"
+          test "$(git rev-parse "origin/$branch")" = "$GITHUB_SHA" || {
+            echo 'Branch moved while AHCI fix was qualifying; refusing to overwrite newer work.' >&2
+            exit 1
+          }
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add kernel/storage/ahci.cpp kernel/storage/ahci_protocol.cpp kernel/storage/ahci_protocol.hpp tests/test_ahci.cpp
+          git diff --cached --check
+          git commit -m 'fix(ahci): avoid polling stable empty ports'
+          git push origin "HEAD:$branch"

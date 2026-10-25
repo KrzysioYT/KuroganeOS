@@ -1,6 +1,11 @@
 #include "virtio_net.hpp"
 
 #include "../drivers/pci.hpp"
+#include "../drivers/pci_bar.hpp"
+#include "../drivers/pci_msix.hpp"
+#include "../drivers/pci_msix_group.hpp"
+#include "../drivers/virtio/pci_transport.hpp"
+#include "../arch/x86_64/apic.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/virtual_memory.hpp"
 #include "../storage/dma.hpp"
@@ -11,12 +16,6 @@ namespace {
 constexpr uint16_t kVirtioVendor = UINT16_C(0x1AF4);
 constexpr uint16_t kVirtioNetTransitionalDevice = UINT16_C(0x1000);
 constexpr uint16_t kVirtioNetModernDevice = UINT16_C(0x1041);
-constexpr uint8_t kVendorCapabilityId = UINT8_C(0x09);
-constexpr uint8_t kCommonConfigType = 1U;
-constexpr uint8_t kNotifyConfigType = 2U;
-constexpr uint8_t kDeviceConfigType = 4U;
-constexpr uint8_t kCapabilityIterations = 48U;
-constexpr uint8_t kMaxBarIndex = 5U;
 constexpr size_t kQueueCapacity = 8U;
 constexpr size_t kVirtioNetHeaderSize = 12U;
 constexpr size_t kDmaBufferSize = memory::virtual_memory::PAGE_SIZE;
@@ -30,20 +29,22 @@ constexpr uint8_t kStatusDriver = UINT8_C(2);
 constexpr uint8_t kStatusDriverOk = UINT8_C(4);
 constexpr uint8_t kStatusFeaturesOk = UINT8_C(8);
 constexpr uint8_t kStatusFailed = UINT8_C(128);
-constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB20000000000);
-constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB20000010000);
-constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB20000020000);
+constexpr uint16_t kCommandMemory = UINT16_C(2);
+constexpr uint16_t kCommandBusMaster = UINT16_C(4);
+constexpr size_t kResetPollLimit = 100000U;
+constexpr uintptr_t kCommonVirtualBase = UINT64_C(0xFFFFB70000000000);
+constexpr uintptr_t kNotifyVirtualBase = UINT64_C(0xFFFFB70000010000);
+constexpr uintptr_t kDeviceVirtualBase = UINT64_C(0xFFFFB70000020000);
+constexpr uintptr_t kMsixTableVirtualBase = UINT64_C(0xFFFFB70000100000);
+constexpr uintptr_t kMsixPendingVirtualBase = UINT64_C(0xFFFFB70000200000);
+constexpr size_t kMaximumMsixBarBytes = 256U * 1024U;
 
-struct VirtioCapability {
-    bool present;
-    uint8_t bar;
-    uint32_t offset;
-    uint32_t length;
-    uint32_t notify_multiplier;
-};
+using VirtioCapability = drivers::virtio::pci_transport::Capability;
 
 struct MappedRegion {
+    uintptr_t virtual_base;
     volatile uint8_t* base;
+    size_t mapped_pages;
     size_t length;
 };
 
@@ -77,6 +78,7 @@ struct Queue {
     uint16_t available_index;
     uint16_t last_used_index;
     bool buffer_free[kQueueCapacity];
+    bool completion_fault;
     bool configured;
 };
 
@@ -91,13 +93,19 @@ Queue g_receive_queue{};
 Queue g_transmit_queue{};
 NetworkInterface g_interface{};
 MacAddress g_mac{};
-
-uint8_t pci_read8(const pci::Device& device, uint8_t offset) {
-    const uint8_t aligned = static_cast<uint8_t>(offset & UINT8_C(0xFC));
-    const uint32_t value = pci::read32(device, aligned);
-    const unsigned shift = static_cast<unsigned>((offset & UINT8_C(3)) * 8U);
-    return static_cast<uint8_t>((value >> shift) & UINT32_C(0xFF));
-}
+uint16_t g_original_command = 0U;
+bool g_command_owned = false;
+bool g_cleanup_blocked = false;
+MappedRegion g_msix_table{};
+MappedRegion g_msix_pending{};
+pci::msix::RouteGroup g_msix_route{};
+InterruptStatus g_interrupt_status = InterruptStatus::NotInitialized;
+uint64_t g_interrupt_count = 0U;
+constexpr uint8_t kReceiveInterrupt = 1U;
+constexpr uint8_t kTransmitInterrupt = 2U;
+uint8_t g_interrupt_pending = 0U;
+uint64_t g_receive_interrupt_count = 0U;
+uint64_t g_transmit_interrupt_count = 0U;
 
 uint16_t mmio_read16(const MappedRegion& region, size_t offset) {
     if (region.base == nullptr || offset + sizeof(uint16_t) > region.length) return 0U;
@@ -140,90 +148,58 @@ void clear_bytes(void* destination, size_t size) {
 }
 
 bool capability_valid(const VirtioCapability& capability) {
-    return capability.present && capability.bar <= kMaxBarIndex &&
-        capability.length != 0U &&
-        capability.length <= memory::virtual_memory::PAGE_SIZE &&
-        capability.offset <= UINT32_MAX - capability.length;
+    return drivers::virtio::pci_transport::region_valid(
+        capability, memory::virtual_memory::PAGE_SIZE);
 }
 
-bool scan_capabilities(
-    const pci::Device& device,
-    VirtioCapability* common,
-    VirtioCapability* notify,
-    VirtioCapability* device_config) {
-    if (common == nullptr || notify == nullptr || device_config == nullptr) return false;
-    *common = {};
-    *notify = {};
-    *device_config = {};
-
-    uint8_t pointer = static_cast<uint8_t>(pci_read8(device, UINT8_C(0x34)) & UINT8_C(0xFC));
-    for (uint8_t iteration = 0U;
-         pointer >= UINT8_C(0x40) && iteration < kCapabilityIterations;
-         ++iteration) {
-        const uint32_t header = pci::read32(device, pointer);
-        const uint8_t capability_id = static_cast<uint8_t>(header & UINT32_C(0xFF));
-        const uint8_t next = static_cast<uint8_t>((header >> 8U) & UINT32_C(0xFC));
-        if (capability_id == kVendorCapabilityId) {
-            const uint8_t length = static_cast<uint8_t>((header >> 16U) & UINT32_C(0xFF));
-            const uint8_t type = static_cast<uint8_t>((header >> 24U) & UINT32_C(0xFF));
-            if (length >= 16U && pointer <= UINT8_C(0xF0)) {
-                const uint32_t second = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 4U));
-                VirtioCapability candidate{};
-                candidate.present = true;
-                candidate.bar = static_cast<uint8_t>(second & UINT32_C(0xFF));
-                candidate.offset = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 8U));
-                candidate.length = pci::read32(
-                    device, static_cast<uint8_t>(pointer + 12U));
-                if (type == kNotifyConfigType && length >= 20U &&
-                    pointer <= UINT8_C(0xEC)) {
-                    candidate.notify_multiplier = pci::read32(
-                        device, static_cast<uint8_t>(pointer + 16U));
-                }
-                if (capability_valid(candidate)) {
-                    if (type == kCommonConfigType && !common->present) {
-                        *common = candidate;
-                    } else if (type == kNotifyConfigType && !notify->present) {
-                        *notify = candidate;
-                    } else if (type == kDeviceConfigType && !device_config->present) {
-                        *device_config = candidate;
-                    }
-                }
-            }
-        }
-        if (next == 0U || next == pointer) break;
-        pointer = next;
+bool unmap_capability(MappedRegion* region) {
+    if (region == nullptr) return false;
+    if (region->mapped_pages == 0U) {
+        *region = {};
+        return true;
     }
-    return common->present && notify->present;
+    auto* address_space = memory::kernel_virtual_memory::address_space();
+    if (address_space == nullptr) return false;
+    // Retain the remaining mapping on failure so retry cannot overwrite it.
+    while (region->mapped_pages != 0U) {
+        const uintptr_t target = region->virtual_base +
+            (region->mapped_pages - 1U) * memory::virtual_memory::PAGE_SIZE;
+        const auto status = memory::virtual_memory::unmap_page(address_space, target);
+        if (status != memory::virtual_memory::Status::Ok &&
+            status != memory::virtual_memory::Status::NotMapped) return false;
+        --region->mapped_pages;
+    }
+    *region = {};
+    return true;
 }
 
-bool map_capability(
-    const pci::Device& device,
-    const VirtioCapability& capability,
+bool map_mmio(
+    uint64_t physical,
+    size_t length,
     uintptr_t virtual_base,
     MappedRegion* output) {
-    if (output == nullptr || !capability_valid(capability)) return false;
-    bool io_space = false;
-    const uint64_t bar = pci::bar_address(device, capability.bar, &io_space);
-    if (bar == 0U || io_space || bar > UINT64_MAX - capability.offset) return false;
+    if (output == nullptr || output->base != nullptr ||
+        output->mapped_pages != 0U || physical == 0U || length == 0U ||
+        length > kMaximumMsixBarBytes) return false;
 
     auto* address_space = memory::kernel_virtual_memory::address_space();
     if (address_space == nullptr) return false;
     constexpr uint64_t page_size = memory::virtual_memory::PAGE_SIZE;
     constexpr uint64_t page_mask = page_size - 1U;
-    const uint64_t physical = bar + capability.offset;
     const uint64_t aligned = physical & ~page_mask;
     const size_t prefix = static_cast<size_t>(physical & page_mask);
-    const size_t extent = prefix + capability.length;
+    const size_t extent = prefix + length;
     const size_t pages = static_cast<size_t>((extent + page_mask) / page_size);
-    if (pages == 0U || pages > 2U) return false;
+    if (pages == 0U || (virtual_base & page_mask) != 0U ||
+        virtual_base > UINTPTR_MAX - pages * page_size ||
+        aligned > UINT64_MAX - pages * page_size) return false;
 
     const auto flags = memory::virtual_memory::MapFlags::Writable |
         memory::virtual_memory::MapFlags::WriteThrough |
         memory::virtual_memory::MapFlags::CacheDisable |
         memory::virtual_memory::MapFlags::NoExecute;
     size_t mapped = 0U;
+    output->virtual_base = virtual_base;
     for (; mapped < pages; ++mapped) {
         memory::virtual_memory::Mapping existing{};
         const uintptr_t target = virtual_base + mapped * page_size;
@@ -238,38 +214,174 @@ bool map_capability(
                 flags) != memory::virtual_memory::Status::Ok) {
             break;
         }
+        ++output->mapped_pages;
     }
     if (mapped != pages) {
-        while (mapped != 0U) {
-            --mapped;
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                address_space,
-                virtual_base + mapped * page_size));
-        }
+        static_cast<void>(unmap_capability(output));
         return false;
     }
     output->base = reinterpret_cast<volatile uint8_t*>(virtual_base + prefix);
-    output->length = capability.length;
+    output->length = length;
     return true;
 }
 
-void release_queue(Queue* queue) {
-    if (queue == nullptr) return;
+bool map_capability(
+    const pci::Device& device,
+    const VirtioCapability& capability,
+    uintptr_t virtual_base,
+    MappedRegion* output) {
+    if (!capability_valid(capability)) return false;
+    bool io_space = false;
+    const uint64_t bar = pci::bar_address(device, capability.bar, &io_space);
+    if (bar == 0U || io_space || bar > UINT64_MAX - capability.offset) return false;
+    return map_mmio(bar + capability.offset, capability.length, virtual_base, output);
+}
+
+void queue_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
+    // The IDT dispatcher owns LAPIC EOI. Packet processing stays outside IRQ;
+    // one shared vector notifies the existing network pump about both queues.
+    __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_fetch_or(&g_interrupt_pending,
+        kReceiveInterrupt | kTransmitInterrupt, __ATOMIC_RELEASE);
+}
+
+void receive_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
+    __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_add_fetch(&g_receive_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_fetch_or(&g_interrupt_pending, kReceiveInterrupt, __ATOMIC_RELEASE);
+}
+
+void transmit_interrupt(arch::x86_64::interrupts::InterruptFrame&) {
+    __atomic_add_fetch(&g_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_add_fetch(&g_transmit_interrupt_count, UINT64_C(1), __ATOMIC_RELAXED);
+    __atomic_fetch_or(&g_interrupt_pending, kTransmitInterrupt, __ATOMIC_RELEASE);
+}
+
+bool interrupt_mapping_fallback(InterruptStatus reason) {
+    if (g_msix_route.count != 0U) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        return false;
+    }
+    const bool table = unmap_capability(&g_msix_table);
+    const bool pending = unmap_capability(&g_msix_pending);
+    g_interrupt_status = table && pending ? reason : InterruptStatus::CleanupFailed;
+    return table && pending;
+}
+
+bool prepare_queue_interrupts() {
+    if (!arch::x86_64::apic::local_enabled()) {
+        g_interrupt_status = InterruptStatus::LocalApicUnavailable;
+        return true;
+    }
+    pci::Capability capability{};
+    if (!pci::find_capability(g_device, pci::CapabilityId::MsiX, &capability)) {
+        g_interrupt_status = InterruptStatus::CapabilityUnavailable;
+        return true;
+    }
+    pci::MsiXInfo info{};
+    if (!pci::read_msix_info(g_device, &info)) {
+        g_interrupt_status = InterruptStatus::CapabilityMalformed;
+        return true;
+    }
+    if (info.enabled) {
+        // Do not steal a route programmed by another owner/firmware.
+        g_interrupt_status = InterruptStatus::RouteUnavailable;
+        return true;
+    }
+
+    // Only the boot-serialized, reset device may be sized. Never probe an
+    // active BAR, and restore decode before touching mapped MMIO again.
+    const uint16_t saved_command = pci::read16(g_device, 0x04U);
+    pci::write16(g_device, 0x04U, static_cast<uint16_t>(
+        saved_command & ~pci::bar::COMMAND_DECODE_MASK));
+    pci::bar::Info table{};
+    pci::bar::Info pending{};
+    bool valid = (pci::read16(g_device, 0x04U) & pci::bar::COMMAND_DECODE_MASK) == 0U;
+    if (valid) {
+        valid = pci::bar::probe_disabled(g_device, info.table_bar, &table) ==
+            pci::bar::Status::Ok;
+        if (valid && info.table_bar == info.pending_bit_array_bar) {
+            pending = table;
+        } else if (valid) {
+            valid = pci::bar::probe_disabled(
+                g_device, info.pending_bit_array_bar, &pending) == pci::bar::Status::Ok;
+        }
+    }
+    pci::write16(g_device, 0x04U, saved_command);
+    if (pci::read16(g_device, 0x04U) != saved_command) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        return false;
+    }
+    if (!valid || table.kind == pci::bar::Kind::Io ||
+        pending.kind == pci::bar::Kind::Io || table.size == 0U ||
+        pending.size == 0U || table.size > kMaximumMsixBarBytes ||
+        pending.size > kMaximumMsixBarBytes) {
+        g_interrupt_status = InterruptStatus::BarUnavailable;
+        return true;
+    }
+    if (!map_mmio(table.physical_address, static_cast<size_t>(table.size),
+            kMsixTableVirtualBase, &g_msix_table)) {
+        return interrupt_mapping_fallback(InterruptStatus::MappingUnavailable);
+    }
+    if (info.table_bar != info.pending_bit_array_bar &&
+        !map_mmio(pending.physical_address, static_cast<size_t>(pending.size),
+            kMsixPendingVirtualBase, &g_msix_pending)) {
+        return interrupt_mapping_fallback(InterruptStatus::MappingUnavailable);
+    }
+    const pci::msix::MmioRegion table_region{
+        table.index, table.physical_address, g_msix_table.base, g_msix_table.length};
+    const pci::msix::MmioRegion pending_region = info.table_bar == info.pending_bit_array_bar
+        ? table_region : pci::msix::MmioRegion{pending.index, pending.physical_address,
+            g_msix_pending.base, g_msix_pending.length};
+    const pci::msix::RouteRequest separate[2] = {
+        {0U, receive_interrupt}, {1U, transmit_interrupt}};
+    const pci::msix::RouteRequest shared{0U, queue_interrupt};
+    const size_t desired = info.table_size >= 2U ? 2U : 1U;
+    auto route_status = pci::msix::enable_group(g_device,
+        desired == 2U ? separate : &shared, desired,
+        table_region, pending_region, &g_msix_route);
+    // Partial rollback is still ownership. Reset/retire it before any retry;
+    // never overwrite a retained lease or unmap its table to enter polling.
+    if (g_msix_route.count != 0U && route_status != pci::msix::Status::Ok) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        return false;
+    }
+    if (route_status == pci::msix::Status::VectorUnavailable && desired == 2U) {
+        route_status = pci::msix::enable_group(g_device, &shared, 1U,
+            table_region, pending_region, &g_msix_route);
+    }
+    if (route_status != pci::msix::Status::Ok) {
+        return interrupt_mapping_fallback(InterruptStatus::RouteUnavailable);
+    }
+    // Reset leaves all events unmapped. Configuration interrupts remain off.
+    mmio_write16(g_common, 16U, kNoMsixVector);
+    g_interrupt_status = InterruptStatus::MsiXEnabled;
+    return true;
+}
+
+bool release_queue(Queue* queue) {
+    if (queue == nullptr) return false;
+    bool complete = true;
     for (size_t index = 0U; index < kQueueCapacity; ++index) {
         if (queue->buffers[index].allocated) {
-            static_cast<void>(storage::dma::release_page(&queue->buffers[index]));
+            if (storage::dma::release_page(&queue->buffers[index]) !=
+                storage::dma::Status::Ok) complete = false;
         }
     }
     if (queue->descriptor_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->descriptor_page));
+        if (storage::dma::release_page(&queue->descriptor_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
     if (queue->available_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->available_page));
+        if (storage::dma::release_page(&queue->available_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
     if (queue->used_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&queue->used_page));
+        if (storage::dma::release_page(&queue->used_page) !=
+            storage::dma::Status::Ok) complete = false;
     }
-    *queue = {};
+    if (complete) *queue = {};
+    return complete;
 }
 
 uint16_t choose_queue_size(uint16_t maximum) {
@@ -349,20 +461,28 @@ bool configure_queue(
     queue->index = index;
 
     mmio_write16(g_common, 24U, size);
-    mmio_write16(g_common, 26U, kNoMsixVector);
+    const uint16_t queue_vector = g_msix_route.programmed.active
+        ? (g_msix_route.count == 2U ? index : 0U) : kNoMsixVector;
+    mmio_write16(g_common, 26U, queue_vector);
+    if (g_msix_route.programmed.active) {
+        if (mmio_read16(g_common, 26U) != queue_vector) {
+            g_interrupt_status = InterruptStatus::QueueRejected;
+            return false;
+        }
+        queue->available[0] = 0U;
+    }
     if (!write_queue_address(32U, queue->descriptor_page.physical_address) ||
         !write_queue_address(40U, queue->available_page.physical_address) ||
         !write_queue_address(48U, queue->used_page.physical_address)) {
-        release_queue(queue);
+        // Addresses have been exposed. The caller must reset before freeing.
         return false;
     }
 
     const uint16_t notify_offset = mmio_read16(g_common, 30U);
     const uint64_t byte_offset =
         static_cast<uint64_t>(notify_offset) * notify_capability.notify_multiplier;
-    if (byte_offset > SIZE_MAX ||
-        static_cast<size_t>(byte_offset) + sizeof(uint16_t) > g_notify.length) {
-        release_queue(queue);
+    if (g_notify.length < sizeof(uint16_t) ||
+        byte_offset > g_notify.length - sizeof(uint16_t)) {
         return false;
     }
     queue->notify = reinterpret_cast<volatile uint16_t*>(
@@ -370,7 +490,6 @@ bool configure_queue(
     memory_barrier();
     mmio_write16(g_common, 28U, 1U);
     if (mmio_read16(g_common, 28U) != 1U) {
-        release_queue(queue);
         return false;
     }
     queue->configured = true;
@@ -405,17 +524,64 @@ void prepare_receive_queue() {
     notify_queue(queue);
 }
 
-void reclaim_transmit() {
-    Queue& queue = g_transmit_queue;
+struct CompletionBatch {
+    uint16_t count;
+    uint32_t ids[kQueueCapacity];
+};
+
+Status mark_completion_fault(Queue& queue) {
+    queue.completion_fault = true;
+    g_status = Status::DeviceFault;
+    return Status::DeviceFault;
+}
+
+Status snapshot_completions(Queue& queue, CompletionBatch* batch) {
+    if (batch == nullptr || queue.completion_fault || queue.size == 0U ||
+        queue.size > kQueueCapacity || queue.used_header == nullptr ||
+        queue.used_elements == nullptr) {
+        return mark_completion_fault(queue);
+    }
+
     const uint16_t used_index = queue.used_header[1];
     memory_barrier();
-    while (queue.last_used_index != used_index) {
-        const uint16_t slot = static_cast<uint16_t>(
-            queue.last_used_index % queue.size);
-        const uint32_t id = queue.used_elements[slot].id;
-        if (id < queue.size) queue.buffer_free[id] = true;
-        ++queue.last_used_index;
+    const uint16_t pending = static_cast<uint16_t>(
+        used_index - queue.last_used_index);
+    const uint16_t submitted = static_cast<uint16_t>(
+        queue.available_index - queue.last_used_index);
+    if (pending > queue.size || submitted > queue.size || pending > submitted) {
+        return mark_completion_fault(queue);
     }
+
+    uint16_t seen = 0U;
+    batch->count = pending;
+    for (uint16_t offset = 0U; offset < pending; ++offset) {
+        const uint16_t slot = static_cast<uint16_t>(
+            (queue.last_used_index + offset) % queue.size);
+        const uint32_t id = queue.used_elements[slot].id;
+        if (id >= queue.size || queue.buffer_free[id]) {
+            return mark_completion_fault(queue);
+        }
+        const uint16_t bit = static_cast<uint16_t>(1U << id);
+        if ((seen & bit) != 0U) {
+            return mark_completion_fault(queue);
+        }
+        seen = static_cast<uint16_t>(seen | bit);
+        batch->ids[offset] = id;
+    }
+    return Status::Ok;
+}
+
+Status reclaim_transmit() {
+    Queue& queue = g_transmit_queue;
+    CompletionBatch batch{};
+    const Status status = snapshot_completions(queue, &batch);
+    if (status != Status::Ok) return status;
+    for (uint16_t index = 0U; index < batch.count; ++index) {
+        queue.buffer_free[batch.ids[index]] = true;
+    }
+    queue.last_used_index = static_cast<uint16_t>(
+        queue.last_used_index + batch.count);
+    return Status::Ok;
 }
 
 bool read_mac_from_device(MacAddress* output) {
@@ -459,7 +625,8 @@ Status transmit_frame(void*, const uint8_t* frame, size_t frame_length) {
         return Status::FrameTooLarge;
     }
 
-    reclaim_transmit();
+    const Status completion_status = reclaim_transmit();
+    if (completion_status != Status::Ok) return completion_status;
     Queue& queue = g_transmit_queue;
     uint16_t descriptor = queue.size;
     for (uint16_t index = 0U; index < queue.size; ++index) {
@@ -500,16 +667,22 @@ Status receive_frame(
     }
 
     Queue& queue = g_receive_queue;
-    const uint16_t used_index = queue.used_header[1];
-    memory_barrier();
-    if (queue.last_used_index == used_index) return Status::WouldBlock;
+    if ((__atomic_exchange_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_ACQUIRE) &
+            kTransmitInterrupt) != 0U) {
+        const Status transmit_status = reclaim_transmit();
+        if (transmit_status != Status::Ok) return transmit_status;
+    }
+    CompletionBatch batch{};
+    const Status completion_status = snapshot_completions(queue, &batch);
+    if (completion_status != Status::Ok) return completion_status;
+    if (batch.count == 0U) return Status::WouldBlock;
 
     const uint16_t slot = static_cast<uint16_t>(
         queue.last_used_index % queue.size);
-    const uint32_t id = queue.used_elements[slot].id;
+    const uint32_t id = batch.ids[0];
     const uint32_t length = queue.used_elements[slot].length;
-    ++queue.last_used_index;
-    if (id >= queue.size) return Status::DeviceFault;
+    queue.last_used_index = static_cast<uint16_t>(
+        queue.last_used_index + 1U);
 
     Status result = Status::Ok;
     if (length < kVirtioNetHeaderSize || length > kDmaBufferSize) {
@@ -582,19 +755,88 @@ void mark_failed() {
     }
 }
 
+bool reset_device() {
+    // No common mapping means queue addresses have not been exposed yet.
+    if (g_common.base == nullptr || g_common.length <= 20U) return true;
+    mmio_write8(g_common, 20U, 0U);
+    memory_barrier();
+    for (size_t poll = 0U; poll < kResetPollLimit; ++poll) {
+        if (mmio_read8(g_common, 20U) == 0U) return true;
+        __asm__ volatile("pause");
+    }
+    return false;
+}
+
+Status cleanup_after_reset(Status cause, bool reset_complete) {
+    g_initialized = false;
+    g_interface = {};
+    if (g_command_owned) {
+        const uint16_t command = pci::read16(g_device, 0x04U);
+        pci::write16(g_device, 0x04U,
+            static_cast<uint16_t>(command & ~kCommandBusMaster));
+        // Flush the config write. Clearing BME alone does not prove that
+        // outstanding DMA is drained, so only a completed reset permits free.
+        static_cast<void>(pci::read16(g_device, 0x04U));
+    }
+    if (!reset_complete) {
+        if (g_msix_route.programmed.active) {
+            const uint8_t control_offset = static_cast<uint8_t>(
+                g_msix_route.programmed.capability_offset + 2U);
+            pci::write16(g_device, control_offset, static_cast<uint16_t>(
+                pci::read16(g_device, control_offset) | pci::msix::CONTROL_FUNCTION_MASK));
+            static_cast<void>(pci::read16(g_device, control_offset));
+        }
+        g_cleanup_blocked = true;
+        g_status = Status::DeviceResetFailed;
+        return g_status;
+    }
+
+    // Reset unmaps queue events before the route is released. Keep MMIO and
+    // DMA owned if vector teardown fails; never erase a possibly live route.
+    if (g_msix_route.count != 0U &&
+        pci::msix::disable_group(&g_msix_route) != pci::msix::Status::Ok) {
+        g_interrupt_status = InterruptStatus::CleanupFailed;
+        g_cleanup_blocked = true;
+        g_status = Status::DeviceCleanupFailed;
+        return g_status;
+    }
+    if (g_interrupt_status == InterruptStatus::MsiXEnabled) {
+        g_interrupt_status = InterruptStatus::NotInitialized;
+    }
+    __atomic_store_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_RELEASE);
+
+    const bool rx_released = release_queue(&g_receive_queue);
+    const bool tx_released = release_queue(&g_transmit_queue);
+    const bool device_unmapped = unmap_capability(&g_device_config);
+    const bool notify_unmapped = unmap_capability(&g_notify);
+    const bool common_unmapped = unmap_capability(&g_common);
+    const bool table_unmapped = unmap_capability(&g_msix_table);
+    const bool pending_unmapped = unmap_capability(&g_msix_pending);
+    bool command_restored = true;
+    if (g_command_owned) {
+        pci::write16(g_device, 0x04U, g_original_command);
+        command_restored = pci::read16(g_device, 0x04U) == g_original_command;
+        if (command_restored) g_command_owned = false;
+    }
+    const bool complete = rx_released && tx_released && device_unmapped &&
+        notify_unmapped && common_unmapped && table_unmapped && pending_unmapped &&
+        command_restored;
+    g_cleanup_blocked = !complete;
+    g_status = !command_restored ? Status::PciCommandFailed :
+        (!complete ? Status::DeviceCleanupFailed : cause);
+    return g_status;
+}
+
 Status fail(Status status) {
     mark_failed();
-    release_queue(&g_receive_queue);
-    release_queue(&g_transmit_queue);
-    g_initialized = false;
-    g_status = status;
-    return status;
+    return cleanup_after_reset(status, reset_device());
 }
 
 } // namespace
 
 Status initialize() {
     if (g_initialized) return Status::AlreadyInitialized;
+    if (g_cleanup_blocked) return g_status;
     g_status = Status::NotInitialized;
     g_detected = false;
     g_common = {};
@@ -604,6 +846,14 @@ Status initialize() {
     g_transmit_queue = {};
     g_interface = {};
     g_mac = {};
+    g_msix_table = {};
+    g_msix_pending = {};
+    g_msix_route = {};
+    g_interrupt_status = InterruptStatus::NotInitialized;
+    __atomic_store_n(&g_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_receive_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_transmit_interrupt_count, UINT64_C(0), __ATOMIC_RELAXED);
+    __atomic_store_n(&g_interrupt_pending, uint8_t{0}, __ATOMIC_RELEASE);
 
     const pci::Device* found = pci::find(
         kVirtioVendor,
@@ -618,23 +868,27 @@ Status initialize() {
     g_device = *found;
     g_detected = true;
 
-    VirtioCapability common_capability{};
-    VirtioCapability notify_capability{};
-    VirtioCapability device_capability{};
-    if (!scan_capabilities(
-            g_device,
-            &common_capability,
-            &notify_capability,
-            &device_capability)) {
+    drivers::virtio::pci_transport::Layout transport{};
+    if (drivers::virtio::pci_transport::discover(
+            g_device, &transport) !=
+        drivers::virtio::pci_transport::Status::Ok ||
+        !capability_valid(transport.common) ||
+        !capability_valid(transport.notify)) {
         g_status = Status::UnsupportedTransport;
         return g_status;
     }
+    const VirtioCapability& common_capability = transport.common;
+    const VirtioCapability& notify_capability = transport.notify;
+    const VirtioCapability& device_capability = transport.device;
 
-    const uint32_t command = pci::read32(g_device, UINT8_C(0x04));
-    pci::write32(
-        g_device,
-        UINT8_C(0x04),
-        (command & UINT32_C(0x0000FFFF)) | UINT32_C(0x00000006));
+    g_original_command = pci::read16(g_device, 0x04U);
+    g_command_owned = true;
+    // Map/reset with memory decoding enabled; enable DMA only after reset.
+    pci::write16(g_device, 0x04U, static_cast<uint16_t>(
+        (g_original_command | kCommandMemory) & ~kCommandBusMaster));
+    if ((pci::read16(g_device, 0x04U) & kCommandMemory) == 0U) {
+        return fail(Status::PciCommandFailed);
+    }
 
     if (!map_capability(
             g_device,
@@ -658,11 +912,12 @@ Status initialize() {
     }
     if (g_common.length < 56U) return fail(Status::MissingCapability);
 
-    mmio_write8(g_common, 20U, 0U);
-    memory_barrier();
-    if (mmio_read8(g_common, 20U) != 0U) {
-        return fail(Status::DeviceFault);
-    }
+    if (!reset_device()) return cleanup_after_reset(Status::DeviceFault, false);
+    if (!prepare_queue_interrupts()) return fail(Status::QueueInterruptFailed);
+    pci::write16(g_device, 0x04U, static_cast<uint16_t>(
+        pci::read16(g_device, 0x04U) | kCommandMemory | kCommandBusMaster));
+    if ((pci::read16(g_device, 0x04U) & (kCommandMemory | kCommandBusMaster)) !=
+        (kCommandMemory | kCommandBusMaster)) return fail(Status::PciCommandFailed);
     mmio_write8(g_common, 20U, kStatusAcknowledge);
     mmio_write8(
         g_common,
@@ -702,7 +957,8 @@ Status initialize() {
     }
     if (!configure_queue(0U, notify_capability, &g_receive_queue) ||
         !configure_queue(1U, notify_capability, &g_transmit_queue)) {
-        return fail(Status::QueueConfigurationFailed);
+        return fail(g_interrupt_status == InterruptStatus::QueueRejected
+            ? Status::QueueInterruptFailed : Status::QueueConfigurationFailed);
     }
     prepare_receive_queue();
 
@@ -724,6 +980,34 @@ Status initialize() {
 }
 
 bool initialized() { return g_initialized; }
+InterruptDiagnostics interrupt_diagnostics() {
+    const uint8_t count = g_msix_route.programmed.active
+        ? static_cast<uint8_t>(g_msix_route.count) : uint8_t{0};
+    const uint8_t rx = count == 0U ? uint8_t{0} : g_msix_route.vectors[0].vector;
+    const uint8_t tx = count == 2U ? g_msix_route.vectors[1].vector : rx;
+    return {g_interrupt_status, rx,
+        __atomic_load_n(&g_interrupt_count, __ATOMIC_RELAXED),
+        __atomic_load_n(&g_interrupt_pending, __ATOMIC_ACQUIRE) != 0U,
+        count, rx, tx,
+        __atomic_load_n(&g_receive_interrupt_count, __ATOMIC_RELAXED),
+        __atomic_load_n(&g_transmit_interrupt_count, __ATOMIC_RELAXED)};
+}
+
+const char* interrupt_status_name(InterruptStatus status) {
+    switch (status) {
+        case InterruptStatus::NotInitialized: return "NOT_INITIALIZED";
+        case InterruptStatus::MsiXEnabled: return "MSI_X_ENABLED";
+        case InterruptStatus::LocalApicUnavailable: return "LOCAL_APIC_UNAVAILABLE";
+        case InterruptStatus::CapabilityUnavailable: return "CAPABILITY_UNAVAILABLE";
+        case InterruptStatus::CapabilityMalformed: return "CAPABILITY_MALFORMED";
+        case InterruptStatus::BarUnavailable: return "BAR_UNAVAILABLE";
+        case InterruptStatus::MappingUnavailable: return "MAPPING_UNAVAILABLE";
+        case InterruptStatus::RouteUnavailable: return "ROUTE_UNAVAILABLE";
+        case InterruptStatus::QueueRejected: return "QUEUE_VECTOR_REJECTED";
+        case InterruptStatus::CleanupFailed: return "CLEANUP_FAILED";
+    }
+    return "UNKNOWN";
+}
 bool detected() { return g_detected; }
 Status last_status() { return g_status; }
 NetworkInterface* interface() {
@@ -751,6 +1035,10 @@ const char* status_message(Status status) {
         case Status::FrameTooLarge: return "VirtIO-net frame exceeds MTU";
         case Status::WouldBlock: return "VirtIO-net queue would block";
         case Status::DeviceFault: return "VirtIO-net device fault";
+        case Status::PciCommandFailed: return "VirtIO-net PCI command failed";
+        case Status::DeviceResetFailed: return "VirtIO-net reset failed; resources quarantined";
+        case Status::DeviceCleanupFailed: return "VirtIO-net resource cleanup incomplete";
+        case Status::QueueInterruptFailed: return "VirtIO-net interrupt configuration failed";
     }
     return "unknown VirtIO-net status";
 }

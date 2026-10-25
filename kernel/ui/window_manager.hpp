@@ -9,6 +9,10 @@
 namespace windowing {
 
 constexpr size_t MAX_WINDOWS = 12U;
+constexpr size_t MAX_DAMAGE_REGIONS = 16U;
+// Retained surfaces are kernel-owned and deliberately bounded.  The
+// current public ku_ui_frame compatibility payload is 800 bytes.
+constexpr size_t MAX_SURFACE_PAYLOAD_BYTES = 4096U;
 using WindowId = uint32_t;
 constexpr WindowId INVALID_WINDOW = 0U;
 
@@ -18,6 +22,8 @@ enum class Status : uint8_t {
     InvalidArgument,
     NotFound,
     CapacityReached,
+    PayloadTooLarge,
+    ArithmeticOverflow,
     InvalidState,
     IterationStopped,
 };
@@ -37,6 +43,33 @@ struct WindowInfo {
     uint8_t z_order;
     bool focused;
     char title[33];
+};
+
+struct SurfaceView {
+    size_t width;
+    size_t height;
+    size_t stride;
+    const uint8_t* data;
+    size_t size;
+};
+
+struct DamageSnapshot {
+    bool full;
+    size_t count;
+    ui::Rect regions[MAX_DAMAGE_REGIONS];
+};
+
+struct InteractionSnapshot {
+    WindowId focused;
+    WindowId dragged;
+    WindowId resized;
+    WindowId hovered;
+};
+
+struct ResourceSnapshot {
+    size_t windows;
+    size_t retained_surfaces;
+    size_t retained_bytes;
 };
 
 struct WorkspaceGeometry {
@@ -65,6 +98,9 @@ using InputCallback = void (*)(
 using ListCallback = bool (*)(const WindowInfo& window, void* context);
 
 Status initialize(uint32_t screen_width, uint32_t screen_height);
+// Apply the dimensions of an already configured display backend, preserving
+// window identities/surfaces. Serialized compositor context; no hardware mode set.
+Status set_screen_size(uint32_t screen_width, uint32_t screen_height);
 Status create_window(
     const char* title,
     uint64_t owner_pid,
@@ -74,16 +110,39 @@ Status create_window(
     void* context,
     WindowId* out_id);
 Status close(WindowId id);
+// Process-finalization cleanup: release every window and retained surface
+// owned by one non-zero PID. This is bounded by MAX_WINDOWS and uses the
+// same generation-safe lifecycle destruction path as close().
+Status close_owned_windows(uint64_t owner_pid, size_t* out_closed = nullptr);
+// User-facing dismissal preserves the persistent HOME surface by
+// minimizing it. close() is lifecycle destruction and always releases
+// the slot/surface, including process-exit cleanup for HOME.
+Status dismiss(WindowId id);
 Status focus(WindowId id);
 Status move(WindowId id, int32_t x, int32_t y);
 Status minimize(WindowId id);
 Status maximize(WindowId id);
 Status restore(WindowId id);
 Status query(WindowId id, WindowInfo* out_info);
+// Iterates a stable z-ordered metadata snapshot. Callbacks may modify
+// windows; closed generations are skipped, and newly created windows are
+// visible only on the next iteration. Callback metadata remains immutable.
 Status list(ListCallback callback, void* context);
+// Keyboard events go to focus. Pointer events go to the topmost client
+// content; primary-button capture survives movement outside that content,
+// but chrome, dock and desktop commands consume their own gestures.
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
+// The session Home is ready only after it has presented a real UI surface.
+// Login uses this as a bounded hand-off gate, never a timer-based assumption.
+bool home_surface_ready();
+// Floating dock is rendered over the work area and collapses on pointer exit.
+// These queries expose exact geometry and visibility for host/runtime tests.
+bool dock_visible();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
+// Returns the drawable application-content rectangle in screen coordinates.
+// Login owns its full surface; normal Flux windows exclude chrome.
+Status content_geometry(WindowId id, ui::Rect* out_geometry);
 Status pulse_item_geometry(size_t position, ui::Rect* out_bounds);
 
 // Public syscall bridge for session-local desktop shortcuts. `action` uses the
@@ -96,6 +155,19 @@ Status desktop_pin(
     bool* out_pinned);
 
 void invalidate();
+void invalidate_window(WindowId id);
+void invalidate_region(const ui::Rect& region);
+Status damage_snapshot(DamageSnapshot* out_snapshot);
+Status interaction_snapshot(InteractionSnapshot* out_snapshot);
+Status resource_snapshot(ResourceSnapshot* out_snapshot);
+Status present_surface(
+    WindowId id,
+    size_t width,
+    size_t height,
+    size_t stride,
+    const void* payload,
+    size_t payload_size);
+Status read_surface(WindowId id, SurfaceView* out_surface);
 bool render_if_needed();
 size_t window_count();
 WindowId focused_window();

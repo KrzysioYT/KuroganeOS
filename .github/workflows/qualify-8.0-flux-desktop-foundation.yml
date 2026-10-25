@@ -1,0 +1,359 @@
+name: Qualify 8.0 Flux desktop foundation
+
+on:
+  push:
+    branches:
+      - codex/road-to-15-stability
+    paths:
+      - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
+      - 'kernel/ui/**'
+      - 'sdk/include/kurogane/flux_app_catalog.h'
+      - 'tests/test_flux_app_catalog.c'
+      - 'tests/test_flux_app_catalog_sources.py'
+      - 'sdk/include/kurogane/flux_app_lifecycle.h'
+      - 'tests/test_flux_app_lifecycle.c'
+      - 'tests/test_flux_label_fitting.cpp'
+      - 'tests/test_flux_session_owner_policy.cpp'
+      - 'kernel/drivers/framebuffer.cpp'
+      - 'kernel/drivers/framebuffer.hpp'
+      - 'kernel/drivers/rounded_rect.hpp'
+      - 'tests/test_flux_cursor_overlay.cpp'
+      - 'tests/test_flux_rounded_geometry.cpp'
+      - 'kernel/input/**'
+      - 'kernel/apps/desktop_session.cpp'
+      - 'userspace/gui/login/**'
+      - 'userspace/gui/launcher/**'
+      - 'tests/test_window_manager.cpp'
+      - 'tests/test_input.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'scripts/build.ps1'
+      - 'scripts/build-linux.sh'
+      - 'tests/test_userspace_build_parity.py'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'kernel/user/runtime_base.inc'
+      - 'sdk/include/kurogane/design.h'
+      - 'sdk/include/kurogane/desktop.h'
+      - 'sdk/include/kurogane/syscall.h'
+      - 'sdk/src/libui.c'
+      - 'userspace/gui/settings/**'
+      - 'userspace/gui/browser/**'
+      - 'userspace/gui/clipboard_actions.h'
+      - 'userspace/gui/performance/**'
+      - 'tests/test_flux_theme_palette.c'
+      - 'kernel/core/system_metrics.cpp'
+      - 'tests/test_system_metrics_sampling.cpp'
+      - 'tests/test_flux_ui_state.cpp'
+      - 'tests/test_sdk_abi.cpp'
+      - 'kernel/user/child_termination_policy.hpp'
+      - 'kernel/user/console_fallback_policy.hpp'
+      - 'tests/test_console_fallback_policy.cpp'
+      - 'userspace/system/init/main.c'
+      - 'tests/test_child_termination_policy.cpp'
+      - 'kernel/user/ui_event_queue.hpp'
+      - 'tests/test_ui_event_queue.cpp'
+      - 'sdk/include/kurogane/ui.h'
+      - 'userspace/gui/files/**'
+      - 'tests/test_files_wheel_paging.c'
+      - 'tests/test_flux_files_keyboard.c'
+      - 'tests/test_mouse_first_apps.py'
+      - 'tests/test_flux8_application_smoke.py'
+      - 'docs/ROAD_TO_15_STATUS.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-ui:
+    name: Flux window/input sanitizer gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+      - name: Validate candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          git diff --check
+      - name: Windows and Linux userspace inventory parity
+        run: python3 tests/test_userspace_build_parity.py
+      - name: Parse native Windows build script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/build.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+      - name: Window Manager optimized + UBSan
+        run: |
+          mkdir -p build/tests/desktop
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
+            kernel/ui/window_manager.cpp -o build/tests/desktop/wm
+          build/tests/desktop/wm
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -DKUROGANE_HOST_TEST tests/test_window_manager.cpp \
+            kernel/ui/window_manager.cpp -o build/tests/desktop/wm-ubsan
+          build/tests/desktop/wm-ubsan
+      - name: Ring-3 parent-only termination policy with UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_child_termination_policy.cpp -o build/tests/desktop/child-policy
+          build/tests/desktop/child-policy
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_child_termination_policy.cpp -o build/tests/desktop/child-policy-ubsan
+          build/tests/desktop/child-policy-ubsan
+      - name: Flux pointer overlay and rounded geometry optimized + UBSan
+        run: |
+          for unit in flux_cursor_overlay flux_rounded_geometry; do
+            c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+              "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}"
+            "build/tests/desktop/${unit}"
+            c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+              "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}-ubsan"
+            "build/tests/desktop/${unit}-ubsan"
+          done
+      - name: Real Dock dispatch after Files changes task count
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke
+          build/tests/desktop/dock-smoke
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke-ubsan
+          build/tests/desktop/dock-smoke-ubsan
+      - name: Assert actual authenticated Files launch is in QEMU contract
+        run: |
+          python3 tests/test_flux8_application_smoke.py
+          python3 tests/test_flux_app_catalog_sources.py
+          python3 tests/test_mouse_first_apps.py
+      - name: PID1-only visible console fallback policy optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_console_fallback_policy.cpp -o build/tests/desktop/console-policy
+          build/tests/desktop/console-policy
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_console_fallback_policy.cpp -o build/tests/desktop/console-policy-ubsan
+          build/tests/desktop/console-policy-ubsan
+      - name: Session Home/Login origin policy optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_flux_session_owner_policy.cpp -o build/tests/desktop/session-owner
+          build/tests/desktop/session-owner
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_flux_session_owner_policy.cpp -o build/tests/desktop/session-owner-ubsan
+          build/tests/desktop/session-owner-ubsan
+      - name: Modern label truncation optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_flux_label_fitting.cpp -o build/tests/desktop/label-fit
+          build/tests/desktop/label-fit
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_flux_label_fitting.cpp -o build/tests/desktop/label-fit-ubsan
+          build/tests/desktop/label-fit-ubsan
+      - name: Flux app registry shared C and C++ regression
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_flux_app_catalog.c -o build/tests/desktop/app-registry-c
+          build/tests/desktop/app-registry-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -x c++ tests/test_flux_app_catalog.c -o build/tests/desktop/app-registry-cpp
+          build/tests/desktop/app-registry-cpp
+      - name: Flux app startup grace and retry policy (C, C++, UBSan)
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-c
+          build/tests/desktop/app-lifecycle-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -x c++ tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-cpp
+          build/tests/desktop/app-lifecycle-cpp
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Isdk/include \
+            tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-ubsan
+          build/tests/desktop/app-lifecycle-ubsan
+      - name: Input event/viewport optimized + UBSan
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/desktop/input
+          build/tests/desktop/input
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_input.cpp kernel/input/input.cpp \
+            kernel/drivers/mouse_protocol.cpp -o build/tests/desktop/input-ubsan
+          build/tests/desktop/input-ubsan
+      - name: Production Clipboard Service optimized + UBSan
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
+            -Wl,--gc-sections -o build/tests/desktop/clipboard
+          build/tests/desktop/clipboard
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include -ffunction-sections -fdata-sections \
+            tests/test_clipboard_service.c -Wl,--gc-sections \
+            -o build/tests/desktop/clipboard-ubsan
+          build/tests/desktop/clipboard-ubsan
+
+      - name: Files multi-detent wheel page and signed-overflow tests
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_files_wheel_paging.c -o build/tests/desktop/files-wheel
+          build/tests/desktop/files-wheel
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_files_wheel_paging.c -o build/tests/desktop/files-wheel-ubsan
+          build/tests/desktop/files-wheel-ubsan
+      - name: Flux Files keyboard navigation C/C++ and UBSan
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key
+          build/tests/desktop/files-key
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include -x c++ tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key-cpp
+          build/tests/desktop/files-key-cpp
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_flux_files_keyboard.c \
+            -o build/tests/desktop/files-key-ubsan
+          build/tests/desktop/files-key-ubsan
+      - name: Ring-3 event queue / pressure and click-edge regression
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_ui_event_queue.cpp \
+            -o build/tests/desktop/ui-event-queue
+          build/tests/desktop/ui-event-queue
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_ui_event_queue.cpp \
+            -o build/tests/desktop/ui-event-queue-ubsan
+          build/tests/desktop/ui-event-queue-ubsan
+      - name: Shared telemetry sampling across GUI clients
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
+            -o build/tests/desktop/activity-window
+          build/tests/desktop/activity-window
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
+            -o build/tests/desktop/activity-window-ubsan
+          build/tests/desktop/activity-window-ubsan
+      - name: Production kernel Flux palette and style state
+        run: |
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -ffunction-sections -fdata-sections -Isdk/include \
+            tests/test_flux_ui_state.cpp kernel/ui/ui.cpp \
+            -Wl,--gc-sections -o build/tests/desktop/flux-ui-state
+          build/tests/desktop/flux-ui-state
+      - name: Flux 8 palette shared C/C++ and sanitizer regression
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-c
+          build/tests/desktop/flux-theme-c
+          c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+            -Isdk/include -x c++ tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-cpp
+          build/tests/desktop/flux-theme-cpp
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include -x c++ tests/test_flux_theme_palette.c \
+            -o build/tests/desktop/flux-theme-ubsan
+          build/tests/desktop/flux-theme-ubsan
+      - name: Ring-3 UI wheel ABI and libui scene scroll
+        run: |
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+            -DKUROGANE_HOST_TEST -Isdk/include tests/test_libui_pointer.c sdk/src/libui.c \
+            -o build/tests/desktop/libui
+          build/tests/desktop/libui
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -ffreestanding -DKUROGANE_HOST_TEST -Isdk/include tests/test_libui_pointer.c \
+            sdk/src/libui.c -o build/tests/desktop/libui-ubsan
+          build/tests/desktop/libui-ubsan
+
+  desktop-qemu:
+    name: Flux live session QEMU / USB-only input
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Build release image from exact source
+        run: |
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+      - name: Log in to real Ring-3 desktop using USB HID
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All options below belong to ONE shell command. The former
+          # inline comment after a continued line truncated the QEMU
+          # arguments and executed the next --click-after-marker as a
+          # separate, invalid shell command.
+          # USB tablet QMP coordinates are scaled from a 1024x768 logical
+          # space (scripts/smoke-uefi-iso-qemu.sh), NOT raw framebuffer px.
+          # x=450,y=726 hits Files for both 1024x768 and 1280x800 GOP.
+          # After Files opens, one task expands and recenters the Dock.
+          # x=367,y=726 hits the shifted Terminal pin in both GOP modes.
+          # Never pass raw 1280x800 window pixel coordinates to QMP.
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic none --no-ps2 --usb-keyboard --usb-tablet \
+            --log-dir build/tests/flux-8-foundation --timeout 240 \
+            --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 450 726 \
+            --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 350 300 down \
+            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 367 726 \
+            --require-marker '[TEST] flux_files_usb_wheel_input: PASS' \
+            --require-marker '[TEST] desktop_terminal_ring3: PASS' \
+            --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \
+            --require-marker-count '[INPUT] flux_app_surface_ready: PASS' 2 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS' \
+            --require-marker '[SESSION] flux_home_ui_create: PASS' \
+            --require-marker '[SESSION] flux_home_ui_present: PASS' \
+            --require-marker '[SESSION] flux_home_first_frame: PASS' \
+            --require-marker '[INPUT] flux_dock_shortcut_received: PASS' \
+            --require-marker '[INPUT] flux_launcher_action_received: PASS' \
+            --require-marker '[INPUT] flux_app_spawn: PASS' \
+            --require-marker '[TEST] flux_files_directory_grid: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL|flux_home_.*: FAIL|flux_app_spawn: FAIL' \
+            build/tests/flux-8-foundation/serial.log
+      - name: Retain desktop serial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-8-foundation-${{ github.sha }}
+          path: build/tests/flux-8-foundation
+          if-no-files-found: warn
+
+  scoped-desktop-gate:
+    name: Same-SHA Flux desktop foundation gate
+    if: always()
+    needs: [host-ui, desktop-qemu]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce both optimized/UBSan and real QEMU login
+        env:
+          HOST: ${{ needs.host-ui.result }}
+          QEMU: ${{ needs.desktop-qemu.result }}
+        run: |
+          set -euo pipefail
+          test "$HOST" = success
+          test "$QEMU" = success
+          echo "Flux 8.0 foundation (scoped): PASS"

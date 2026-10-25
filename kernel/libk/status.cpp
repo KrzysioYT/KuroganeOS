@@ -23,6 +23,7 @@ const char* kstatus_name(KStatus status) {
         case KStatus::DeviceFault: return "KSTATUS_DEVICE_FAULT";
         case KStatus::ReadOnly: return "KSTATUS_READ_ONLY";
         case KStatus::EndOfStream: return "KSTATUS_END_OF_STREAM";
+        case KStatus::StaleHandle: return "KSTATUS_STALE_HANDLE";
     }
     return "KSTATUS_UNKNOWN";
 }
@@ -50,6 +51,7 @@ const char* kstatus_message(KStatus status) {
         case KStatus::DeviceFault: return "device fault";
         case KStatus::ReadOnly: return "resource is read-only";
         case KStatus::EndOfStream: return "end of stream";
+        case KStatus::StaleHandle: return "stale handle";
     }
     return "unknown status";
 }

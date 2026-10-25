@@ -1,8 +1,8 @@
-# KuroganeOS Graphics Compatibility — 3.3.3-dev
+# KuroganeOS Graphics Compatibility
 
 ## Stan faktyczny
 
-KuroganeOS 3.3.3-dev rozpoznaje kontroler klasy **PCI Display (0x03)** i
+KuroganeOS rozpoznaje kontroler klasy **PCI Display (0x03)** i
 rejestruje go w centralnym Driver Managerze jako `redflux-display`.
 
 Warstwa graficzna rozróżnia:

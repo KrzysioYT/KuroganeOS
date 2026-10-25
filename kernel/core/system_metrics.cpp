@@ -10,6 +10,8 @@ volatile uint64_t g_disk_blocks = 0U;
 volatile uint64_t g_graphics_units = 0U;
 uint64_t g_previous_switches = 0U;
 uint64_t g_previous_ticks = 0U;
+bool g_sample_baseline_ready = false;
+constexpr uint64_t kSampleIntervalTicks = UINT64_C(100);
 uint32_t g_last_cpu = 0U;
 uint32_t g_last_gpu = 0U;
 uint32_t g_last_disk = 0U;
@@ -71,13 +73,30 @@ void record_graphics_work(uint64_t units) {
 }
 
 ActivitySnapshot sample() {
+    const uint64_t ticks = threading::timer_ticks();
+    // Several Ring-3 apps poll independently. Sampling/resetting on every
+    // syscall made Home and Forge Control steal counters from one another,
+    // producing erratic 0/100 readings. Publish one shared 100-Hz clock
+    // interval instead. This still measures *scheduler pressure*, not CPU
+    // hardware utilization.
+    const bool reset_window = !g_sample_baseline_ready ||
+        ticks < g_previous_ticks;
+    const uint64_t elapsed = ticks >= g_previous_ticks
+        ? ticks - g_previous_ticks : 0U;
+    if (!reset_window && elapsed < kSampleIntervalTicks) {
+        return ActivitySnapshot{g_last_cpu, g_last_gpu, g_last_disk};
+    }
     SchedulerSample scheduler{};
     static_cast<void>(threading::list(collect_thread, &scheduler));
-    const uint64_t ticks = threading::timer_ticks();
+    if (reset_window) {
+        g_sample_baseline_ready = true;
+        g_previous_switches = scheduler.switches;
+        g_previous_ticks = ticks;
+        return ActivitySnapshot{g_last_cpu, g_last_gpu, g_last_disk};
+    }
     const uint64_t switch_delta = scheduler.switches >= g_previous_switches
         ? scheduler.switches - g_previous_switches : 0U;
-    const uint64_t tick_delta = ticks >= g_previous_ticks
-        ? ticks - g_previous_ticks : 0U;
+    const uint64_t tick_delta = elapsed;
     g_previous_switches = scheduler.switches;
     g_previous_ticks = ticks;
 
@@ -94,11 +113,6 @@ ActivitySnapshot sample() {
             scheduler_units,
             tick_delta > UINT64_MAX / UINT64_C(2)
                 ? UINT64_MAX : tick_delta * UINT64_C(2));
-    } else if (scheduler.runnable != 0U) {
-        g_last_cpu = scheduler.runnable >= 4U
-            ? 100U : scheduler.runnable * 25U;
-    } else {
-        g_last_cpu = 0U;
     }
 
     static_cast<void>(__atomic_exchange_n(

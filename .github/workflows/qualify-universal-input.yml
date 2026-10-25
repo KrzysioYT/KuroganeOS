@@ -1,0 +1,99 @@
+name: Qualify 5.2 Universal Input
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-universal-input.yml'
+      - 'kernel/input/**'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/mouse*'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_input.cpp'
+      - 'tests/test_usb_hid_report.cpp'
+      - 'tests/test_usb_protocol.cpp'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-universal-input.yml'
+      - 'kernel/input/**'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/drivers/mouse*'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_input.cpp'
+      - 'tests/test_usb_hid_report.cpp'
+      - 'tests/test_usb_protocol.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  universal-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify source hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+          grep -Fq 'submit_absolute_pointer' kernel/input/input.cpp
+          grep -Fq 'parse_pointer_report_descriptor' kernel/drivers/usb/hid_report.cpp
+          grep -Fq 'HidKind::ReportPointer' kernel/drivers/usb/xhci.cpp
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require USB keyboard plus report-protocol tablet without PS2
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --no-ps2 \
+            --usb-keyboard --usb-tablet --nic none \
+            --log-dir build/tests/universal-input-tablet --timeout 170 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 320 240 \
+            --require-marker '[TEST] hardware_boot_policy: PASS' \
+            --require-marker '[TEST] ps2_keyboard: SKIP (optional backend unavailable)' \
+            --require-marker '[TEST] ps2_mouse: SKIP (optional backend unavailable)' \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_report_pointer_input: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/universal-input-tablet/serial.log
+
+      - name: Retain Universal Input logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-input-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/universal-input-tablet
+          if-no-files-found: warn

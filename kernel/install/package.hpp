@@ -5,7 +5,7 @@
 
 namespace install::package {
 
-constexpr size_t MAXIMUM_FILES = 64U;
+constexpr size_t MAXIMUM_FILES = 128U;
 constexpr size_t MAXIMUM_PATH = 127U;
 constexpr uint32_t DESTINATION_ESP = 1U;
 constexpr uint32_t DESTINATION_ROOT = 2U;

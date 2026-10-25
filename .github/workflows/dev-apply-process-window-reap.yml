@@ -1,0 +1,57 @@
+name: Dev Apply 3.6 Process Window Reap
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - 'scripts/dev-apply-process-window-reap.py'
+      - '.github/workflows/dev-apply-process-window-reap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-process-window-reap:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout process window cleanup patch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Apply PID-wide Flux lifecycle cleanup
+        run: python3 scripts/dev-apply-process-window-reap.py
+
+      - name: Validate multi-window process cleanup and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'Status close_owned_windows(uint64_t owner_pid' kernel/ui/window_manager.hpp
+          grep -F 'reclaim_process_windows(slot->pid)' kernel/task/process.cpp
+          grep -F 'closed_owned != 2U' tests/test_window_manager.cpp
+          bash ./scripts/run-host-tests.sh
+          make CONFIG=release kernel
+
+      - name: Commit production lifecycle fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'KuroganeOS CI'
+          git config user.email '59750414+KrzysioYT@users.noreply.github.com'
+          git add \
+            kernel/ui/window_manager.hpp \
+            kernel/ui/window_manager.cpp \
+            kernel/user/runtime.hpp \
+            kernel/user/runtime.cpp \
+            kernel/task/process.cpp \
+            tests/test_window_manager.cpp
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no lifecycle changes to commit' >&2; exit 1; }
+          git commit -m 'fix(3.6): reap all Flux windows on process exit'
+          git push origin "HEAD:${GITHUB_REF_NAME}"

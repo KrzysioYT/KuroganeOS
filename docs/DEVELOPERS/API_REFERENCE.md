@@ -3,7 +3,7 @@
 This document describes the **public userspace contract**. Internal kernel
 functions are not part of the application ABI.
 
-Target: KuroganeOS **3.3.3-dev**, x86-64 Ring-3.
+Target: KuroganeOS **7.0.0-dev**, x86-64 Ring-3.
 
 ## Headers
 
@@ -455,6 +455,14 @@ addition to stdout/stderr. `KU_SYS_OPEN` remains syscall 5 and accepts the
 write/append/directory flags. This preserves source and syscall-number
 compatibility for existing applications.
 
+Process-local file handles encode a bounded slot and its generation. File
+operations return `KU_STATUS_STALE_HANDLE` when that descriptor is
+well-formed but its slot was closed or has since been reused. Values outside
+the process-local file-handle namespace return `KU_STATUS_INVALID_ARGUMENT`
+when used as file handles; stdin, stdout, and stderr retain their documented
+operation-specific behavior. The distinction applies consistently to read,
+write, close, directory iteration, and seek operations.
+
 Use SDK wrappers instead of hardcoding syscall numbers.
 
 ## Adding a public API
@@ -470,3 +478,13 @@ Use SDK wrappers instead of hardcoding syscall numbers.
 9. update this document.
 
 Never trust a pointer, size, enum or nested address supplied by Ring-3.
+
+
+## Notification public feed (notifications.v1)
+
+`notifications.v1` keeps `GET` and `DISMISS` owner-scoped. A producer may opt a
+record into the desktop feed with `KU_NOTIFICATION_FLAG_PUBLIC`. Observers use
+`KU_NOTIFICATION_LIST_PUBLIC` with `notification_id` as an exclusive cursor;
+the service returns the next active public record or `KU_STATUS_NOT_FOUND` at
+the end. Records without the public flag are never returned by this operation.
+The public-feed flag does not grant observers dismiss rights.

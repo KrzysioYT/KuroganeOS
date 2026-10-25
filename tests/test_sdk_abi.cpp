@@ -1,8 +1,15 @@
 #include <kurogane/abi.h>
 #include <kurogane/audio.h>
+#include <kurogane/dns_service.h>
+#include <kurogane/device.h>
+#include <kurogane/desktop.h>
+#include <kurogane/display.h>
 #include <kurogane/event.h>
+#include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/ipc.h>
+#include <kurogane/notification.h>
+#include <kurogane/service.h>
 #include <kurogane/shared_memory.h>
 #include <kurogane/syscall.h>
 #include <kurogane/system.h>
@@ -10,6 +17,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <type_traits>
 
 int main() {
     static_assert(KU_SYS_EXIT == 1);
@@ -31,6 +39,8 @@ int main() {
     static_assert(KU_SYS_UI_CLOSE == 17);
     static_assert(KU_SYS_SYSTEM_SNAPSHOT == 18);
     static_assert(KU_SYS_DESKTOP_PIN == 19);
+    static_assert(KU_DESKTOP_PIN_FOCUS_RUNNING == 4);
+    static_assert(KU_DESKTOP_PIN_APP_READY == 5);
     static_assert(KU_SYS_NET_STATUS == 20);
     static_assert(KU_SYS_HTTP_GET == 21);
     static_assert(KU_SYS_AUDIO_STATUS == 22);
@@ -66,6 +76,44 @@ int main() {
     static_assert(KU_SYS_EVENT_RESET == 52);
     static_assert(KU_SYS_EVENT_POLL == 53);
     static_assert(KU_SYS_EVENT_CLOSE == 54);
+    static_assert(KU_SYS_IPC_QUERY == 55);
+    static_assert(KU_SYS_DNS_RESOLVE_A == 56);
+    static_assert(KU_SYS_SOCKET_CREATE == 57);
+    static_assert(KU_SYS_SOCKET_BIND == 58);
+    static_assert(KU_SYS_SOCKET_CONNECT == 59);
+    static_assert(KU_SYS_SOCKET_SEND == 60);
+    static_assert(KU_SYS_SOCKET_RECEIVE == 61);
+    static_assert(KU_SYS_SOCKET_CLOSE == 62);
+    static_assert(KU_SYS_SOCKET_POLL == 63);
+    static_assert(KU_SYS_DEVICE_ENUMERATE == 64);
+    static_assert(KU_SYS_DEVICE_QUERY == 65);
+    static_assert(KU_SYS_DEVICE_RESOURCE == 66);
+    static_assert(KU_SYS_SOCKET_WAIT == 67);
+    static_assert(KU_SYS_DESKTOP_THEME == 68);
+    static_assert(KU_SYS_DESKTOP_STYLE == 69);
+    static_assert(KU_SYS_DISPLAY_INFO == 70);
+    static_assert(KU_SYS_TERMINATE_CHILD == 71);
+    static_assert(KU_SYS_CONSOLE_FALLBACK == 72);
+    static_assert(sizeof(ku_ui_event) == 32);
+    static_assert(KU_UI_MOD_SHIFT == 1U);
+    static_assert(KU_UI_MOD_CONTROL == 2U);
+    static_assert(KU_UI_MOD_ALT == 4U);
+    static_assert(KU_UI_KEY_A == 30U);
+    static_assert(KU_UI_KEY_C == 46U);
+    static_assert(sizeof(ku_display_info) == 32);
+    static_assert(sizeof(ku_desktop_style_request) == 16);
+    static_assert(sizeof(ku_desktop_theme_request) == 16);
+    static_assert(KU_FLUX_THEME_COUNT == 6);
+
+    static_assert(KU_DEVICE_MAX_DEVICES == 192U);
+    static_assert(KU_DEVICE_MAX_RESOURCES == 8U);
+    static_assert(KU_DEVICE_MAX_CHILDREN == 16U);
+    static_assert(sizeof(ku_device_info) == 152U);
+    static_assert(sizeof(ku_device_resource) == 32U);
+    static_assert(offsetof(ku_device_info, handle) == 8U);
+    static_assert(offsetof(ku_device_info, capabilities) == 24U);
+    static_assert(offsetof(ku_device_info, name) == 68U);
+    static_assert(offsetof(ku_device_resource, start) == 8U);
 
     static_assert(KU_EVENT_AUTO_RESET == 0);
     static_assert(KU_EVENT_MANUAL_RESET == 1);
@@ -84,6 +132,9 @@ int main() {
     static_assert(KU_OPEN_APPEND == (UINT64_C(1) << 2));
     static_assert(KU_OPEN_DIRECTORY == (UINT64_C(1) << 3));
     static_assert(KU_STATUS_END_OF_STREAM == -15);
+    static_assert(KU_STATUS_CONNECTION_REFUSED == -16);
+    static_assert(KU_STATUS_CONNECTION_RESET == -17);
+    static_assert(KU_STATUS_STALE_HANDLE == -18);
 
     static_assert(KU_FILE_SEEK_BEGIN == 0);
     static_assert(KU_FILE_SEEK_CURRENT == 1);
@@ -102,14 +153,57 @@ int main() {
     static_assert(offsetof(ku_file_seek_request, new_offset) == 24);
     static_assert(offsetof(ku_file_seek_request, reserved) == 32);
 
+    static_assert(KU_DNS_SERVICE_NAME_SIZE == 7U);
+    static_assert(KU_DNS_SERVICE_HOST_CAPACITY == 64U);
+    static_assert(sizeof(ku_dns_service_request) == 88U);
+    static_assert(sizeof(ku_dns_service_response) == 24U);
+    static_assert(offsetof(ku_dns_service_request, host) == 24U);
+    static_assert(offsetof(ku_dns_service_response, address) == 16U);
+
     static_assert(KU_IPC_SERVICE_NAME_CAPACITY == 32U);
     static_assert(KU_IPC_MESSAGE_CAPACITY == 256U);
     static_assert(sizeof(ku_ipc_message) == 272);
     static_assert(offsetof(ku_ipc_message, sender_pid) == 8);
     static_assert(offsetof(ku_ipc_message, data) == 16);
 
+    static_assert(KU_SERVICE_NAME_CAPACITY == KU_IPC_SERVICE_NAME_CAPACITY);
+    static_assert(KU_SERVICE_MESSAGE_CAPACITY == KU_IPC_MESSAGE_CAPACITY);
+    static_assert(std::is_same_v<ku_service_endpoint_t, ku_ipc_handle_t>);
+    static_assert(std::is_same_v<ku_service_connection_t, ku_ipc_handle_t>);
+    static_assert(std::is_same_v<ku_service_message, ku_ipc_message>);
+
+    static_assert(KU_NOTIFICATION_LIST_PUBLIC == 4);
+    static_assert(KU_NOTIFICATION_FLAG_PUBLIC == (UINT32_C(1) << 0));
+    static_assert(sizeof(ku_notification_request) == 208U);
+    static_assert(sizeof(ku_notification_response) == 216U);
+
+    static_assert(KU_EVENT_BROKER_SERVICE_NAME_SIZE == 9U);
+    static_assert(KU_EVENT_BROKER_TOPIC_CAPACITY == 32U);
+    static_assert(KU_EVENT_BROKER_SUBSCRIBE == 1);
+    static_assert(KU_EVENT_BROKER_PUBLISH == 2);
+    static_assert(KU_EVENT_BROKER_UNSUBSCRIBE == 3);
+    static_assert(sizeof(ku_event_broker_request) == 40);
+    static_assert(sizeof(ku_event_broker_response) == 16);
+    static_assert(offsetof(ku_event_broker_request, topic) == 8);
+    static_assert(offsetof(ku_event_broker_response, value) == 8);
+
     static_assert(sizeof(ku_ui_window_options) == 20);
     static_assert(sizeof(ku_ui_frame) == 800);
+    static_assert(sizeof(ku_ui_native_command) == 112);
+    static_assert(sizeof(ku_ui_native_frame) == 3616);
+    static_assert(sizeof(ku_ui_native_frame) <= 4096);
+    static_assert(KU_UI_NATIVE_MAGIC == UINT32_C(0x4B554932));
+    static_assert(KU_UI_NATIVE_VERSION == KU_UI_NATIVE_VERSION_4);
+    static_assert(KU_UI_NATIVE_TILE == 8);
+    static_assert(KU_UI_NATIVE_METRIC == 9);
+    static_assert(KU_UI_NATIVE_NOTICE == 10);
+    static_assert(KU_UI_NATIVE_TOGGLE == 11);
+    static_assert(KU_UI_NATIVE_ICON_FOLDER == 8);
+    static_assert(KU_UI_NATIVE_ICON_DOCUMENT == 9);
+    static_assert(KU_UI_NATIVE_ICON_NOTIFICATION == 10);
+    static_assert(KU_UI_NATIVE_ICON_COUNT == 11);
+    static_assert(KU_UI_NATIVE_DESTRUCTIVE == (UINT32_C(1) << 4));
+    static_assert(KU_UI_NATIVE_MAX_COMMANDS == 32U);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(offsetof(ku_abi_descriptor, available_features) == 16);
     static_assert(offsetof(ku_abi_descriptor, reserved) == 24);

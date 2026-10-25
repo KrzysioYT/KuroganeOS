@@ -1,0 +1,74 @@
+name: Qualify Real Mouse Runtime
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - .github/workflows/qualify-mouse-runtime.yml
+      - scripts/dev-apply-qemu-mouse-smoke.py
+
+permissions:
+  contents: write
+
+jobs:
+  mouse-runtime:
+    runs-on: [self-hosted, kurogane, kvm]
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: gpt/road-to-15-consolidation
+          fetch-depth: 0
+
+      - name: Verify branch and KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin gpt/road-to-15-consolidation
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/gpt/road-to-15-consolidation)"
+          command -v qemu-system-x86_64
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Apply guarded QMP mouse smoke support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ./scripts/dev-apply-qemu-mouse-smoke.py
+          bash -n ./scripts/smoke-uefi-iso-qemu.sh
+
+      - name: Run full host regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/run-host-tests.sh
+
+      - name: Build complete release media
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Prove QEMU mouse login to desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh build/images/KuroganeOS-linux.img \
+            --disk --timeout 240 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 540 422 \
+            --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+            --require-marker '[TEST] desktop_launcher_ring3: PASS'
+
+      - name: Commit and publish QMP mouse smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/smoke-uefi-iso-qemu.sh
+          git diff --cached --quiet && { echo "guard produced no smoke-script changes"; exit 1; }
+          git commit -m "test(gui): prove real QEMU mouse login path"
+          git reset --hard HEAD
+          git fetch origin gpt/road-to-15-consolidation
+          git rebase origin/gpt/road-to-15-consolidation
+          git push origin HEAD:gpt/road-to-15-consolidation

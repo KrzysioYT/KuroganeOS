@@ -3,6 +3,7 @@
 #include "../apps/framework.hpp"
 #include "../abi/service.hpp"
 #include "../arch/x86_64/io.hpp"
+#include "../arch/x86_64/acpi_power.hpp"
 #include "../core/string.hpp"
 #include "../drivers/pci.hpp"
 #include "../drivers/core/device_manager.hpp"
@@ -13,7 +14,7 @@
 #include "../memory/allocator.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
-#include "../storage/ahci.hpp"
+#include "../storage/device_registry.hpp"
 #include "../task/scheduler.hpp"
 #include "../terminal.hpp"
 #include "../../common/version.h"
@@ -560,23 +561,26 @@ void command_driver(size_t count, char** arguments) {
 }
 
 void command_diskinfo() {
+    const size_t count = storage::device_registry::device_count();
     terminal::write("Disks: ");
-    terminal::write_u64(storage::ahci::device_count());
+    terminal::write_u64(count);
     terminal::println();
-    for (size_t index = 0; index < storage::ahci::device_count(); ++index) {
-        const storage::ahci::DeviceInfo* info =
-            storage::ahci::device_info_at(index);
-        if (info == nullptr) {
+    for (size_t index = 0U; index < count; ++index) {
+        storage::device_registry::Entry entry{};
+        if (!storage::device_registry::entry_at(index, &entry) ||
+            entry.device == nullptr) {
             continue;
         }
         terminal::write("Disk ");
         terminal::write_u64(index);
-        terminal::write(" driver=AHCI model=");
-        terminal::write(info->model);
+        terminal::write(" driver=");
+        terminal::write(storage::device_registry::backend_name(entry.backend));
+        terminal::write(" model=");
+        terminal::write(entry.model != nullptr ? entry.model : "unknown");
         terminal::write(" blocks=");
-        terminal::write_u64(info->sector_count);
+        terminal::write_u64(entry.device->sector_count);
         terminal::write(" block_size=");
-        terminal::write_u64(info->sector_size);
+        terminal::write_u64(entry.device->sector_size);
         terminal::println(" status=READY");
     }
     if (fs::root_volume::mounted()) {
@@ -1021,6 +1025,11 @@ void reboot_delay() {
 void command_reboot() {
     terminal::println("rebooting...");
 
+    if (arch::x86_64::acpi_power::reset_available()) {
+        arch::x86_64::acpi_power::request_reset();
+        reboot_delay();
+    }
+
     size_t spin = 0;
     while ((arch::in8(0x64) & 0x02u) != 0 && spin < 100000) {
         arch::pause();
@@ -1049,6 +1058,12 @@ void command_reboot() {
 
 void command_poweroff() {
     terminal::println("powering off...");
+    if (arch::x86_64::acpi_power::shutdown_available()) {
+        arch::x86_64::acpi_power::request_poweroff();
+    }
+
+    // Last-resort emulator compatibility when firmware ACPI power data is
+    // unavailable or the platform ignores the ACPI S5 request.
     arch::out16(0x604, 0x2000);
     arch::out16(0xB004, 0x2000);
     print_error("poweroff", "emulator power-off ports returned");

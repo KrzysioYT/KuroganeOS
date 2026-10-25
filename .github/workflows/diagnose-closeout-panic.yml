@@ -1,0 +1,220 @@
+name: Diagnose 3.4 Closeout Panic RIP
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/diagnose-closeout-panic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map-rip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact failing-layout source
+        uses: actions/checkout@v4
+        with:
+          ref: 2aa1cc04b407efad351ef619d7d0559dad57f599
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential binutils python3 \
+            qemu-system-x86 ovmf \
+            mtools dosfstools gdisk xorriso
+
+      - name: Inject exact combined closeout probes and bounded PIE diagnostics
+        shell: python
+        run: |
+          from pathlib import Path
+
+          build = Path('scripts/build-linux.sh')
+          text = build.read_text()
+          anchor = '    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"\n'
+          addition = (
+              '    "filesystemprobe|userspace/system/filesystem-probe/main.c|system/fsprobe|c"\n'
+              '    "svcmeta|userspace/system/service-meta-server/main.c|system/svcmeta|c"\n'
+              '    "svcneg|userspace/system/service-meta-probe/main.c|system/svcneg|c"\n'
+              '    "svclook|userspace/system/service-query-probe/main.c|system/svclook|c"\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'closeout build anchor count={text.count(anchor)}')
+          build.write_text(text.replace(anchor, anchor + addition, 1))
+
+          init = Path('userspace/system/init/main.c')
+          text = init.read_text()
+          anchor = '    (void)u_puts("[TEST] clipboard_service_spawn: PASS\\n");\n'
+          probes = anchor + (
+              '    const ku_result_t closeout_svcmeta_pid = u_spawn("/system/svcmeta");\n'
+              '    if (closeout_svcmeta_pid <= 0) ku_exit(40);\n'
+              '    const ku_result_t closeout_event_pid = u_spawn("/system/evprobe");\n'
+              '    if (closeout_event_pid <= 0) ku_exit(41);\n'
+              '    const ku_result_t closeout_notification_pid = u_spawn("/system/ntfprobe");\n'
+              '    if (closeout_notification_pid <= 0) ku_exit(42);\n'
+              '    const ku_result_t closeout_account_pid = u_spawn("/system/acctprb");\n'
+              '    if (closeout_account_pid <= 0) ku_exit(43);\n'
+              '    const ku_result_t closeout_session_pid = u_spawn("/system/sesprobe");\n'
+              '    if (closeout_session_pid <= 0) ku_exit(44);\n'
+              '    const ku_result_t closeout_settings_change_pid = u_spawn("/system/setchprb");\n'
+              '    if (closeout_settings_change_pid <= 0) ku_exit(45);\n'
+              '    const ku_result_t closeout_clipboard_pid = u_spawn("/system/clipprb");\n'
+              '    if (closeout_clipboard_pid <= 0) ku_exit(46);\n'
+              '    const ku_result_t closeout_filesystem_pid = u_spawn("/system/fsprobe");\n'
+              '    if (closeout_filesystem_pid <= 0) ku_exit(47);\n'
+              '    const ku_result_t closeout_negotiation_pid = u_spawn("/system/svcneg");\n'
+              '    if (closeout_negotiation_pid <= 0) ku_exit(48);\n'
+              '    const ku_result_t closeout_lookup_pid = u_spawn("/system/svclook");\n'
+              '    if (closeout_lookup_pid <= 0) ku_exit(49);\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'closeout init anchor count={text.count(anchor)}')
+          init.write_text(text.replace(anchor, probes, 1))
+
+          runtime = Path('kernel/user/runtime_base.inc')
+          text = runtime.read_text()
+          anchor = (
+              'void finish_from_interrupt(\n'
+              '    Context& context,\n'
+              '    arch::x86_64::interrupts::InterruptFrame& frame,\n'
+              '    int32_t exit_code) {\n'
+              '    const uint64_t interrupt_flags = save_and_disable_interrupts();\n'
+          )
+          diagnostic = (
+              'void finish_from_interrupt(\n'
+              '    Context& context,\n'
+              '    arch::x86_64::interrupts::InterruptFrame& frame,\n'
+              '    int32_t exit_code) {\n'
+              '    threading::Stat exit_thread{};\n'
+              '    const threading::Status exit_stat_status =\n'
+              '        threading::stat(context.tid, &exit_thread);\n'
+              '    const uintptr_t saved_kernel_rsp =\n'
+              '        static_cast<uintptr_t>(context.return_state.kernel_rsp);\n'
+              '    uint64_t saved_return = 0U;\n'
+              '    if (exit_stat_status == threading::Status::Ok &&\n'
+              '        saved_kernel_rsp >= exit_thread.stack_bottom &&\n'
+              '        exit_thread.stack_top >= 7U * sizeof(uint64_t) &&\n'
+              '        saved_kernel_rsp <= exit_thread.stack_top - 7U * sizeof(uint64_t)) {\n'
+              '        saved_return = reinterpret_cast<const uint64_t*>(saved_kernel_rsp)[6];\n'
+              '    }\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "kernel_rsp=", saved_kernel_rsp);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "saved_return=", saved_return);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "stack_bottom=", exit_thread.stack_bottom);\n'
+              '    log::write_hex(log::Level::Info, "EXIT-DIAG", "stack_top=", exit_thread.stack_top);\n'
+              '    const uint64_t interrupt_flags = save_and_disable_interrupts();\n'
+          )
+          if text.count(anchor) != 1:
+              raise SystemExit(f'finish_from_interrupt anchor count={text.count(anchor)}')
+          runtime.write_text(text.replace(anchor, diagnostic, 1))
+
+          panic = Path('kernel/diagnostics/panic.cpp')
+          text = panic.read_text()
+          decl = 'extern "C" unsigned char kernel_stack_top[];\n'
+          if text.count(decl) != 1:
+              raise SystemExit(f'panic declaration anchor count={text.count(decl)}')
+          text = text.replace(
+              decl,
+              decl + 'extern "C" unsigned char __kernel_start[];\n',
+              1)
+          rip = '    serial_key_hex("RIP", snapshot.registers.rip);\n'
+          pie = (
+              '    const uint64_t kernel_link_base = 0U;\n'
+              '    const uint64_t kernel_text_link = UINT64_C(0x1000);\n'
+              '    const uint64_t kernel_text_runtime =\n'
+              '        static_cast<uint64_t>(reinterpret_cast<uintptr_t>(__kernel_start));\n'
+              '    const uint64_t kernel_load_base =\n'
+              '        kernel_text_runtime >= kernel_text_link\n'
+              '            ? kernel_text_runtime - kernel_text_link\n'
+              '            : 0U;\n'
+              '    serial_key_hex("KERNEL_LOAD_BASE", kernel_load_base);\n'
+              '    serial_key_hex("KERNEL_LINK_BASE", kernel_link_base);\n'
+              '    serial_key_hex("KERNEL_SLIDE", kernel_load_base - kernel_link_base);\n'
+              '    if (snapshot.registers.rip >= kernel_load_base) {\n'
+              '        serial_key_hex("RIP_NORMALIZED",\n'
+              '            snapshot.registers.rip - kernel_load_base + kernel_link_base);\n'
+              '    } else {\n'
+              '        serial_key("RIP_NORMALIZED", "N/A");\n'
+              '    }\n'
+          )
+          if text.count(rip) != 1:
+              raise SystemExit(f'panic RIP anchor count={text.count(rip)}')
+          panic.write_text(text.replace(rip, rip + pie, 1))
+
+      - name: Build exact failing release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/kernel.elf
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Reproduce closeout panic and capture serial tail
+        run: |
+          set +e
+          set -o pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --require-marker '[TEST] service_version_negotiation: PASS' \
+            --timeout 30 \
+            2>&1 | tee build/closeout-panic.log
+          smoke_status=${PIPESTATUS[0]}
+          set -e
+          echo "SMOKE_STATUS=$smoke_status" >> build/closeout-panic.log
+          grep -F '=== KUROGANE_FATAL_BEGIN ===' build/closeout-panic.log
+          grep -F 'KERNEL_LOAD_BASE=' build/closeout-panic.log
+          grep -F 'RIP_NORMALIZED=' build/closeout-panic.log
+          grep -F '[INFO][EXIT-DIAG]' build/closeout-panic.log
+
+      - name: Normalize and symbolize exact runtime RIP
+        run: |
+          runtime_rip="$(grep -m1 '^RIP=' build/closeout-panic.log | cut -d= -f2)"
+          load_base="$(grep -m1 '^KERNEL_LOAD_BASE=' build/closeout-panic.log | cut -d= -f2)"
+          link_base="$(grep -m1 '^KERNEL_LINK_BASE=' build/closeout-panic.log | cut -d= -f2)"
+          normalized="$(grep -m1 '^RIP_NORMALIZED=' build/closeout-panic.log | cut -d= -f2)"
+          {
+            echo "RUNTIME_RIP=$runtime_rip"
+            echo "KERNEL_LOAD_BASE=$load_base"
+            echo "KERNEL_LINK_BASE=$link_base"
+            echo "RIP_NORMALIZED=$normalized"
+            echo '=== ELF HEADER ==='
+            readelf -hW build/kernel.elf
+            echo '=== PROGRAM HEADERS ==='
+            readelf -lW build/kernel.elf
+            if [[ "$normalized" == 0x* ]]; then
+              echo '=== SYMBOL ==='
+              addr2line -e build/kernel.elf -f -C -i "$normalized"
+              echo '=== DISASSEMBLY +/- 64 ==='
+              start=$(( normalized - 64 ))
+              stop=$(( normalized + 65 ))
+              objdump -dC -S \
+                --start-address="$start" \
+                --stop-address="$stop" \
+                build/kernel.elf
+            else
+              echo '=== SYMBOL ==='
+              echo 'outside kernel PT_LOAD range; control-flow corruption'
+            fi
+            echo '=== NEAREST SYMBOLS ==='
+            nm -n -C build/kernel.elf
+          } > build/rip-report.txt
+          cat build/rip-report.txt
+
+      - name: Upload panic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: closeout-panic-rip-evidence
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            build/closeout-panic.log
+            build/rip-report.txt
+            build/kernel.map
+            build/kernel.elf

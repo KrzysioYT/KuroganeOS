@@ -1,5 +1,8 @@
 # Repository baseline
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Audit date: 2026-07-27. The repository has no Git metadata.
 
 The baseline is a freestanding x86-64 C/C++ kernel loaded by a repository-owned

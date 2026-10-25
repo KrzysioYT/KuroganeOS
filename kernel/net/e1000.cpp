@@ -1,6 +1,7 @@
 #include "e1000.hpp"
 
 #include "../drivers/pci.hpp"
+#include "../drivers/pci_msi.hpp"
 #include "../memory/kernel_virtual_memory.hpp"
 #include "../memory/virtual_memory.hpp"
 #include "../storage/dma.hpp"
@@ -8,8 +9,6 @@
 namespace net::e1000 {
 namespace {
 
-constexpr uint16_t INTEL_VENDOR = 0x8086U;
-constexpr uint16_t E1000_82540EM = 0x100EU;
 constexpr size_t MMIO_BYTES = 128U * 1024U;
 constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB10000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
@@ -18,6 +17,8 @@ constexpr uint32_t RESET_BUDGET = 1000000U;
 constexpr size_t REG_CTRL = 0x0000U;
 constexpr size_t REG_STATUS = 0x0008U;
 constexpr size_t REG_ICR = 0x00C0U;
+constexpr size_t REG_ICS = 0x00C8U;
+constexpr size_t REG_IMS = 0x00D0U;
 constexpr size_t REG_IMC = 0x00D8U;
 constexpr size_t REG_RCTL = 0x0100U;
 constexpr size_t REG_TCTL = 0x0400U;
@@ -49,6 +50,7 @@ constexpr uint8_t TX_EOP = UINT8_C(1) << 0U;
 constexpr uint8_t TX_IFCS = UINT8_C(1) << 1U;
 constexpr uint8_t TX_RS = UINT8_C(1) << 3U;
 constexpr uint8_t TX_DD = UINT8_C(1) << 0U;
+constexpr uint32_t INTERRUPT_LINK_STATUS_CHANGE = UINT32_C(1) << 2U;
 
 struct __attribute__((packed)) ReceiveDescriptor {
     uint64_t address;
@@ -78,6 +80,7 @@ static_assert(
 
 struct Device {
     pci::Device pci_device;
+    Model model;
     volatile uint8_t* registers;
     uintptr_t mapped_base;
     size_t mapped_pages;
@@ -92,6 +95,10 @@ struct Device {
     uint64_t tx_frames;
     uint64_t rx_frames;
     uint64_t drops;
+    pci::msi::Route msi_route;
+    uint64_t interrupt_count;
+    uint32_t last_interrupt_causes;
+    bool msi_active;
     bool initialized;
 };
 
@@ -135,6 +142,16 @@ uint32_t read_register(Device& device, size_t offset) {
 
 void write_register(Device& device, size_t offset, uint32_t value) {
     *register_address(device, offset) = value;
+}
+
+void interrupt_handler(arch::x86_64::interrupts::InterruptFrame&) {
+    if (g_device.registers == nullptr) return;
+    const uint32_t causes = read_register(g_device, REG_ICR);
+    if (causes == 0U) return;
+    __atomic_fetch_or(
+        &g_device.last_interrupt_causes, causes, __ATOMIC_RELAXED);
+    __atomic_fetch_add(
+        &g_device.interrupt_count, UINT64_C(1), __ATOMIC_RELEASE);
 }
 
 bool map_mmio(uint64_t physical, Device* device) {
@@ -186,6 +203,14 @@ bool map_mmio(uint64_t physical, Device* device) {
 
 void release_resources(Device* device) {
     if (device == nullptr) return;
+    if (device->registers != nullptr) {
+        write_register(*device, REG_IMC, UINT32_MAX);
+        static_cast<void>(read_register(*device, REG_ICR));
+    }
+    if (device->msi_active) {
+        static_cast<void>(pci::msi::disable(&device->msi_route));
+        device->msi_active = false;
+    }
     for (size_t index = 0U; index < DESCRIPTOR_COUNT; ++index) {
         if (device->rx_buffers[index].allocated) {
             static_cast<void>(storage::dma::release_page(
@@ -322,6 +347,20 @@ bool valid_mac(const MacAddress& mac) {
         !mac_is_multicast(mac);
 }
 
+const pci::Device* find_supported_device(Model* out_model) {
+    if (out_model != nullptr) *out_model = Model::Unknown;
+    for (size_t index = 0U; index < pci::device_count(); ++index) {
+        const pci::Device* device = pci::device_at(index);
+        if (device == nullptr) continue;
+        const Model candidate =
+            classify_model(device->vendor_id, device->device_id);
+        if (candidate == Model::Unknown) continue;
+        if (out_model != nullptr) *out_model = candidate;
+        return device;
+    }
+    return nullptr;
+}
+
 bool allocate_dma(Device* device) {
     if (storage::dma::allocate_page(true, &device->rx_ring_page) !=
             storage::dma::Status::Ok ||
@@ -357,13 +396,15 @@ Status initialize() {
     if (g_device.initialized) {
         return Status::AlreadyInitialized;
     }
-    const pci::Device* pci_device = pci::find(INTEL_VENDOR, E1000_82540EM);
-    if (pci_device == nullptr) {
+    Model detected_model = Model::Unknown;
+    const pci::Device* pci_device = find_supported_device(&detected_model);
+    if (pci_device == nullptr || detected_model == Model::Unknown) {
         g_status = Status::NotFound;
         return g_status;
     }
     g_device = {};
     g_device.pci_device = *pci_device;
+    g_device.model = detected_model;
     bool io_space = false;
     const uint64_t bar = pci::bar_address(*pci_device, 0U, &io_space);
     if (bar == 0U || io_space) {
@@ -444,6 +485,14 @@ Status initialize() {
         REG_CTRL,
         read_register(g_device, REG_CTRL) | CTRL_SLU);
 
+    const pci::msi::Status msi_status = pci::msi::enable(
+        g_device.pci_device, interrupt_handler, &g_device.msi_route);
+    if (msi_status == pci::msi::Status::Ok) {
+        g_device.msi_active = true;
+        write_register(g_device, REG_IMC, UINT32_MAX);
+        static_cast<void>(read_register(g_device, REG_ICR));
+    }
+
     g_device.interface = {
         &g_device,
         transmit_callback,
@@ -472,6 +521,10 @@ bool ready() {
     return g_device.initialized && g_status == Status::Ok;
 }
 
+bool link_up() {
+    return ready() && (read_register(g_device, REG_STATUS) & STATUS_LU) != 0U;
+}
+
 NetworkInterface* interface() {
     return ready() ? &g_device.interface : nullptr;
 }
@@ -484,21 +537,79 @@ uint64_t transmitted_frames() { return g_device.tx_frames; }
 uint64_t received_frames() { return g_device.rx_frames; }
 uint64_t dropped_frames() { return g_device.drops; }
 
+bool msi_configured() {
+    return g_device.initialized && g_device.msi_active;
+}
+
+Model model() {
+    return g_device.model;
+}
+
+uint16_t pci_device_id() {
+    return g_device.pci_device.device_id;
+}
+
+const char* model_name(Model model) {
+    switch (model) {
+        case Model::I82540EM: return "Intel 82540EM E1000";
+        case Model::I82574L: return "Intel 82574L E1000e";
+        case Model::Unknown: return "unsupported Intel GbE";
+    }
+    return "unsupported Intel GbE";
+}
+
+bool qualify_msi_delivery(uint32_t spin_budget) {
+    if (!msi_configured() || spin_budget == 0U) return false;
+
+    write_register(g_device, REG_IMC, UINT32_MAX);
+    static_cast<void>(read_register(g_device, REG_ICR));
+    __atomic_store_n(
+        &g_device.last_interrupt_causes, UINT32_C(0), __ATOMIC_RELEASE);
+    const uint64_t before = __atomic_load_n(
+        &g_device.interrupt_count, __ATOMIC_ACQUIRE);
+    write_register(g_device, REG_IMS, INTERRUPT_LINK_STATUS_CHANGE);
+    write_register(g_device, REG_ICS, INTERRUPT_LINK_STATUS_CHANGE);
+
+    bool delivered = false;
+    for (uint32_t attempt = 0U; attempt < spin_budget; ++attempt) {
+        if (__atomic_load_n(
+                &g_device.interrupt_count, __ATOMIC_ACQUIRE) != before) {
+            delivered =
+                (__atomic_load_n(
+                    &g_device.last_interrupt_causes, __ATOMIC_ACQUIRE) &
+                 INTERRUPT_LINK_STATUS_CHANGE) != 0U;
+            break;
+        }
+        relax();
+    }
+    write_register(g_device, REG_IMC, UINT32_MAX);
+    static_cast<void>(read_register(g_device, REG_ICR));
+    if (!delivered) {
+        static_cast<void>(pci::msi::disable(&g_device.msi_route));
+        g_device.msi_active = false;
+    }
+    return delivered;
+}
+
+uint64_t delivered_interrupts() {
+    return __atomic_load_n(&g_device.interrupt_count, __ATOMIC_ACQUIRE);
+}
+
 const char* status_message(Status status) {
     switch (status) {
         case Status::Ok: return "ok";
         case Status::AlreadyInitialized: return "already initialized";
         case Status::NotInitialized: return "not initialized";
-        case Status::NotFound: return "Intel E1000 was not found";
-        case Status::UnsupportedDevice: return "unsupported E1000 device";
-        case Status::InvalidBar: return "invalid E1000 MMIO BAR";
-        case Status::MmioMapFailed: return "E1000 MMIO mapping failed";
-        case Status::ResetTimedOut: return "E1000 reset timed out";
-        case Status::InvalidMac: return "E1000 has no valid unicast MAC";
-        case Status::DmaAllocationFailed: return "E1000 DMA allocation failed";
-        case Status::LinkDown: return "E1000 link is down";
-        case Status::TransmitTimedOut: return "E1000 transmit timed out";
-        case Status::DeviceError: return "E1000 device error";
+        case Status::NotFound: return "supported Intel E1000/E1000e NIC was not found";
+        case Status::UnsupportedDevice: return "unsupported Intel GbE device";
+        case Status::InvalidBar: return "invalid Intel GbE MMIO BAR";
+        case Status::MmioMapFailed: return "Intel GbE MMIO mapping failed";
+        case Status::ResetTimedOut: return "Intel GbE reset timed out";
+        case Status::InvalidMac: return "Intel GbE has no valid unicast MAC";
+        case Status::DmaAllocationFailed: return "Intel GbE DMA allocation failed";
+        case Status::LinkDown: return "Intel GbE link is down";
+        case Status::TransmitTimedOut: return "Intel GbE transmit timed out";
+        case Status::DeviceError: return "Intel GbE device error";
     }
     return "unknown E1000 status";
 }

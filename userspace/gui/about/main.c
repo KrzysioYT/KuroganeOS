@@ -1,8 +1,9 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
 
 int main(void) {
-    const ku_window_t window = gui_open("ABOUT KUROGANEOS", 330, 205, 520, 310);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_ABOUT, 330, 205, 520, 310);
     if (window == KU_INVALID_WINDOW) return 1;
 
     kui_scene scene;

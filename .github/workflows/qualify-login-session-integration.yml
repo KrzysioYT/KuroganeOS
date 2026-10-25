@@ -1,0 +1,275 @@
+name: Qualify Login to Session integration
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-login-session-integration.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  qualify-and-land:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Integrate Login with Account and Session services
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/gui/login/main.c')
+          text = path.read_text()
+
+          include_anchor = '#include "../../../common/dev_profile.h"\n'
+          includes = include_anchor + '\n#include <kurogane/account.h>\n#include <kurogane/session.h>\n'
+          if text.count(include_anchor) != 1:
+              raise SystemExit('login include anchor changed')
+          text = text.replace(include_anchor, includes, 1)
+
+          wait_anchor = '''static int wait_for_desktop(uint64_t pid) {
+          '''
+          helpers = r'''static ku_status_t receive_service_response(
+              ku_service_connection_t connection,
+              void* output,
+              size_t expected_size) {
+              uint32_t attempts;
+              if (output == NULL || expected_size == 0U) return KU_STATUS_INVALID_ARGUMENT;
+              for (attempts = 0U; attempts < 200U; ++attempts) {
+                  ku_service_message message;
+                  const ku_status_t status = ku_service_receive(connection, &message);
+                  if (status == KU_STATUS_WOULD_BLOCK) {
+                      (void)ku_sleep(1U);
+                      continue;
+                  }
+                  if (status != KU_STATUS_OK) return status;
+                  if (message.data_size != expected_size) return KU_STATUS_CORRUPT_DATA;
+                  memcpy(output, message.data, expected_size);
+                  return KU_STATUS_OK;
+              }
+              return KU_STATUS_WOULD_BLOCK;
+          }
+
+          static ku_status_t current_account_id(uint64_t* account_id) {
+              ku_result_t connected = KU_STATUS_NOT_FOUND;
+              ku_account_request request;
+              ku_account_response response;
+              uint32_t attempts;
+              if (account_id == NULL) return KU_STATUS_INVALID_ARGUMENT;
+              *account_id = 0U;
+              for (attempts = 0U; attempts < 200U; ++attempts) {
+                  connected = ku_service_connect(KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
+                  if (connected > 0) break;
+                  if (connected != KU_STATUS_NOT_FOUND && connected != KU_STATUS_WOULD_BLOCK) {
+                      return (ku_status_t)connected;
+                  }
+                  (void)ku_sleep(1U);
+              }
+              if (connected <= 0) return (ku_status_t)connected;
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_ACCOUNT_GET_CURRENT;
+              if (ku_service_send((ku_service_connection_t)connected, &request, sizeof(request)) != KU_STATUS_OK) {
+                  (void)ku_service_close((ku_service_connection_t)connected);
+                  return KU_STATUS_IO_ERROR;
+              }
+              memset(&response, 0, sizeof(response));
+              {
+                  const ku_status_t received = receive_service_response(
+                      (ku_service_connection_t)connected, &response, sizeof(response));
+                  (void)ku_service_close((ku_service_connection_t)connected);
+                  if (received != KU_STATUS_OK) return received;
+              }
+              if (response.structure_size != sizeof(response)) return KU_STATUS_CORRUPT_DATA;
+              if ((ku_status_t)response.status != KU_STATUS_OK) return (ku_status_t)response.status;
+              if (response.account_id == 0U) return KU_STATUS_CORRUPT_DATA;
+              *account_id = response.account_id;
+              return KU_STATUS_OK;
+          }
+
+          static ku_status_t session_transact(
+              ku_service_connection_t connection,
+              const ku_session_request* request,
+              ku_session_response* response) {
+              ku_status_t status;
+              if (request == NULL || response == NULL) return KU_STATUS_INVALID_ARGUMENT;
+              status = ku_service_send(connection, request, sizeof(*request));
+              if (status != KU_STATUS_OK) return status;
+              memset(response, 0, sizeof(*response));
+              status = receive_service_response(connection, response, sizeof(*response));
+              if (status != KU_STATUS_OK) return status;
+              if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+              return (ku_status_t)response->status;
+          }
+
+          static ku_status_t terminate_session(
+              ku_service_connection_t connection,
+              ku_session_id_t session_id) {
+              ku_session_request request;
+              ku_session_response response;
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_SESSION_TERMINATE;
+              request.session_id = session_id;
+              return session_transact(connection, &request, &response);
+          }
+
+          ''' + wait_anchor
+          if text.count(wait_anchor) != 1:
+              raise SystemExit('login wait anchor changed')
+          text = text.replace(wait_anchor, helpers, 1)
+
+          old = '''static int start_session(ku_window_t window) {
+              const char launcher[] = "/gui/launcher";
+              (void)ku_ui_close(window);
+              {
+                  const ku_result_t pid = ku_process_spawn(
+                      launcher, sizeof(launcher) - 1U);
+                  if (pid <= 0) return 4;
+                  puts("[TEST] red_flux_login_to_desktop: PASS");
+                  return wait_for_desktop((uint64_t)pid);
+              }
+          }
+          '''
+          new = '''static int start_session(ku_window_t window) {
+              const char launcher[] = "/gui/launcher";
+              uint64_t account_id = 0U;
+              ku_result_t connected;
+              ku_service_connection_t connection;
+              ku_session_request request;
+              ku_session_response response;
+              ku_session_id_t session_id;
+              ku_result_t pid;
+              int desktop_status;
+
+              if (current_account_id(&account_id) != KU_STATUS_OK) return 4;
+              connected = ku_service_connect(KU_SESSION_SERVICE_NAME, KU_SESSION_SERVICE_NAME_SIZE);
+              if (connected <= 0) return 5;
+              connection = (ku_service_connection_t)connected;
+
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_SESSION_CREATE;
+              request.account_id = account_id;
+              if (session_transact(connection, &request, &response) != KU_STATUS_OK ||
+                  response.session_id == KU_SESSION_INVALID_ID || response.account_id != account_id) {
+                  (void)ku_service_close(connection);
+                  return 6;
+              }
+              session_id = response.session_id;
+
+              (void)ku_ui_close(window);
+              pid = ku_process_spawn(launcher, sizeof(launcher) - 1U);
+              if (pid <= 0) {
+                  (void)terminate_session(connection, session_id);
+                  (void)ku_service_close(connection);
+                  return 7;
+              }
+
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_SESSION_SET_HOME;
+              request.session_id = session_id;
+              request.process_id = (uint64_t)pid;
+              if (session_transact(connection, &request, &response) != KU_STATUS_OK ||
+                  response.home_pid != (uint64_t)pid) {
+                  (void)terminate_session(connection, session_id);
+                  (void)ku_service_close(connection);
+                  return 8;
+              }
+
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_SESSION_ATTACH_APPLICATION;
+              request.session_id = session_id;
+              request.process_id = (uint64_t)pid;
+              if (session_transact(connection, &request, &response) != KU_STATUS_OK) {
+                  (void)terminate_session(connection, session_id);
+                  (void)ku_service_close(connection);
+                  return 9;
+              }
+
+              puts("[TEST] login_owned_session: PASS");
+              puts("[TEST] red_flux_login_to_desktop: PASS");
+              desktop_status = wait_for_desktop((uint64_t)pid);
+
+              memset(&request, 0, sizeof(request));
+              request.structure_size = sizeof(request);
+              request.operation = KU_SESSION_DETACH_APPLICATION;
+              request.session_id = session_id;
+              request.process_id = (uint64_t)pid;
+              (void)session_transact(connection, &request, &response);
+              (void)terminate_session(connection, session_id);
+              (void)ku_service_close(connection);
+              return desktop_status;
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit('login start_session anchor changed')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Validate source
+        run: |
+          git diff --check
+          grep -F '#include <kurogane/account.h>' userspace/gui/login/main.c
+          grep -F '#include <kurogane/session.h>' userspace/gui/login/main.c
+          grep -F '[TEST] login_owned_session: PASS' userspace/gui/login/main.c
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Build full release media
+        run: |
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Regress Session, Event, and Notification runtime
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('userspace/system/init/main.c')
+          text = path.read_text()
+          anchors = [
+              ('    (void)u_puts("[TEST] session_service_spawn: PASS\\n");\n', '    const ku_result_t qp1 = u_spawn("/system/sesprobe");\n    if (qp1 <= 0) ku_exit(30);\n'),
+              ('    (void)u_puts("[TEST] event_broker_spawn: PASS\\n");\n', '    const ku_result_t qp2 = u_spawn("/system/evprobe");\n    if (qp2 <= 0) ku_exit(31);\n'),
+              ('    (void)u_puts("[TEST] notification_service_spawn: PASS\\n");\n', '    const ku_result_t qp3 = u_spawn("/system/ntfprobe");\n    if (qp3 <= 0) ku_exit(32);\n'),
+          ]
+          for anchor, addition in anchors:
+              if text.count(anchor) != 1:
+                  raise SystemExit('runtime regression anchor changed')
+              text = text.replace(anchor, anchor + addition, 1)
+          path.write_text(text)
+
+      - name: Rebuild qualification image
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+
+      - name: Require service runtime regressions
+        run: |
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --require-marker '[TEST] session_service_roundtrip: PASS' \
+            --require-marker '[TEST] event_broker_roundtrip: PASS' \
+            --require-marker '[TEST] notification_service_roundtrip: PASS' \
+            --timeout 180
+
+      - name: Land qualified Login integration
+        run: |
+          git checkout -- userspace/system/init/main.c
+          git rm .github/workflows/qualify-login-session-integration.yml
+          git config user.name 'KuroganeOS CI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add userspace/gui/login/main.c
+          git commit -m 'session(login): bind desktop lifecycle to owned session'
+          git push origin HEAD:gpt/road-to-15-consolidation

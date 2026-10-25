@@ -29,6 +29,25 @@ bool text_equal(const char* left, const char* right) {
     return *left == *right;
 }
 
+
+void bump_lifecycle(Driver& driver) {
+    ++driver.lifecycle_generation;
+    if (driver.lifecycle_generation == 0U) driver.lifecycle_generation = 1U;
+}
+
+void record_failure(
+    Driver& driver,
+    device::DeviceId device_id,
+    FailureStage stage,
+    KStatus reason) {
+    ++driver.failure_count;
+    driver.last_failure = reason;
+    driver.last_failure_device = device_id;
+    driver.last_failure_stage = stage;
+    driver.status = Status::Degraded;
+    bump_lifecycle(driver);
+}
+
 } // namespace
 
 KStatus initialize() {
@@ -110,7 +129,8 @@ KStatus bind_device(device::DeviceId id) {
     if (!g_initialized || !device::initialized()) {
         return KStatus::BadState;
     }
-    device::Device* target = device::get_mutable(id);
+    device::DeviceHandle target_handle = device::handle_for(id);
+    device::Device* target = device::resolve_mutable(target_handle);
     if (target == nullptr) {
         return KStatus::NotFound;
     }
@@ -125,9 +145,13 @@ KStatus bind_device(device::DeviceId id) {
         size_t selected = MAXIMUM_DRIVERS;
         for (size_t index = 0; index < g_count; ++index) {
             Driver& candidate = g_drivers[index];
-            if (tried[index] || !candidate.match(*target, candidate.context)) {
+            if (tried[index]) {
                 continue;
             }
+            const bool matches = candidate.match(*target, candidate.context);
+            target = device::resolve_mutable(target_handle);
+            if (target == nullptr) return KStatus::NoDevice;
+            if (!matches) continue;
             if (selected == MAXIMUM_DRIVERS ||
                 candidate.priority > g_drivers[selected].priority) {
                 selected = index;
@@ -142,9 +166,10 @@ KStatus bind_device(device::DeviceId id) {
         ++driver.probe_count;
         static_cast<void>(device::set_status(id, device::Status::Probing));
         KStatus status = driver.probe(*target, driver.timeout_ticks, driver.context);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr) return KStatus::NoDevice;
         if (status != KStatus::Ok) {
-            ++driver.failure_count;
-            driver.status = Status::Degraded;
+            record_failure(driver, id, FailureStage::Probe, status);
             last_failure = status;
             static_cast<void>(device::set_status(id, device::Status::Discovered));
             continue;
@@ -154,25 +179,113 @@ KStatus bind_device(device::DeviceId id) {
         if (status != KStatus::Ok) {
             return status;
         }
+        target_handle = device::handle_for(id);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr || target->driver != driver.id) {
+            return KStatus::NoDevice;
+        }
         static_cast<void>(device::set_status(id, device::Status::Initializing));
         status = driver.attach(*target, driver.timeout_ticks, driver.context);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr || target->driver != driver.id) {
+            return KStatus::NoDevice;
+        }
         if (status == KStatus::Ok) {
             ++driver.attached_count;
             driver.status = Status::Ready;
+            driver.last_failure = KStatus::Ok;
+            driver.last_failure_device = device::INVALID_DEVICE_ID;
+            driver.last_failure_stage = FailureStage::None;
+            bump_lifecycle(driver);
             static_cast<void>(device::set_status(id, device::Status::Ready));
             return KStatus::Ok;
         }
-        ++driver.failure_count;
-        driver.status = Status::Degraded;
+        record_failure(driver, id, FailureStage::Attach, status);
         last_failure = status;
-        static_cast<void>(device::release(id, driver.id));
+        if (driver.detach != nullptr) driver.detach(*target, driver.context);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr || target->driver != driver.id) {
+            return KStatus::NoDevice;
+        }
+        const KStatus release_status = device::release(id, driver.id);
+        if (release_status != KStatus::Ok) return release_status;
+        target_handle = device::handle_for(id);
+        target = device::resolve_mutable(target_handle);
+        if (target == nullptr) return KStatus::NoDevice;
     }
 
     if (matched) {
+        if (device::resolve(target_handle) == nullptr) return KStatus::NoDevice;
         static_cast<void>(device::set_status(id, device::Status::Failed));
         return last_failure;
     }
     return KStatus::NotFound;
+}
+
+KStatus unbind_device(device::DeviceId id) {
+    if (!g_initialized || !device::initialized()) return KStatus::BadState;
+    const device::DeviceHandle target_handle = device::handle_for(id);
+    device::Device* target = device::resolve_mutable(target_handle);
+    if (target == nullptr) return KStatus::NotFound;
+    if (target->driver == device::INVALID_DRIVER_ID) return KStatus::NotFound;
+    if (target->driver >= g_count) return KStatus::Corrupted;
+
+    Driver& driver = g_drivers[target->driver];
+    if (driver.detach != nullptr) driver.detach(*target, driver.context);
+    target = device::resolve_mutable(target_handle);
+    if (target == nullptr || target->driver != driver.id) {
+        if (driver.attached_count != 0U) --driver.attached_count;
+        driver.status = driver.attached_count == 0U
+            ? Status::Registered : Status::Ready;
+        bump_lifecycle(driver);
+        return KStatus::NoDevice;
+    }
+    const KStatus release_status = device::release(id, driver.id);
+    if (release_status != KStatus::Ok) return release_status;
+    if (driver.attached_count != 0U) --driver.attached_count;
+    driver.status = driver.attached_count == 0U
+        ? Status::Registered : Status::Ready;
+    bump_lifecycle(driver);
+    return KStatus::Ok;
+}
+
+KStatus rebind_device(device::DeviceId id) {
+    if (!g_initialized || !device::initialized()) return KStatus::BadState;
+    device::Device* target = device::get_mutable(id);
+    if (target == nullptr) return KStatus::NotFound;
+    if (target->driver != device::INVALID_DRIVER_ID) {
+        const KStatus unbind_status = unbind_device(id);
+        if (unbind_status != KStatus::Ok) return unbind_status;
+    }
+    return bind_device(id);
+}
+
+KStatus report_device_failure(device::DeviceId id, KStatus reason) {
+    if (!g_initialized || !device::initialized()) return KStatus::BadState;
+    if (reason == KStatus::Ok) return KStatus::InvalidArgument;
+    const device::DeviceHandle target_handle = device::handle_for(id);
+    device::Device* target = device::resolve_mutable(target_handle);
+    if (target == nullptr) return KStatus::NotFound;
+
+    if (target->driver == device::INVALID_DRIVER_ID) {
+        static_cast<void>(device::set_status(id, device::Status::Failed));
+        return KStatus::Ok;
+    }
+    if (target->driver >= g_count) return KStatus::Corrupted;
+
+    Driver& driver = g_drivers[target->driver];
+    record_failure(driver, id, FailureStage::Runtime, reason);
+    if (driver.detach != nullptr) driver.detach(*target, driver.context);
+    target = device::resolve_mutable(target_handle);
+    if (target == nullptr || target->driver != driver.id) {
+        if (driver.attached_count != 0U) --driver.attached_count;
+        return KStatus::NoDevice;
+    }
+    const KStatus release_status = device::release(id, driver.id);
+    if (release_status != KStatus::Ok) return release_status;
+    if (driver.attached_count != 0U) --driver.attached_count;
+    static_cast<void>(device::set_status(id, device::Status::Failed));
+    return KStatus::Ok;
 }
 
 KStatus bind_all() {
@@ -185,8 +298,10 @@ KStatus bind_all() {
         if (target == nullptr || target->driver != device::INVALID_DRIVER_ID) {
             continue;
         }
+        const device::Requirement requirement = target->requirement;
         const KStatus status = bind_device(id);
-        if (status != KStatus::Ok && status != KStatus::NotFound) {
+        if (status != KStatus::Ok &&
+            requirement == device::Requirement::BootCritical) {
             aggregate = status;
         }
     }

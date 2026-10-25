@@ -1,0 +1,22 @@
+name: Trigger Dev Apply KuroFS Allocator
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - scripts/dev-apply-kurofs-allocator.py
+      - .github/workflows/dev-apply-kurofs-allocator-trigger.txt
+      - .github/workflows/dev-apply-kurofs-allocator-push.yml
+
+permissions:
+  actions: write
+
+jobs:
+  note:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain trigger limitation
+        run: |
+          echo "The guarded allocator runner is available as workflow_dispatch."
+          echo "This push trigger intentionally performs no source mutation."

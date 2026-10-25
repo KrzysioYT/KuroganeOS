@@ -7,6 +7,7 @@ scratch=""
 image_explicit=0
 writable=0
 shell_test=0
+socket_test=0
 safe_mode=0
 desktop_mode=0
 timeout=30
@@ -17,6 +18,7 @@ usage: run-qemu-headless.sh [options] [IMAGE]
   --writable          attach the explicitly named IMAGE without a snapshot
   --scratch PATH      attach an existing separate writable SATA data disk
   --shell-test        run the keyboard/shell integration scenario
+    --socket-test       run the Ring-3 socket readiness/progression probe
   --safe              request safe mode
   --desktop           request the experimental desktop mode
   --timeout SECONDS   prompt/test timeout (default: 30)
@@ -32,6 +34,7 @@ while (($#)); do
             shift
             ;;
         --shell-test) shell_test=1 ;;
+        --socket-test) socket_test=1 ;;
         --safe) safe_mode=1 ;;
         --desktop) desktop_mode=1 ;;
         --timeout)
@@ -83,6 +86,7 @@ image="$(realpath -e -- "$image")"
 args=(-ImagePath "$(wslpath -w "$image")" -TimeoutSeconds "$timeout")
 ((writable)) && args+=(-Writable)
 ((shell_test)) && args+=(-ShellTest)
+((socket_test)) && args+=(-SocketTest)
 ((safe_mode)) && args+=(-SafeMode)
 ((desktop_mode)) && args+=(-DesktopMode)
 if [[ -n "$scratch" ]]; then

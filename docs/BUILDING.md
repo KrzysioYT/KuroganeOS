@@ -1,62 +1,62 @@
 # Budowanie KuroganeOS
 
-## Wymagania
-
-Kanoniczny build działa w Windows PowerShell i używa repozytoryjnego cross toolchainu `tools/compiler/x86_64-elf/bin`. WSL2 z Bash, Pythonem 3, `g++`, `make`, `fsck.fat`, `sgdisk` i `xorriso` obsługuje testy hostowe oraz obrazy/ISO. QEMU znajduje się w `tools/qemu`.
-
-## Jeden punkt wejścia
-
-```powershell
-.\scripts\build.ps1 -Configuration debug
-.\scripts\build.ps1 -Configuration release
-.\scripts\build.ps1 -Configuration test
-```
-
-Pełna przebudowa:
-
-```powershell
-.\scripts\build.ps1 -Configuration debug -Rebuild
-```
-
-`-Rebuild` usuwa odtwarzalne obiekty, staging i obrazy, ale zachowuje `build/logs`, host test binaries/SDK oraz `state/KuroganeOS.img`. Working image może zawierać dane użytkownika. Reset wymaga jawnego:
-
-```powershell
-.\scripts\build-foundation-image.ps1 -ResetWorkingImage
-```
-
-Build ma lock `state/.build.lock`; druga równoległa instancja kończy się błędem zamiast uszkodzić artefakty.
-
-## Profile i funkcje
-
-| Profil | Przeznaczenie |
-| --- | --- |
-| `debug` | `-O0`, symbole, assertions i rozszerzona diagnostyka |
-| `release` | `-O2`, `NDEBUG`, ograniczone koszty debug |
-| `test` | `-O1`, symbole, `KUROGANE_TEST=1` i testy runtime |
-
-Wszystkie profile są freestanding C++17 PIE, bez exceptions/RTTI/red zone/SSE w kernelu. Centralne przełączniki są w `config/features.conf`; build waliduje `y/n` i przekazuje `CONFIG_*` do wszystkich jednostek kernela.
-
-## Wrappery
+Wykonuj polecenia z katalogu repozytorium. Wersja pochodzi z
+`common/version.h`, obecnie `7.0.0-dev`; nazwa Flux 8 określa cel rozwoju.
 
 ```bash
-./scripts/build.sh debug
-./scripts/build.sh release
-./scripts/build.sh test
-make powershell CONFIG=test
+git submodule update --init --recursive
 ```
 
-Wrappery wywołują ten sam frontend PowerShell. Bezpośredni Makefile służy do wygodnej kompilacji deweloperskiej, ale PowerShell pozostaje źródłem prawdy dla loadera, manifestu i obrazów.
+## Windows 11 + WSL
 
-## Artefakty
+PowerShell używa cross GCC/binutils z `tools/compiler/x86_64-elf/bin`.
+Wymagane są m.in. gcc, g++, ld, objcopy, readelf i objdump z prefiksem
+`x86_64-elf-`. WSL zapewnia narzędzia budowania obrazów; sprawdź wymagania
+w [Linux development](LINUX_DEVELOPMENT.md). Toolchain nie jest częścią Git.
 
-- `build/kernel.elf` i `build/kernel.map`;
-- `build/BOOTX64.EFI`;
-- `build/build-info.txt` — profil, compiler/linker, architektura, commit lub `unavailable`, flagi i funkcje;
-- `kurogane.img` — deterministyczny 64 MiB FAT32;
-- `build/images/KuroganeOS-base.img` — 512 MiB GPT z ESP i root FAT32;
-- `state/KuroganeOS.img` — zachowywany dysk roboczy;
-- `kurogane.iso` po `./scripts/build-iso.sh release`.
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-media.ps1 -Configuration release -Rebuild
+```
 
-Build odrzuca niepoprawny ELF/PE, segment RWE, nieobsługiwaną relokację, undefined symbol, błędny FAT lub GPT. `-NoStage` kończy na zweryfikowanym kernelu; `-StageOnly` przebudowuje loader/staging/obrazy z istniejącego kernela.
+Bieżące wyjścia Windows:
 
-Po buildzie uruchom [pełną regresję](TESTING.md). Sam artefakt nie dowodzi bootu.
+```text
+dist/KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso
+dist/KuroganeOS-7.0.0-dev-qemu-x86_64.img
+```
+
+## Linux
+
+```bash
+bash scripts/setup-linux.sh --install
+bash scripts/build-media-linux.sh --configuration release --rebuild
+```
+
+## macOS
+
+```bash
+bash scripts/setup-macos.sh --install
+bash scripts/build-media-macos.sh --configuration release --rebuild
+```
+
+Linux/macOS publikują `dist/KuroganeOS-7.0.0-dev-x86_64.iso` oraz wariant
+`dist/KuroganeOS-7.0.0-dev-<host>-qemu.img`. Zawsze czytaj ścieżkę wypisaną
+przez swój builder; nie mieszaj nazw hostów ani starych obrazów.
+
+## Build bez obrazu i walidacja
+
+```bash
+bash scripts/build-linux.sh --configuration release --no-image
+python3 tests/test_userspace_build_parity.py
+bash scripts/run-host-tests.sh
+```
+
+Sama kompilacja nie potwierdza bootu. Windows i Linux mają wspólny kontrakt
+33 programów bazowego userspace; SDK dodaje aplikacje GUI. Test zgodności
+wykrywa pominięte usługi PID 1, błędne ścieżki i rozbieżności flag scalar.
+Obrazy ELF są sprawdzane pod kątem architektury, segmentów i zakazanych
+rejestrów SIMD. [Testy runtime](TESTING.md).
+
+`-Rebuild` służy do odtworzenia artefaktów. Nie resetuj danych roboczych,
+VDI ani profilu konta w ramach zwykłej przebudowy. Zapisz `git rev-parse HEAD`
+i SHA256 dokładnie tego obrazu, który uruchamiasz.

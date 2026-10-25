@@ -1,31 +1,79 @@
-# Hardware matrix
+# KuroganeOS Hardware Compatibility Matrix
 
-Status dotyczy bieżącej linii **KuroganeOS 3.3.x**. `implemented` oznacza, że
-backend istnieje w źródłach; `qualified` wymaga dodatkowo runtime smoke dla
-danego emulowanego urządzenia/platformy.
+This matrix describes the current 5.x hardware-compatibility line and
+distinguishes automated evidence from external validation. An unavailable
+external environment is never interpreted as PASS.
 
-| Device/platform | Status |
-|---|---|
-| x86-64 UEFI / EDK2 GOP | implemented; QEMU/OVMF qualified |
-| Legacy BIOS boot | unsupported — official ISO is UEFI-only |
-| QEMU q35 | qualified development platform |
-| Legacy PIC / PIT | implemented and host/QEMU tested |
-| PS/2 keyboard | implemented; primary compatibility input path |
-| PS/2 mouse | implemented; compatibility path |
-| PCI configuration enumeration | implemented and QEMU tested |
-| SATA / Intel AHCI | implemented; QEMU qualified, real-hardware coverage experimental |
-| NVMe | unsupported |
-| VirtIO-blk | unsupported |
-| Intel E1000 / 82540EM | implemented; QEMU NAT DHCP/gateway qualified |
-| AMD PCnet | implemented; QEMU NAT DHCP/gateway qualified |
-| VirtIO-net PCI | implemented; QEMU NAT DHCP/gateway qualified; VirtualBox host smoke still required |
-| USB xHCI / HID | implementation in progress; not universal hardware support |
-| Intel ICH AC'97 | implemented PCM output path; VirtualBox/QEMU host coverage still release-dependent |
-| UEFI GOP software compositor | implemented; no hardware 3D command submission |
-| VirtualBox EFI x86-64 | supported target configuration; release claim requires real VBox smoke |
-| VirtualBox legacy BIOS | unsupported |
-| Physical x86-64 UEFI | experimental; narrow driver coverage |
-| Wi-Fi | unsupported |
+| Platform/profile | Evidence type | Current 5.x status |
+| --- | --- | --- |
+| QEMU q35 / OVMF / legacy-compatible devices | Automated | Gate defined |
+| QEMU q35 / i8042 off / xHCI USB keyboard + boot mouse | Automated | Gate defined |
+| QEMU q35 / i8042 off / xHCI USB keyboard + report-protocol USB tablet | Automated | Gate defined |
+| QEMU q35 / NVMe + xHCI USB Mass Storage | Automated | Gate defined |
+| QEMU q35 / GenuineIntel CPUID / 4 vCPU | Automated | Gate defined |
+| QEMU q35 / AuthenticAMD CPUID / 4 vCPU | Automated | Gate defined |
+| QEMU Tier 1 Usable profile | Automated | Gate defined |
+| QEMU Tier 3 Extended profile | Automated | Gate defined |
+| Oracle VirtualBox on a real host | External | UNVERIFIED for current candidate |
+| VMware on a real host | External | UNVERIFIED |
+| Physical Intel desktop/laptop | External | UNVERIFIED |
+| Physical AMD desktop/laptop | External | UNVERIFIED |
 
-For the current VM configuration use [`../VIRTUALBOX.md`](../VIRTUALBOX.md).
-Network backend details are in [`../NETWORKING.md`](../NETWORKING.md).
+## Capability interpretation
+
+A platform is reported from runtime capabilities rather than from its brand or
+hypervisor identity.
+
+- Tier 0 Boot: timer/scheduling/input infrastructure + display.
+- Tier 1 Usable: Tier 0 + keyboard + pointer + block storage.
+- Tier 2 Connected: Tier 1 + network + audio.
+- Tier 3 Extended: Tier 2 + USB host + multiprocessor runtime.
+
+The tier is not a promise that every peripheral in the machine is supported.
+For example, a laptop may be Tier 1 through USB input and NVMe while its Wi-Fi
+or I2C touchpad is still unsupported.
+
+## Current supported backend foundation
+
+Input:
+- PS/2 keyboard/mouse compatibility path;
+- xHCI USB boot keyboard;
+- xHCI USB boot mouse;
+- xHCI HID report-protocol relative/absolute pointer foundation.
+
+Storage:
+- AHCI/SATA;
+- NVMe;
+- xHCI USB Mass Storage.
+
+Network:
+- E1000;
+- PCnet legacy coverage;
+- VirtIO-net.
+
+Audio:
+- Intel HDA;
+- AC'97 compatibility.
+
+Display:
+- UEFI GOP framebuffer/software rendering baseline.
+
+Boot/platform:
+- x86-64 UEFI;
+- ACPI MADT/FADT/DSDT discovery;
+- APIC/IOAPIC with legacy interrupt fallbacks;
+- HPET with PIT fallback where applicable;
+- multi-CPU AP startup/cross-CPU work/TLB shootdown foundation.
+
+## Known non-claims
+
+5.x does not claim universal PC support. In particular, the current foundation
+does not imply support for arbitrary modern Wi-Fi, Bluetooth, HID-over-I2C
+touchpads, vendor-specific laptop controllers, or accelerated Intel/AMD/NVIDIA
+graphics.
+
+Those devices belong to later Driver & Device Expansion work. Unsupported
+optional hardware must remain diagnosable and must not prevent an otherwise
+valid lower-tier boot.
+
+For the VirtualBox reference setup see [../VIRTUALBOX.md](../VIRTUALBOX.md).

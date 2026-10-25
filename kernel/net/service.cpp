@@ -412,7 +412,10 @@ Status initialize() {
 #endif
 }
 
-bool ready() { return g_ready; }
+bool ready() {
+    if (!g_ready) return false;
+    return !g_physical || physical::link_up();
+}
 
 Status poll(size_t budget, size_t* processed) {
     if (!g_ready) {
@@ -420,6 +423,61 @@ Status poll(size_t budget, size_t* processed) {
         return Status::NotInitialized;
     }
     return net::poll(&g_stack, budget, processed);
+}
+
+Status socket_send_udp(
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    const uint8_t* payload,
+    size_t payload_length) {
+    if (!g_ready) return Status::NotInitialized;
+    return net::send_udp(
+        &g_stack, destination, source_port, destination_port, payload, payload_length);
+}
+
+Status socket_take_udp(UdpDatagram* datagram) {
+    if (!g_ready) return Status::NotInitialized;
+    return net::take_udp_datagram(&g_stack, datagram);
+}
+
+Status socket_tcp_begin_connect(
+    tcp_client::Client* client,
+    const IPv4Address& destination,
+    uint16_t source_port,
+    uint16_t destination_port,
+    uint32_t initial_sequence) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::begin_connect(
+        client, &g_stack, destination, source_port, destination_port, initial_sequence);
+}
+
+Status socket_tcp_progress(tcp_client::Client* client) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::progress(client);
+}
+
+Status socket_tcp_try_send(
+    tcp_client::Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::try_send(client, data, length, out_sent);
+}
+
+Status socket_tcp_try_receive(
+    tcp_client::Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::try_receive(client, output, output_capacity, out_length);
+}
+
+Status socket_tcp_begin_close(tcp_client::Client* client) {
+    if (!g_ready) return Status::NotInitialized;
+    return tcp_client::begin_close(client);
 }
 
 Status ping_loopback(uint16_t sequence, PingReply* reply) {
@@ -707,7 +765,9 @@ Status list_neighbors(NeighborCallback callback, void* context) {
     return net::list_neighbors(&g_stack, callback, context);
 }
 
-bool physical_interface() { return g_ready && g_physical; }
+bool physical_interface() {
+    return g_ready && g_physical && physical::link_up();
+}
 bool physical_device_detected() { return g_physical_detected; }
 Status physical_status() { return g_physical_status; }
 bool dhcp_configured() { return g_ready && g_dhcp; }

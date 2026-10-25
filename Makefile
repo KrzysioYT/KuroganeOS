@@ -6,6 +6,9 @@
 # set TARGET_PREFIX=x86_64-elf- when a dedicated cross-toolchain is installed.
 
 CONFIG    ?= debug
+PANIC_TEST ?= 0
+BUILD_ID   ?= $(CONFIG)-x86_64
+COMMIT_ID  ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo unavailable)
 HOST_OS   := $(shell uname -s 2>/dev/null || echo Windows)
 HOST_ARCH := $(shell uname -m 2>/dev/null || echo unknown)
 
@@ -66,7 +69,12 @@ DEPS := $(CPP_OBJECTS:.o=.d) $(ASM_OBJECTS:.o=.d) $(MBEDTLS_OBJECTS:.o=.d)
 
 CPPFLAGS := -Ikernel -Ikernel/include -Ikernel/memory -Ikernel/fs -Isdk/include \
 	-Ikernel/net/tls -I$(MBEDTLS_DIR)/include -I$(MBEDTLS_LIBRARY_DIR) \
-	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\"
+	-DMBEDTLS_CONFIG_FILE=\"kurogane_mbedtls_config.h\" \
+	-DKUROGANE_BUILD_ID=\"$(BUILD_ID)\" \
+	-DKUROGANE_COMMIT_ID=\"$(COMMIT_ID)\"
+ifeq ($(PANIC_TEST),1)
+CPPFLAGS += -DKUROGANE_PANIC_TEST=1
+endif
 WARNFLAGS := -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
 	-Werror=undef -Werror=return-type
 ifeq ($(CONFIG),release)

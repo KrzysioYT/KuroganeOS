@@ -1,0 +1,235 @@
+name: Diagnose q35 KVM AHCI
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/diagnose-kvm-ahci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ahci-trace:
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify host
+        run: |
+          set -euo pipefail
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+
+      - name: Inject AHCI trace
+        shell: python3 {0}
+        run: |
+          from pathlib import Path
+
+          path = Path('kernel/storage/ahci.cpp')
+          text = path.read_text()
+
+          def once(old, new, name):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{name} anchor count={count}')
+              text = text.replace(old, new, 1)
+
+          once('#include "../memory/virtual_memory.hpp"\n',
+               '#include "../memory/virtual_memory.hpp"\n#include "../core/log.hpp"\n',
+               'include')
+
+          once('Status claim_controller(Controller& controller) {\n',
+               'Status claim_controller(Controller& controller) {\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "claim CAP2=", read_register(controller, HBA_CAP2));\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "claim BOHC=", read_register(controller, HBA_BOHC));\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "claim GHC=", read_register(controller, HBA_GHC));\n',
+               'claim enter')
+
+          once('        bool ownership_acquired = false;\n',
+               '        log::write(log::Level::Info, "AHCI-TRACE", "bios handoff begin");\n'
+               '        bool ownership_acquired = false;\n',
+               'handoff begin')
+
+          once('        if (!ownership_acquired) {\n',
+               '        log::write_hex(log::Level::Info, "AHCI-TRACE", "bios handoff end BOHC=", read_register(controller, HBA_BOHC));\n'
+               '        if (!ownership_acquired) {\n',
+               'handoff end')
+
+          once('    uint32_t control = read_register(controller, HBA_GHC);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "hba reset prepare");\n'
+               '    uint32_t control = read_register(controller, HBA_GHC);\n',
+               'reset prepare')
+
+          once('    write_register(\n        controller,\n        HBA_GHC,\n        control | GHC_HBA_RESET);\n',
+               '    write_register(\n        controller,\n        HBA_GHC,\n        control | GHC_HBA_RESET);\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "hba reset written GHC=", read_register(controller, HBA_GHC));\n',
+               'reset written')
+
+          once('    if (!wait_register_clear(\n            controller,\n            HBA_GHC,\n            GHC_HBA_RESET,\n            POLL_ITERATIONS)) {\n',
+               '    const bool reset_cleared = wait_register_clear(\n            controller,\n            HBA_GHC,\n            GHC_HBA_RESET,\n            POLL_ITERATIONS);\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "hba reset poll end GHC=", read_register(controller, HBA_GHC));\n'
+               '    if (!reset_cleared) {\n',
+               'reset poll')
+
+          once('    controller.capabilities = read_register(controller, HBA_CAP);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "post reset register snapshot");\n'
+               '    controller.capabilities = read_register(controller, HBA_CAP);\n',
+               'post reset')
+
+          once('    controller.ports_implemented = read_register(controller, HBA_PI);\n',
+               '    controller.ports_implemented = read_register(controller, HBA_PI);\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "CAP=", controller.capabilities);\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "PI=", controller.ports_implemented);\n',
+               'cap pi')
+
+          once('Status configure_port(Controller& controller, uint8_t port_number) {\n',
+               'Status configure_port(Controller& controller, uint8_t port_number) {\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "configure port=", port_number);\n',
+               'configure port')
+
+          once('    Status status = stop_engine(port);\n',
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "port CMD before stop=", read_port_register(port, PORT_CMD));\n'
+               '    Status status = stop_engine(port);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "stop status=", static_cast<uint64_t>(status));\n',
+               'stop engine')
+
+          once('    status = start_engine(port);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "start engine begin");\n'
+               '    status = start_engine(port);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "start status=", static_cast<uint64_t>(status));\n',
+               'start engine')
+
+          once('    status = wait_for_sata_signature(port);\n',
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "SIG before wait=", read_port_register(port, PORT_SIG));\n'
+               '    status = wait_for_sata_signature(port);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "signature status=", static_cast<uint64_t>(status));\n',
+               'signature')
+
+          once('    status = wait_device_ready(port);\n',
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "TFD before ready=", read_port_register(port, PORT_TFD));\n'
+               '    status = wait_device_ready(port);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "ready status=", static_cast<uint64_t>(status));\n',
+               'ready')
+
+          once('    status = issue_command(\n        port,\n        protocol::AtaCommand::IdentifyDevice,\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "identify begin");\n'
+               '    status = issue_command(\n        port,\n        protocol::AtaCommand::IdentifyDevice,\n',
+               'identify begin')
+
+          once('        512U,\n        false);\n    if (status != Status::Ok) {\n',
+               '        512U,\n        false);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "identify status=", static_cast<uint64_t>(status));\n'
+               '    if (status != Status::Ok) {\n',
+               'identify end')
+
+          once('Status initialize_controller(\n    Controller& controller, const pci::Device& pci_device) {\n',
+               'Status initialize_controller(\n    Controller& controller, const pci::Device& pci_device) {\n'
+               '    log::write(log::Level::Info, "AHCI-TRACE", "initialize controller enter");\n',
+               'controller enter')
+
+          once('    Status status = probe_bar5(\n        pci_device, &bar, &controller.original_pci_command);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "BAR5 probe begin");\n'
+               '    Status status = probe_bar5(\n        pci_device, &bar, &controller.original_pci_command);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "BAR5 probe status=", static_cast<uint64_t>(status));\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "BAR5 physical=", bar.physical_address);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "BAR5 size=", bar.size);\n',
+               'bar probe')
+
+          once('    status = map_mmio(\n        bar.physical_address,\n        controller.mapped_register_bytes,\n        &controller.mapping);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "MMIO map begin");\n'
+               '    status = map_mmio(\n        bar.physical_address,\n        controller.mapped_register_bytes,\n        &controller.mapping);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "MMIO map status=", static_cast<uint64_t>(status));\n'
+               '    log::write_hex(log::Level::Info, "AHCI-TRACE", "MMIO virtual=", controller.mapping.virtual_address);\n',
+               'mmio')
+
+          once('    status = claim_controller(controller);\n',
+               '    log::write(log::Level::Info, "AHCI-TRACE", "claim controller begin");\n'
+               '    status = claim_controller(controller);\n'
+               '    log::write_u64(log::Level::Info, "AHCI-TRACE", "claim controller status=", static_cast<uint64_t>(status));\n',
+               'claim controller')
+
+          once('        if ((controller.ports_implemented & port_bit) == 0U ||\n            !sata_device_present(controller, port_number)) {\n',
+               '        if ((controller.ports_implemented & port_bit) == 0U) {\n'
+               '            continue;\n'
+               '        }\n'
+               '        log::write_u64(log::Level::Info, "AHCI-TRACE", "presence poll port=", port_number);\n'
+               '        const bool present = sata_device_present(controller, port_number);\n'
+               '        log::write_u64(log::Level::Info, "AHCI-TRACE", "presence result=", present ? 1U : 0U);\n'
+               '        if (!present) {\n',
+               'presence')
+
+          path.write_text(text)
+
+      - name: Validate trace patch
+        run: |
+          set -euo pipefail
+          git diff --check
+          grep -F 'AHCI-TRACE' kernel/storage/ahci.cpp
+
+      - name: Build diagnostic release image
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Boot q35 KVM and capture AHCI trace
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          serial="$tmp/serial.log"
+          qemu_log="$tmp/qemu.log"
+          vars="$tmp/OVMF_VARS.fd"
+          trap 'rm -rf -- "$tmp"' EXIT
+
+          code=""
+          vars_template=""
+          for candidate in /usr/share/OVMF/OVMF_CODE_4M.fd /usr/share/OVMF/OVMF_CODE.fd; do
+            if [[ -f "$candidate" ]]; then code="$candidate"; break; fi
+          done
+          [[ -n "$code" ]]
+          if [[ "$code" == */OVMF_CODE_4M.fd ]]; then
+            vars_template="${code%/OVMF_CODE_4M.fd}/OVMF_VARS_4M.fd"
+          else
+            vars_template="${code%/OVMF_CODE.fd}/OVMF_VARS.fd"
+          fi
+          cp "$vars_template" "$vars"
+
+          set +e
+          timeout --signal=TERM --kill-after=3s 35s \
+            qemu-system-x86_64 \
+              -machine q35,accel=kvm \
+              -cpu host \
+              -m 1024 \
+              -drive if=pflash,format=raw,unit=0,readonly=on,file="$code" \
+              -drive if=pflash,format=raw,unit=1,file="$vars" \
+              -drive "if=none,id=kurogane_system,format=raw,file=build/images/KuroganeOS-linux.img,snapshot=on,cache=writeback" \
+              -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1 \
+              -netdev user,id=kurogane_net \
+              -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01 \
+              -serial "file:$serial" \
+              -display none \
+              -no-reboot \
+              -no-shutdown \
+              >"$qemu_log" 2>&1
+          rc=$?
+          set -e
+
+          cat "$qemu_log"
+          cat "$serial"
+          echo "[diagnose-ahci] qemu_status=$rc"
+          echo '[diagnose-ahci] trace:'
+          grep -F 'AHCI-TRACE' "$serial" || true
+          test -s "$serial"

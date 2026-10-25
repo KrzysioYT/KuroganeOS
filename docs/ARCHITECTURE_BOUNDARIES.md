@@ -60,7 +60,7 @@ The shell must not contain GUI launcher aliases or privileged kernel-console bac
 
 ## Graphics / Red Flux boundary
 
-The current 3.3.x window manager still contains significant Red Flux policy in the kernel. Treat this as a migration state, not the final architecture.
+The current window manager still contains significant Red Flux policy in the kernel. Treat this as a migration state, not the final architecture.
 
 Target model:
 

@@ -49,8 +49,9 @@ cc="${CC:-${target_prefix}gcc}"
 cxx="${CXX:-${target_prefix}g++}"
 ld="${LD:-${target_prefix}ld}"
 objcopy="${OBJCOPY:-${target_prefix}objcopy}"
+objdump="${OBJDUMP:-${target_prefix}objdump}"
 readelf="${READELF:-${target_prefix}readelf}"
-for tool in "$cc" "$cxx" "$ld" "$objcopy" "$readelf" python3 make; do
+for tool in "$cc" "$cxx" "$ld" "$objcopy" "$objdump" "$readelf" python3 make; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing build tool: $tool" >&2
         echo "run: bash ./scripts/setup-linux.sh --install" >&2
@@ -94,13 +95,38 @@ applications=(
     "monitor|userspace/apps/monitor/main.c|apps/monitor|c"
     "about|userspace/apps/about/main.c|apps/about|c"
     "init|userspace/system/init/main.c|system/init|c"
+    "deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c"
+    "statusprobe|userspace/system/status-probe/main.c|system/stprobe|c"
+    "eventd|userspace/system/eventd/main.c|system/eventd|c"
+    "evprobe|userspace/system/event-probe/main.c|system/evprobe|c"
+    "settingsd|userspace/system/settingsd/main.c|system/setd|c"
+    "setprobe|userspace/system/settings-probe/main.c|system/setprobe|c"
+    "notificationd|userspace/system/notificationd/main.c|system/notifd|c"
+    "notifprobe|userspace/system/notification-probe/main.c|system/ntfprobe|c"
+    "accountd|userspace/system/accountd/main.c|system/accountd|c"
+    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"
+    "sessiond|userspace/system/sessiond/main.c|system/sessiond|c"
+    "sessionprobe|userspace/system/session-probe/main.c|system/sesprobe|c"
+    "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"
+    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"
+    "networkeventd|userspace/system/network-eventd/main.c|system/netevtd|c"
+    "dnsd|userspace/system/dnsd/main.c|system/dnsd|c"
+    "appregistryd|userspace/system/app-registryd/main.c|system/appregd|c"
+    "audiod|userspace/system/audiod/main.c|system/audiod|c"
+    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
+    "kurofsprobe|userspace/system/kurofs-probe/main.c|system/kfsprb|c"
+    "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"
+    "socketwake|userspace/system/socket-wake-worker/main.c|system/sockwake|c"
+    "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"
+    "tcpexit|userspace/system/tcp-exit-worker/main.c|system/tcpexit|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"
     object="build/userspace/$name.o"
     target="build/userspace/rootfs/$output"
     mkdir -p "$(dirname "$target")"
-    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone -Wa,--noexecstack \
+    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone \
+        -mno-mmx -mno-sse -msoft-float -Wa,--noexecstack \
         -I sdk/include -I userspace/runtime -I common)
     if [[ "$kind" == asm ]]; then
         "$cc" "${common[@]}" -c -x assembler-with-cpp "$source" -o "$object"
@@ -114,6 +140,10 @@ for spec in "${applications[@]}"; do
     "$readelf" -hW "$target" | grep -Eq 'Machine:[[:space:]]+Advanced Micro Devices X86-64' || exit 1
     if "$readelf" -lW "$target" | grep -Eq '^[[:space:]]*(LOAD|GNU_STACK).*RWE'; then
         echo "userspace image has W+X segment/stack: $name" >&2; exit 1
+    fi
+    if "$objdump" -d "$target" | grep -Eq '%(xmm|ymm|zmm|mm)[0-9]+'; then
+        echo "userspace image uses unsupported SIMD/FPU register state: $name" >&2
+        exit 1
     fi
     echo "[userspace] /$output"
 done
@@ -140,8 +170,7 @@ cp build/BOOTX64.EFI iso/EFI/BOOT/BOOTX64.EFI
 cp build/kernel.elf iso/kernel.elf
 cp build/kernel.elf iso/EFI/BOOT/kernel.elf
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
-[[ -n "$version" ]] || { echo "cannot read KuroganeOS version" >&2; exit 1; }
+version="$(bash "$root/scripts/read-version.sh")"
 {
     echo "version=$version"
     echo "profile=$configuration"

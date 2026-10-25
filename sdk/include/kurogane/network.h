@@ -14,6 +14,50 @@ extern "C" {
 #define KU_NET_PATH_CAPACITY 160U
 #define KU_HTTP_RESPONSE_CAPACITY_LIMIT 4096U
 #define KU_HTTP_FLAG_NONE UINT32_C(0)
+#define KU_DNS_NAME_CAPACITY KU_NET_HOST_CAPACITY
+#define KU_DNS_FLAG_NONE UINT32_C(0)
+
+#define KU_SOCKET_FLAG_NONE UINT32_C(0)
+#define KU_SOCKET_INVALID UINT64_C(0)
+
+typedef uint64_t ku_socket_t;
+
+enum ku_socket_type {
+    KU_SOCKET_DATAGRAM = 1,
+    KU_SOCKET_STREAM = 2
+};
+
+enum ku_socket_protocol {
+    KU_SOCKET_PROTOCOL_TCP = 6,
+    KU_SOCKET_PROTOCOL_UDP = 17
+};
+
+enum ku_socket_ready_flags {
+    KU_SOCKET_READY_NONE = 0,
+    KU_SOCKET_READY_READ = UINT32_C(1) << 0,
+    KU_SOCKET_READY_WRITE = UINT32_C(1) << 1,
+    KU_SOCKET_READY_CONNECTED = UINT32_C(1) << 2,
+    KU_SOCKET_READY_HANGUP = UINT32_C(1) << 3,
+    KU_SOCKET_READY_ERROR = UINT32_C(1) << 4
+};
+
+#define KU_SOCKET_READY_ALL (     KU_SOCKET_READY_READ | KU_SOCKET_READY_WRITE |     KU_SOCKET_READY_CONNECTED | KU_SOCKET_READY_HANGUP | KU_SOCKET_READY_ERROR)
+
+typedef struct ku_ipv4_endpoint {
+    uint8_t address[4];
+    uint16_t port;
+    uint16_t reserved;
+} ku_ipv4_endpoint;
+
+typedef struct ku_socket_receive_request {
+    uint32_t structure_size;
+    uint32_t flags;
+    ku_socket_t socket;
+    void* buffer;
+    uint64_t buffer_capacity;
+    uint64_t bytes_received;
+    ku_ipv4_endpoint source;
+} ku_socket_receive_request;
 
 /* Internal transport tag used only across the current 3.3.3 syscall boundary. */
 #define KU_HTTPS_TRANSPORT_TAG "~tls~"
@@ -31,6 +75,14 @@ typedef struct ku_network_status {
     uint64_t bytes_received;
     uint64_t bytes_transmitted;
 } ku_network_status;
+
+typedef struct ku_dns_a_request {
+    uint32_t structure_size;
+    uint32_t flags;
+    char host[KU_DNS_NAME_CAPACITY];
+    uint8_t address[4];
+    uint32_t reserved;
+} ku_dns_a_request;
 
 typedef struct ku_http_request {
     uint32_t structure_size;
@@ -50,6 +102,121 @@ static inline ku_status_t ku_network_get_status(ku_network_status* output) {
         (uint64_t)(uintptr_t)output,
         (uint64_t)sizeof(ku_network_status),
         0U);
+}
+
+static inline ku_status_t ku_dns_resolve_a(ku_dns_a_request* request) {
+    if (request == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    request->flags = KU_DNS_FLAG_NONE;
+    request->reserved = 0U;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_DNS_RESOLVE_A,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(ku_dns_a_request),
+        0U);
+}
+
+static inline ku_result_t ku_socket_create(
+    uint32_t type,
+    uint32_t protocol) {
+    return ku_syscall3(KU_SYS_SOCKET_CREATE, type, protocol, KU_SOCKET_FLAG_NONE);
+}
+
+static inline ku_status_t ku_socket_bind(
+    ku_socket_t socket,
+    const ku_ipv4_endpoint* endpoint) {
+    if (endpoint == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_BIND, socket, (uint64_t)(uintptr_t)endpoint, sizeof(*endpoint));
+}
+
+static inline ku_status_t ku_socket_connect(
+    ku_socket_t socket,
+    const ku_ipv4_endpoint* endpoint) {
+    if (endpoint == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_CONNECT, socket, (uint64_t)(uintptr_t)endpoint, sizeof(*endpoint));
+}
+
+static inline ku_result_t ku_socket_send(
+    ku_socket_t socket,
+    const void* buffer,
+    size_t size) {
+    return ku_syscall3(
+        KU_SYS_SOCKET_SEND, socket, (uint64_t)(uintptr_t)buffer, (uint64_t)size);
+}
+
+static inline ku_result_t ku_socket_receive(
+    ku_socket_t socket,
+    void* buffer,
+    size_t capacity,
+    ku_ipv4_endpoint* source) {
+    ku_socket_receive_request request;
+    request.bytes_received = 0U;
+    request.source.address[0] = 0U;
+    request.source.address[1] = 0U;
+    request.source.address[2] = 0U;
+    request.source.address[3] = 0U;
+    request.source.port = 0U;
+    request.source.reserved = 0U;
+    request.structure_size = sizeof(request);
+    request.flags = KU_SOCKET_FLAG_NONE;
+    request.socket = socket;
+    request.buffer = buffer;
+    request.buffer_capacity = capacity;
+    const ku_status_t status = (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_RECEIVE,
+        (uint64_t)(uintptr_t)&request,
+        sizeof(request),
+        0U);
+    if (status != KU_STATUS_OK) return status;
+    if (source != NULL) *source = request.source;
+    return (ku_result_t)request.bytes_received;
+}
+
+static inline ku_status_t ku_socket_close(ku_socket_t socket) {
+    return (ku_status_t)ku_syscall3(KU_SYS_SOCKET_CLOSE, socket, 0U, 0U);
+}
+
+static inline ku_status_t ku_socket_poll(
+    ku_socket_t socket,
+    uint32_t requested,
+    uint32_t* ready) {
+    if (socket == KU_SOCKET_INVALID || ready == NULL || requested == 0U ||
+        (requested & ~KU_SOCKET_READY_ALL) != 0U) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    *ready = KU_SOCKET_READY_NONE;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_SOCKET_POLL,
+        socket,
+        requested,
+        (uint64_t)(uintptr_t)ready);
+}
+
+/*
+ * Event-driven readiness wait. A not-ready socket blocks the current Ring-3
+ * thread in the scheduler; kernel-side network progress wakes that exact saved
+ * syscall frame. timeout_ticks == 0 performs one probe. UINT64_MAX is infinite.
+ */
+static inline ku_status_t ku_socket_wait(
+    ku_socket_t socket,
+    uint32_t requested,
+    uint64_t timeout_ticks,
+    uint32_t* ready) {
+    ku_result_t result;
+    if (socket == KU_SOCKET_INVALID || ready == NULL || requested == 0U ||
+        (requested & ~KU_SOCKET_READY_ALL) != 0U) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    *ready = KU_SOCKET_READY_NONE;
+    result = ku_syscall3(KU_SYS_SOCKET_WAIT, socket, requested, timeout_ticks);
+    if (result < 0) return (ku_status_t)result;
+    if (result == 0 || ((uint64_t)result & ~KU_SOCKET_READY_ALL) != 0U ||
+        (((uint32_t)result & requested) == 0U)) {
+        return KU_STATUS_CORRUPT_DATA;
+    }
+    *ready = (uint32_t)result;
+    return KU_STATUS_OK;
 }
 
 static inline ku_status_t ku_http_get(ku_http_request* request) {

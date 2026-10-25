@@ -106,7 +106,8 @@ $desktopApplications = @(
     @{ Name = 'performance'; InstallName = 'perf'; Source = 'userspace\gui\performance\main.c' },
     @{ Name = 'browser'; InstallName = 'browser'; Source = 'userspace\gui\browser\main.c' },
     @{ Name = 'about'; InstallName = 'about'; Source = 'userspace\gui\about\main.c' },
-    @{ Name = 'settings'; InstallName = 'settings'; Source = 'userspace\gui\settings\main.c' }
+    @{ Name = 'settings'; InstallName = 'settings'; Source = 'userspace\gui\settings\main.c' },
+    @{ Name = 'notifications'; InstallName = 'notify'; Source = 'userspace\gui\notifications\main.c' }
 )
 [System.IO.Directory]::CreateDirectory($OverlayGui) | Out-Null
 foreach ($application in $desktopApplications) {

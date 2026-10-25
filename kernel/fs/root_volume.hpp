@@ -84,6 +84,14 @@ vfs::Status rename(const char* source_path, const char* destination_path);
 vfs::Status mkdir(const char* path);
 vfs::Status rmdir(const char* path);
 vfs::Status sync();
+
+// Kernel-only extension point for mounting another production VFS backend
+// below the persistent root. The target directory is created and synced when
+// absent; the supplied backend and its context must outlive the mount.
+vfs::Status mount_backend(
+    const char* target,
+    const vfs::FileSystem* filesystem,
+    vfs::MountHandle* handle = nullptr);
 Status initialization_status();
 const char* status_message(Status status);
 const char* detail_message();

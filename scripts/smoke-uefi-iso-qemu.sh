@@ -1,59 +1,592 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--require-network]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
 media=""
 media_kind="iso"
+persistent_disk=false
+accel_model="tcg"
+cpu_model_override=""
+smp_cpus=1
 timeout_seconds=60
 nic_model="none"
+virtio_vectors=""
+log_dir=""
+audio_model="none"
+nvme=false
+virtio_block=false
+no_ps2=false
+usb_keyboard=false
+usb_mouse=false
+usb_tablet=false
+usb_storage=false
+usb_controller=false
+usb_hotplug=false
+usb_hotplug_phase=0
+usb_hotplug_cycles=0
 require_network=false
+require_tls=false
+send_key_after_marker=""
+send_key_name=""
+send_key_sent=false
+send_key_count_markers=()
+send_key_count_targets=()
+send_key_count_names=()
+send_key_count_sent=()
+click_markers=()
+click_x=()
+click_y=()
+click_sent=()
+click_count_markers=()
+click_count_targets=()
+click_count_x=()
+click_count_y=()
+click_count_sent=()
+wheel_markers=()
+wheel_x=()
+wheel_y=()
+wheel_direction=()
+wheel_sent=()
+require_markers=()
+require_marker_count_markers=()
+require_marker_count_targets=()
 while (($#)); do
     case "$1" in
         --disk) media_kind="disk"; shift ;;
+        --persistent-disk) persistent_disk=true; shift ;;
+        --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
+        --cpu-model) [[ $# -ge 2 && -n "$2" ]] || usage; cpu_model_override="$2"; shift 2 ;;
+        --smp) [[ $# -ge 2 ]] || usage; smp_cpus="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
+        --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
+        --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
+        --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
+        --nvme) nvme=true; shift ;;
+        --virtio-block) virtio_block=true; shift ;;
+        --no-ps2) no_ps2=true; shift ;;
+        --usb-controller) usb_controller=true; shift ;;
+        --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
+        --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
+        --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
+        --usb-storage) usb_controller=true; usb_storage=true; shift ;;
+        --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
+        --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
+        --require-tls) require_tls=true; require_network=true; shift ;;
+        --send-key-after-marker)
+            [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
+            [[ -z "$send_key_after_marker" ]] || { echo "only one --send-key-after-marker is supported" >&2; exit 2; }
+            send_key_after_marker="$2"
+            send_key_name="$3"
+            shift 3
+            ;;
+        --send-key-after-marker-count)
+            [[ $# -ge 4 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ && -n "$4" ]] || usage
+            send_key_count_markers+=("$2")
+            send_key_count_targets+=("$3")
+            send_key_count_names+=("$4")
+            send_key_count_sent+=(false)
+            shift 4
+            ;;
+        --click-after-marker)
+            [[ $# -ge 4 && -n "$2" && "$3" =~ ^[0-9]+$ && "$4" =~ ^[0-9]+$ ]] || usage
+            click_markers+=("$2")
+            click_x+=("$3")
+            click_y+=("$4")
+            click_sent+=(false)
+            shift 4
+            ;;
+        --click-after-marker-count)
+            [[ $# -ge 5 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ && "$4" =~ ^[0-9]+$ && "$5" =~ ^[0-9]+$ ]] || usage
+            click_count_markers+=("$2")
+            click_count_targets+=("$3")
+            click_count_x+=("$4")
+            click_count_y+=("$5")
+            click_count_sent+=(false)
+            shift 5
+            ;;
+        --wheel-after-marker)
+            [[ $# -ge 5 && -n "$2" && "$3" =~ ^[0-9]+$ &&
+               "$4" =~ ^[0-9]+$ && "$5" =~ ^(up|down)$ ]] || usage
+            wheel_markers+=("$2")
+            wheel_x+=("$3")
+            wheel_y+=("$4")
+            wheel_direction+=("$5")
+            wheel_sent+=(false)
+            shift 5
+            ;;
+        --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
+        --require-marker-count)
+            [[ $# -ge 3 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ ]] || usage
+            require_marker_count_markers+=("$2")
+            require_marker_count_targets+=("$3")
+            shift 3
+            ;;
         -h|--help) usage ;;
         -*) usage ;;
         *) [[ -z "$media" ]] || usage; media="$1"; shift ;;
     esac
 done
 [[ -n "$media" ]] || usage
-[[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 180)) || {
+if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
+    echo "--persistent-disk requires --disk" >&2
+    exit 2
+fi
+[[ "$smp_cpus" =~ ^[1-9][0-9]*$ ]] && ((smp_cpus <= 64)) || {
+    echo "invalid SMP CPU count (expected 1..64)" >&2; exit 2; }
+[[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 240)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
-    none|e1000|pcnet|virtio) ;;
+    none|e1000|e1000e|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
 esac
-if $require_network && [[ "$nic_model" == "none" ]]; then
-    echo "--require-network needs --nic e1000, pcnet or virtio" >&2
+case "$accel_model" in
+    tcg) cpu_model="max" ;;
+    kvm)
+        [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] || {
+            echo "--accel kvm requires read/write access to /dev/kvm" >&2
+            exit 1
+        }
+        cpu_model="host"
+        ;;
+    *) echo "invalid accelerator: $accel_model" >&2; usage ;;
+esac
+if [[ -n "$cpu_model_override" ]]; then
+    [[ "$cpu_model_override" =~ ^[A-Za-z0-9_.=,+:-]+$ ]] || {
+        echo "invalid CPU model string: $cpu_model_override" >&2
+        exit 2
+    }
+    cpu_model="$cpu_model_override"
+fi
+case "$audio_model" in
+    none|ac97|hda) ;;
+    *) echo "invalid audio model: $audio_model" >&2; usage ;;
+esac
+if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "invalid QEMU sendkey name: $send_key_name" >&2
     exit 2
+fi
+for key in "${send_key_count_names[@]}"; do
+    if [[ ! "$key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        echo "invalid QEMU sendkey name: $key" >&2
+        exit 2
+    fi
+done
+for index in "${!click_markers[@]}"; do
+    if (( click_x[index] > 4095 || click_y[index] > 4095 )); then
+        echo "invalid QEMU click coordinate: ${click_x[$index]},${click_y[$index]}" >&2
+        exit 2
+    fi
+done
+for index in "${!click_count_markers[@]}"; do
+    if (( click_count_x[index] > 4095 || click_count_y[index] > 4095 )); then
+        echo "invalid QEMU click coordinate: ${click_count_x[$index]},${click_count_y[$index]}" >&2
+        exit 2
+    fi
+done
+for index in "${!wheel_markers[@]}"; do
+    if (( wheel_x[index] > 4095 || wheel_y[index] > 4095 )); then
+        echo "invalid QEMU wheel coordinate: ${wheel_x[$index]},${wheel_y[$index]}" >&2
+        exit 2
+    fi
+done
+if $require_network && [[ "$nic_model" == "none" ]]; then
+    echo "--require-network/--require-tls needs --nic e1000, e1000e, pcnet or virtio" >&2
+    exit 2
+fi
+if [[ -n "$virtio_vectors" ]]; then
+    if [[ "$nic_model" != virtio || ! "$virtio_vectors" =~ ^(0|[1-9][0-9]{0,3})$ ]] ||
+       ((virtio_vectors > 2048)); then
+        echo "--virtio-vectors requires --nic virtio and a count from 0 to 2048" >&2
+        exit 2
+    fi
 fi
 command -v qemu-system-x86_64 >/dev/null 2>&1 || {
     echo "qemu-system-x86_64 is required" >&2; exit 1; }
 media="$(cd "$(dirname "$media")" && pwd)/$(basename "$media")"
 [[ -f "$media" && -s "$media" ]] || { echo "media missing or empty: $media" >&2; exit 1; }
+if [[ -n "$log_dir" ]]; then
+    mkdir -p -- "$log_dir"
+    log_dir="$(cd "$log_dir" && pwd)"
+fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-uefi-smoke.XXXXXX")"
 serial="$tmp/serial.log"
 qemu_log="$tmp/qemu.log"
+monitor="$tmp/qemu-monitor.sock"
+qmp="$tmp/qemu-qmp.sock"
 pid=""
 cleanup() {
+    local result=$?
+    trap - EXIT INT TERM
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
     fi
+    if [[ -n "$log_dir" ]]; then
+        for log in "$serial" "$qemu_log"; do
+            if [[ -f "$log" ]]; then
+                cp -- "$log" "$log_dir/" || result=1
+            fi
+        done
+    fi
     rm -rf -- "$tmp"
+    exit "$result"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-# Modern OVMF packages normally ship split CODE + VARS pflash images. Feeding
-# OVMF_CODE_4M.fd through QEMU's legacy -bios path is not portable and fails on
-# Ubuntu 24.04. Discover a matched pair and give VARS a private writable copy.
+marker_occurrences() {
+    local marker="$1"
+    local count
+    count="$(grep -F -c -- "$marker" "$serial" 2>/dev/null || true)"
+    printf '%s\n' "${count:-0}"
+}
+
+send_qemu_key() {
+    local key="$1"
+    python3 - "$qmp" "$key" <<'PY'
+import json
+import socket
+import sys
+import time
+
+path, key = sys.argv[1], sys.argv[2]
+last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(2.0)
+        client.connect(path)
+        stream = client.makefile("rwb", buffering=0)
+        greeting_line = stream.readline()
+        if not greeting_line:
+            raise RuntimeError("QMP greeting missing")
+        greeting = json.loads(greeting_line.decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+
+        stream.write(json.dumps({"execute": "qmp_capabilities"}).encode("utf-8") + b"\r\n")
+        receive_object(stream, "qmp_capabilities")
+        stream.write(json.dumps({
+            "execute": "send-key",
+            "arguments": {
+                "keys": [{"type": "qcode", "data": key}],
+                "hold-time": 80,
+            },
+        }).encode("utf-8") + b"\r\n")
+        receive_object(stream, f"send-key {key}")
+        stream.close()
+        client.close()
+        print(f"[qmp] acknowledged send-key {key}")
+        raise SystemExit(0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        last_error = error
+        try:
+            client.close()
+        except OSError:
+            pass
+        time.sleep(0.05)
+raise SystemExit(f"cannot send QEMU key through QMP: {last_error}")
+PY
+}
+
+send_qemu_click() {
+    local target_x="$1"
+    local target_y="$2"
+    local pointer_kind="default"
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
+        pointer_kind="usb-mouse"
+    fi
+    python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" <<'PY'
+import json
+import re
+import socket
+import sys
+import time
+
+path = sys.argv[1]
+target_x = int(sys.argv[2])
+target_y = int(sys.argv[3])
+pointer_kind = sys.argv[4]
+last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
+def execute(stream, name, arguments=None):
+    payload = {"execute": name}
+    if arguments is not None:
+        payload["arguments"] = arguments
+    stream.write(json.dumps(payload).encode("utf-8") + b"\r\n")
+    return receive_object(stream, name)
+
+
+def relative(stream, dx, dy):
+    events = []
+    if dx:
+        events.append({"type": "rel", "data": {"axis": "x", "value": dx}})
+    if dy:
+        events.append({"type": "rel", "data": {"axis": "y", "value": dy}})
+    if events:
+        execute(stream, "input-send-event", {"events": events})
+
+
+def move_axis(stream, axis, amount):
+    remaining = amount
+    while remaining:
+        step = max(-100, min(100, remaining))
+        relative(stream, step if axis == "x" else 0, step if axis == "y" else 0)
+        remaining -= step
+
+
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(2.0)
+        client.connect(path)
+        stream = client.makefile("rwb", buffering=0)
+        greeting = json.loads(stream.readline().decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+        execute(stream, "qmp_capabilities")
+
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
+            mice = execute(stream, "human-monitor-command", {
+                "command-line": "info mice"
+            })
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
+            )
+            match = re.search(pattern, mice, re.IGNORECASE)
+            if match is None:
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
+            execute(stream, "human-monitor-command", {
+                "command-line": f"mouse_set {match.group(1)}"
+            })
+
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        # The button event is shared by relative and absolute pointer devices.
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": True, "button": "left"}}
+        ]})
+        time.sleep(0.08)
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": False, "button": "left"}}
+        ]})
+        time.sleep(0.35)
+        stream.close()
+        client.close()
+        print(f"[qmp] clicked guest pointer at {target_x},{target_y}")
+        raise SystemExit(0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        last_error = error
+        try:
+            client.close()
+        except OSError:
+            pass
+        time.sleep(0.05)
+raise SystemExit(f"cannot click through QMP: {last_error}")
+PY
+}
+
+send_qemu_wheel() {
+    local target_x="$1"
+    local target_y="$2"
+    local wheel_direction="$3"
+    local pointer_kind="default"
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
+        pointer_kind="usb-mouse"
+    fi
+    python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" "$wheel_direction" <<'PY'
+import json
+import re
+import socket
+import sys
+import time
+
+path = sys.argv[1]
+target_x = int(sys.argv[2])
+target_y = int(sys.argv[3])
+pointer_kind = sys.argv[4]
+wheel_direction = sys.argv[5]
+last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
+def execute(stream, name, arguments=None):
+    payload = {"execute": name}
+    if arguments is not None:
+        payload["arguments"] = arguments
+    stream.write(json.dumps(payload).encode("utf-8") + b"\r\n")
+    return receive_object(stream, name)
+
+
+def relative(stream, dx, dy):
+    events = []
+    if dx:
+        events.append({"type": "rel", "data": {"axis": "x", "value": dx}})
+    if dy:
+        events.append({"type": "rel", "data": {"axis": "y", "value": dy}})
+    if events:
+        execute(stream, "input-send-event", {"events": events})
+
+
+def move_axis(stream, axis, amount):
+    remaining = amount
+    while remaining:
+        step = max(-100, min(100, remaining))
+        relative(stream, step if axis == "x" else 0, step if axis == "y" else 0)
+        remaining -= step
+
+
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(2.0)
+        client.connect(path)
+        stream = client.makefile("rwb", buffering=0)
+        greeting = json.loads(stream.readline().decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+        execute(stream, "qmp_capabilities")
+
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
+            mice = execute(stream, "human-monitor-command", {
+                "command-line": "info mice"
+            })
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
+            )
+            match = re.search(pattern, mice, re.IGNORECASE)
+            if match is None:
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
+            execute(stream, "human-monitor-command", {
+                "command-line": f"mouse_set {match.group(1)}"
+            })
+
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        button = "wheel-down" if wheel_direction == "down" else "wheel-up"
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": True, "button": button}}
+        ]})
+        time.sleep(0.08)
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": False, "button": button}}
+        ]})
+        time.sleep(0.35)
+        stream.close()
+        client.close()
+        print(f"[qmp] USB wheel {wheel_direction} at {target_x},{target_y}")
+        raise SystemExit(0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        last_error = error
+        try:
+            client.close()
+        except OSError:
+            pass
+        time.sleep(0.05)
+raise SystemExit(f"cannot scroll USB mouse through QMP: {last_error}")
+PY
+}
+
 firmware_code="${OVMF_CODE:-}"
 firmware_vars_template="${OVMF_VARS:-}"
 
@@ -119,6 +652,9 @@ if [[ "$nic_model" != "none" ]]; then
     qemu_nic_model="$nic_model"
     if [[ "$nic_model" == "virtio" ]]; then
         qemu_nic_model="virtio-net-pci"
+        if [[ -n "$virtio_vectors" ]]; then
+            qemu_nic_model+=",vectors=$virtio_vectors"
+        fi
     fi
     network_args=(
         -netdev user,id=kurogane_net
@@ -126,14 +662,135 @@ if [[ "$nic_model" != "none" ]]; then
     )
 fi
 
+audio_args=()
+if [[ "$audio_model" == "ac97" ]]; then
+    # The null backend keeps CI headless while still exposing a real PCI
+    # Intel AC97 device to KuroganeOS. Guest DMA/mixer programming remains real.
+    audio_args=(
+        -audiodev none,id=kurogane_audio
+        -device AC97,audiodev=kurogane_audio
+    )
+fi
+if [[ "$audio_model" == "hda" ]]; then
+    # Headless backend: controller/codec/DMA traffic remains real while CI
+    # does not depend on a host sound device.
+    audio_args=(
+        -audiodev none,id=kurogane_hda_audio
+        -device intel-hda,id=kurogane_hda
+        -device hda-output,bus=kurogane_hda.0,audiodev=kurogane_hda_audio
+    )
+fi
+
+virtio_block_args=()
+if $virtio_block; then
+    virtio_block_image="$tmp/virtio-block-storage.img"
+    python3 - "$virtio_block_image" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+size = 8 * 1024 * 1024
+sector_count = size // 512
+header = bytearray(512)
+magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+header[:len(magic)] = magic
+struct.pack_into("<I", header, 32, 1)
+struct.pack_into("<I", header, 36, 64)
+struct.pack_into("<Q", header, 40, sector_count)
+struct.pack_into("<Q", header, 48, 8)
+struct.pack_into("<I", header, 56, 8)
+struct.pack_into("<I", header, 60, 0x4B535431)
+with open(path, "wb") as image:
+    image.truncate(size)
+    image.seek(0)
+    image.write(header)
+    image.seek(8 * 512)
+    image.write(bytes((index * 19 + 7) & 0xFF for index in range(8 * 512)))
+PY
+    # Modern-only transport makes the runtime exercise the shared PCI vendor
+    # capability path rather than silently falling back to legacy I/O ports.
+    virtio_block_args=(
+        -drive "if=none,id=kurogane_virtio_block,format=raw,file=$virtio_block_image"
+        -device "virtio-blk-pci,drive=kurogane_virtio_block,disable-legacy=on,id=kurogane_virtio_block"
+    )
+fi
+
+nvme_args=()
+if $nvme; then
+    nvme_image="$tmp/nvme-storage.img"
+    python3 - "$nvme_image" <<'PY'
+import sys
+magic = b"KUROGANE_NVME_RW_V1"
+with open(sys.argv[1], "wb") as image:
+    image.truncate(8 * 1024 * 1024)
+    image.seek(0)
+    image.write(magic)
+    image.write(bytes((index * 31 + 5) & 0xFF for index in range(512 - len(magic))))
+PY
+    # A separate signed scratch namespace proves PCI/MMIO/Admin + NVM I/O
+    # without changing the IDE system disk or auto-writing arbitrary media.
+    nvme_args=(
+        -drive "if=none,id=kurogane_nvme_storage,format=raw,file=$nvme_image"
+        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME"
+    )
+fi
+
+usb_args=()
+if $usb_controller; then
+    usb_args=(-device qemu-xhci,id=kurogane_xhci)
+fi
+if $usb_keyboard; then
+    # A real emulated xHCI + HID device: guest reset, enumeration, transfer
+    # rings and input decoding run unchanged. This is not a PS/2-only proof.
+    usb_args+=(
+        -device usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard
+    )
+fi
+if $usb_mouse; then
+    # The smoke helper selects this exact QEMU USB mouse before generating
+    # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
+    usb_args+=(
+        -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
+    )
+fi
+if $usb_tablet; then
+    # Absolute HID report-protocol device. This deliberately does not satisfy
+    # the boot-mouse interface matcher.
+    usb_args+=(
+        -device usb-tablet,bus=kurogane_xhci.0,id=kurogane_usb_tablet
+    )
+fi
+if $usb_storage; then
+    usb_storage_image="$tmp/usb-storage.img"
+    python3 - "$usb_storage_image" <<'PY'
+import sys
+with open(sys.argv[1], "wb") as image:
+    image.truncate(8 * 1024 * 1024)
+    image.seek(0)
+    image.write(b"KUROGANE_USB_READ_V1")
+    image.write(bytes((index * 37 + 11) & 0xFF for index in range(512 - 20)))
+PY
+    # Separate scratch media proves real xHCI Mass Storage enumeration without
+    # exposing the system disk or relying on the IDE boot path.
+    usb_args+=(
+        -drive "if=none,id=kurogane_usb_storage,format=raw,file=$usb_storage_image"
+        -device usb-storage,drive=kurogane_usb_storage,bus=kurogane_xhci.0,id=kurogane_usb_storage
+    )
+fi
+
 media_args=()
 if [[ "$media_kind" == "disk" ]]; then
-    # Network qualification requires a Foundation/live image without install.pkg.
-    # Setup images intentionally enter the installer before normal networking.
-    media_args=(
-        -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
-        -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
-    )
+    if $persistent_disk; then
+        media_args=(
+            -drive "if=none,id=kurogane_system,format=raw,file=$media,cache=directsync"
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+        )
+    else
+        media_args=(
+            -drive "if=none,id=kurogane_system,format=raw,file=$media,snapshot=on,cache=writeback"
+            -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+        )
+    fi
 else
     media_args=(
         -boot order=d,menu=off
@@ -141,24 +798,167 @@ else
     )
 fi
 
+machine_model="q35,accel=$accel_model"
+if $no_ps2; then
+    machine_model+=",i8042=off"
+fi
+
 qemu-system-x86_64 \
-    -machine q35,accel=tcg \
-    -cpu max \
+    -machine "$machine_model" \
+    -cpu "$cpu_model" \
+    -smp "$smp_cpus" \
     -m 1024 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file="$firmware_code" \
     -drive if=pflash,format=raw,unit=1,file="$firmware_vars" \
     "${media_args[@]}" \
     -serial "file:$serial" \
+    -monitor "unix:$monitor,server,nowait" \
+    -qmp "unix:$qmp,server=on,wait=off" \
     -display none \
     "${network_args[@]}" \
+    "${audio_args[@]}" \
+    "${nvme_args[@]}" \
+    "${virtio_block_args[@]}" \
+    "${usb_args[@]}" \
     -no-reboot \
     -no-shutdown \
     >"$qemu_log" 2>&1 &
 pid=$!
 
+failure_markers=()
+for require_marker in "${require_markers[@]}"; do
+    failure_marker=""
+    if [[ "$require_marker" == *": PASS" ]]; then
+        failure_marker="${require_marker%: PASS}: FAIL"
+    fi
+    failure_markers+=("$failure_marker")
+done
+
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        if $usb_hotplug; then
+            usb_action=""
+            case "$usb_hotplug_phase" in
+                -2) if grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial" &&
+                       grep -Fq '[TEST] xhci_empty_waiting: PASS' "$serial"; then
+                        usb_action=add; usb_hotplug_phase=-1
+                    fi ;;
+                -1) if grep -Fq '[TEST] xhci_keyboard_enumeration: PASS' "$serial"; then
+                        usb_action=hold-shift; usb_hotplug_phase=1
+                    fi ;;
+                0) if grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial"; then
+                       usb_action=hold-shift; usb_hotplug_phase=1
+                   fi ;;
+                1) if (( $(marker_occurrences '[TEST] usb_hid_shift_press: PASS') > usb_hotplug_cycles )); then
+                       usb_action=remove; usb_hotplug_phase=2
+                   fi ;;
+                2) if (( $(marker_occurrences '[TEST] usb_hid_disconnect: PASS') > usb_hotplug_cycles )); then
+                       usb_action=add; usb_hotplug_phase=3
+                   fi ;;
+                3) if (( $(marker_occurrences '[TEST] xhci_keyboard_enumeration: PASS') >= usb_hotplug_cycles + 2 )); then
+                       send_qemu_key f12; usb_hotplug_phase=4
+                   fi ;;
+                4) if (( $(marker_occurrences '[TEST] usb_hid_f12_release: PASS') > usb_hotplug_cycles )); then
+                       usb_hotplug_cycles=$((usb_hotplug_cycles + 1))
+                       if (( usb_hotplug_cycles < 3 )); then
+                           usb_action=hold-shift; usb_hotplug_phase=1
+                       else
+                           usb_hotplug_phase=5
+                       fi
+                   fi ;;
+            esac
+            if [[ -n "$usb_action" ]]; then
+                python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/usb-hotplug-qmp.py" "$qmp" "$usb_action"
+            fi
+        fi
+        if [[ -n "$send_key_after_marker" && "$send_key_sent" == false ]] &&
+           grep -Fq "$send_key_after_marker" "$serial"; then
+            send_qemu_key "$send_key_name"
+            send_key_sent=true
+            echo "[uefi-qemu] sent key '$send_key_name' after marker: $send_key_after_marker"
+        fi
+        for index in "${!send_key_count_markers[@]}"; do
+            if [[ "${send_key_count_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${send_key_count_markers[$index]}"
+            target="${send_key_count_targets[$index]}"
+            if (( $(marker_occurrences "$marker") >= target )); then
+                key="${send_key_count_names[$index]}"
+                send_qemu_key "$key"
+                send_key_count_sent[$index]=true
+                echo "[uefi-qemu] sent key '$key' after marker occurrence $target: $marker"
+            fi
+        done
+        for index in "${!click_markers[@]}"; do
+            if [[ "${click_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${click_markers[$index]}"
+            if grep -Fq "$marker" "$serial"; then
+                send_qemu_click "${click_x[$index]}" "${click_y[$index]}"
+                click_sent[$index]=true
+                echo "[uefi-qemu] clicked ${click_x[$index]},${click_y[$index]} after marker: $marker"
+            fi
+        done
+        for index in "${!click_count_markers[@]}"; do
+            if [[ "${click_count_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${click_count_markers[$index]}"
+            target="${click_count_targets[$index]}"
+            if (( $(marker_occurrences "$marker") >= target )); then
+                send_qemu_click "${click_count_x[$index]}" "${click_count_y[$index]}"
+                click_count_sent[$index]=true
+                echo "[uefi-qemu] clicked ${click_count_x[$index]},${click_count_y[$index]} after marker occurrence $target: $marker"
+            fi
+        done
+        for index in "${!wheel_markers[@]}"; do
+            if [[ "${wheel_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${wheel_markers[$index]}"
+            if grep -Fq "$marker" "$serial"; then
+                send_qemu_wheel "${wheel_x[$index]}" "${wheel_y[$index]}" "${wheel_direction[$index]}"
+                wheel_sent[$index]=true
+                echo "[uefi-qemu] wheel ${wheel_direction[$index]} at ${wheel_x[$index]},${wheel_y[$index]} after marker: $marker"
+            fi
+        done
+        all_markers_ready=true
+        if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
+            for index in "${!require_markers[@]}"; do
+                require_marker="${require_markers[$index]}"
+                failure_marker="${failure_markers[$index]}"
+                if [[ -n "$failure_marker" ]] && grep -Fq "$failure_marker" "$serial"; then
+                    echo "KuroganeOS reported failure for required runtime marker: $require_marker" >&2
+                    tail -n 220 "$serial" >&2 || true
+                    exit 1
+                fi
+                if ! grep -Fq "$require_marker" "$serial"; then
+                    all_markers_ready=false
+                fi
+            done
+            for index in "${!require_marker_count_markers[@]}"; do
+                marker="${require_marker_count_markers[$index]}"
+                target="${require_marker_count_targets[$index]}"
+                if (( $(marker_occurrences "$marker") < target )); then
+                    all_markers_ready=false
+                fi
+            done
+            if $all_markers_ready && ! $require_network; then
+                echo "[uefi-qemu] required runtime markers: PASS"
+                for require_marker in "${require_markers[@]}"; do
+                    echo "[uefi-qemu] marker: $require_marker"
+                done
+                for index in "${!require_marker_count_markers[@]}"; do
+                    echo "[uefi-qemu] marker count: ${require_marker_count_markers[$index]} >= ${require_marker_count_targets[$index]}"
+                done
+                echo "[uefi-qemu] firmware CODE: $firmware_code"
+                echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
+                exit 0
+            fi
+        fi
         if $require_network; then
             if grep -Fq '[TEST] installer_package_preflight: PASS' "$serial"; then
                 echo "QEMU network qualification received installer/setup media instead of a Foundation/live image." >&2
@@ -167,20 +967,35 @@ while ((SECONDS < deadline)); do
                 tail -n 80 "$serial" >&2 || true
                 exit 2
             fi
-            if grep -Fq '[TEST] dhcp_lease: PASS' "$serial" &&
-               grep -Fq '[TEST] network_gateway_icmp: PASS' "$serial" &&
-               grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial"; then
+
+            network_state=0
+            kurogane_network_smoke_state "$serial" "$require_tls" || network_state=$?
+            if [[ "$network_state" == 2 ]]; then
+                echo "KuroganeOS reported a network/TLS/runtime qualification failure for $nic_model" >&2
+                tail -n 180 "$serial" >&2 || true
+                exit 1
+            fi
+
+            if [[ "$network_state" == 0 ]] && $all_markers_ready; then
+                if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
+                    echo "[uefi-qemu] required runtime markers: PASS"
+                    for require_marker in "${require_markers[@]}"; do
+                        echo "[uefi-qemu] marker: $require_marker"
+                    done
+                    for index in "${!require_marker_count_markers[@]}"; do
+                        echo "[uefi-qemu] marker count: ${require_marker_count_markers[$index]} >= ${require_marker_count_targets[$index]}"
+                    done
+                fi
                 echo "[uefi-qemu] $media_kind/$nic_model DHCP/gateway network: PASS"
+                if $require_tls; then
+                    echo "[uefi-qemu] $media_kind/$nic_model real TLS/HTTPS handshake: PASS"
+                fi
                 echo "[uefi-qemu] firmware CODE: $firmware_code"
                 echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
                 exit 0
             fi
-            if grep -Eq '\[TEST\] (dhcp_lease|network_gateway_icmp|ALL_REQUIRED_TESTS_PASSED): FAIL' "$serial"; then
-                echo "KuroganeOS reported a network/runtime qualification failure for $nic_model" >&2
-                tail -n 180 "$serial" >&2 || true
-                exit 1
-            fi
-        elif grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
+        elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
+             grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
             echo "[uefi-qemu] $media_kind UEFI boot: PASS"
             echo "[uefi-qemu] firmware CODE: $firmware_code"
             echo "[uefi-qemu] firmware VARS: $firmware_vars_template"
@@ -196,11 +1011,25 @@ while ((SECONDS < deadline)); do
     sleep 1
 done
 
-if $require_network; then
+if ((${#require_markers[@]} != 0)); then
+    echo "OVMF/QEMU did not satisfy all requested runtime requirements within $timeout_seconds seconds." >&2
+    echo "Required markers:" >&2
+    for require_marker in "${require_markers[@]}"; do
+        echo "  $require_marker" >&2
+    done
+    if $require_network; then
+        echo "Required network: DHCP lease, gateway ICMP and complete runtime" >&2
+    fi
+    if $require_tls; then
+        echo "Required TLS: real TLS/HTTPS handshake" >&2
+    fi
+elif $require_tls; then
+    echo "OVMF/QEMU did not qualify $nic_model TLS/HTTPS within $timeout_seconds seconds" >&2
+elif $require_network; then
     echo "OVMF/QEMU did not qualify $nic_model networking within $timeout_seconds seconds" >&2
 else
     echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
-[[ -f "$serial" ]] && tail -n 180 "$serial" >&2 || true
+[[ -f "$serial" ]] && tail -n 220 "$serial" >&2 || true
 exit 1

@@ -1,4 +1,6 @@
 #include "framebuffer.hpp"
+#include "rounded_rect.hpp"
+#include "../libk/utf8_text.hpp"
 
 #include "../core/memory.hpp"
 
@@ -26,6 +28,9 @@ struct ClipState {
 };
 
 ClipState g_clip{};
+DamageRect g_damage_regions[MAX_COMPOSITOR_DAMAGE_REGIONS]{};
+size_t g_damage_count = 0U;
+bool g_damage_active = false;
 uint32_t g_text_scale_limit = UINT32_MAX;
 
 struct Glyph {
@@ -143,6 +148,37 @@ uint32_t effective_scale(uint32_t requested) {
     return requested > g_text_scale_limit ? g_text_scale_limit : requested;
 }
 
+bool clip_damage_rect(const DamageRect& input, DamageRect* output) {
+    if (output == nullptr || input.width <= 0 || input.height <= 0) return false;
+    int64_t left = input.x;
+    int64_t top = input.y;
+    int64_t right = static_cast<int64_t>(input.x) + input.width;
+    int64_t bottom = static_cast<int64_t>(input.y) + input.height;
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > static_cast<int64_t>(g_framebuffer.width)) right = g_framebuffer.width;
+    if (bottom > static_cast<int64_t>(g_framebuffer.height)) bottom = g_framebuffer.height;
+    if (left >= right || top >= bottom) return false;
+    *output = {
+        static_cast<int32_t>(left), static_cast<int32_t>(top),
+        static_cast<int32_t>(right - left),
+        static_cast<int32_t>(bottom - top),
+    };
+    return true;
+}
+
+bool damage_contains(int32_t x, int32_t y) {
+    if (!g_damage_active) return true;
+    for (size_t index = 0U; index < g_damage_count; ++index) {
+        const DamageRect& region = g_damage_regions[index];
+        if (x >= region.x && y >= region.y &&
+            x < region.x + region.width && y < region.y + region.height) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void clip_edges(
     int64_t& left, int64_t& top, int64_t& right, int64_t& bottom) {
     if (left < 0) left = 0;
@@ -166,6 +202,8 @@ bool init(const KuroganeFramebuffer& framebuffer) {
     g_available = false;
     g_frame_active = false;
     g_clip = {};
+    g_damage_count = 0U;
+    g_damage_active = false;
     g_text_scale_limit = UINT32_MAX;
     if (!framebuffer.base || framebuffer.width == 0 ||
         framebuffer.height == 0 ||
@@ -196,55 +234,101 @@ bool begin_frame() {
         return false;
     }
     g_frame_active = true;
+    reset_damage_regions();
     reset_clip();
     reset_text_scale_limit();
     return true;
 }
 
-void end_frame() {
+void end_frame_regions(const DamageRect* regions, size_t count) {
     if (!g_available || !g_frame_active) return;
 
-    // Present only changed spans instead of copying the complete GOP frame on
-    // every userspace UI update. Animated widgets such as System Monitor's
-    // heartbeat used to force a full-screen row-by-row scanout once per
-    // sample, which is visibly expensive under QEMU/TCG and can look like a
-    // desktop flash. The compositor still renders a complete frame into the
-    // software backbuffer, but GOP receives only pixels that actually differ.
-    auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
-    const uint32_t frame_width = g_framebuffer.width;
-    for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
-        auto* destination_row = reinterpret_cast<uint32_t*>(
-            framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
-        const auto* source_row = g_backbuffer +
-            static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+    if (regions != nullptr) {
+        auto* framebuffer_bytes = reinterpret_cast<uint8_t*>(g_framebuffer.base);
+        const uint32_t frame_width = g_framebuffer.width;
+        const uint32_t frame_height = g_framebuffer.height;
+        for (size_t region_index = 0U; region_index < count; ++region_index) {
+            const DamageRect& region = regions[region_index];
+            if (region.width <= 0 || region.height <= 0) continue;
+            int64_t left = region.x;
+            int64_t top = region.y;
+            int64_t right = static_cast<int64_t>(region.x) + region.width;
+            int64_t bottom = static_cast<int64_t>(region.y) + region.height;
+            if (left < 0) left = 0;
+            if (top < 0) top = 0;
+            if (right > frame_width) right = frame_width;
+            if (bottom > frame_height) bottom = frame_height;
+            if (left >= right || top >= bottom) continue;
 
-        uint32_t first_changed = 0U;
-        while (first_changed < frame_width &&
-               destination_row[first_changed] == source_row[first_changed]) {
-            ++first_changed;
+            const uint32_t x_begin = static_cast<uint32_t>(left);
+            const uint32_t x_end = static_cast<uint32_t>(right);
+            for (uint32_t y = static_cast<uint32_t>(top);
+                 y < static_cast<uint32_t>(bottom); ++y) {
+                auto* destination_row = reinterpret_cast<uint32_t*>(
+                    framebuffer_bytes + static_cast<size_t>(y) * g_framebuffer.pitch);
+                const auto* source_row = g_backbuffer +
+                    static_cast<size_t>(y) * static_cast<size_t>(frame_width);
+
+                uint32_t first_changed = x_begin;
+                while (first_changed < x_end &&
+                       destination_row[first_changed] == source_row[first_changed]) {
+                    ++first_changed;
+                }
+                if (first_changed == x_end) continue;
+
+                uint32_t last_changed = x_end;
+                while (last_changed > first_changed &&
+                       destination_row[last_changed - 1U] ==
+                           source_row[last_changed - 1U]) {
+                    --last_changed;
+                }
+                const size_t changed_pixels = static_cast<size_t>(
+                    last_changed - first_changed);
+                memcpy(
+                    destination_row + first_changed,
+                    source_row + first_changed,
+                    changed_pixels * sizeof(uint32_t));
+            }
         }
-        if (first_changed == frame_width) continue;
-
-        uint32_t last_changed = frame_width;
-        while (last_changed > first_changed &&
-               destination_row[last_changed - 1U] ==
-                   source_row[last_changed - 1U]) {
-            --last_changed;
-        }
-
-        const size_t changed_pixels = static_cast<size_t>(
-            last_changed - first_changed);
-        memcpy(
-            destination_row + first_changed,
-            source_row + first_changed,
-            changed_pixels * sizeof(uint32_t));
     }
+
     g_frame_active = false;
+    reset_damage_regions();
     reset_clip();
     reset_text_scale_limit();
 }
 
+void end_frame() {
+    if (!g_available || !g_frame_active) return;
+    const DamageRect full = {
+        0, 0,
+        static_cast<int32_t>(g_framebuffer.width),
+        static_cast<int32_t>(g_framebuffer.height),
+    };
+    end_frame_regions(&full, 1U);
+}
+
 bool frame_active() { return g_frame_active; }
+
+bool set_damage_regions(const DamageRect* regions, size_t count) {
+    reset_damage_regions();
+    if (!g_available || regions == nullptr || count == 0U ||
+        count > MAX_COMPOSITOR_DAMAGE_REGIONS) return false;
+    for (size_t index = 0U; index < count; ++index) {
+        DamageRect clipped{};
+        if (!clip_damage_rect(regions[index], &clipped)) continue;
+        g_damage_regions[g_damage_count++] = clipped;
+    }
+    g_damage_active = g_damage_count != 0U;
+    return g_damage_active;
+}
+
+void reset_damage_regions() {
+    g_damage_count = 0U;
+    g_damage_active = false;
+}
+
+bool damage_regions_active() { return g_damage_active; }
 
 void set_clip(int32_t x, int32_t y, int32_t rectangle_width, int32_t rectangle_height) {
     int64_t left = x;
@@ -281,6 +365,7 @@ void put_pixel(int32_t x, int32_t y, Color color) {
     if (g_clip.enabled &&
         (x < g_clip.left || x >= g_clip.right ||
          y < g_clip.top || y >= g_clip.bottom)) return;
+    if (!damage_contains(x, y)) return;
     auto* row = reinterpret_cast<uint32_t*>(
         draw_base() + static_cast<size_t>(y) * draw_pitch());
     row[x] = native_color(color);
@@ -303,14 +388,30 @@ void fill_rect(int32_t x, int32_t y, int32_t rectangle_width,
     if (left >= right || top >= bottom) return;
 
     const uint32_t native = native_color(color);
-    for (int32_t py = static_cast<int32_t>(top);
-         py < static_cast<int32_t>(bottom); ++py) {
-        auto* row = reinterpret_cast<uint32_t*>(
-            draw_base() + static_cast<size_t>(py) * draw_pitch());
-        for (int32_t px = static_cast<int32_t>(left);
-             px < static_cast<int32_t>(right); ++px) {
-            row[px] = native;
+    const auto paint = [native](int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
+        for (int32_t py = y1; py < y2; ++py) {
+            auto* row = reinterpret_cast<uint32_t*>(
+                draw_base() + static_cast<size_t>(py) * draw_pitch());
+            for (int32_t px = x1; px < x2; ++px) row[px] = native;
         }
+    };
+    if (!g_damage_active) {
+        paint(static_cast<int32_t>(left), static_cast<int32_t>(top),
+              static_cast<int32_t>(right), static_cast<int32_t>(bottom));
+        return;
+    }
+
+    for (size_t index = 0U; index < g_damage_count; ++index) {
+        const DamageRect& damage = g_damage_regions[index];
+        int64_t clipped_left = left > damage.x ? left : damage.x;
+        int64_t clipped_top = top > damage.y ? top : damage.y;
+        const int64_t damage_right = static_cast<int64_t>(damage.x) + damage.width;
+        const int64_t damage_bottom = static_cast<int64_t>(damage.y) + damage.height;
+        int64_t clipped_right = right < damage_right ? right : damage_right;
+        int64_t clipped_bottom = bottom < damage_bottom ? bottom : damage_bottom;
+        if (clipped_left >= clipped_right || clipped_top >= clipped_bottom) continue;
+        paint(static_cast<int32_t>(clipped_left), static_cast<int32_t>(clipped_top),
+              static_cast<int32_t>(clipped_right), static_cast<int32_t>(clipped_bottom));
     }
 }
 
@@ -326,6 +427,57 @@ void draw_rect(int32_t x, int32_t y, int32_t rectangle_width,
     fill_rect(x, y, line, rectangle_height, color);
     fill_rect(saturate_i32(static_cast<int64_t>(x) + rectangle_width - line),
               y, line, rectangle_height, color);
+}
+
+void blend_corner_pixel(int32_t x, int32_t y, Color foreground,
+                        uint8_t count) {
+    if (count == 0U || !g_available || x < 0 || y < 0 ||
+        x >= static_cast<int32_t>(g_framebuffer.width) ||
+        y >= static_cast<int32_t>(g_framebuffer.height)) return;
+    if (g_clip.enabled &&
+        (x < g_clip.left || x >= g_clip.right ||
+         y < g_clip.top || y >= g_clip.bottom)) return;
+    if (!damage_contains(x, y)) return;
+    auto* row = reinterpret_cast<uint32_t*>(
+        draw_base() + static_cast<size_t>(y) * draw_pitch());
+    const uint32_t fg = native_color(foreground);
+    if (count >= 16U) { row[x] = fg; return; }
+    const uint32_t bg = row[x];
+    uint32_t out = bg & UINT32_C(0xff000000);
+    for (uint32_t shift = 0U; shift < 24U; shift += 8U) {
+        const uint32_t a = (fg >> shift) & 255U;
+        const uint32_t b = (bg >> shift) & 255U;
+        out |= ((a * count + b * (16U - count) + 8U) / 16U) << shift;
+    }
+    row[x] = out;
+}
+
+void fill_rounded_rect(int32_t x, int32_t y, int32_t width,
+                       int32_t height, uint32_t radius, Color color) {
+    if (!g_available || width <= 0 || height <= 0) return;
+    uint32_t limit = radius > 16U ? 16U : radius;
+    if (limit > static_cast<uint32_t>(width / 2)) limit = static_cast<uint32_t>(width / 2);
+    if (limit > static_cast<uint32_t>(height / 2)) limit = static_cast<uint32_t>(height / 2);
+    const int32_t r = static_cast<int32_t>(limit);
+    if (r <= 1) { fill_rect(x, y, width, height, color); return; }
+    // Cheap flat center and middle; only four radius-sized corners sampled.
+    fill_rect(x, saturate_i32(static_cast<int64_t>(y) + r),
+              width, height - 2 * r, color);
+    fill_rect(saturate_i32(static_cast<int64_t>(x) + r), y,
+              width - 2 * r, height, color);
+    for (int32_t row = 0; row < r; ++row) {
+        const int32_t top = saturate_i32(static_cast<int64_t>(y) + row);
+        const int32_t bottom = saturate_i32(static_cast<int64_t>(y) + height - row - 1);
+        for (int32_t col = 0; col < r; ++col) {
+            const uint8_t a = raster::coverage4x4(r, col, row);
+            const int32_t left = saturate_i32(static_cast<int64_t>(x) + col);
+            const int32_t right = saturate_i32(static_cast<int64_t>(x) + width - col - 1);
+            blend_corner_pixel(left, top, color, a);
+            blend_corner_pixel(right, top, color, a);
+            blend_corner_pixel(left, bottom, color, a);
+            blend_corner_pixel(right, bottom, color, a);
+        }
+    }
 }
 
 void draw_char(int32_t x, int32_t y, char character, Color foreground,
@@ -369,25 +521,60 @@ void draw_char(int32_t x, int32_t y, char character, Color foreground,
 
 void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
                Color background, uint32_t scale, bool transparent) {
-    if (!text) return;
+    if (text == nullptr) return;
     scale = effective_scale(scale);
     if (scale == 0U) return;
     int64_t cursor_x = x;
     int64_t cursor_y = y;
-    const int64_t line_advance = static_cast<uint64_t>(scale) * 8u;
-    const int64_t column_advance = static_cast<uint64_t>(scale) * 6u;
-    while (*text) {
-        if (*text == '\n') {
+    // Keep established console/window 8-cell line spacing until the
+    // scalable-font layout layer provides explicit line metrics.
+    const int64_t line_advance = static_cast<int64_t>(scale) * 8;
+    const int64_t column_advance = static_cast<int64_t>(scale) * 6;
+    while (*text != '\0') {
+        const ku_text::Scalar decoded = ku_text::next_z(text);
+        if (decoded.bytes == 0U) break;
+        if (decoded.value == '\n') {
             cursor_x = x;
             cursor_y = cursor_y > INT64_MAX - line_advance
                 ? INT64_MAX : cursor_y + line_advance;
-        } else {
-            draw_char(saturate_i32(cursor_x), saturate_i32(cursor_y),
-                      *text, foreground, background, scale, transparent);
+        } else if (decoded.value != '\r') {
+            const ku_text::Glyph glyph = ku_text::fallback(decoded.value);
+            const int32_t px = saturate_i32(cursor_x);
+            const int32_t py = saturate_i32(cursor_y);
+            draw_char(px, py, glyph.ascii, foreground,
+                      background, scale, transparent);
+            // Temporary 5x7 diacritics, preserving Polish text in early
+            // boot/console environments until the vector font backend lands.
+            const int64_t ox = cursor_x;
+            const int64_t oy = cursor_y;
+            const int64_t s = scale;
+            switch (glyph.accent) {
+                case ku_text::Accent::Acute:
+                    fill_rect(saturate_i32(ox + 3*s),
+                              saturate_i32(oy - s), static_cast<int32_t>(s),
+                              static_cast<int32_t>(s), foreground);
+                    break;
+                case ku_text::Accent::Dot:
+                    fill_rect(saturate_i32(ox + 2*s),
+                              saturate_i32(oy - s), static_cast<int32_t>(s),
+                              static_cast<int32_t>(s), foreground);
+                    break;
+                case ku_text::Accent::Stroke:
+                    fill_rect(saturate_i32(ox + s),
+                              saturate_i32(oy + 3*s), static_cast<int32_t>(3*s),
+                              static_cast<int32_t>(s), foreground);
+                    break;
+                case ku_text::Accent::Ogonek:
+                    fill_rect(saturate_i32(ox + 3*s),
+                              saturate_i32(oy + 7*s), static_cast<int32_t>(s),
+                              static_cast<int32_t>(s), foreground);
+                    break;
+                case ku_text::Accent::None: break;
+            }
             cursor_x = cursor_x > INT64_MAX - column_advance
                 ? INT64_MAX : cursor_x + column_advance;
         }
-        ++text;
+        text += decoded.bytes;
     }
 }
 
@@ -399,13 +586,38 @@ void scroll_up(uint32_t pixels, Color fill) {
     }
     reset_clip();
     const size_t pitch = draw_pitch();
-    const size_t bytes_to_move =
-        static_cast<size_t>(g_framebuffer.height - pixels) * pitch;
     auto* base = draw_base();
-    memmove(base, base + static_cast<size_t>(pixels) * pitch, bytes_to_move);
-    fill_rect(0, static_cast<int32_t>(g_framebuffer.height - pixels),
-              static_cast<int32_t>(g_framebuffer.width),
-              static_cast<int32_t>(pixels), fill);
+    if (!g_damage_active) {
+        const size_t bytes_to_move =
+            static_cast<size_t>(g_framebuffer.height - pixels) * pitch;
+        memmove(base, base + static_cast<size_t>(pixels) * pitch, bytes_to_move);
+        fill_rect(0, static_cast<int32_t>(g_framebuffer.height - pixels),
+                  static_cast<int32_t>(g_framebuffer.width),
+                  static_cast<int32_t>(pixels), fill);
+        return;
+    }
+
+    const uint32_t native = native_color(fill);
+    // Process destination rows top-to-bottom.  Every scroll source row is
+    // strictly below its destination, so source pixels are read before they
+    // can be modified even when damage regions overlap.
+    for (uint32_t y = 0U; y < g_framebuffer.height; ++y) {
+        for (size_t index = 0U; index < g_damage_count; ++index) {
+            const DamageRect& region = g_damage_regions[index];
+            if (y < static_cast<uint32_t>(region.y) ||
+                y >= static_cast<uint32_t>(region.y + region.height)) continue;
+            auto* destination = reinterpret_cast<uint32_t*>(
+                base + static_cast<size_t>(y) * pitch) + region.x;
+            const size_t span = static_cast<size_t>(region.width);
+            if (y + pixels < g_framebuffer.height) {
+                const auto* source = reinterpret_cast<const uint32_t*>(
+                    base + static_cast<size_t>(y + pixels) * pitch) + region.x;
+                memmove(destination, source, span * sizeof(uint32_t));
+            } else {
+                for (size_t x = 0U; x < span; ++x) destination[x] = native;
+            }
+        }
+    }
 }
 
 } // namespace graphics

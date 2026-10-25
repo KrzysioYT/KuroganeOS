@@ -71,11 +71,23 @@ int main() {
     put64(madt + offset + 4U, 0xFEE01000U);
     checksum(madt, sizeof(madt), 9U);
 
-    alignas(8) uint8_t xsdt[44]{};
+    alignas(8) uint8_t hpet[56]{};
+    text(hpet, "HPET", 4U);
+    put32(hpet + 4U, sizeof(hpet));
+    hpet[8U] = 1U;
+    put32(hpet + 36U, UINT32_C(0x8086A201));
+    hpet[40U] = 0U;
+    hpet[41U] = 64U;
+    put64(hpet + 44U, UINT64_C(0xFED00000));
+    put16(hpet + 53U, 128U);
+    checksum(hpet, sizeof(hpet), 9U);
+
+    alignas(8) uint8_t xsdt[52]{};
     text(xsdt, "XSDT", 4U);
     put32(xsdt + 4U, sizeof(xsdt));
     xsdt[8] = 1U;
     put64(xsdt + 36U, reinterpret_cast<uintptr_t>(madt));
+    put64(xsdt + 44U, reinterpret_cast<uintptr_t>(hpet));
     checksum(xsdt, sizeof(xsdt), 9U);
 
     alignas(8) uint8_t rsdp[36]{};
@@ -87,8 +99,21 @@ int main() {
     checksum(rsdp, 20U, 8U);
     checksum(rsdp, sizeof(rsdp), 32U);
 
-    arch::x86_64::acpi::Topology topology{};
     using arch::x86_64::acpi::Status;
+    arch::x86_64::acpi::TableView table{};
+    assert(arch::x86_64::acpi::find_table(rsdp, "HPET", &table) == Status::Ok);
+    assert(table.address == hpet);
+    assert(table.length == sizeof(hpet));
+
+    const arch::x86_64::acpi::TableView sentinel{
+        reinterpret_cast<const void*>(UINT64_C(0x1234)), 77U};
+    table = sentinel;
+    assert(arch::x86_64::acpi::find_table(rsdp, "FACP", &table) ==
+        Status::TableNotFound);
+    assert(table.address == sentinel.address);
+    assert(table.length == sentinel.length);
+
+    arch::x86_64::acpi::Topology topology{};
     assert(arch::x86_64::acpi::parse_rsdp(rsdp, &topology) == Status::Ok);
     assert(topology.local_apic_address == 0xFEE01000U);
     assert(topology.legacy_pic_present);

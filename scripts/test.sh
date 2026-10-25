@@ -11,6 +11,7 @@ exec > >(tee "$log") 2>&1
 cxx="${CXX:-g++}"
 flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic)
 metrics_stub="$root/tests/host_system_metrics_stub.cpp"
+log_stub="$root/tests/host_log_stub.cpp"
 
 run_test() {
     local name="$1"
@@ -36,15 +37,24 @@ run_test libk "$root/tests/test_libk.cpp" \
     "$root/kernel/libk/utf8.cpp"
 run_test driver-core "$root/tests/test_driver_core.cpp" \
     "$root/kernel/drivers/core/device_manager.cpp" \
-    "$root/kernel/drivers/core/driver_manager.cpp"
+    "$root/kernel/drivers/core/driver_manager.cpp" \
+    "$root/kernel/drivers/core/runtime_qualification.cpp"
 run_test acpi "$root/tests/test_acpi.cpp" \
     "$root/kernel/arch/x86_64/acpi.cpp"
+run_test hpet-table "$root/tests/test_hpet_table.cpp" \
+    "$root/kernel/arch/x86_64/hpet_table.cpp"
+run_test hda-protocol "$root/tests/test_hda_protocol.cpp" \
+    "$root/kernel/drivers/audio/hda_protocol.cpp"
 run_test install-package "$root/tests/test_install_package.cpp" \
     "$root/kernel/install/package.cpp" \
     "$root/kernel/libk/crc.cpp"
+run_test reliable-file "$root/tests/test_reliable_file.cpp" \
+    "$root/kernel/install/reliable_file.cpp"
 run_test install-disk-layout "$root/tests/test_install_disk_layout.cpp" \
     "$metrics_stub" \
     "$root/kernel/install/disk_layout.cpp" \
+    "$root/kernel/install/fat32_reliable_file.cpp" \
+    "$root/kernel/install/reliable_file.cpp" \
     "$root/kernel/storage/gpt.cpp" \
     "$root/kernel/storage/partition_device.cpp" \
     "$root/kernel/fs/fat32.cpp" \
@@ -54,6 +64,11 @@ run_test input -DKUROGANE_HOST_TEST "$root/tests/test_input.cpp" \
     "$root/kernel/drivers/mouse_protocol.cpp"
 run_test usb-protocol "$root/tests/test_usb_protocol.cpp" \
     "$root/kernel/drivers/usb/protocol.cpp"
+run_test usb-mass-storage-protocol \
+    "$root/tests/test_usb_mass_storage_protocol.cpp" \
+    "$root/kernel/drivers/usb/mass_storage_protocol.cpp"
+run_test xhci-bulk "$root/tests/test_xhci_bulk.cpp" \
+    "$root/kernel/drivers/usb/xhci_bulk.cpp"
 run_test user-console "$root/tests/test_user_console.cpp" \
     "$root/kernel/user/console.cpp"
 run_test window-manager -DKUROGANE_HOST_TEST \
@@ -79,6 +94,8 @@ run_test ahci "$root/tests/test_ahci.cpp" \
     "$root/kernel/storage/ahci_protocol.cpp" \
     "$root/kernel/storage/dma.cpp" \
     "$root/kernel/memory/physical_memory.cpp"
+run_test nvme-protocol "$root/tests/test_nvme_protocol.cpp" \
+    "$root/kernel/storage/nvme_protocol.cpp"
 run_test ramfs "$root/tests/test_ramfs.cpp" \
     "$root/kernel/fs/ramfs.cpp" "$root/kernel/memory/allocator.cpp" \
     "$root/kernel/core/string.cpp"
@@ -113,15 +130,20 @@ else
 fi
 run_test scheduler "$root/tests/test_scheduler.cpp" \
     "$root/kernel/task/scheduler.cpp"
+run_test process-job "$root/tests/test_job.cpp" \
+    "$root/kernel/task/job.cpp"
 echo "[build] kernel-thread"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/tests/test_thread.cpp" -o "$out/test-thread.o"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/thread.cpp" -o "$out/thread.o"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/scheduler2.cpp" -o "$out/scheduler2.o"
 "$cxx" -DKUROGANE_HOST_TEST -c -x assembler-with-cpp \
     "$root/kernel/arch/x86_64/context_switch.asm" \
     -o "$out/context-switch.o"
-"$cxx" "$out/test-thread.o" "$out/thread.o" "$out/context-switch.o" \
+"$cxx" "$out/test-thread.o" "$out/thread.o" "$out/scheduler2.o" "$out/context-switch.o" \
+    "$log_stub" \
     -o "$out/kernel-thread"
 echo "[run] kernel-thread"
 "$out/kernel-thread"
@@ -131,17 +153,32 @@ echo "[build] process-core"
     "$root/tests/test_process.cpp" -o "$out/test-process.o"
 "$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
     "$root/kernel/task/process.cpp" -o "$out/process.o"
-"$cxx" "$out/test-process.o" "$out/process.o" \
-    "$out/thread.o" "$out/context-switch.o" -o "$out/process-core"
+"$cxx" "${flags[@]}" -DKUROGANE_HOST_TEST -c \
+    "$root/kernel/task/job.cpp" -o "$out/job.o"
+"$cxx" "$out/test-process.o" "$out/process.o" "$out/job.o" \
+    "$out/thread.o" "$out/scheduler2.o" "$out/context-switch.o" "$log_stub" -o "$out/process-core"
 echo "[run] process-core"
 "$out/process-core"
 echo "[pass] process-core"
+run_test ipc-channel "$root/tests/test_ipc.cpp" \
+    "$root/kernel/ipc/channel.cpp"
+run_test ipc-event "$root/tests/test_event.cpp" \
+    "$root/kernel/ipc/event.cpp"
+run_test ipc-shared-memory "$root/tests/test_shared_memory.cpp" \
+    "$root/kernel/ipc/shared_memory.cpp" \
+    "$root/kernel/memory/physical_memory.cpp"
 run_test network "$root/tests/test_network.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
 run_test network-protocols "$root/tests/test_network_protocols.cpp" \
     "$root/kernel/net/network.cpp" \
     "$root/kernel/net/protocols.cpp"
+run_test tcp-client -DKUROGANE_HOST_TEST \
+    "$root/tests/test_tcp_client.cpp" \
+    "$root/kernel/net/tcp_client.cpp"
+run_test tcp-close -DKUROGANE_HOST_TEST \
+    "$root/tests/test_tcp_close.cpp" \
+    "$root/kernel/net/tcp_client.cpp"
 run_test profiler -DKUROGANE_HOST_TEST "$root/tests/test_profiler.cpp" \
     "$root/tests/host_network_service_stub.cpp" \
     "$root/kernel/diagnostics/profiler.cpp" \

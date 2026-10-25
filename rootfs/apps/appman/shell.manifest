@@ -1,0 +1,5 @@
+format=1
+id=org.kurogane.shell
+name=Terminal
+exec=/apps/shell
+flags=12

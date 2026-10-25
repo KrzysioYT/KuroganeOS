@@ -80,6 +80,17 @@ bool ready() {
     return false;
 }
 
+bool link_up() {
+    if (!ready()) return false;
+    switch (g_driver) {
+        case Driver::E1000: return e1000::link_up();
+        case Driver::VirtioNet:
+        case Driver::Pcnet: return true;
+        case Driver::None: return false;
+    }
+    return false;
+}
+
 bool detected() { return g_detected; }
 Driver driver() { return ready() ? g_driver : Driver::None; }
 
@@ -96,7 +107,10 @@ NetworkInterface* interface() {
 const char* name() {
     switch (driver()) {
         case Driver::VirtioNet: return "virtio-net";
-        case Driver::E1000: return "e1000";
+        case Driver::E1000:
+            return e1000::model() == e1000::Model::I82574L
+                ? "e1000e"
+                : "e1000";
         case Driver::Pcnet: return "pcnet";
         case Driver::None: return "none";
     }

@@ -1,0 +1,100 @@
+name: Qualify 5.0 xHCI Multi HID
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-multi-hid.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/input/**'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_xhci*'
+      - 'tests/test_usb*'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-usb-multi-hid.yml'
+      - 'kernel/drivers/usb/**'
+      - 'kernel/input/**'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_xhci*'
+      - 'tests/test_usb*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  multi-hid:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3 \
+            qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Require simultaneous USB keyboard and mouse
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-keyboard --usb-mouse \
+            --log-dir build/tests/xhci-multi-hid --timeout 150 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] xhci_mouse_enumeration: PASS' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/xhci-multi-hid/serial.log
+
+      - name: Require simultaneous USB HID plus VirtIO networking
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk \
+            --usb-keyboard --usb-mouse --nic virtio --require-network \
+            --log-dir build/tests/xhci-multi-hid-virtio --timeout 150 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+            build/tests/xhci-multi-hid-virtio/serial.log
+
+      - name: Retain multi-HID logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xhci-multi-hid-${{ github.event.pull_request.head.sha || github.sha }}
+          path: build/tests/xhci-multi-hid*
+          if-no-files-found: warn

@@ -27,7 +27,7 @@ args=(--configuration "$configuration" --iso)
 if $rebuild; then args+=(--rebuild); fi
 bash "$root/scripts/build-macos.sh" "${args[@]}"
 
-version="$(sed -n 's/^#define KUROGANE_VERSION_STRING "\([^"]*\)"/\1/p' common/version.h)"
+version="$(bash "$root/scripts/read-version.sh")"
 image="$root/dist/KuroganeOS-$version-macos-qemu.img"
 iso="$root/dist/KuroganeOS-$version-x86_64.iso"
 package="$root/build/install.pkg"

@@ -40,6 +40,16 @@
 #define MBEDTLS_KEY_EXCHANGE_ECDHE_ECDSA_ENABLED
 
 /*
+ * KuroganeOS performs an additional explicit validity-interval check against
+ * its own RTC after Mbed TLS has verified the chain and hostname. Mbed TLS
+ * 3.6.x only guarantees mbedtls_ssl_get_peer_cert() after the handshake when
+ * peer-certificate retention is enabled. Without this option the handshake
+ * can verify successfully but the post-handshake security check receives a
+ * null peer certificate and must fail closed.
+ */
+#define MBEDTLS_SSL_KEEP_PEER_CERTIFICATE
+
+/*
  * Do not define MBEDTLS_SSL_DTLS_CONNECTION_ID_COMPAT here. Mbed TLS 3.6.7
  * config_adjust_ssl.h deliberately undefines every DTLS CID selector when
  * MBEDTLS_SSL_PROTO_DTLS is disabled. Its public ssl.h later evaluates that

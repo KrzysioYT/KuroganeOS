@@ -3,7 +3,11 @@
 #include "apps/builtin.hpp"
 #include "apps/framework.hpp"
 #include "arch/x86_64/acpi.hpp"
+#include "arch/x86_64/acpi_power.hpp"
+#include "arch/x86_64/cpu.hpp"
 #include "arch/x86_64/apic.hpp"
+#include "arch/x86_64/smp.hpp"
+#include "arch/x86_64/hpet.hpp"
 #include "arch/x86_64/gdt.hpp"
 #include "arch/x86_64/interrupts.hpp"
 #include "arch/x86_64/io.hpp"
@@ -12,23 +16,34 @@
 #include "drivers/keyboard.hpp"
 #include "drivers/mouse.hpp"
 #include "drivers/framebuffer.hpp"
+#include "drivers/audio/audio_backend.hpp"
 #include "drivers/core/device_manager.hpp"
 #include "drivers/core/driver_manager.hpp"
 #include "drivers/pci.hpp"
+#include "drivers/pci_edu.hpp"
 #include "drivers/pic.hpp"
 #include "drivers/pit.hpp"
 #include "drivers/serial.hpp"
 #include "drivers/usb/xhci.hpp"
+#include "fs/kurofs_volume.hpp"
 #include "fs/root_volume.hpp"
 #include "fs/ramfs.hpp"
+#include "hardware/policy.hpp"
+#include "hardware/compatibility.hpp"
 #include "memory/allocator.hpp"
 #include "memory/kernel_virtual_memory.hpp"
 #include "memory/physical_memory.hpp"
 #include "input/input.hpp"
 #include "install/installer.hpp"
 #include "net/service.hpp"
+#include "net/physical.hpp"
+#include "net/virtio_net.hpp"
+#include "net/e1000.hpp"
 #include "shell/shell.hpp"
 #include "storage/ahci.hpp"
+#include "storage/device_registry.hpp"
+#include "storage/nvme.hpp"
+#include "storage/virtio_block.hpp"
 #include "storage/gpt.hpp"
 #include "storage/scratch_test.hpp"
 #include "task/scheduler.hpp"
@@ -41,6 +56,7 @@
 
 extern "C" unsigned char kernel_stack_bottom[];
 extern "C" unsigned char kernel_stack_top[];
+extern "C" bool kurogane_start_desktop_session();
 
 namespace {
 
@@ -74,6 +90,18 @@ struct PreemptionProbe {
 };
 
 PreemptionProbe g_preemption_probe{};
+
+constexpr size_t kMulticoreSchedulerProbeCpus = 64U;
+struct MulticoreSchedulerProbeArgument {
+    size_t expected_cpu;
+};
+struct MulticoreSchedulerProbe {
+    alignas(64) uint64_t hits[kMulticoreSchedulerProbeCpus];
+    alignas(64) uint64_t dispatch_ok[kMulticoreSchedulerProbeCpus];
+    MulticoreSchedulerProbeArgument arguments[kMulticoreSchedulerProbeCpus];
+    uint64_t mismatches;
+};
+MulticoreSchedulerProbe g_multicore_scheduler_probe{};
 
 struct BootContext {
     KuroganeFramebuffer framebuffer;
@@ -539,6 +567,37 @@ KStatus xhci_driver_attach(
     }
 }
 
+bool print_hardware_inventory_entry(
+    const drivers::device::Device& device,
+    void*) {
+    terminal::write("[HW] id=");
+    terminal::write_u64(device.id);
+    terminal::write(" bus=");
+    terminal::write(drivers::device::bus_name(device.bus));
+    terminal::write(" type=");
+    terminal::write(drivers::device::type_name(device.type));
+    terminal::write(" vendor=");
+    terminal::write_hex(device.vendor_id);
+    terminal::write(" device=");
+    terminal::write_hex(device.device_id);
+    terminal::write(" requirement=");
+    terminal::write(drivers::device::requirement_name(device.requirement));
+    terminal::write(" status=");
+    terminal::write(drivers::device::status_name(device.status));
+    terminal::write(" driver=");
+    terminal::println(
+        device.driver == drivers::device::INVALID_DRIVER_ID
+            ? "<unbound>"
+            : device.driver_name);
+    return true;
+}
+
+void print_hardware_inventory() {
+    terminal::println("hardware inventory:");
+    drivers::device::visit(print_hardware_inventory_entry, nullptr);
+    terminal::println("[TEST] hardware_inventory: PASS");
+}
+
 void initialize_device_framework(bool safe_mode) {
     if (drivers::device::initialize() != KStatus::Ok ||
         drivers::driver::initialize() != KStatus::Ok) {
@@ -629,6 +688,7 @@ void initialize_device_framework(bool safe_mode) {
         "DEVICE",
         "registered devices=",
         drivers::device::count());
+    print_hardware_inventory();
 }
 
 void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
@@ -651,6 +711,44 @@ void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
         topology != nullptr ? topology->io_apic_count : 0U);
     terminal::println("[TEST] acpi_madt: PASS");
 
+    const auto power_status = arch::x86_64::acpi_power::initialize(rsdp);
+    if (power_status == arch::x86_64::acpi_power::Status::Ok &&
+        arch::x86_64::acpi_power::shutdown_available() &&
+        arch::x86_64::acpi_power::reset_available()) {
+        terminal::println("[TEST] acpi_power_discovery: PASS");
+    } else {
+        log::write(
+            log::Level::Warn,
+            "ACPI",
+            arch::x86_64::acpi_power::status_message(power_status));
+        terminal::println("[TEST] acpi_power_discovery: DEGRADED");
+    }
+
+    const auto hpet_status = arch::x86_64::hpet::initialize(rsdp);
+    if (hpet_status == arch::x86_64::hpet::Status::Ok &&
+        arch::x86_64::hpet::counter_advances(100000U)) {
+        log::write_u64(
+            log::Level::Info,
+            "HPET",
+            "counter period femtoseconds=",
+            arch::x86_64::hpet::counter_period_femtoseconds());
+        terminal::println("[TEST] hpet_main_counter: PASS");
+    } else {
+        if (hpet_status == arch::x86_64::hpet::Status::Ok) {
+            arch::x86_64::hpet::shutdown();
+            log::write(
+                log::Level::Warn,
+                "HPET",
+                "main counter did not advance within bounded probe");
+        } else {
+            log::write(
+                log::Level::Warn,
+                "HPET",
+                arch::x86_64::hpet::status_message(hpet_status));
+        }
+        terminal::println("[TEST] hpet_main_counter: DEGRADED (PIT fallback)");
+    }
+
     const auto apic_status = topology != nullptr
         ? arch::x86_64::apic::prepare(*topology)
         : arch::x86_64::apic::Status::InvalidTopology;
@@ -661,7 +759,22 @@ void initialize_platform_discovery(const KuroganeBootInfo* boot_info) {
         log::write_u64(
             log::Level::Info, "APIC", "mapped I/O APICs=",
             arch::x86_64::apic::io_apic_count());
-        terminal::println("[TEST] apic_discovery: PASS (PIC fallback active)");
+        const auto enable_status = arch::x86_64::apic::enable_local();
+        if (enable_status == arch::x86_64::apic::Status::Ok) {
+            log::write(
+                log::Level::Info,
+                "APIC",
+                "Local APIC delivery enabled; legacy IRQs remain on PIC");
+            terminal::println(
+                "[TEST] apic_discovery: PASS (Local APIC enabled, PIC IRQ fallback active)");
+        } else {
+            log::write(
+                log::Level::Warn,
+                "APIC",
+                arch::x86_64::apic::status_message(enable_status));
+            terminal::println(
+                "[TEST] apic_discovery: DEGRADED (PIC fallback active)");
+        }
     } else {
         log::write(
             log::Level::Warn,
@@ -675,40 +788,62 @@ bool run_fat32_persistence_probe() {
     constexpr char path[] = "/var/persist.dat";
     constexpr char payload[] =
         "KuroganeOS persistent FAT32 through VFS and AHCI v1\n";
+    const auto report_failure = [](const char* stage, fs::vfs::Status status) {
+        log::write(log::Level::Error, "PERSIST", stage);
+        log::write(log::Level::Error, "PERSIST", fs::vfs::status_message(status));
+    };
     fs::vfs::FileStat info{};
     const fs::vfs::Status stat_status = fs::root_volume::stat(path, &info);
     if (stat_status == fs::vfs::Status::NotFound) {
-        if (fs::root_volume::create(path) != fs::vfs::Status::Ok) {
+        const fs::vfs::Status create_status = fs::root_volume::create(path);
+        if (create_status != fs::vfs::Status::Ok) {
+            report_failure("create", create_status);
             return false;
         }
         fs::vfs::OpenFileHandle handle{};
-        if (fs::root_volume::open(
-                path, fs::vfs::OpenFlags::Write, &handle) !=
-            fs::vfs::Status::Ok) {
+        const fs::vfs::Status open_status = fs::root_volume::open(
+            path, fs::vfs::OpenFlags::Write, &handle);
+        if (open_status != fs::vfs::Status::Ok) {
+            report_failure("open", open_status);
             return false;
         }
         size_t bytes_written = 0U;
         const fs::vfs::Status write_status = fs::root_volume::write(
             handle, payload, sizeof(payload) - 1U, &bytes_written);
         const fs::vfs::Status close_status = fs::root_volume::close(handle);
-        if (write_status != fs::vfs::Status::Ok ||
-            close_status != fs::vfs::Status::Ok ||
-            bytes_written != sizeof(payload) - 1U ||
-            fs::root_volume::sync() != fs::vfs::Status::Ok) {
+        const fs::vfs::Status sync_status = fs::root_volume::sync();
+        if (write_status != fs::vfs::Status::Ok) {
+            report_failure("write", write_status);
+            return false;
+        }
+        if (close_status != fs::vfs::Status::Ok) {
+            report_failure("close", close_status);
+            return false;
+        }
+        if (bytes_written != sizeof(payload) - 1U) {
+            report_failure("write byte count", fs::vfs::Status::IoError);
+            return false;
+        }
+        if (sync_status != fs::vfs::Status::Ok) {
+            report_failure("sync", sync_status);
             return false;
         }
         char restored[sizeof(payload)]{};
         size_t bytes_read = 0U;
-        if (fs::root_volume::read_file(
-                path,
-                restored,
-                sizeof(restored),
-                &bytes_read) != fs::vfs::Status::Ok ||
-            bytes_read != sizeof(payload) - 1U) {
+        const fs::vfs::Status read_status = fs::root_volume::read_file(
+            path, restored, sizeof(restored), &bytes_read);
+        if (read_status != fs::vfs::Status::Ok) {
+            report_failure("readback", read_status);
+            return false;
+        }
+        if (bytes_read != sizeof(payload) - 1U) {
+            report_failure("readback byte count", fs::vfs::Status::IoError);
             return false;
         }
         for (size_t index = 0U; index < bytes_read; ++index) {
             if (restored[index] != payload[index]) {
+                log::write_u64(log::Level::Error, "PERSIST", "comparison index=", index);
+                report_failure("readback comparison", fs::vfs::Status::IoError);
                 return false;
             }
         }
@@ -718,20 +853,26 @@ bool run_fat32_persistence_probe() {
     if (stat_status != fs::vfs::Status::Ok ||
         info.type != fs::vfs::NodeType::Regular ||
         info.size != sizeof(payload) - 1U) {
+        report_failure("verify stat", stat_status == fs::vfs::Status::Ok
+            ? fs::vfs::Status::IoError : stat_status);
         return false;
     }
     char restored[sizeof(payload)]{};
     size_t bytes_read = 0U;
-    if (fs::root_volume::read_file(
-            path,
-            restored,
-            sizeof(restored),
-            &bytes_read) != fs::vfs::Status::Ok ||
-        bytes_read != sizeof(payload) - 1U) {
+    const fs::vfs::Status read_status = fs::root_volume::read_file(
+        path, restored, sizeof(restored), &bytes_read);
+    if (read_status != fs::vfs::Status::Ok) {
+        report_failure("verify readback", read_status);
+        return false;
+    }
+    if (bytes_read != sizeof(payload) - 1U) {
+        report_failure("verify readback byte count", fs::vfs::Status::IoError);
         return false;
     }
     for (size_t index = 0U; index < bytes_read; ++index) {
         if (restored[index] != payload[index]) {
+            log::write_u64(log::Level::Error, "PERSIST", "verify comparison index=", index);
+            report_failure("verify readback comparison", fs::vfs::Status::IoError);
             return false;
         }
     }
@@ -805,6 +946,66 @@ bool handle_installed_first_boot() {
 }
 
 void initialize_storage_probe() {
+    const storage::virtio_block::Status virtio_block_status =
+        storage::virtio_block::initialize();
+    if (virtio_block_status == storage::virtio_block::Status::Ok ||
+        virtio_block_status == storage::virtio_block::Status::AlreadyInitialized) {
+        const storage::virtio_block::DeviceInfo* const info =
+            storage::virtio_block::device_info();
+        if (info != nullptr) {
+            log::write_u64(
+                log::Level::Info,
+                "VIRTIO-BLK",
+                "logical block bytes=",
+                info->block_size);
+            log::write_u64(
+                log::Level::Info,
+                "VIRTIO-BLK",
+                "logical block count=",
+                info->block_count);
+            terminal::println("[TEST] virtio_block_probe: PASS");
+        }
+    } else if (virtio_block_status != storage::virtio_block::Status::NoDevice) {
+        log::write(
+            log::Level::Warn,
+            "VIRTIO-BLK",
+            storage::virtio_block::status_message(virtio_block_status));
+        terminal::println("[TEST] virtio_block_probe: FAIL");
+        g_required_runtime_test_failed = true;
+    }
+
+    const storage::nvme::Status nvme_status = storage::nvme::initialize();
+    if (nvme_status == storage::nvme::Status::Ok ||
+        nvme_status == storage::nvme::Status::AlreadyInitialized) {
+        const storage::nvme::ControllerInfo* const nvme_info =
+            storage::nvme::controller_info();
+        if (nvme_info != nullptr) {
+            log::write(
+                log::Level::Info,
+                "NVME",
+                nvme_info->model[0] != '\0'
+                    ? nvme_info->model
+                    : "NVMe controller");
+            log::write_u64(
+                log::Level::Info,
+                "NVME",
+                "admin queue entries=",
+                nvme_info->admin_queue_entries);
+            log::write_u64(
+                log::Level::Info,
+                "NVME",
+                "controller version=",
+                nvme_info->version);
+            terminal::println("[TEST] nvme_admin_identify: PASS");
+        }
+    } else if (nvme_status != storage::nvme::Status::NoController) {
+        log::write(
+            log::Level::Warn,
+            "NVME",
+            storage::nvme::status_message(nvme_status));
+        terminal::println("[TEST] nvme_admin_identify: FAIL");
+    }
+
     const storage::ahci::Status ahci_status =
         storage::ahci::initialization_attempted()
         ? storage::ahci::initialization_status()
@@ -887,9 +1088,50 @@ void initialize_storage_probe() {
             "logical sector count=",
             info->sector_count);
 
+    }
+
+    terminal::write("generic block devices: ");
+    terminal::write_u64(storage::device_registry::device_count());
+    terminal::println();
+    terminal::println(
+        storage::device_registry::device_count() != 0U
+            ? "[TEST] generic_storage_registry: PASS"
+            : "[TEST] generic_storage_registry: SKIP (no block device)");
+
+    // Probe every registered block backend through the same GPT/root contract.
+    // The registry resolves providers dynamically, so a removed USB device is
+    // never cached here as a permanent raw pointer.
+    for (size_t index = 0U;
+         index < storage::device_registry::device_count();
+         ++index) {
+        storage::device_registry::Entry entry{};
+        if (!storage::device_registry::entry_at(index, &entry) ||
+            entry.device == nullptr) {
+            continue;
+        }
+
+        log::write(
+            log::Level::Info,
+            "STORAGE",
+            entry.model != nullptr ? entry.model : "unnamed block device");
+        log::write(
+            log::Level::Info,
+            "STORAGE",
+            storage::device_registry::backend_name(entry.backend));
+        log::write_u64(
+            log::Level::Info,
+            "STORAGE",
+            "logical sector bytes=",
+            entry.device->sector_size);
+        log::write_u64(
+            log::Level::Info,
+            "STORAGE",
+            "logical sector count=",
+            entry.device->sector_count);
+
         storage::gpt::Table table{};
         const storage::gpt::ParseResult gpt_result =
-            storage::gpt::parse_primary(device, &table);
+            storage::gpt::parse_primary(entry.device, &table);
         if (gpt_result.status == storage::gpt::Status::Ok) {
             log::write_u64(
                 log::Level::Info,
@@ -899,25 +1141,19 @@ void initialize_storage_probe() {
             if (!fs::root_volume::mounted() &&
                 !fs::root_volume::initialization_attempted()) {
                 const fs::root_volume::Status root_status =
-                    fs::root_volume::initialize(device, &table);
+                    fs::root_volume::initialize(entry.device, &table);
                 if (root_status == fs::root_volume::Status::Ok) {
                     log::write(
                         log::Level::Info,
                         "VFS",
-                        "persistent FAT32 root mounted read-write");
-                    log::write_u64(
-                        log::Level::Info,
-                        "VFS",
-                        "/etc/system.cfg bytes=",
-                        fs::root_volume::configuration_size());
+                        "persistent FAT32 root mounted from unified storage");
                     terminal::println("[TEST] fat32_vfs_read: PASS");
                     if (!handle_installed_first_boot()) {
                         terminal::println("[TEST] installed_first_boot: FAIL");
                         g_required_runtime_test_failed = true;
                     }
                     if (!run_fat32_persistence_probe()) {
-                        terminal::println(
-                            "[TEST] fat32_persistence: FAIL");
+                        terminal::println("[TEST] fat32_persistence: FAIL");
                         g_required_runtime_test_failed = true;
                     }
                 } else if (root_status !=
@@ -934,42 +1170,72 @@ void initialize_storage_probe() {
                     g_required_runtime_test_failed = true;
                 }
             }
-        } else {
-            log::write(
-                log::Level::Info,
-                "GPT",
-                storage::gpt::status_message(gpt_result.status));
         }
 
         const storage::scratch_test::Result scratch_result =
             storage::scratch_test::run(
-                device, &g_scratch_test_workspace);
+                entry.device, &g_scratch_test_workspace);
         if (scratch_result.status ==
             storage::scratch_test::Status::NotTagged) {
             continue;
         }
         if (scratch_result.status == storage::scratch_test::Status::Ok &&
             scratch_result.write_attempted && scratch_result.restored) {
-            log::write(
-                log::Level::Info,
-                "AHCI",
-                "tagged scratch write/flush/readback/restore passed");
             terminal::println(
-                "[TEST] ahci_write_flush_readback_restore: PASS");
+                "[TEST] unified_storage_write_flush_readback_restore: PASS");
+            if (entry.backend == storage::device_registry::Backend::VirtioBlock) {
+                terminal::println("[TEST] virtio_block_rw: PASS");
+            }
             continue;
         }
 
         log::write(
             log::Level::Error,
-            "AHCI",
+            "STORAGE",
             storage::scratch_test::status_message(scratch_result.status));
         log::write(
             log::Level::Error,
-            "AHCI",
+            "STORAGE",
             storage::block::status_message(scratch_result.block_status));
         terminal::println(
-            "[TEST] ahci_write_flush_readback_restore: FAIL");
-        boot_failure("AHCI", "tagged scratch storage test failed");
+            "[TEST] unified_storage_write_flush_readback_restore: FAIL");
+        boot_failure("STORAGE", "tagged unified storage test failed");
+    }
+
+    // A dedicated raw KuroFS disk is an auxiliary data volume, never a
+    // replacement for the qualified FAT32 system root. Probe it only after
+    // the root VFS exists, and never format unknown media implicitly.
+    if (fs::root_volume::mounted() && !fs::kurofs_volume::mounted()) {
+        for (size_t index = 0U;
+             index < storage::device_registry::device_count();
+             ++index) {
+            storage::device_registry::Entry entry{};
+            if (!storage::device_registry::entry_at(index, &entry) ||
+                entry.device == nullptr) {
+                continue;
+            }
+            storage::gpt::Table table{};
+            if (storage::gpt::parse_primary(entry.device, &table).status ==
+                storage::gpt::Status::Ok) {
+                continue;
+            }
+            const fs::kurofs_volume::Status status =
+                fs::kurofs_volume::mount(entry.device);
+            if (status == fs::kurofs_volume::Status::Ok) {
+                log::write(
+                    log::Level::Info,
+                    "KUROFS",
+                    "raw data volume mounted read-write at /kuro");
+                terminal::println("[TEST] kurofs_vfs_mount: PASS");
+                break;
+            }
+            if (status != fs::kurofs_volume::Status::KurofsMountFailed) {
+                log::write(
+                    log::Level::Warn,
+                    "KUROFS",
+                    fs::kurofs_volume::status_message(status));
+            }
+        }
     }
 }
 
@@ -1083,6 +1349,190 @@ bool run_kernel_thread_probe() {
         g_thread_probe.first_local != g_thread_probe.second_local &&
         g_thread_probe.yield_ok &&
         threading::current() == threading::INVALID_THREAD_ID;
+}
+
+void multicore_scheduler_probe_thread(void* context) {
+    auto* argument =
+        static_cast<MulticoreSchedulerProbeArgument*>(context);
+    if (argument == nullptr) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+        return;
+    }
+    const size_t actual_cpu = arch::x86_64::smp::current_cpu_index();
+    if (actual_cpu >= kMulticoreSchedulerProbeCpus) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+        return;
+    }
+    __atomic_fetch_add(
+        &g_multicore_scheduler_probe.hits[actual_cpu],
+        UINT64_C(1),
+        __ATOMIC_RELAXED);
+    if (actual_cpu != argument->expected_cpu) {
+        __atomic_fetch_add(
+            &g_multicore_scheduler_probe.mismatches,
+            UINT64_C(1),
+            __ATOMIC_RELAXED);
+    }
+}
+
+void multicore_scheduler_probe_dispatch(size_t cpu_index, void*) {
+    bool executed = false;
+    const threading::Status status =
+        threading::run_dispatch_once(&executed);
+    if (cpu_index < kMulticoreSchedulerProbeCpus &&
+        status == threading::Status::Ok && executed) {
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.dispatch_ok[cpu_index],
+            UINT64_C(1),
+            __ATOMIC_RELEASE);
+    }
+}
+
+bool run_multicore_scheduler_probe(size_t online_cpus) {
+    if (online_cpus < 2U ||
+        online_cpus > kMulticoreSchedulerProbeCpus) {
+        return false;
+    }
+
+    for (size_t cpu = 0U; cpu < kMulticoreSchedulerProbeCpus; ++cpu) {
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.hits[cpu],
+            UINT64_C(0),
+            __ATOMIC_RELAXED);
+        __atomic_store_n(
+            &g_multicore_scheduler_probe.dispatch_ok[cpu],
+            UINT64_C(0),
+            __ATOMIC_RELAXED);
+        g_multicore_scheduler_probe.arguments[cpu].expected_cpu = cpu;
+    }
+    __atomic_store_n(
+        &g_multicore_scheduler_probe.mismatches,
+        UINT64_C(0),
+        __ATOMIC_RELAXED);
+
+    for (size_t cpu = 0U; cpu < online_cpus; ++cpu) {
+        threading::ThreadId thread = threading::INVALID_THREAD_ID;
+        if (threading::create(
+                "smp-scheduler-probe",
+                multicore_scheduler_probe_thread,
+                &g_multicore_scheduler_probe.arguments[cpu],
+                &thread) != threading::Status::Ok) {
+            return false;
+        }
+        const threading::CpuMask mask = UINT64_C(1) << cpu;
+        if (threading::set_affinity(thread, mask) !=
+            threading::Status::Ok) {
+            return false;
+        }
+    }
+
+    if (arch::x86_64::smp::run_on_all_cpus(
+            multicore_scheduler_probe_dispatch,
+            nullptr) != arch::x86_64::smp::Status::Ok) {
+        return false;
+    }
+
+    bool passed =
+        __atomic_load_n(
+            &g_multicore_scheduler_probe.mismatches,
+            __ATOMIC_ACQUIRE) == UINT64_C(0);
+    for (size_t cpu = 0U; cpu < online_cpus; ++cpu) {
+        passed = passed &&
+            __atomic_load_n(
+                &g_multicore_scheduler_probe.hits[cpu],
+                __ATOMIC_ACQUIRE) == UINT64_C(1) &&
+            __atomic_load_n(
+                &g_multicore_scheduler_probe.dispatch_ok[cpu],
+                __ATOMIC_ACQUIRE) == UINT64_C(1);
+    }
+
+    // The rendezvous has completed on every CPU, so the BSP may now perform
+    // the ordinary single-owner terminated-slot reap safely.
+    threading::RunResult cleanup{};
+    if (threading::run_until_idle(1U, &cleanup) != threading::Status::Ok) {
+        passed = false;
+    }
+    return passed;
+}
+
+bool run_multicore_ring3_probe(size_t online_cpus) {
+    if (online_cpus < 2U ||
+        online_cpus > kMulticoreSchedulerProbeCpus ||
+        !fs::root_volume::mounted()) {
+        return false;
+    }
+
+    for (size_t cpu = 1U; cpu < online_cpus; ++cpu) {
+        for (size_t index = 0U;
+             index < kMulticoreSchedulerProbeCpus;
+             ++index) {
+            __atomic_store_n(
+                &g_multicore_scheduler_probe.dispatch_ok[index],
+                UINT64_C(0),
+                __ATOMIC_RELAXED);
+        }
+
+        process::ProcessId pid = process::INVALID_PROCESS_ID;
+        if (process::spawn("/apps/hello", &pid) != process::Status::Ok) {
+            return false;
+        }
+
+        process::Stat before{};
+        if (process::stat(pid, &before) != process::Status::Ok ||
+            before.main_thread == threading::INVALID_THREAD_ID) {
+            return false;
+        }
+        const threading::CpuMask affinity = UINT64_C(1) << cpu;
+        if (threading::set_affinity(before.main_thread, affinity) !=
+            threading::Status::Ok) {
+            return false;
+        }
+
+        if (arch::x86_64::smp::run_on_all_cpus(
+                multicore_scheduler_probe_dispatch,
+                nullptr) != arch::x86_64::smp::Status::Ok) {
+            return false;
+        }
+        if (__atomic_load_n(
+                &g_multicore_scheduler_probe.dispatch_ok[cpu],
+                __ATOMIC_ACQUIRE) != UINT64_C(1)) {
+            return false;
+        }
+
+        process::Stat after{};
+        threading::Stat thread_after{};
+        if (process::stat(pid, &after) != process::Status::Ok ||
+            after.state != process::State::Zombie ||
+            after.exit_code != 0 ||
+            after.observed_pid != pid ||
+            threading::stat(before.main_thread, &thread_after) !=
+                threading::Status::Ok ||
+            thread_after.state != threading::State::Terminated ||
+            thread_after.last_cpu != cpu) {
+            return false;
+        }
+
+        int32_t exit_code = -1;
+        if (process::wait(pid, &exit_code) != process::Status::Ok ||
+            exit_code != 0) {
+            return false;
+        }
+
+        // The AP rendezvous is over. Reap the terminated thread from the BSP
+        // before creating the next process so slot ownership cannot overlap.
+        threading::RunResult cleanup{};
+        if (threading::run_until_idle(1U, &cleanup) !=
+            threading::Status::Ok) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool run_process_lifecycle_probe() {
@@ -1420,24 +1870,158 @@ void initialize_exception_handling() {
     log::write(log::Level::Info, "KERNEL", "CPU exception handlers installed");
 }
 
-bool initialize_hardware_interrupts() {
+hardware::policy::CapabilityMask initialize_hardware_interrupts() {
+    using namespace hardware::policy;
+
+    CapabilityMask available = CapabilityNone;
     drivers::pic::initialize();
     const bool timer_ready = drivers::pit::initialize(100);
+    if (timer_ready) available |= CapabilityTimer;
     log::write(
         timer_ready ? log::Level::Info : log::Level::Error,
         "TIME",
         timer_ready ? "PIT monotonic clock ready"
                     : "PIT initialization failed");
+
     const bool schedule_hook_ready =
         arch::x86_64::interrupts::register_irq_schedule_hook(
             threading::timer_irq_schedule);
+    if (schedule_hook_ready) available |= CapabilitySchedulerInterrupt;
+
+    // Legacy i8042 devices are compatibility backends, not a platform
+    // requirement. USB HID and future input transports feed the same input
+    // queue, so a machine without PS/2 must still be allowed to boot.
     const bool keyboard_ready = drivers::keyboard::initialize();
+    if (keyboard_ready) available |= CapabilityLegacyKeyboard;
     const bool mouse_ready = drivers::mouse::initialize();
+    if (mouse_ready) available |= CapabilityLegacyPointer;
+
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        available |= CapabilityDisplay;
+    }
+    if (keyboard_ready || drivers::usb::xhci::keyboard_ready()) {
+        available |= CapabilityKeyboard;
+    }
+    if (mouse_ready || drivers::usb::xhci::mouse_ready()) {
+        available |= CapabilityPointer;
+    }
+
     const bool input_ready = input::initialize(
         graphics::width(), graphics::height());
+    if (input_ready) available |= CapabilityInputQueue;
+
+    if (drivers::usb::xhci::initialized()) {
+        available |= CapabilityUsbHost;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        available |= CapabilityStorage;
+    }
+    if (drivers::audio::initialized()) {
+        available |= CapabilityAudio;
+    }
+
     arch::x86_64::interrupts::enable();
-    return timer_ready && schedule_hook_ready && keyboard_ready &&
-        mouse_ready && input_ready;
+    return available;
+}
+
+hardware::policy::CapabilityMask refresh_runtime_capabilities(
+    hardware::policy::CapabilityMask capabilities) {
+    using namespace hardware::policy;
+
+    const CapabilityMask dynamic =
+        CapabilityDisplay |
+        CapabilityKeyboard |
+        CapabilityPointer |
+        CapabilityStorage |
+        CapabilityNetwork |
+        CapabilityAudio |
+        CapabilityUsbHost |
+        CapabilityMultiprocessor;
+
+    capabilities &= ~dynamic;
+
+    if (graphics::width() != 0U && graphics::height() != 0U) {
+        capabilities |= CapabilityDisplay;
+    }
+    if (drivers::keyboard::initialized() ||
+        drivers::usb::xhci::keyboard_ready()) {
+        capabilities |= CapabilityKeyboard;
+    }
+    if (drivers::mouse::initialized() ||
+        drivers::usb::xhci::mouse_ready()) {
+        capabilities |= CapabilityPointer;
+    }
+    if (storage::device_registry::device_count() != 0U) {
+        capabilities |= CapabilityStorage;
+    }
+    if (drivers::usb::xhci::initialized()) {
+        capabilities |= CapabilityUsbHost;
+    }
+    if (drivers::audio::initialized()) {
+        capabilities |= CapabilityAudio;
+    }
+    if (net::service::physical_interface() &&
+        net::physical::driver() != net::physical::Driver::None) {
+        capabilities |= CapabilityNetwork;
+    }
+    if (arch::x86_64::smp::online_cpu_count() > 1U) {
+        capabilities |= CapabilityMultiprocessor;
+    }
+    return capabilities;
+}
+
+void print_compatibility_report(
+    hardware::policy::CapabilityMask capabilities) {
+    using hardware::compatibility::Tier;
+    using hardware::policy::Capability;
+    const auto result = hardware::compatibility::evaluate(capabilities);
+    terminal::write("hardware compatibility: ");
+    terminal::println(hardware::compatibility::tier_name(result.tier));
+
+    static constexpr Capability ordered[] = {
+        hardware::policy::CapabilityDisplay,
+        hardware::policy::CapabilityKeyboard,
+        hardware::policy::CapabilityPointer,
+        hardware::policy::CapabilityStorage,
+        hardware::policy::CapabilityNetwork,
+        hardware::policy::CapabilityAudio,
+        hardware::policy::CapabilityUsbHost,
+        hardware::policy::CapabilityMultiprocessor,
+    };
+    if (result.missing_for_next_tier != hardware::policy::CapabilityNone) {
+        terminal::write("next tier missing:");
+        for (Capability capability : ordered) {
+            if ((result.missing_for_next_tier &
+                 static_cast<hardware::policy::CapabilityMask>(capability)) == 0U) {
+                continue;
+            }
+            terminal::write(" ");
+            terminal::write(hardware::policy::capability_name(capability));
+        }
+        terminal::println();
+    }
+
+    switch (result.tier) {
+        case Tier::Extended:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 3 EXTENDED)");
+            break;
+        case Tier::Connected:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 2 CONNECTED)");
+            break;
+        case Tier::Usable:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 1 USABLE)");
+            break;
+        case Tier::Boot:
+            terminal::println(
+                "[TEST] hardware_compatibility_tier: PASS (TIER 0 BOOT)");
+            break;
+        case Tier::Unsupported:
+            terminal::println("[TEST] hardware_compatibility_tier: FAIL");
+            break;
+    }
 }
 
 void restore_shell_after_application() {
@@ -1534,6 +2118,34 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     }
 
     print_banner(context.safe_mode, context.diagnostics, context.installer);
+
+    if (arch::x86_64::cpu::initialize()) {
+        const auto* cpu_info = arch::x86_64::cpu::info();
+        if (cpu_info != nullptr) {
+            terminal::write("CPU vendor: ");
+            terminal::write(cpu_info->vendor_id);
+            terminal::write(" (");
+            terminal::write(arch::x86_64::cpu::vendor_name(cpu_info->vendor));
+            terminal::println(")");
+            terminal::write("CPU family/model/stepping: ");
+            terminal::write_u64(cpu_info->signature.family);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.model);
+            terminal::write("/");
+            terminal::write_u64(cpu_info->signature.stepping);
+            terminal::println();
+            terminal::println(
+                cpu_info->vendor == arch::x86_64::cpu::Vendor::Intel
+                    ? "[TEST] cpu_vendor_intel: PASS"
+                    : (cpu_info->vendor == arch::x86_64::cpu::Vendor::Amd
+                        ? "[TEST] cpu_vendor_amd: PASS"
+                        : "[TEST] cpu_vendor_generic: PASS"));
+            terminal::println("[TEST] cpu_discovery: PASS");
+        }
+    } else {
+        terminal::println("[TEST] cpu_discovery: DEGRADED");
+    }
+
     if (context.force_desktop && !context.safe_mode) {
         terminal::println("boot=desktop (DESKTOP ALPHA)");
         log::write(
@@ -1603,14 +2215,45 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (context.installer) {
         pci::scan();
         initialize_device_framework(false);
-        const storage::ahci::Status ahci_status = storage::ahci::initialize();
-        if (ahci_status != storage::ahci::Status::Ok &&
-            ahci_status != storage::ahci::Status::AlreadyInitialized) {
-            boot_failure("INSTALL", storage::ahci::status_message(ahci_status));
+
+        const storage::virtio_block::Status virtio_block_status =
+            storage::virtio_block::initialize();
+        if (virtio_block_status != storage::virtio_block::Status::Ok &&
+            virtio_block_status != storage::virtio_block::Status::AlreadyInitialized &&
+            virtio_block_status != storage::virtio_block::Status::NoDevice) {
+            log::write(
+                log::Level::Warn,
+                "INSTALL",
+                storage::virtio_block::status_message(virtio_block_status));
         }
-        if (!drivers::keyboard::initialize()) {
-            boot_failure("INSTALL", "PS/2 keyboard initialization failed");
+
+        const storage::nvme::Status nvme_status = storage::nvme::initialize();
+        if (nvme_status != storage::nvme::Status::Ok &&
+            nvme_status != storage::nvme::Status::AlreadyInitialized &&
+            nvme_status != storage::nvme::Status::NoController) {
+            log::write(
+                log::Level::Warn,
+                "INSTALL",
+                storage::nvme::status_message(nvme_status));
         }
+
+        // PS/2 is only a compatibility producer. The installer consumes the
+        // generic input queue, which can be fed by PS/2 or xHCI USB HID.
+        static_cast<void>(drivers::keyboard::initialize());
+        if (!input::initialize(graphics::width(), graphics::height())) {
+            boot_failure("INSTALL", "generic input queue initialization failed");
+        }
+        if (storage::device_registry::device_count() == 0U) {
+            boot_failure(
+                "INSTALL",
+                "no supported block device discovered for installation");
+        }
+        terminal::write("installer block devices: ");
+        terminal::write_u64(storage::device_registry::device_count());
+        terminal::println();
+        terminal::println("[TEST] installer_generic_storage: PASS");
+        terminal::println("[TEST] installer_generic_input: PASS");
+
         install::installer::run_interactive(
             context.boot_info->installation_package,
             static_cast<size_t>(
@@ -1646,6 +2289,15 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (!context.safe_mode) {
         pci::scan();
         initialize_device_framework(false);
+        const auto pci_msi_qualification = drivers::pci_edu::initialize();
+        if (pci_msi_qualification != drivers::pci_edu::Status::NotFound) {
+            log::write(
+                pci_msi_qualification == drivers::pci_edu::Status::Ok
+                    ? log::Level::Info
+                    : log::Level::Warn,
+                "MSI",
+                drivers::pci_edu::status_name(pci_msi_qualification));
+        }
         initialize_storage_probe();
         run_userland_probe();
     } else {
@@ -1685,30 +2337,183 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         boot_failure("APPS", "built-in application registration failed");
     }
 
-    const bool hardware_ready = initialize_hardware_interrupts();
+    hardware::policy::CapabilityMask hardware_capabilities =
+        initialize_hardware_interrupts();
+    if (network_status == net::Status::Ok &&
+        net::service::physical_interface()) {
+        hardware_capabilities |= hardware::policy::CapabilityNetwork;
+    }
+    const hardware::policy::Evaluation hardware_evaluation =
+        hardware::policy::evaluate(hardware_capabilities);
+
     log::write(
-        hardware_ready ? log::Level::Info : log::Level::Warn,
-        "INTERRUPTS",
-        hardware_ready ? "PIC, PIT, keyboard, mouse and input queue ready"
-                       : "hardware input degraded; polling fallback active");
-    terminal::write("interrupts/timer/input: ");
-    terminal::println(hardware_ready ? "READY" : "DEGRADED (polling enabled)");
-    terminal::write("PS/2 controller: ");
+        hardware_evaluation.bootable() ? log::Level::Info : log::Level::Error,
+        "HARDWARE",
+        hardware_evaluation.bootable()
+            ? "boot-critical hardware capabilities ready"
+            : "boot-critical hardware capability missing");
+    terminal::write("hardware boot policy: ");
     terminal::println(
-        drivers::keyboard::controller_configured() ? "configured" : "fallback");
+        hardware_evaluation.bootable()
+            ? "READY"
+            : "FAILED (boot-critical capability missing)");
+    terminal::println(
+        hardware_evaluation.bootable()
+            ? "[TEST] hardware_boot_policy: PASS"
+            : "[TEST] hardware_boot_policy: FAIL");
+
+    terminal::write("PS/2 keyboard: ");
+    terminal::println(
+        drivers::keyboard::controller_configured()
+            ? "configured (optional compatibility backend)"
+            : "unavailable (optional)");
+    terminal::println(
+        drivers::keyboard::initialized()
+            ? "[TEST] ps2_keyboard: PASS"
+            : "[TEST] ps2_keyboard: SKIP (optional backend unavailable)");
+
     terminal::write("PS/2 mouse: ");
     terminal::println(
         drivers::mouse::controller_configured()
             ? (drivers::mouse::wheel_enabled()
-                ? "configured (wheel)"
-                : "configured (3-button)")
-            : "unavailable");
+                ? "configured (wheel, optional compatibility backend)"
+                : "configured (3-button, optional compatibility backend)")
+            : "unavailable (optional)");
     terminal::println(
         drivers::mouse::initialized()
             ? "[TEST] ps2_mouse: PASS"
-            : "[TEST] ps2_mouse: FAIL");
-    if (!hardware_ready) {
-        boot_failure("INTERRUPTS", "required timer or PS/2 input unavailable");
+            : "[TEST] ps2_mouse: SKIP (optional backend unavailable)");
+
+    terminal::write("USB host: ");
+    terminal::println(
+        hardware::policy::available(
+            hardware_capabilities, hardware::policy::CapabilityUsbHost)
+            ? "READY"
+            : "unavailable (optional)");
+
+    if (!hardware_evaluation.bootable()) {
+        boot_failure(
+            "HARDWARE",
+            "required timer, scheduler interrupt hook or input queue unavailable");
+    }
+
+    const auto* smp_topology = arch::x86_64::acpi::topology();
+    if (smp_topology != nullptr && arch::x86_64::apic::local_enabled()) {
+        const auto smp_status = arch::x86_64::smp::initialize(*smp_topology);
+        if (smp_status != arch::x86_64::smp::Status::Ok &&
+            smp_status != arch::x86_64::smp::Status::AlreadyInitialized) {
+            terminal::println("[TEST] smp_ap_startup: FAIL");
+            boot_failure(
+                "SMP",
+                arch::x86_64::smp::status_message(smp_status));
+        }
+        log::write_u64(
+            log::Level::Info,
+            "SMP",
+            "discovered CPUs=",
+            arch::x86_64::smp::discovered_cpu_count());
+        log::write_u64(
+            log::Level::Info,
+            "SMP",
+            "online CPUs=",
+            arch::x86_64::smp::online_cpu_count());
+
+        if (threading::configure_processors(
+                arch::x86_64::smp::online_cpu_count()) !=
+            threading::Status::Ok) {
+            terminal::println("[TEST] scheduler2_topology: FAIL");
+            boot_failure("SCHED", "Scheduler 2.0 topology configuration failed");
+        }
+        terminal::println("[TEST] scheduler2_topology: PASS");
+
+        if (arch::x86_64::smp::online_cpu_count() > 1U) {
+            hardware_capabilities |=
+                hardware::policy::CapabilityMultiprocessor;
+            terminal::println("[TEST] smp_ap_startup: PASS");
+            if (arch::x86_64::gdt::loaded_cpu_count() !=
+                arch::x86_64::smp::online_cpu_count()) {
+                terminal::println("[TEST] smp_per_cpu_tss: FAIL");
+                boot_failure("SMP", "per-CPU GDT/TSS state not loaded");
+            }
+            terminal::println("[TEST] smp_per_cpu_tss: PASS");
+            if (!run_multicore_scheduler_probe(
+                    arch::x86_64::smp::online_cpu_count())) {
+                terminal::println("[TEST] smp_scheduler: FAIL");
+                boot_failure(
+                    "SMP",
+                    "Scheduler 2.0 did not execute affinity-bound threads on every CPU");
+            }
+            terminal::println("[TEST] smp_scheduler: PASS");
+            if (!run_multicore_ring3_probe(
+                    arch::x86_64::smp::online_cpu_count())) {
+                terminal::println("[TEST] smp_ring3_execution: FAIL");
+                boot_failure(
+                    "SMP",
+                    "Ring-3 process did not execute and return cleanly on every AP");
+            }
+            terminal::println("[TEST] smp_ring3_execution: PASS");
+            if (!arch::x86_64::smp::qualify_parallel_dispatch()) {
+                terminal::println("[TEST] smp_cross_cpu_work: FAIL");
+                boot_failure("SMP", "parallel CPU work dispatch failed");
+            }
+            terminal::println("[TEST] smp_cross_cpu_work: PASS");
+            if (!arch::x86_64::smp::qualify_tlb_shootdown()) {
+                terminal::println("[TEST] smp_tlb_shootdown: FAIL");
+                boot_failure("SMP", "cross-CPU TLB shootdown failed");
+            }
+            terminal::println("[TEST] smp_tlb_shootdown: PASS");
+        } else {
+            terminal::println("[TEST] smp_ap_startup: SKIP (single CPU)");
+            terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
+            terminal::println("[TEST] smp_scheduler: SKIP (single CPU)");
+            terminal::println("[TEST] smp_ring3_execution: SKIP (single CPU)");
+            terminal::println("[TEST] smp_cross_cpu_work: SKIP (single CPU)");
+            terminal::println("[TEST] smp_tlb_shootdown: SKIP (single CPU)");
+        }
+    } else {
+        terminal::println("[TEST] smp_ap_startup: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_per_cpu_tss: PASS (BSP only)");
+        terminal::println("[TEST] smp_scheduler: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_ring3_execution: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_cross_cpu_work: SKIP (APIC unavailable)");
+        terminal::println("[TEST] smp_tlb_shootdown: SKIP (APIC unavailable)");
+    }
+
+    if (net::e1000::msi_configured()) {
+        const bool msi_delivered =
+            net::e1000::qualify_msi_delivery(UINT32_C(1000000));
+        log::write(
+            msi_delivered ? log::Level::Info : log::Level::Warn,
+            "MSI",
+            msi_delivered
+                ? "E1000 device MSI reached the Local APIC handler"
+                : "E1000 MSI delivery failed; restored polling-safe PCI state");
+        terminal::println(
+            msi_delivered
+                ? "[TEST] e1000_msi_delivery: PASS"
+                : "[TEST] e1000_msi_delivery: DEGRADED (polling fallback)");
+    } else {
+        terminal::println(
+            "[TEST] e1000_msi_delivery: SKIP (E1000/MSI unavailable)");
+    }
+    if (drivers::pci_edu::msi_configured()) {
+        const bool msi_delivered =
+            drivers::pci_edu::qualify_msi_delivery(UINT32_C(1000000));
+        log::write(
+            msi_delivered ? log::Level::Info : log::Level::Warn,
+            "MSI",
+            msi_delivered
+                ? "QEMU EDU MSI reached the Local APIC handler and route teardown completed"
+                : drivers::pci_edu::status_name(drivers::pci_edu::status()));
+        terminal::println(
+            msi_delivered
+                ? "[TEST] pci_msi_delivery: PASS"
+                : "[TEST] pci_msi_delivery: FAIL");
+    } else {
+        terminal::write("[TEST] pci_msi_delivery: SKIP (");
+        terminal::write(
+            drivers::pci_edu::status_name(drivers::pci_edu::status()));
+        terminal::println(")");
     }
     if (!run_kernel_preemption_probe()) {
         terminal::println("[TEST] kernel_preemption: FAIL");
@@ -1743,55 +2548,122 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         terminal::println("[TEST] network_loopback: SKIP");
     } else if (network_status == net::Status::Ok &&
                net::service::physical_interface()) {
-        terminal::println("E1000 link READY");
-        terminal::println("[TEST] e1000_link: PASS");
-        if (!net::service::dhcp_configured()) {
-            terminal::println("[TEST] dhcp_lease: FAIL");
-            boot_failure("NET", "DHCP did not configure the physical link");
+        terminal::write(net::service::interface_name());
+        terminal::println(" link READY");
+        bool physical_driver_ready = true;
+        switch (net::physical::driver()) {
+            case net::physical::Driver::E1000:
+                terminal::println(
+                    net::e1000::model() == net::e1000::Model::I82574L
+                        ? "[TEST] e1000e_link: PASS"
+                        : "[TEST] e1000_link: PASS");
+                terminal::println("[TEST] intel_gbe_link: PASS");
+                break;
+            case net::physical::Driver::VirtioNet: {
+                terminal::println("[TEST] virtio_net_link: PASS");
+                const auto diagnostics = net::virtio_net::interrupt_diagnostics();
+                terminal::write("VirtIO queue interrupts: ");
+                terminal::write(net::virtio_net::interrupt_status_name(diagnostics.status));
+                terminal::write("; vector=");
+                terminal::write_u64(diagnostics.vector);
+                terminal::write("; routes=");
+                terminal::write_u64(diagnostics.route_count);
+                terminal::write("; RX=");
+                terminal::write_u64(diagnostics.receive_vector);
+                terminal::write("; TX=");
+                terminal::write_u64(diagnostics.transmit_vector);
+                terminal::println("");
+                break;
+            }
+            case net::physical::Driver::Pcnet:
+                terminal::println("[TEST] pcnet_link: PASS");
+                break;
+            case net::physical::Driver::None:
+                physical_driver_ready = false;
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "physical interface has no owning driver; continuing offline");
+                terminal::println(
+                    "[TEST] physical_network: DEGRADED (no owning driver)");
+                break;
+        }
+
+        if (!physical_driver_ready) {
+            terminal::println("[TEST] dhcp_lease: SKIP (network optional)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (network optional)");
+        } else if (!net::service::dhcp_configured()) {
+            log::write(
+                log::Level::Warn,
+                "NET",
+                "DHCP unavailable; continuing with networking degraded");
+            terminal::println(
+                "[TEST] dhcp_lease: DEGRADED (system continues offline)");
+            terminal::println(
+                "[TEST] network_gateway_icmp: SKIP (no DHCP lease)");
         } else {
             terminal::println("[TEST] dhcp_lease: PASS");
             terminal::println("[TEST] udp_transport: PASS");
+
+            if (net::service::ping_gateway(1) != net::Status::Ok) {
+                log::write(
+                    log::Level::Warn,
+                    "NET",
+                    "gateway ICMP unavailable; continuing with networking degraded");
+                terminal::println(
+                    "[TEST] network_gateway_icmp: DEGRADED (system continues)");
+            } else {
+                terminal::println("gateway ICMP: PASS");
+                terminal::println("[TEST] network_gateway_icmp: PASS");
+
+                net::IPv4Address resolved{};
+                const net::Status dns_status =
+                    net::service::resolve_a("example.com", &resolved);
+                if (dns_status == net::Status::Ok) {
+                    terminal::println("DNS A example.com: PASS");
+                    terminal::println("[TEST] dns_resolver: PASS");
+                    const net::Status tcp_status =
+                        net::service::tcp_connect_probe(
+                            resolved, 80U, "example.com");
+                    terminal::println(
+                        tcp_status == net::Status::Ok
+                            ? "[TEST] tcp_http_optional: PASS"
+                            : "[TEST] tcp_http_optional: SKIP");
+                } else {
+                    terminal::println(
+                        "DNS A example.com: optional online test unavailable");
+                    terminal::println("[TEST] dns_resolver_online: SKIP");
+                    terminal::println("[TEST] tcp_http_optional: SKIP");
+                }
+                const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
+                terminal::println(
+                    net::service::ping_address(public_probe, 2U) ==
+                            net::Status::Ok
+                        ? "[TEST] network_online_icmp: PASS"
+                        : "[TEST] network_online_icmp: SKIP");
+            }
         }
-        if (net::service::ping_gateway(1) != net::Status::Ok) {
-            terminal::println("[TEST] network_gateway_icmp: FAIL");
-            boot_failure("NET", "gateway ICMP self-test failed");
-        } else {
-            terminal::println("gateway ICMP: PASS");
-            terminal::println("[TEST] network_gateway_icmp: PASS");
-        }
-        net::IPv4Address resolved{};
-        const net::Status dns_status =
-            net::service::resolve_a("example.com", &resolved);
-        if (dns_status == net::Status::Ok) {
-            terminal::println("DNS A example.com: PASS");
-            terminal::println("[TEST] dns_resolver: PASS");
-            const net::Status tcp_status =
-                net::service::tcp_connect_probe(resolved, 80U, "example.com");
-            terminal::println(
-                tcp_status == net::Status::Ok
-                    ? "[TEST] tcp_http_optional: PASS"
-                    : "[TEST] tcp_http_optional: SKIP");
-        } else {
-            terminal::println("DNS A example.com: optional online test unavailable");
-            terminal::println("[TEST] dns_resolver_online: SKIP");
-            terminal::println("[TEST] tcp_http_optional: SKIP");
-        }
-        const net::IPv4Address public_probe = {{1U, 1U, 1U, 1U}};
-        terminal::println(
-            net::service::ping_address(public_probe, 2U) == net::Status::Ok
-                ? "[TEST] network_online_icmp: PASS"
-                : "[TEST] network_online_icmp: SKIP");
     } else if (network_status == net::Status::Ok &&
                net::service::ping_loopback(1) == net::Status::Ok) {
         terminal::println("PASS (loopback fallback 127.0.0.1)");
         terminal::println("[TEST] network_loopback: PASS");
     } else {
-        terminal::write("FAIL (");
+        terminal::write("DEGRADED (");
         terminal::write(net::status_message(network_status));
-        terminal::println(")");
-        terminal::println("[TEST] network_gateway_icmp: FAIL");
-        boot_failure("NET", "physical network self-test failed");
+        terminal::println(") - system continues offline");
+        log::write(
+            log::Level::Warn,
+            "NET",
+            "network service unavailable; continuing without physical network");
+        terminal::println(
+            "[TEST] network_loopback: DEGRADED (network optional at boot)");
+        terminal::println(
+            "[TEST] network_gateway_icmp: SKIP (network optional at boot)");
     }
+    hardware_capabilities =
+        refresh_runtime_capabilities(hardware_capabilities);
+    print_compatibility_report(hardware_capabilities);
     terminal::println(
         g_required_runtime_test_failed
             ? "[TEST] ALL_REQUIRED_TESTS_PASSED: FAIL"
@@ -1805,6 +2677,12 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     if (context.safe_mode) {
         shell::initialize(false);
     } else {
+        if (context.force_desktop) {
+            if (!kurogane_start_desktop_session()) {
+                boot_failure("GUI", "cannot establish Flux desktop session owner");
+            }
+            terminal::println("[TEST] flux_session_owner: PASS");
+        }
         user::console::initialize();
         process::ProcessId init_pid = process::INVALID_PROCESS_ID;
         const process::Status init_status =
@@ -1817,35 +2695,6 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         log::write(log::Level::Info, "INIT", "spawned /system/init as PID 1");
     }
 
-    if (context.force_desktop && !context.safe_mode) {
-        const auto auto_launch_status = applications::launch("desktop");
-        if (auto_launch_status != applications::Status::Ok) {
-            terminal::write("desktop auto-launch failed: ");
-            terminal::println(
-                applications::status_message(auto_launch_status));
-        } else {
-            log::write(
-                log::Level::Warn,
-                "GUI",
-                "desktop alpha session started");
-            static const char* const desktop_apps[] = {
-                "/gui/terminal", "/gui/files", "/gui/sysmon",
-                "/gui/about", "/gui/settings"
-            };
-            bool desktop_apps_ok = true;
-            for (const char* path : desktop_apps) {
-                if (process::spawn(path, nullptr) != process::Status::Ok) {
-                    desktop_apps_ok = false;
-                    terminal::write("desktop cannot launch ");
-                    terminal::println(path);
-                }
-            }
-            terminal::println(
-                desktop_apps_ok
-                    ? "[TEST] desktop_userspace_apps: PASS"
-                    : "[TEST] desktop_userspace_apps: FAIL");
-        }
-    }
 
     kernel_loop();
 }

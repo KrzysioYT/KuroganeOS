@@ -163,6 +163,7 @@ declare -a gui_specs=(
     browser:browser
     about:about
     settings:settings
+    notifications:notify
 )
 for spec in "${gui_specs[@]}"; do
     source_name="${spec%%:*}"

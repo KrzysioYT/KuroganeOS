@@ -1,12 +1,15 @@
 #include "installer.hpp"
 
 #include "disk_layout.hpp"
+#include "fat32_reliable_file.hpp"
 #include "package.hpp"
 #include "../drivers/framebuffer.hpp"
 #include "../drivers/keyboard.hpp"
+#include "../drivers/usb/xhci.hpp"
+#include "../input/input.hpp"
 #include "../fs/fat32.hpp"
 #include "../fs/root_volume.hpp"
-#include "../storage/ahci.hpp"
+#include "../storage/device_registry.hpp"
 #include "../storage/gpt.hpp"
 #include "../storage/partition_device.hpp"
 #include "../terminal.hpp"
@@ -196,10 +199,27 @@ void draw_option(
 
 drivers::keyboard::KeyEvent wait_key() {
     for (;;) {
-        drivers::keyboard::poll();
-        drivers::keyboard::KeyEvent event{};
-        if (drivers::keyboard::try_read_event(event) && event.pressed) {
-            return event;
+        // Early installer runs before the normal interrupt/input loop. Poll
+        // every active producer, then consume only the transport-neutral queue.
+        static_cast<void>(drivers::keyboard::poll());
+        if (drivers::usb::xhci::initialized()) {
+            static_cast<void>(drivers::usb::xhci::poll(32U));
+        }
+        static_cast<void>(input::pump());
+        input::Event event{};
+        while (input::try_read(&event)) {
+            if (event.type != input::EventType::KeyDown) continue;
+            return {
+                event.key,
+                event.character,
+                0U,
+                true,
+                false,
+                event.shift,
+                false,
+                event.control,
+                event.alt,
+            };
         }
         __asm__ volatile("pause");
     }
@@ -538,19 +558,64 @@ bool verify_destination(const package::View& payload, uint32_t destination) {
     return true;
 }
 
+bool reliable_state_paths(
+    const char* path,
+    ::install::reliable_file::Paths* output) {
+    if (path == nullptr || output == nullptr) return false;
+    if (strings_equal(path, "/etc/locale.cfg")) {
+        *output = {
+            path,
+            "/etc/locale.new",
+            "/etc/locale.bak",
+            "/etc/locale.old",
+        };
+        return true;
+    }
+    if (strings_equal(path, "/etc/user.cfg")) {
+        *output = {
+            path,
+            "/etc/user.new",
+            "/etc/user.bak",
+            "/etc/user.old",
+        };
+        return true;
+    }
+    if (strings_equal(path, "/etc/first.run")) {
+        *output = {
+            path,
+            "/etc/first.new",
+            "/etc/first.bak",
+            "/etc/first.old",
+        };
+        return true;
+    }
+    return false;
+}
+
 bool replace_root_file(const char* path, const char* data) {
     if (ensure_parent_directories(&g_root, path) != fs::fat32::Status::Ok) {
         return false;
     }
-    const fs::fat32::Status removed = fs::fat32::unlink(&g_root, path);
-    if (removed != fs::fat32::Status::Ok &&
-        removed != fs::fat32::Status::NotFound) {
+
+    ::install::reliable_file::Paths paths{};
+    if (!reliable_state_paths(path, &paths)) {
+        terminal::write("[INSTALL][STATE] unsupported transactional path=");
+        terminal::println(path == nullptr ? "(null)" : path);
         return false;
     }
-    if (fs::fat32::create(&g_root, path) != fs::fat32::Status::Ok) return false;
+
     const size_t size = text_length(data);
-    return size == 0U ||
-        fs::fat32::write(&g_root, path, 0U, data, size) == fs::fat32::Status::Ok;
+    const ::install::reliable_file::Status status =
+        ::install::fat32_reliable_file::replace(
+            &g_root, paths, data, size);
+    if (status != ::install::reliable_file::Status::Ok) {
+        terminal::write("[INSTALL][STATE] path=");
+        terminal::write(path);
+        terminal::write(" status=");
+        terminal::println(::install::reliable_file::status_message(status));
+        return false;
+    }
+    return true;
 }
 
 bool write_profile(const InstallProfile& profile) {
@@ -597,29 +662,42 @@ void draw_progress(size_t stage, const char* label) {
 }
 
 size_t choose_disk() {
-    const size_t count = storage::ahci::device_count();
-    if (count == 0U) fail("NO WRITABLE SATA/AHCI DISK DETECTED");
+    const size_t count = storage::device_registry::device_count();
+    if (count == 0U) fail("NO WRITABLE BLOCK DEVICE DETECTED");
     size_t selected = 0U;
     for (;;) {
         draw_setup_title("SELECT TARGET DISK",
                          "THE SELECTED DISK WILL BE ERASED");
         const int32_t width = static_cast<int32_t>(graphics::width());
         const int32_t x = width / 2 - 250;
-        const storage::ahci::DeviceInfo* info =
-            storage::ahci::device_info_at(selected);
+        storage::device_registry::Entry entry{};
+        const bool available =
+            storage::device_registry::entry_at(selected, &entry) &&
+            entry.device != nullptr;
         graphics::fill_rect(x, 220, 500, 120, kPanelRaised);
         graphics::draw_rect(x, 220, 500, 120, kAccent, 2U);
-        graphics::draw_text(x + 24, 242,
-                            info != nullptr ? info->model : "UNKNOWN SATA DISK",
-                            kText, kPanelRaised, 1U, true);
+        graphics::draw_text(
+            x + 24, 242,
+            available && entry.model != nullptr
+                ? entry.model
+                : "UNKNOWN BLOCK DEVICE",
+            kText, kPanelRaised, 1U, true);
         char size_line[64] = "SIZE: ";
         char size_text[24]{};
-        const uint64_t mib = info != nullptr
-            ? (info->sector_count * info->sector_size) / (1024U * 1024U)
+        const uint64_t mib = available
+            ? (entry.device->sector_count * entry.device->sector_size) /
+                (1024U * 1024U)
             : 0U;
         u64_to_decimal(mib, size_text, sizeof(size_text));
         append_text(size_line, sizeof(size_line), size_text);
-        append_text(size_line, sizeof(size_line), " MiB");
+        append_text(size_line, sizeof(size_line), " MiB  [");
+        append_text(
+            size_line,
+            sizeof(size_line),
+            available
+                ? storage::device_registry::backend_name(entry.backend)
+                : "UNKNOWN");
+        append_text(size_line, sizeof(size_line), "]");
         graphics::draw_text(x + 24, 276, size_line,
                             kMuted, kPanelRaised, 1U, true);
         char index_line[64] = "DISK ";
@@ -633,6 +711,7 @@ size_t choose_disk() {
         graphics::draw_text(x + 24, 306, index_line,
                             kAccentBright, kPanelRaised, 1U, true);
         draw_footer("UP/DOWN: CHANGE DISK   ENTER: SELECT");
+        terminal::println("installer: select target disk index:");
         const auto event = wait_key();
         if (event.key == drivers::keyboard::KeyCode::ArrowUp) {
             selected = selected == 0U ? count - 1U : selected - 1U;
@@ -655,6 +734,7 @@ bool confirm_erase() {
             "CONFIRM INSTALLATION",
             "TYPE INSTALL TO ERASE THE SELECTED DISK",
             confirmation, false, error);
+        terminal::println("installer: type INSTALL to confirm:");
         const auto event = wait_key();
         error = nullptr;
         if (event.key == drivers::keyboard::KeyCode::Escape) return false;
@@ -716,6 +796,7 @@ void run_interactive(
     terminal::write_u64(payload.file_count);
     terminal::println();
     terminal::println("[TEST] installer_package_preflight: PASS");
+    terminal::println("installer: select setup mode:");
 
     const size_t mode = choose_two(
         "WELCOME TO KUROGANEOS",
@@ -737,6 +818,7 @@ void run_interactive(
     }
 
     InstallProfile profile{};
+    terminal::println("installer: select language:");
     const size_t language = choose_two(
         "CHOOSE LANGUAGE / WYBIERZ JEZYK",
         "INSTALLER AND LOGIN PROFILE",
@@ -745,6 +827,7 @@ void run_interactive(
     profile.language = language == 1U ? Language::Polish : Language::English;
 
     copy_text(profile.username, sizeof(profile.username), "user");
+    terminal::println("installer: enter username:");
     if (!read_input(
             profile.language == Language::Polish
                 ? "NAZWA UZYTKOWNIKA" : "USER NAME",
@@ -754,6 +837,7 @@ void run_interactive(
         fail("ACCOUNT SETUP CANCELLED");
     }
 
+    terminal::println("installer: select password mode:");
     const size_t password_mode = choose_two(
         profile.language == Language::Polish
             ? "ZABEZPIECZENIE KONTA" : "ACCOUNT SECURITY",
@@ -776,8 +860,9 @@ void run_interactive(
 
     const storage::block::Device* target = nullptr;
     for (;;) {
+        terminal::println("installer: select target disk index:");
         const size_t target_index = choose_disk();
-        target = storage::ahci::device_at(target_index);
+        target = storage::device_registry::device_at(target_index);
         if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
         if (confirm_erase()) {
             terminal::println("[TEST] installer_confirmation: PASS");

@@ -1,0 +1,248 @@
+name: Qualify 4.0 Pre-Steel Closeout
+
+on:
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-pre-steel-closeout.yml'
+      - '.github/workflows/qualify-kurofs-runtime.yml'
+      - '.github/workflows/qualify-device-driver-runtime.yml'
+      - '.github/workflows/qualify-unified-status-runtime.yml'
+      - '.github/workflows/qualify-fatal-diagnostics.yml'
+      - '.github/workflows/qualify-3.4-regression-sweep.yml'
+      - '.github/workflows/qualify-socket-core.yml'
+      - '.github/workflows/qualify-dns-service.yml'
+      - '.github/workflows/qualify-network-events.yml'
+      - '.github/workflows/qualify-3.5-audio-app-kvm.yml'
+      - '.github/workflows/qualify-tls-https-runtime.yml'
+      - '.github/workflows/qualify-flux-runtime.yml'
+      - '.github/workflows/qualify-flux-session-recovery.yml'
+      - 'kernel/fs/**'
+      - 'kernel/drivers/**'
+      - 'kernel/diagnostics/**'
+      - 'kernel/ipc/**'
+      - 'kernel/net/**'
+      - 'kernel/task/**'
+      - 'kernel/user/**'
+      - 'sdk/include/kurogane/**'
+      - 'userspace/**'
+      - 'scripts/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Freeze exact candidate SHA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify immutable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$GITHUB_SHA"
+          test "$(git status --porcelain)" = ""
+          echo "4.0 candidate SHA: $actual"
+          echo "candidate_sha=$actual" >> "$GITHUB_OUTPUT"
+
+  host-media-production:
+    name: Host, media, and production OVMF/Q35/KVM
+    needs: candidate
+    runs-on: [self-hosted, kurogane, kvm]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify exact candidate and qualification isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git status --porcelain)" = ""
+          ! grep -Fq 'u_spawn("/system/kfsprb")' userspace/system/init/main.c
+          ! grep -Fq 'u_spawn_wait("/system/devprobe"' userspace/system/init/main.c
+          ! grep -Fq 'u_spawn_wait("/system/stprobe"' userspace/system/init/main.c
+          ! grep -Fq 'drivers::runtime_qualification::run' kernel/main.cpp
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          bash ./scripts/setup-linux.sh
+          qemu-system-x86_64 --version | head -n 1
+
+      - name: Run complete host regression
+        shell: bash
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release IMG ISO SDK and install package
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          version="$(bash ./scripts/read-version.sh)"
+          image="dist/KuroganeOS-${version}-linux-qemu.img"
+          iso="dist/KuroganeOS-${version}-x86_64.iso"
+          test -s build/kernel.elf
+          test -s build/images/KuroganeOS-linux.img
+          test -s "$image"
+          test -s "$iso"
+          test -s build/install.pkg
+          test -s dist/SHA256SUMS.txt
+          test -s build/userspace/rootfs/system/kfsprb
+          test -s build/userspace/rootfs/system/devprobe
+          test -s build/userspace/rootfs/system/stprobe
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+
+      - name: Boot clean production IMG on OVMF Q35 KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img \
+            --disk \
+            --accel kvm \
+            --nic e1000 \
+            --audio ac97 \
+            --require-network \
+            --require-marker '[TEST] flux_session_owner: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED' \
+            --timeout 240
+
+      - name: Boot clean release ISO on OVMF Q35 KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          version="$(bash ./scripts/read-version.sh)"
+          bash ./scripts/smoke-uefi-iso-qemu.sh \
+            "dist/KuroganeOS-${version}-x86_64.iso" \
+            --accel kvm \
+            --timeout 120
+
+      - name: Record production evidence
+        shell: bash
+        run: |
+          {
+            echo '### 4.0 production candidate evidence'
+            echo ''
+            echo "- SHA: $GITHUB_SHA"
+            echo '- full host regression: PASS'
+            echo '- clean release IMG: PASS'
+            echo '- clean release ISO: PASS'
+            echo '- install package and checksums: PASS'
+            echo '- uninjected OVMF/Q35/KVM IMG runtime: PASS'
+            echo '- OVMF/Q35/KVM ISO boot: PASS'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  kurofs-runtime:
+    name: KuroFS native two-boot persistence
+    needs: candidate
+    uses: ./.github/workflows/qualify-kurofs-runtime.yml
+
+  device-driver-runtime:
+    name: Device, driver, and Ring-3 device ABI
+    needs: candidate
+    uses: ./.github/workflows/qualify-device-driver-runtime.yml
+
+  unified-status-runtime:
+    name: Unified typed status ABI
+    needs: candidate
+    uses: ./.github/workflows/qualify-unified-status-runtime.yml
+
+  fatal-diagnostic:
+    name: Fatal diagnostic full and nested paths
+    needs: candidate
+    uses: ./.github/workflows/qualify-fatal-diagnostics.yml
+
+  regression-3-4:
+    name: 3.4 System Services regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-3.4-regression-sweep.yml
+
+  regression-3-5-sockets:
+    name: 3.5 socket regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-socket-core.yml
+
+  regression-3-5-dns:
+    name: 3.5 DNS regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-dns-service.yml
+
+  regression-3-5-network-events:
+    name: 3.5 network-events regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-network-events.yml
+
+  regression-3-5-audio-apps:
+    name: 3.5 audio and application-registry regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-3.5-audio-app-kvm.yml
+
+  regression-3-5-tls:
+    name: 3.5 TLS and HTTPS regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-tls-https-runtime.yml
+
+  regression-3-6-flux:
+    name: 3.6 Flux runtime regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-flux-runtime.yml
+
+  regression-3-6-session:
+    name: 3.6 Flux session recovery regression
+    needs: candidate
+    uses: ./.github/workflows/qualify-flux-session-recovery.yml
+
+  pre-steel-closeout:
+    name: Authoritative 4.0 same-SHA closeout
+    needs:
+      - candidate
+      - host-media-production
+      - kurofs-runtime
+      - device-driver-runtime
+      - unified-status-runtime
+      - fatal-diagnostic
+      - regression-3-4
+      - regression-3-5-sockets
+      - regression-3-5-dns
+      - regression-3-5-network-events
+      - regression-3-5-audio-apps
+      - regression-3-5-tls
+      - regression-3-6-flux
+      - regression-3-6-session
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record authoritative same-SHA qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '### KuroganeOS 4.0 Pre-Steel closeout'
+            echo ''
+            echo "- candidate SHA: $GITHUB_SHA"
+            echo '- KuroFS native two-boot persistence: PASS'
+            echo '- Device Model and Driver Manager native runtime: PASS'
+            echo '- Ring-3 device ABI and unified typed status ABI: PASS'
+            echo '- full host, IMG, ISO, install-package, and production KVM: PASS'
+            echo '- 3.4, 3.5, and 3.6 regressions: PASS'
+            echo '- fatal diagnostic full and nested paths: PASS'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "KuroganeOS 4.0 Pre-Steel closeout: PASS sha=$GITHUB_SHA"

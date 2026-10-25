@@ -1,5 +1,8 @@
 # Audyt projektu KuroganeOS
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
+
 Data audytu: 6 sierpnia 2026 r.  
 Audytowana gałąź robocza: lokalny katalog `E:\KuroganeOS` (repozytorium nie zawiera metadanych Git).
 

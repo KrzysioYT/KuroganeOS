@@ -3,8 +3,8 @@
 namespace drivers::usb {
 namespace {
 
-bool contains(const uint8_t* keys, uint8_t usage) {
-    for (size_t index = 0U; index < 6U; ++index) {
+bool contains(const uint8_t* keys, uint8_t usage, size_t count = 6U) {
+    for (size_t index = 0U; index < count; ++index) {
         if (keys[index] == usage) return true;
     }
     return false;
@@ -146,19 +146,32 @@ bool append_event(
 
 } // namespace
 
-bool find_boot_keyboard_interface(
+namespace {
+
+struct HidBootInterfaceData {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+};
+
+bool find_boot_interface(
     const uint8_t* descriptors,
     size_t length,
-    HidBootKeyboardInterface* output) {
+    uint8_t protocol,
+    uint16_t minimum_packet_size,
+    HidBootInterfaceData* output) {
     if (descriptors == nullptr || output == nullptr || length < 9U ||
-        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+        descriptors[1U] != 2U || descriptors[0U] < 9U ||
+        minimum_packet_size == 0U || minimum_packet_size > 1024U) {
         return false;
     }
     const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
         static_cast<uint16_t>(descriptors[3U]) << 8U;
     if (total < 9U || total > length || descriptors[5U] == 0U) return false;
     const uint8_t configuration = descriptors[5U];
-    bool keyboard_interface = false;
+    bool matching_interface = false;
     uint8_t interface_number = 0U;
     for (size_t offset = 0U; offset < total;) {
         if (total - offset < 2U) return false;
@@ -169,26 +182,31 @@ bool find_boot_keyboard_interface(
         }
         if (descriptor_type == 4U) {
             if (descriptor_length < 9U) return false;
-            keyboard_interface = descriptors[offset + 3U] == 0U &&
+            matching_interface = descriptors[offset + 3U] == 0U &&
                 descriptors[offset + 5U] == 3U &&
                 descriptors[offset + 6U] == 1U &&
-                descriptors[offset + 7U] == 1U;
+                descriptors[offset + 7U] == protocol;
             interface_number = descriptors[offset + 2U];
-        } else if (descriptor_type == 5U && keyboard_interface) {
+        } else if (descriptor_type == 5U && matching_interface) {
             if (descriptor_length < 7U) return false;
             const uint8_t endpoint = descriptors[offset + 2U];
             const uint8_t attributes = descriptors[offset + 3U];
             const uint16_t packet =
                 static_cast<uint16_t>(descriptors[offset + 4U]) |
                 static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
-            if ((endpoint & 0x80U) != 0U && (attributes & 3U) == 3U &&
-                (packet & 0x7FFU) >= 8U) {
+            const uint16_t packet_size = static_cast<uint16_t>(packet & 0x7FFU);
+            const uint8_t endpoint_number =
+                static_cast<uint8_t>(endpoint & 0x0FU);
+            const uint8_t interval = descriptors[offset + 6U];
+            if ((endpoint & 0x80U) != 0U && endpoint_number != 0U &&
+                (attributes & 3U) == 3U && interval != 0U &&
+                packet_size >= minimum_packet_size && packet_size <= 1024U) {
                 *output = {
                     configuration,
                     interface_number,
                     endpoint,
-                    static_cast<uint16_t>(packet & 0x7FFU),
-                    descriptors[offset + 6U],
+                    packet_size,
+                    interval,
                 };
                 return true;
             }
@@ -198,11 +216,34 @@ bool find_boot_keyboard_interface(
     return false;
 }
 
+} // namespace
+
+bool find_boot_keyboard_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidBootKeyboardInterface* output) {
+    if (output == nullptr) return false;
+    HidBootInterfaceData found{};
+    if (!find_boot_interface(descriptors, length, 1U, 8U, &found)) {
+        return false;
+    }
+    *output = {
+        found.configuration_value,
+        found.interface_number,
+        found.endpoint_address,
+        found.maximum_packet_size,
+        found.interval,
+    };
+    return true;
+}
+
 void reset_keyboard_decoder(KeyboardDecoder* decoder) {
     if (decoder != nullptr) *decoder = {};
 }
 
-bool decode_boot_keyboard_report(
+namespace {
+
+bool decode_valid_keyboard_report(
     KeyboardDecoder* decoder,
     const uint8_t* report,
     size_t report_length,
@@ -226,7 +267,8 @@ bool decode_boot_keyboard_report(
     }
     for (size_t index = 0U; index < 6U; ++index) {
         const uint8_t usage = decoder->previous_keys[index];
-        if (usage > 3U && !contains(report + 2U, usage) &&
+        if (usage > 3U && !contains(decoder->previous_keys, usage, index) &&
+            !contains(report + 2U, usage) &&
             !append_event(events, event_capacity, event_count, usage, false,
                           report[0U], decoder->caps_lock)) {
             return false;
@@ -244,7 +286,8 @@ bool decode_boot_keyboard_report(
     }
     for (size_t index = 0U; index < 6U; ++index) {
         const uint8_t usage = report[index + 2U];
-        if (usage <= 3U || contains(decoder->previous_keys, usage)) continue;
+        if (usage <= 3U || contains(decoder->previous_keys, usage) ||
+            contains(report + 2U, usage, index)) continue;
         if (usage == 0x39U) decoder->caps_lock = !decoder->caps_lock;
         if (!append_event(events, event_capacity, event_count, usage, true,
                           report[0U], decoder->caps_lock)) {
@@ -257,5 +300,217 @@ bool decode_boot_keyboard_report(
     }
     return true;
 }
+
+} // namespace
+
+bool decode_boot_keyboard_report(
+    KeyboardDecoder* decoder,
+    const uint8_t* report,
+    size_t report_length,
+    keyboard::KeyEvent* events,
+    size_t event_capacity,
+    size_t* event_count) {
+    if (event_count == nullptr) return false;
+    *event_count = 0U;
+    if (decoder == nullptr || report == nullptr || report_length < 8U ||
+        events == nullptr) return false;
+
+    uint8_t effective[8]{};
+    bool rollover = false;
+    for (size_t index = 2U; index < 8U; ++index) {
+        if (report[index] == 2U || report[index] == 3U) return false;
+        if (report[index] == 1U) rollover = true;
+    }
+    effective[0U] = report[0U];
+    // HID 1.11 Appendix C: phantom arrays do not describe released keys.
+    // Modifiers remain meaningful; retain the last known non-modifier set.
+    for (size_t index = 0U; index < 6U; ++index) {
+        effective[index + 2U] = rollover
+            ? decoder->previous_keys[index] : report[index + 2U];
+    }
+
+    KeyboardDecoder next = *decoder;
+    keyboard::KeyEvent staged[MAXIMUM_KEYBOARD_EVENTS_PER_REPORT]{};
+    size_t staged_count = 0U;
+    if (!decode_valid_keyboard_report(
+            &next, effective, sizeof(effective), staged,
+            MAXIMUM_KEYBOARD_EVENTS_PER_REPORT, &staged_count) ||
+        staged_count > event_capacity) return false;
+
+    // Publish the complete transition together. A failed capacity check must
+    // not emit partial events or toggle Caps Lock before a caller retries.
+    for (size_t index = 0U; index < staged_count; ++index) {
+        events[index] = staged[index];
+    }
+    *decoder = next;
+    *event_count = staged_count;
+    return true;
+}
+
+bool find_boot_mouse_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidBootMouseInterface* output) {
+    if (output == nullptr) return false;
+    HidBootInterfaceData found{};
+    if (!find_boot_interface(descriptors, length, 2U, 3U, &found)) {
+        return false;
+    }
+    *output = {
+        found.configuration_value,
+        found.interface_number,
+        found.endpoint_address,
+        found.maximum_packet_size,
+        found.interval,
+    };
+    return true;
+}
+
+namespace {
+
+bool find_hid_report_interface_impl(
+    const uint8_t* descriptors,
+    size_t length,
+    bool filter_interface,
+    uint8_t required_interface,
+    HidReportInterface* output) {
+    if (descriptors == nullptr || output == nullptr || length < 9U ||
+        descriptors[1U] != 2U || descriptors[0U] < 9U) {
+        return false;
+    }
+    const uint16_t total = static_cast<uint16_t>(descriptors[2U]) |
+        static_cast<uint16_t>(descriptors[3U]) << 8U;
+    if (total < 9U || total > length || descriptors[5U] == 0U) return false;
+
+    const uint8_t configuration = descriptors[5U];
+    bool hid_interface = false;
+    uint8_t interface_number = 0U;
+    uint16_t report_length = 0U;
+    uint8_t endpoint = 0U;
+    uint16_t packet_size = 0U;
+    uint8_t interval = 0U;
+
+    auto publish_current = [&]() -> bool {
+        if (!hid_interface || report_length == 0U ||
+            report_length > 4096U || endpoint == 0U) {
+            return false;
+        }
+        *output = {
+            configuration,
+            interface_number,
+            endpoint,
+            packet_size,
+            interval,
+            report_length,
+        };
+        return true;
+    };
+
+    for (size_t offset = 0U; offset < total;) {
+        if (total - offset < 2U) return false;
+        const uint8_t descriptor_length = descriptors[offset];
+        const uint8_t descriptor_type = descriptors[offset + 1U];
+        if (descriptor_length < 2U || descriptor_length > total - offset) {
+            return false;
+        }
+
+        if (descriptor_type == 4U) {
+            if (descriptor_length < 9U) return false;
+            if (publish_current()) return true;
+            interface_number = descriptors[offset + 2U];
+            hid_interface = descriptors[offset + 3U] == 0U &&
+                descriptors[offset + 5U] == 3U &&
+                (!filter_interface || interface_number == required_interface);
+            report_length = 0U;
+            endpoint = 0U;
+            packet_size = 0U;
+            interval = 0U;
+        } else if (descriptor_type == 0x21U && hid_interface) {
+            if (descriptor_length < 9U) return false;
+            const uint8_t descriptor_count = descriptors[offset + 5U];
+            size_t child_offset = offset + 6U;
+            for (uint8_t index = 0U; index < descriptor_count; ++index) {
+                if (child_offset + 3U > offset + descriptor_length) {
+                    return false;
+                }
+                const uint8_t child_type = descriptors[child_offset];
+                const uint16_t child_length =
+                    static_cast<uint16_t>(descriptors[child_offset + 1U]) |
+                    static_cast<uint16_t>(
+                        descriptors[child_offset + 2U]) << 8U;
+                if (child_type == 0x22U) report_length = child_length;
+                child_offset += 3U;
+            }
+        } else if (descriptor_type == 5U && hid_interface) {
+            if (descriptor_length < 7U) return false;
+            const uint8_t candidate = descriptors[offset + 2U];
+            const uint8_t attributes = descriptors[offset + 3U];
+            const uint16_t packet =
+                static_cast<uint16_t>(descriptors[offset + 4U]) |
+                static_cast<uint16_t>(descriptors[offset + 5U]) << 8U;
+            const uint16_t candidate_packet =
+                static_cast<uint16_t>(packet & 0x7FFU);
+            const uint8_t endpoint_number =
+                static_cast<uint8_t>(candidate & 0x0FU);
+            const uint8_t candidate_interval = descriptors[offset + 6U];
+            if ((candidate & 0x80U) != 0U && endpoint_number != 0U &&
+                (attributes & 3U) == 3U && candidate_interval != 0U &&
+                candidate_packet != 0U && candidate_packet <= 1024U) {
+                endpoint = candidate;
+                packet_size = candidate_packet;
+                interval = candidate_interval;
+            }
+        }
+        offset += descriptor_length;
+    }
+
+    return publish_current();
+}
+
+} // namespace
+
+bool find_hid_report_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidReportInterface* output) {
+    return find_hid_report_interface_impl(
+        descriptors, length, false, 0U, output);
+}
+
+bool find_hid_report_interface_for_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    uint8_t interface_number,
+    HidReportInterface* output) {
+    return find_hid_report_interface_impl(
+        descriptors, length, true, interface_number, output);
+}
+
+void reset_mouse_decoder(MouseDecoder* decoder) {
+    if (decoder != nullptr) *decoder = {};
+}
+
+bool decode_boot_mouse_report(
+    MouseDecoder* decoder,
+    const uint8_t* report,
+    size_t report_length,
+    mouse::Sample* sample) {
+    if (decoder == nullptr || report == nullptr || report_length < 3U ||
+        sample == nullptr) {
+        return false;
+    }
+    const uint8_t buttons = static_cast<uint8_t>(report[0U] & 0x07U);
+    const mouse::Sample next = {
+        static_cast<int16_t>(static_cast<int8_t>(report[1U])),
+        static_cast<int16_t>(static_cast<int8_t>(report[2U])),
+        0,
+        buttons,
+        static_cast<uint8_t>(buttons ^ decoder->previous_buttons),
+    };
+    decoder->previous_buttons = buttons;
+    *sample = next;
+    return true;
+}
+
 
 } // namespace drivers::usb

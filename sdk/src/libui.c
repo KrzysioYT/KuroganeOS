@@ -1,13 +1,6 @@
 #include <kurogane/libui.h>
+#include <kurogane/desktop.h>
 #include <string.h>
-
-static void append_text(char* destination, size_t capacity, const char* source) {
-    size_t used;
-    if (destination == (char*)0 || source == (const char*)0 || capacity == 0U) return;
-    used = strlen(destination);
-    if (used >= capacity) return;
-    (void)strlcpy(destination + used, source, capacity - used);
-}
 
 static kui_view* find_view(kui_scene* scene, uint32_t id) {
     uint32_t index;
@@ -31,7 +24,8 @@ static int interactive_view(const kui_view* view) {
     if (view == (const kui_view*)0 || (view->flags & KUI_VIEW_DISABLED) != 0U ||
         (view->flags & KUI_VIEW_HIDDEN) != 0U) return 0;
     return view->type == KUI_VIEW_BUTTON || view->type == KUI_VIEW_INPUT ||
-        view->type == KUI_VIEW_LIST_ITEM;
+        view->type == KUI_VIEW_LIST_ITEM || view->type == KUI_VIEW_TILE ||
+        view->type == KUI_VIEW_TOGGLE;
 }
 
 static uint32_t visible_view_count(const kui_scene* scene) {
@@ -58,66 +52,13 @@ static uint32_t view_depth(const kui_scene* scene, const kui_view* view) {
     return depth;
 }
 
-static void render_view_line(
-    const kui_scene* scene,
-    const kui_view* view,
-    char* line,
-    size_t capacity) {
-    uint32_t depth;
-    if (line == (char*)0 || capacity == 0U || view == (const kui_view*)0) return;
-    line[0] = '\0';
-    depth = view_depth(scene, view);
-    while (depth != 0U) {
-        append_text(line, capacity, "  ");
-        --depth;
-    }
-
-    /*
-     * This remains the compatibility text transport, but 3.1 deliberately
-     * removes pseudo-DOS brackets and double-colon decoration. Native widget
-     * geometry can replace this serialization later without changing scenes.
-     */
-    switch (view->type) {
-        case KUI_VIEW_PANEL:
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_LABEL:
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_BUTTON:
-            append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_INPUT:
-            append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_LIST_ITEM:
-            append_text(line, capacity,
-                (view->flags & KUI_VIEW_SELECTED) != 0U ? "> " : "  ");
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_PROGRESS:
-            append_text(line, capacity, view->text);
-            break;
-        case KUI_VIEW_SEPARATOR:
-            append_text(line, capacity, "----------------------------");
-            break;
-        default:
-            append_text(line, capacity, "INVALID VIEW");
-            break;
-    }
-}
-
 void kui_frame_initialize(ku_ui_frame* frame) {
     if (frame == (ku_ui_frame*)0) return;
     memset(frame, 0, sizeof(*frame));
     frame->structure_size = sizeof(*frame);
-    frame->background_rgb = UINT32_C(0x090A0C);
-    frame->foreground_rgb = UINT32_C(0xECEEF1);
-    frame->accent_rgb = UINT32_C(0xDE192D);
+    frame->background_rgb = KU_FLUX_COLOR_BACKGROUND;
+    frame->foreground_rgb = KU_FLUX_COLOR_TEXT_PRIMARY;
+    frame->accent_rgb = KU_FLUX_COLOR_ACCENT;
 }
 
 ku_status_t kui_frame_set_line(
@@ -143,10 +84,30 @@ int kui_next_event(ku_window_t window, ku_ui_event* event) {
 void kui_scene_initialize(kui_scene* scene) {
     if (scene == (kui_scene*)0) return;
     memset(scene, 0, sizeof(*scene));
-    scene->background_rgb = UINT32_C(0x090A0C);
-    scene->foreground_rgb = UINT32_C(0xECEEF1);
-    scene->accent_rgb = UINT32_C(0xDE192D);
+    kui_scene_apply_flux_theme(scene);
     scene->visible_rows = KU_UI_MAX_LINES;
+}
+
+void kui_scene_apply_flux_theme(kui_scene* scene) {
+    ku_flux_palette palette;
+    uint32_t theme_id = KU_FLUX_THEME_RED;
+    if (scene == (kui_scene*)0) return;
+#if !defined(KUROGANE_HOST_TEST)
+    {
+        ku_desktop_theme_request request;
+        memset(&request, 0, sizeof(request));
+        request.structure_size = sizeof(request);
+        request.action = KU_DESKTOP_THEME_QUERY;
+        if (ku_desktop_theme(&request) == KU_STATUS_OK &&
+            request.theme_id < KU_FLUX_THEME_COUNT) {
+            theme_id = request.theme_id;
+        }
+    }
+#endif
+    palette = ku_flux_theme_palette(theme_id);
+    scene->background_rgb = palette.background;
+    scene->foreground_rgb = palette.text;
+    scene->accent_rgb = palette.accent;
 }
 
 void kui_scene_set_palette(
@@ -168,7 +129,7 @@ ku_status_t kui_scene_add(
     const char* text) {
     kui_view* view;
     if (scene == (kui_scene*)0 || id == 0U || text == (const char*)0 ||
-        type < KUI_VIEW_PANEL || type > KUI_VIEW_SEPARATOR) {
+        type < KUI_VIEW_PANEL || type > KUI_VIEW_TOGGLE) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     if (scene->view_count >= KUI_MAX_VIEWS) return KU_STATUS_OUT_OF_MEMORY;
@@ -189,6 +150,23 @@ ku_status_t kui_scene_add(
     return KU_STATUS_OK;
 }
 
+ku_status_t kui_scene_add_tile(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t icon) {
+    ku_status_t status;
+    kui_view* view;
+    if (icon >= KU_UI_NATIVE_ICON_COUNT) return KU_STATUS_INVALID_ARGUMENT;
+    status = kui_scene_add(scene, id, parent_id, KUI_VIEW_TILE, text);
+    if (status != KU_STATUS_OK) return status;
+    view = find_view(scene, id);
+    if (view == (kui_view*)0) return KU_STATUS_BAD_STATE;
+    view->value = icon;
+    return KU_STATUS_OK;
+}
+
 ku_status_t kui_scene_add_progress(
     kui_scene* scene,
     uint32_t id,
@@ -200,6 +178,44 @@ ku_status_t kui_scene_add_progress(
         scene, id, parent_id, KUI_VIEW_PROGRESS, text);
     if (status != KU_STATUS_OK) return status;
     return kui_scene_set_value(scene, id, value, maximum);
+}
+
+ku_status_t kui_scene_add_metric(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t value,
+    uint32_t maximum) {
+    ku_status_t status = kui_scene_add(
+        scene, id, parent_id, KUI_VIEW_METRIC, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_value(scene, id, value, maximum);
+}
+
+ku_status_t kui_scene_add_notice(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    uint32_t priority) {
+    ku_status_t status;
+    if (priority < 1U || priority > 4U) return KU_STATUS_INVALID_ARGUMENT;
+    status = kui_scene_add(scene, id, parent_id, KUI_VIEW_NOTICE, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_value(scene, id, priority, 4U);
+}
+
+ku_status_t kui_scene_add_toggle(
+    kui_scene* scene,
+    uint32_t id,
+    uint32_t parent_id,
+    const char* text,
+    int checked) {
+    ku_status_t status = kui_scene_add(
+        scene, id, parent_id, KUI_VIEW_TOGGLE, text);
+    if (status != KU_STATUS_OK) return status;
+    return kui_scene_set_value(scene, id, checked != 0 ? 1U : 0U, 1U);
 }
 
 ku_status_t kui_scene_set_text(
@@ -216,8 +232,11 @@ ku_status_t kui_scene_set_flags(
     kui_scene* scene, uint32_t id, uint32_t flags) {
     kui_view* view = find_view(scene, id);
     if (view == (kui_view*)0) return KU_STATUS_NOT_FOUND;
+    if ((flags & KUI_VIEW_DESTRUCTIVE) != 0U &&
+        view->type != KUI_VIEW_BUTTON) return KU_STATUS_INVALID_ARGUMENT;
     view->flags = flags &
-        (KUI_VIEW_HIDDEN | KUI_VIEW_SELECTED | KUI_VIEW_DISABLED);
+        (KUI_VIEW_HIDDEN | KUI_VIEW_SELECTED | KUI_VIEW_DISABLED |
+         KUI_VIEW_PINNED | KUI_VIEW_RUNNING | KUI_VIEW_DESTRUCTIVE);
     if ((view->flags & KUI_VIEW_SELECTED) != 0U) scene->selected_id = id;
     else if (scene->selected_id == id) scene->selected_id = 0U;
     return KU_STATUS_OK;
@@ -226,7 +245,10 @@ ku_status_t kui_scene_set_flags(
 ku_status_t kui_scene_set_value(
     kui_scene* scene, uint32_t id, uint32_t value, uint32_t maximum) {
     kui_view* view = find_view(scene, id);
-    if (view == (kui_view*)0 || view->type != KUI_VIEW_PROGRESS || maximum == 0U) {
+    if (view == (kui_view*)0 ||
+        (view->type != KUI_VIEW_PROGRESS && view->type != KUI_VIEW_METRIC &&
+         view->type != KUI_VIEW_NOTICE && view->type != KUI_VIEW_TOGGLE) ||
+        maximum == 0U) {
         return KU_STATUS_INVALID_ARGUMENT;
     }
     view->maximum = maximum;
@@ -293,35 +315,202 @@ uint32_t kui_scene_selected(const kui_scene* scene) {
     return scene == (const kui_scene*)0 ? 0U : scene->selected_id;
 }
 
-ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
-    ku_ui_frame frame;
-    uint32_t index;
-    uint32_t visible_index = 0U;
-    uint32_t output_line = 0U;
-    uint32_t rows;
-    if (scene == (const kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
-    kui_frame_initialize(&frame);
-    frame.background_rgb = scene->background_rgb;
-    frame.foreground_rgb = scene->foreground_rgb;
-    frame.accent_rgb = scene->accent_rgb;
-    rows = scene->visible_rows == 0U || scene->visible_rows > KU_UI_MAX_LINES
-        ? KU_UI_MAX_LINES : scene->visible_rows;
+typedef struct kui_native_layout {
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+} kui_native_layout;
 
-    for (index = 0U; index < scene->view_count && output_line < rows; ++index) {
+typedef struct kui_native_layout_state {
+    int32_t cursor_y;
+    uint32_t tile_column;
+    uint32_t metric_column;
+} kui_native_layout_state;
+
+#define KUI_TILE_COLUMNS 3U
+#define KUI_TILE_WIDTH KU_FLUX_TILE_WIDTH
+#define KUI_TILE_HEIGHT KU_FLUX_TILE_HEIGHT
+#define KUI_TILE_GAP_X KU_FLUX_SPACE_3
+#define KUI_TILE_GAP_Y KU_FLUX_SPACE_2
+#define KUI_METRIC_COLUMNS 5U
+#define KUI_METRIC_WIDTH KU_FLUX_METRIC_WIDTH
+#define KUI_METRIC_HEIGHT KU_FLUX_METRIC_HEIGHT
+#define KUI_METRIC_GAP_X KU_FLUX_SPACE_2
+#define KUI_METRIC_GAP_Y KU_FLUX_SPACE_2
+
+static int32_t native_view_height(uint32_t type) {
+    switch (type) {
+        case KUI_VIEW_PANEL: return KU_FLUX_PANEL_HEIGHT;
+        case KUI_VIEW_LABEL: return KU_FLUX_LABEL_HEIGHT;
+        case KUI_VIEW_BUTTON: return KU_FLUX_BUTTON_HEIGHT;
+        case KUI_VIEW_INPUT: return KU_FLUX_INPUT_HEIGHT;
+        case KUI_VIEW_LIST_ITEM: return KU_FLUX_LIST_ROW_HEIGHT;
+        case KUI_VIEW_PROGRESS: return KU_FLUX_PROGRESS_HEIGHT;
+        case KUI_VIEW_SEPARATOR: return KU_FLUX_SEPARATOR_HEIGHT;
+        case KUI_VIEW_TILE: return KUI_TILE_HEIGHT;
+        case KUI_VIEW_METRIC: return KUI_METRIC_HEIGHT;
+        case KUI_VIEW_NOTICE: return 72;
+        case KUI_VIEW_TOGGLE: return 52;
+        default: return 0;
+    }
+}
+
+static void native_layout_initialize(kui_native_layout_state* state) {
+    state->cursor_y = KU_FLUX_PANEL_PADDING;
+    state->tile_column = 0U;
+    state->metric_column = 0U;
+}
+
+static void native_flush_tiles(kui_native_layout_state* state) {
+    if (state->tile_column == 0U) return;
+    state->cursor_y += KUI_TILE_HEIGHT + KUI_TILE_GAP_Y;
+    state->tile_column = 0U;
+}
+
+static void native_flush_metrics(kui_native_layout_state* state) {
+    if (state->metric_column == 0U) return;
+    state->cursor_y += KUI_METRIC_HEIGHT + KUI_METRIC_GAP_Y;
+    state->metric_column = 0U;
+}
+
+static void native_layout_view(
+    const kui_scene* scene,
+    const kui_view* view,
+    kui_native_layout_state* state,
+    kui_native_layout* output) {
+    const uint32_t depth = view_depth(scene, view);
+    const int32_t indent = (int32_t)(depth * 12U);
+    if (view->type == KUI_VIEW_METRIC) {
+        native_flush_tiles(state);
+        if (state->metric_column >= KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        output->x = KU_FLUX_PANEL_PADDING + indent +
+            (int32_t)state->metric_column * (KUI_METRIC_WIDTH + KUI_METRIC_GAP_X);
+        output->y = state->cursor_y;
+        output->width = KUI_METRIC_WIDTH;
+        output->height = KUI_METRIC_HEIGHT;
+        ++state->metric_column;
+        if (state->metric_column == KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        return;
+    }
+    if (view->type == KUI_VIEW_TILE) {
+        native_flush_metrics(state);
+        if (state->tile_column >= KUI_TILE_COLUMNS) native_flush_tiles(state);
+        output->x = KU_FLUX_PANEL_PADDING + indent +
+            (int32_t)state->tile_column * (KUI_TILE_WIDTH + KUI_TILE_GAP_X);
+        output->y = state->cursor_y;
+        output->width = KUI_TILE_WIDTH;
+        output->height = KUI_TILE_HEIGHT;
+        ++state->tile_column;
+        if (state->tile_column == KUI_TILE_COLUMNS) native_flush_tiles(state);
+        return;
+    }
+
+    native_flush_metrics(state);
+    native_flush_tiles(state);
+    output->x = KU_FLUX_PANEL_PADDING + indent;
+    output->y = state->cursor_y;
+    output->width = 0;
+    output->height = native_view_height(view->type);
+    state->cursor_y += output->height + 6;
+}
+
+static uint32_t native_rows(const kui_scene* scene) {
+    if (scene->visible_rows == 0U || scene->visible_rows > KU_UI_NATIVE_MAX_COMMANDS) {
+        return KU_UI_NATIVE_MAX_COMMANDS;
+    }
+    return scene->visible_rows;
+}
+
+uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
+    uint32_t visible_index = 0U;
+    uint32_t output_index = 0U;
+    uint32_t index;
+    kui_native_layout_state state;
+    const uint32_t rows = scene == (const kui_scene*)0 ? 0U : native_rows(scene);
+    if (scene == (const kui_scene*)0 || x < 0 || y < 0 ||
+        x > KU_UI_NATIVE_COORD_LIMIT || y > KU_UI_NATIVE_COORD_LIMIT) return 0U;
+    native_layout_initialize(&state);
+
+    for (index = 0U; index < scene->view_count && output_index < rows; ++index) {
         const kui_view* view = &scene->views[index];
-        char line[KU_UI_LINE_CAPACITY];
+        kui_native_layout geometry;
+        int within_x;
         if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
         if (visible_index++ < scene->scroll_offset) continue;
-        render_view_line(scene, view, line, sizeof(line));
-        if (kui_frame_set_line(&frame, output_line++, line) != KU_STATUS_OK) {
-            return KU_STATUS_OUT_OF_RANGE;
+        native_layout_view(scene, view, &state, &geometry);
+        if (geometry.height <= 0) continue;
+        within_x = x >= geometry.x &&
+            (geometry.width == 0 || x < geometry.x + geometry.width);
+        if (interactive_view(view) && within_x &&
+            y >= geometry.y && y < geometry.y + geometry.height) {
+            return view->id;
         }
-        if (view->type == KUI_VIEW_PROGRESS && view->maximum != 0U) {
-            frame.progress_value = view->value;
-            frame.progress_maximum = view->maximum;
-        }
+        ++output_index;
     }
-    return kui_present(window, &frame);
+    return 0U;
+}
+
+ku_status_t kui_scene_build_native(
+    const kui_scene* scene, ku_ui_native_frame* frame) {
+    uint32_t visible_index = 0U;
+    uint32_t output_index = 0U;
+    uint32_t index;
+    uint32_t rows;
+    kui_native_layout_state state;
+    if (scene == (const kui_scene*)0 || frame == (ku_ui_native_frame*)0) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+
+    memset(frame, 0, sizeof(*frame));
+    frame->structure_size = sizeof(*frame);
+    frame->magic = KU_UI_NATIVE_MAGIC;
+    frame->version = KU_UI_NATIVE_VERSION;
+    frame->background_rgb = scene->background_rgb;
+    frame->foreground_rgb = scene->foreground_rgb;
+    frame->accent_rgb = scene->accent_rgb;
+    rows = native_rows(scene);
+    native_layout_initialize(&state);
+
+    for (index = 0U; index < scene->view_count && output_index < rows; ++index) {
+        const kui_view* view = &scene->views[index];
+        kui_native_layout geometry;
+        ku_ui_native_command* command;
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (visible_index++ < scene->scroll_offset) continue;
+        native_layout_view(scene, view, &state, &geometry);
+        if (geometry.height <= 0) return KU_STATUS_CORRUPT_DATA;
+
+        command = &frame->commands[output_index++];
+        command->type = view->type;
+        if ((view->flags & KUI_VIEW_SELECTED) != 0U) command->flags |= KU_UI_NATIVE_SELECTED;
+        if ((view->flags & KUI_VIEW_DISABLED) != 0U) command->flags |= KU_UI_NATIVE_DISABLED;
+        if ((view->flags & KUI_VIEW_PINNED) != 0U) command->flags |= KU_UI_NATIVE_PINNED;
+        if ((view->flags & KUI_VIEW_RUNNING) != 0U) command->flags |= KU_UI_NATIVE_RUNNING;
+        if ((view->flags & KUI_VIEW_DESTRUCTIVE) != 0U) {
+            command->flags |= KU_UI_NATIVE_DESTRUCTIVE;
+        }
+        command->x = geometry.x;
+        command->y = geometry.y;
+        command->width = geometry.width;
+        command->height = geometry.height;
+        command->foreground_rgb = scene->foreground_rgb;
+        command->background_rgb = scene->background_rgb;
+        command->accent_rgb = scene->accent_rgb;
+        command->value = view->value;
+        command->maximum = view->maximum;
+        if (strlcpy(command->text, view->text, sizeof(command->text)) >=
+            sizeof(command->text)) return KU_STATUS_OUT_OF_RANGE;
+    }
+    frame->command_count = output_index;
+    return KU_STATUS_OK;
+}
+
+ku_status_t kui_scene_present(ku_window_t window, const kui_scene* scene) {
+    ku_ui_native_frame frame;
+    const ku_status_t status = kui_scene_build_native(scene, &frame);
+    if (status != KU_STATUS_OK) return status;
+    return ku_ui_present_native(window, &frame);
 }
 
 void kui_flow_begin(kui_flow* flow, kui_scene* scene, uint32_t parent_id) {
@@ -360,6 +549,13 @@ ku_status_t kui_flow_list_item(kui_flow* flow, uint32_t id, const char* text) {
         : kui_scene_add(flow->scene, id, flow->parent_id, KUI_VIEW_LIST_ITEM, text);
 }
 
+ku_status_t kui_flow_tile(
+    kui_flow* flow, uint32_t id, const char* text, uint32_t icon) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_tile(flow->scene, id, flow->parent_id, text, icon);
+}
+
 ku_status_t kui_flow_progress(
     kui_flow* flow,
     uint32_t id,
@@ -370,6 +566,38 @@ ku_status_t kui_flow_progress(
         ? KU_STATUS_INVALID_ARGUMENT
         : kui_scene_add_progress(
             flow->scene, id, flow->parent_id, text, value, maximum);
+}
+
+ku_status_t kui_flow_metric(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    uint32_t value,
+    uint32_t maximum) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_metric(
+            flow->scene, id, flow->parent_id, text, value, maximum);
+}
+
+ku_status_t kui_flow_notice(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    uint32_t priority) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_notice(flow->scene, id, flow->parent_id, text, priority);
+}
+
+ku_status_t kui_flow_toggle(
+    kui_flow* flow,
+    uint32_t id,
+    const char* text,
+    int checked) {
+    return flow == (kui_flow*)0
+        ? KU_STATUS_INVALID_ARGUMENT
+        : kui_scene_add_toggle(flow->scene, id, flow->parent_id, text, checked);
 }
 
 ku_status_t kui_flow_separator(kui_flow* flow, uint32_t id) {

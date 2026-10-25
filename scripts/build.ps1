@@ -50,6 +50,7 @@ $tools = @{
     CXX     = Join-Path $ToolchainDir 'x86_64-elf-g++.exe'
     LD      = Join-Path $ToolchainDir 'x86_64-elf-ld.exe'
     OBJCOPY = Join-Path $ToolchainDir 'x86_64-elf-objcopy.exe'
+    OBJDUMP = Join-Path $ToolchainDir 'x86_64-elf-objdump.exe'
     READELF = Join-Path $ToolchainDir 'x86_64-elf-readelf.exe'
 }
 
@@ -316,7 +317,31 @@ function Build-UserApplications {
         @{ Name = 'files'; Source = 'apps\files\main.c'; Output = 'apps/files'; Assembly = $false },
         @{ Name = 'monitor'; Source = 'apps\monitor\main.c'; Output = 'apps/monitor'; Assembly = $false },
         @{ Name = 'about'; Source = 'apps\about\main.c'; Output = 'apps/about'; Assembly = $false },
-        @{ Name = 'init'; Source = 'system\init\main.c'; Output = 'system/init'; Assembly = $false }
+        @{ Name = 'init'; Source = 'system\init\main.c'; Output = 'system/init'; Assembly = $false },
+        @{ Name = 'deviceprobe'; Source = 'system\device-probe\main.c'; Output = 'system/devprobe'; Assembly = $false },
+        @{ Name = 'statusprobe'; Source = 'system\status-probe\main.c'; Output = 'system/stprobe'; Assembly = $false },
+        @{ Name = 'eventd'; Source = 'system\eventd\main.c'; Output = 'system/eventd'; Assembly = $false },
+        @{ Name = 'evprobe'; Source = 'system\event-probe\main.c'; Output = 'system/evprobe'; Assembly = $false },
+        @{ Name = 'settingsd'; Source = 'system\settingsd\main.c'; Output = 'system/setd'; Assembly = $false },
+        @{ Name = 'setprobe'; Source = 'system\settings-probe\main.c'; Output = 'system/setprobe'; Assembly = $false },
+        @{ Name = 'notificationd'; Source = 'system\notificationd\main.c'; Output = 'system/notifd'; Assembly = $false },
+        @{ Name = 'notifprobe'; Source = 'system\notification-probe\main.c'; Output = 'system/ntfprobe'; Assembly = $false },
+        @{ Name = 'accountd'; Source = 'system\accountd\main.c'; Output = 'system/accountd'; Assembly = $false },
+        @{ Name = 'accountprobe'; Source = 'system\account-probe\main.c'; Output = 'system/acctprb'; Assembly = $false },
+        @{ Name = 'sessiond'; Source = 'system\sessiond\main.c'; Output = 'system/sessiond'; Assembly = $false },
+        @{ Name = 'sessionprobe'; Source = 'system\session-probe\main.c'; Output = 'system/sesprobe'; Assembly = $false },
+        @{ Name = 'settingschangeprobe'; Source = 'system\settings-change-probe\main.c'; Output = 'system/setchprb'; Assembly = $false },
+        @{ Name = 'clipboardd'; Source = 'system\clipboardd\main.c'; Output = 'system/clipd'; Assembly = $false },
+        @{ Name = 'networkeventd'; Source = 'system\network-eventd\main.c'; Output = 'system/netevtd'; Assembly = $false },
+        @{ Name = 'dnsd'; Source = 'system\dnsd\main.c'; Output = 'system/dnsd'; Assembly = $false },
+        @{ Name = 'appregistryd'; Source = 'system\app-registryd\main.c'; Output = 'system/appregd'; Assembly = $false },
+        @{ Name = 'audiod'; Source = 'system\audiod\main.c'; Output = 'system/audiod'; Assembly = $false },
+        @{ Name = 'clipboardprobe'; Source = 'system\clipboard-probe\main.c'; Output = 'system/clipprb'; Assembly = $false },
+        @{ Name = 'kurofsprobe'; Source = 'system\kurofs-probe\main.c'; Output = 'system/kfsprb'; Assembly = $false },
+        @{ Name = 'socketprobe'; Source = 'system\socket-probe\main.c'; Output = 'system/sockprb'; Assembly = $false },
+        @{ Name = 'socketwake'; Source = 'system\socket-wake-worker\main.c'; Output = 'system/sockwake'; Assembly = $false },
+        @{ Name = 'socketexit'; Source = 'system\socket-exit-worker\main.c'; Output = 'system/sockexit'; Assembly = $false },
+        @{ Name = 'tcpexit'; Source = 'system\tcp-exit-worker\main.c'; Output = 'system/tcpexit'; Assembly = $false }
     )
     if (-not (Test-Path -LiteralPath $linkerScript -PathType Leaf)) {
         throw "Missing userspace linker script: $linkerScript"
@@ -341,7 +366,8 @@ function Build-UserApplications {
                 Out-Null
             $compileArguments = @(
                 '-ffreestanding', '-fno-stack-protector', '-m64',
-                '-mno-red-zone', '-Wa,--noexecstack',
+                '-mno-red-zone', '-mno-mmx', '-mno-sse', '-msoft-float',
+                '-Wa,--noexecstack',
                 '-I', 'sdk/include', '-I', 'userspace/runtime', '-I', 'common'
             )
             if ([bool]$application.Assembly) {
@@ -374,6 +400,11 @@ function Build-UserApplications {
                 ($programHeaders -join "`n") -match '(?m)^\s*(LOAD|GNU_STACK)\s+.*\bRWE\b') {
                 throw "Userspace image has an executable writable segment or stack: $name"
             }
+            $disassembly = @(& $tools.OBJDUMP '-d' $outputRelative)
+            if ($LASTEXITCODE -ne 0 -or
+                ($disassembly -join "`n") -match '%(xmm|ymm|zmm|mm)[0-9]+') {
+                throw "Userspace image uses unsupported SIMD register state or cannot be inspected: $name"
+            }
             Write-Host "[userspace] /$($application.Output)"
         }
     }
@@ -393,7 +424,7 @@ function Build-DeveloperSdk {
 }
 
 function Build-EfiBootloader {
-    foreach ($tool in @($tools.CC, $tools.LD, $tools.OBJCOPY, $tools.READELF)) {
+    foreach ($tool in @($tools.CC, $tools.LD, $tools.OBJCOPY, $tools.READELF, $tools.OBJDUMP)) {
         Assert-Tool -Path $tool
     }
     foreach ($inputPath in @($BootSource, $BootLinkerScript, $EfiConverter)) {

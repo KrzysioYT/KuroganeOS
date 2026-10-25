@@ -60,6 +60,35 @@ struct Client {
 
 void initialize(Client* client);
 
+/* Starts a TCP three-way handshake without waiting for completion. */
+Status begin_connect(
+    Client* client,
+    NetworkStack* stack,
+    const IPv4Address& peer,
+    uint16_t local_port,
+    uint16_t remote_port,
+    uint32_t initial_sequence);
+
+/* Processes at most one transport progression step. */
+Status progress(Client* client);
+
+/* Queues at most one bounded TCP payload segment without waiting for ACK. */
+Status try_send(
+    Client* client,
+    const uint8_t* data,
+    size_t length,
+    size_t* out_sent);
+
+/* Drains available bytes, performing at most one transport progression step. */
+Status try_receive(
+    Client* client,
+    uint8_t* output,
+    size_t output_capacity,
+    size_t* out_length);
+
+/* Starts a graceful FIN close without waiting for peer completion. */
+Status begin_close(Client* client);
+
 Status connect(
     Client* client,
     NetworkStack* stack,
