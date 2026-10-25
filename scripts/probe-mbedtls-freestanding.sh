@@ -4,7 +4,27 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MBEDTLS_DIR="$ROOT_DIR/third_party/mbedtls"
 OUT_DIR="${MBEDTLS_PROBE_DIR:-$ROOT_DIR/build/tests/mbedtls-freestanding}"
-CC_BIN="${CC:-gcc}"
+CC_BIN="${KUROGANE_CC:-${CC:-}}"
+if [[ -z "$CC_BIN" ]]; then
+    if command -v x86_64-elf-gcc >/dev/null 2>&1; then
+        CC_BIN=x86_64-elf-gcc
+    elif [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && command -v gcc >/dev/null 2>&1; then
+        CC_BIN=gcc
+    else
+        echo "[mbedtls-probe] KuroganeOS freestanding TLS probe requires x86_64-elf-gcc or a native x86_64 Linux gcc." >&2
+        echo "[mbedtls-probe] macOS: ./scripts/setup-macos.sh --install" >&2
+        exit 1
+    fi
+fi
+
+if "$CC_BIN" -dM -E -x c /dev/null 2>/dev/null | grep -Eq '__clang__'; then
+    if command -v x86_64-elf-gcc >/dev/null 2>&1; then
+        CC_BIN=x86_64-elf-gcc
+    else
+        echo "[mbedtls-probe] refused Apple clang/clang++ for KuroganeOS x86-64 ELF probe; use x86_64-elf-gcc" >&2
+        exit 1
+    fi
+fi
 
 [[ -f "$MBEDTLS_DIR/include/mbedtls/build_info.h" ]] || {
     echo "[mbedtls-probe] pinned submodule missing; run git submodule update --init --recursive" >&2

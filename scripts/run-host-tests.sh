@@ -11,23 +11,38 @@ OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
 
 mkdir -p "$OUT_DIR"
 
+HOST_ARCH_FLAGS=()
+HOST_LINK_FLAGS=()
+HOST_FREESTANDING_FLAGS=()
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "${HOST_CC}" == *x86_64-elf-* || "${HOST_CXX}" == *x86_64-elf-* ]]; then
+    HOST_LINK_FLAGS=(-Wl,--gc-sections)
+  else
+    HOST_ARCH_FLAGS=(-arch x86_64)
+    HOST_LINK_FLAGS=(-Wl,-dead_strip)
+  fi
+else
+  HOST_FREESTANDING_FLAGS=(-ffreestanding)
+  HOST_LINK_FLAGS=(-Wl,--gc-sections)
+fi
+
 bash -n scripts/run-flux8-wsl.sh
 
 echo "[host-tests] C compiler:   $HOST_CC"
 echo "[host-tests] C++ compiler: $HOST_CXX"
 echo "[host-tests] python:       $HOST_PYTHON"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
 "$OUT_DIR/test_keyboard_lifecycle"
 "$HOST_PYTHON" tests/test_qmp_pointer_selection.py
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
-  -Wl,--gc-sections -o "$OUT_DIR/test_clipboard_service"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_clipboard_service"
 "$OUT_DIR/test_clipboard_service"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
 "$HOST_PYTHON" tests/test_flux8_application_smoke.py
@@ -44,47 +59,47 @@ bash tests/test_network_smoke_state.sh
 
 # Driver & Device Expansion: keep Intel E1000/E1000e PCI model
 # classification deterministic and independent from the generic network stack.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_intel_gbe_model.cpp \
   -o "$OUT_DIR/test_intel_gbe_model"
 "$OUT_DIR/test_intel_gbe_model"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hardware_policy.cpp kernel/hardware/policy.cpp \
   -o "$OUT_DIR/test_hardware_policy"
 "$OUT_DIR/test_hardware_policy"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hardware_compatibility.cpp \
   kernel/hardware/policy.cpp kernel/hardware/compatibility.cpp \
   -o "$OUT_DIR/test_hardware_compatibility"
 "$OUT_DIR/test_hardware_compatibility"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_cpu_info.cpp kernel/arch/x86_64/cpu.cpp \
   -o "$OUT_DIR/test_cpu_info"
 "$OUT_DIR/test_cpu_info"
 
 # Scheduler 2.0 policy core: per-CPU run queues, affinity, priority,
 # deterministic round-robin and idle-CPU work stealing.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_scheduler2.cpp kernel/task/scheduler2.cpp \
   -o "$OUT_DIR/test_scheduler2"
 
 # Core Steel synchronization foundation. Ticket locks serialize short global
 # kernel critical sections across processors; cli alone cannot do that.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
   tests/test_sync_spinlock.cpp \
   -o "$OUT_DIR/test_sync_spinlock"
 "$OUT_DIR/test_sync_spinlock"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_job.cpp kernel/task/job.cpp \
   -o "$OUT_DIR/test_job"
 "$OUT_DIR/test_job"
 "$OUT_DIR/test_scheduler2"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_driver_requirement_policy.cpp \
   kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
   -o "$OUT_DIR/test_driver_requirement_policy"
@@ -94,12 +109,12 @@ bash tests/test_network_smoke_state.sh
 # retained PS/2 events, exact-once retry and 16-bit sequence wrap. The separate
 # legacy test.sh entry also runs this regression, but all qualification gates
 # using this suite must cover the input contract directly.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_input.cpp kernel/input/input.cpp kernel/drivers/mouse_protocol.cpp \
   -o "$OUT_DIR/test_input"
 "$OUT_DIR/test_input"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -Isdk/include \
   tests/test_sdk_abi.cpp \
@@ -107,13 +122,13 @@ bash tests/test_network_smoke_state.sh
 
 "$OUT_DIR/test_sdk_abi"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_child_termination_policy.cpp -o "$OUT_DIR/test_child_termination_policy"
 "$OUT_DIR/test_child_termination_policy"
 
 # Exercise the production Device Model and Driver Manager lifecycle, including
 # stale-handle rejection, partial-attach cleanup, fallback and slot reuse.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_driver_core.cpp \
   kernel/drivers/core/device_manager.cpp \
@@ -125,7 +140,7 @@ bash tests/test_network_smoke_state.sh
 
 # Exercise the bounded generation-safe hardware interrupt vector allocator.
 # Vector 0x80 must remain reserved for the public Ring-3 syscall gate.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hardware_vectors.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
@@ -136,54 +151,54 @@ bash tests/test_network_smoke_state.sh
 
 # Validate the MSI programming transaction against an emulated PCI config
 # space: mask, program, enable, quiesce, release barrier and full restoration.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections \
   tests/test_pci_msi.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_pci_msi"
 
 "$OUT_DIR/test_pci_msi"
 
 # Reject truncated MSI/MSI-X layouts before a config-space offset can wrap
 # from the end of the legacy 256-byte header back into offset zero.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections \
   tests/test_pci_capability_layout.cpp \
   kernel/drivers/pci.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_pci_capability_layout"
 
 # Iron Shield PCI power-management foundation: validate PM capability parsing,
 # D0/D1/D2/D3hot transitions, DMA quiesce enforcement and PME W1C safety.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_pci_power.cpp kernel/drivers/pci_power.cpp \
   -o "$OUT_DIR/test_pci_power"
 "$OUT_DIR/test_pci_power"
 
 # Shared modern VirtIO PCI discovery used by both net and upcoming block
 # drivers. Reject malformed/cyclic vendor capability lists before MMIO mapping.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_virtio_pci_transport.cpp \
   kernel/drivers/virtio/pci_transport.cpp kernel/drivers/pci.cpp \
-  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -ffunction-sections -fdata-sections "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_virtio_pci_transport"
 "$OUT_DIR/test_virtio_pci_transport"
 
 # VirtIO-blk keeps its 512-byte wire-sector units separate from the generic
 # logical block ABI so 4K devices cannot silently address the wrong sectors.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_virtio_block_protocol.cpp kernel/storage/virtio_block_protocol.cpp \
   -o "$OUT_DIR/test_virtio_block_protocol"
 
 # Production block driver ownership and failure cleanup with host DMA/MMIO.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
   -ffunction-sections -fdata-sections \
   tests/test_virtio_block_lifecycle.cpp kernel/storage/virtio_block_protocol.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_virtio_block_lifecycle"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_virtio_block_lifecycle"
 "$OUT_DIR/test_virtio_block_lifecycle"
 "$OUT_DIR/test_virtio_block_protocol"
 
@@ -191,43 +206,43 @@ bash tests/test_network_smoke_state.sh
 
 # Exercise reversible BAR sizing with decode disabled, including 32-bit MMIO,
 # 64-bit MMIO, 16-bit I/O masks and rejection of a 64-bit BAR's upper half.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections \
   tests/test_pci_bar.cpp \
   kernel/drivers/pci_bar.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_pci_bar"
 
 "$OUT_DIR/test_pci_bar"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_nvme_protocol.cpp kernel/storage/nvme_protocol.cpp \
   -o "$OUT_DIR/test_nvme_protocol"
 "$OUT_DIR/test_nvme_protocol"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_storage_registry.cpp kernel/storage/device_registry.cpp \
   -o "$OUT_DIR/test_storage_registry"
 "$OUT_DIR/test_storage_registry"
 
 # Validate bounded MSI-X table/PBA regions and the mask-program-enable / full
 # restore transaction without touching privileged host PCI configuration.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections \
   tests/test_pci_msix.cpp \
   kernel/drivers/pci_msix.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_pci_msix"
 
 "$OUT_DIR/test_pci_msix"
 
 # Exercise a whole MSI-X function with multiple independently owned vectors,
 # partial allocation rollback, stale group rejection and retryable teardown.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections \
   tests/test_pci_msix_group.cpp \
@@ -235,7 +250,7 @@ bash tests/test_network_smoke_state.sh
   kernel/drivers/pci_msix.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_pci_msix_group"
 
 "$OUT_DIR/test_pci_msix_group"
@@ -243,90 +258,90 @@ bash tests/test_network_smoke_state.sh
 # Validate fixed-delivery I/O APIC redirection bit packing and decode
 # without touching privileged MMIO. Hardware route programming remains in the
 # APIC runtime path and is gated separately by real firmware/QEMU evidence.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_io_apic_route.cpp kernel/arch/x86_64/io_apic_route.cpp \
   -o "$OUT_DIR/test_io_apic_route"
 "$OUT_DIR/test_io_apic_route"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_io_apic_irq.cpp kernel/arch/x86_64/io_apic_irq.cpp \
   -o "$OUT_DIR/test_io_apic_irq"
 "$OUT_DIR/test_io_apic_irq"
 
 # Validate the common ACPI RSDT/XSDT + MADT parser directly.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_acpi.cpp kernel/arch/x86_64/acpi.cpp \
   -o "$OUT_DIR/test_acpi"
 "$OUT_DIR/test_acpi"
 
 # Validate FADT reset/control discovery, strict byte-wide RESET_REG handling,
 # HW-reduced rejection, bounded _S5_ AML decoding and PM1 composition.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_acpi_power.cpp kernel/arch/x86_64/acpi.cpp \
   kernel/arch/x86_64/acpi_power.cpp \
   -o "$OUT_DIR/test_acpi_power"
 "$OUT_DIR/test_acpi_power"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hpet_table.cpp kernel/arch/x86_64/hpet_table.cpp \
   -o "$OUT_DIR/test_hpet_table"
 "$OUT_DIR/test_hpet_table"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_hda_protocol.cpp kernel/drivers/audio/hda_protocol.cpp \
   -o "$OUT_DIR/test_hda_protocol"
 "$OUT_DIR/test_hda_protocol"
 
 # Exercise bounded USB configuration-descriptor parsing and HID boot-report
 # decoding without hardware. xHCI runtime qualification remains separate.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_protocol.cpp kernel/drivers/usb/protocol.cpp \
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
   -o "$OUT_DIR/test_usb_hid_report"
 "$OUT_DIR/test_usb_hid_report"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_mass_storage_protocol.cpp \
   kernel/drivers/usb/mass_storage_protocol.cpp \
   -o "$OUT_DIR/test_usb_mass_storage_protocol"
 "$OUT_DIR/test_usb_mass_storage_protocol"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_xhci_bulk.cpp kernel/drivers/usb/xhci_bulk.cpp \
   -o "$OUT_DIR/test_xhci_bulk"
 "$OUT_DIR/test_xhci_bulk"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_keyboard.cpp kernel/drivers/usb/protocol.cpp \
   -o "$OUT_DIR/test_usb_keyboard"
 "$OUT_DIR/test_usb_keyboard"
 
 # Validate xHCI capability/runtime/doorbell MMIO windows with overflow-safe
 # arithmetic before privileged controller access.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_xhci_layout.cpp kernel/drivers/usb/xhci_layout.cpp \
   -o "$OUT_DIR/test_xhci_layout"
 "$OUT_DIR/test_xhci_layout"
 
 # Execute the production port scanner, including MaxPorts=255 and no device,
 # without initializing hardware. Catch an accidental unbounded scan explicitly.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_ports.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_ports"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_ports"
 timeout 10 "$OUT_DIR/test_xhci_ports"
 
 # Exercise cycle-bit transitions and stale-event rejection in production rings.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_rings.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_rings"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_rings"
 timeout 10 "$OUT_DIR/test_xhci_rings"
 
 # Reject unrelated/duplicate transfer completions before touching report DMA.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_completions.cpp \
   kernel/drivers/usb/protocol.cpp \
   kernel/drivers/usb/hid_report.cpp \
@@ -334,17 +349,17 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_completions"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
 python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,
 # retained ownership on failure, exact-once retry and child-slot rollback.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_cleanup.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_cleanup"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_cleanup"
 timeout 10 "$OUT_DIR/test_xhci_cleanup"
 
 # Exercise production PCI word writes and VirtIO resource failure paths.
@@ -353,54 +368,54 @@ for test in test_pci_word_write test_virtio_net_cleanup; do
   if [[ "$test" == test_virtio_net_cleanup ]]; then
     extra_sources+=(kernel/drivers/virtio/pci_transport.cpp)
   fi
-  "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
     -ffunction-sections -fdata-sections "tests/$test.cpp" "${extra_sources[@]}" \
-    -Wl,--gc-sections -o "$OUT_DIR/$test"
+    "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/$test"
   "$OUT_DIR/$test"
 done
 
 # Native pointer overlay and Modern rounded raster geometry: freestanding
 # pure helpers compiled with warnings-as-errors and UBSan in scoped CI.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_cursor_overlay.cpp -o "$OUT_DIR/test_flux_cursor_overlay"
 "$OUT_DIR/test_flux_cursor_overlay"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_rounded_geometry.cpp -o "$OUT_DIR/test_flux_rounded_geometry"
 "$OUT_DIR/test_flux_rounded_geometry"
 
 python3 tests/test_flux8_application_smoke.py
 python3 tests/test_flux_app_catalog_sources.py
 python3 tests/test_flux8_virtualbox_runner.py
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_console_fallback_policy.cpp -o "$OUT_DIR/test_console_fallback_policy"
 "$OUT_DIR/test_console_fallback_policy"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_session_owner_policy.cpp -o "$OUT_DIR/test_flux_session_owner_policy"
 "$OUT_DIR/test_flux_session_owner_policy"
 
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_label_fitting.cpp -o "$OUT_DIR/test_flux_label_fitting"
 "$OUT_DIR/test_flux_label_fitting"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_c"
 "$OUT_DIR/test_flux_app_catalog_c"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -x c++ tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_cpp"
 "$OUT_DIR/test_flux_app_catalog_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_app_lifecycle.c \
   -o "$OUT_DIR/test_flux_app_lifecycle"
 "$OUT_DIR/test_flux_app_lifecycle"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_app_lifecycle.c \
   -o "$OUT_DIR/test_flux_app_lifecycle_cpp"
 "$OUT_DIR/test_flux_app_lifecycle_cpp"
 
 # Test the real per-process Ring-3 UI event queue and overload policy.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_ui_event_queue.cpp \
   -o "$OUT_DIR/test_ui_event_queue"
@@ -414,56 +429,56 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_files_wheel_paging"
 
 # Exercise production Flux 8 palette contracts in hosted C and C++.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_theme_palette.c \
   -o "$OUT_DIR/test_flux_theme_palette"
 "$OUT_DIR/test_flux_theme_palette"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_theme_palette.c \
   -o "$OUT_DIR/test_flux_theme_palette_cpp"
 "$OUT_DIR/test_flux_theme_palette_cpp"
 
 # Native key events must preserve Ctrl modifiers; ASCII control characters
 # must never be mistaken for physical C/V/A/X key codes.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_ui_keyboard_shortcuts.c \
   -o "$OUT_DIR/test_ui_keyboard_shortcuts"
 "$OUT_DIR/test_ui_keyboard_shortcuts"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_ui_keyboard_shortcuts.c \
   -o "$OUT_DIR/test_ui_keyboard_shortcuts_cpp"
 "$OUT_DIR/test_ui_keyboard_shortcuts_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_keyboard.c \
   -o "$OUT_DIR/test_flux_files_keyboard"
 "$OUT_DIR/test_flux_files_keyboard"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_keyboard.c \
   -o "$OUT_DIR/test_flux_files_keyboard_cpp"
 "$OUT_DIR/test_flux_files_keyboard_cpp"
 
 # Flux 8 responsive geometry: compile the actual SDK placement contract
 # in both freestanding-compatible C and C++ and test overflow and small GOP.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_display_layout.c \
   -o "$OUT_DIR/test_display_layout"
 "$OUT_DIR/test_display_layout"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_display_layout.c \
   -o "$OUT_DIR/test_display_layout_cpp"
 "$OUT_DIR/test_display_layout_cpp"
 
 # Exercise production libui row geometry and pointer hit-testing.
-"$HOST_CC" \
-  -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" \
+  -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror "${HOST_FREESTANDING_FLAGS[@]}" \
   -DKUROGANE_HOST_TEST -Isdk/include \
   tests/test_libui_pointer.c sdk/src/libui.c \
   -o "$OUT_DIR/test_libui_pointer"
 
 "$OUT_DIR/test_libui_pointer"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -Isdk/include \
   tests/test_graphics_runtime.cpp \
@@ -472,7 +487,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_graphics_runtime"
 
 # Exercise the real framebuffer backbuffer with a bounded outer damage mask.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_framebuffer_damage.cpp \
   kernel/drivers/framebuffer.cpp \
@@ -480,7 +495,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_framebuffer_damage"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
   kernel/fs/vfs.cpp \
@@ -490,7 +505,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Keep malformed process-local descriptors distinct from generation-safe stale
 # file handles before either result reaches the public Ring-3 status ABI.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_file_handle.cpp \
   -o "$OUT_DIR/test_file_handle"
@@ -498,7 +513,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_file_handle"
 
 # Exercise KuroFS v1 metadata persistence through the production block-device ABI.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_allocator.cpp \
   kernel/fs/kurofs.cpp \
@@ -507,7 +522,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_kurofs_allocator"
 
 # Exercise durable KuroFS extent contents and generation-safe inode publication.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_data.cpp \
   kernel/fs/kurofs.cpp \
@@ -516,7 +531,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_kurofs_data"
 
 # Exercise CRC-protected KuroFS directory persistence and copy-on-grow.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_directory.cpp \
   kernel/fs/kurofs.cpp \
@@ -526,7 +541,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Interrupt every persistent write/flush phase of cross-directory moves and
 # require remount recovery to expose exactly the old or the new namespace.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_move_recovery.cpp \
   kernel/fs/kurofs.cpp \
@@ -536,7 +551,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Refuse live inode overlap, free-block ownership, stale directory identities
 # and unsupported inode/link metadata before a KuroFS mount is exposed.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_consistency.cpp \
   kernel/fs/kurofs.cpp \
@@ -545,7 +560,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_kurofs_consistency"
 
 # Persist and normalize explicit pending/live/orphan/tombstoned inode states.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_ownership.cpp \
   kernel/fs/kurofs.cpp \
@@ -555,7 +570,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Tombstone only explicit reclaimable orphans before releasing their extents,
 # and remount every interrupted write/flush outcome to prove safe recovery.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_orphan_recovery.cpp \
   kernel/fs/kurofs.cpp \
@@ -565,7 +580,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Interrupt every write and flush in regular-file COW replacement and require
 # remount to expose one complete old-or-new payload with valid ownership.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_write_recovery.cpp \
   kernel/fs/kurofs.cpp \
@@ -575,7 +590,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Interrupt inode reservation and every namespace-publication phase of create;
 # remount must expose either no name plus an orphan or one live child.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_create_recovery.cpp \
   kernel/fs/kurofs.cpp \
@@ -585,7 +600,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Bind an explicitly formatted raw KuroFS disk through the production adapter
 # without ever formatting unknown media implicitly.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_volume.cpp \
   kernel/fs/kurofs_volume.cpp \
@@ -596,7 +611,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_kurofs_volume"
 
 # Exercise KuroFS through the production VFS routing/open/read/readdir API.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kurofs_vfs.cpp \
   kernel/fs/kurofs_vfs.cpp \
@@ -606,7 +621,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_kurofs_vfs"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_ipc.cpp \
   kernel/ipc/channel.cpp \
@@ -614,7 +629,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_ipc"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_shared_memory.cpp \
   kernel/ipc/shared_memory.cpp \
@@ -623,7 +638,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_shared_memory"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_event.cpp \
   kernel/ipc/event.cpp \
@@ -631,18 +646,18 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_event"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -DKUROGANE_HOST_TEST -ffunction-sections -fdata-sections \
   tests/test_socket.cpp \
   kernel/net/socket.cpp \
   kernel/net/tcp_client.cpp \
-  -Wl,--gc-sections \
+  "${HOST_LINK_FLAGS[@]}" \
   -o "$OUT_DIR/test_socket"
 
 "$OUT_DIR/test_socket"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_dns_protocol.cpp \
   kernel/net/protocols.cpp \
@@ -651,7 +666,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_dns_protocol"
 
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -DKUROGANE_HOST_TEST \
   tests/test_diagnostic_event_ring.cpp \
@@ -662,22 +677,22 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Link real production Flux palette/style state transitions under the
 # linker GC, without bringing up a framebuffer in the host process.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections -Isdk/include \
   tests/test_flux_ui_state.cpp kernel/ui/ui.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_flux_ui_state"
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_ui_state"
 "$OUT_DIR/test_flux_ui_state"
 
 # System activity is sampled on a fixed shared interval. Home and Forge
 # Control must not consume counters from each other's independent reads.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_system_metrics_sampling.cpp kernel/core/system_metrics.cpp \
   -o "$OUT_DIR/test_system_metrics_sampling"
 "$OUT_DIR/test_system_metrics_sampling"
 
 # Exercise the production Flux Window Core, including retained surface
 # ownership and generation-safe cleanup, without framebuffer hardware.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST \
   tests/test_window_manager.cpp \
@@ -689,7 +704,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 # Exercise the production TCP client with a deterministic fake wire. This
 # protects stream reassembly and the SND.UNA/SND.NXT retransmission contract
 # without relying on host sockets or libc networking.
-"$HOST_CXX" \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   -DKUROGANE_HOST_TEST \
   tests/test_tcp_client.cpp \
@@ -709,11 +724,11 @@ python3 tests/test_flux8_virtualbox_runner.py
 bash ./scripts/probe-mbedtls-freestanding.sh
 
 # Exercise production HTTPS request construction/read loop with scripted TLS I/O.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  -Wno-builtin-declaration-mismatch -ffunction-sections -fdata-sections \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections \
   -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
   -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
-  tests/test_tls_http_io.cpp -Wl,--gc-sections -o "$OUT_DIR/test_tls_http_io"
+  tests/test_tls_http_io.cpp tests/host_log_stub.cpp "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_tls_http_io"
 "$OUT_DIR/test_tls_http_io"
 
 
@@ -722,8 +737,9 @@ bash ./scripts/probe-mbedtls-freestanding.sh
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
 bash ./scripts/build-sdk.sh
 
+project_cxx="${KUROGANE_CXX:-${CXX:-$(command -v x86_64-elf-g++ >/dev/null 2>&1 && echo x86_64-elf-g++ || echo g++)}}"
 "$HOST_PYTHON" tests/test_sdk_project_generator.py \
   --root "$ROOT_DIR" \
-  --cxx "${KUROGANE_CXX:-${CXX:-g++}}"
+  --cxx "$project_cxx"
 
 echo "[host-tests] PASS"

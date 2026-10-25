@@ -24,6 +24,10 @@ kasuje wybrany dysk; nie stosuj reinstalacji jako automatycznej naprawy danych.
 
 ## Diagnostyka i akceptacja
 
+Profil wejścia VM musi pozostawać spójny z kontraktem: `PS/2 Mouse` jest
+używany jako profil myszy zgodny z BIOS/PS/2, a `USB Tablet` jest zachowany
+jako alternatywny urządzenie dla płynnego pointera i inputu z hosta.
+
 ```powershell
 .\scripts\check-flux8-ui.ps1 -Name 'KuroganeOS-Flux8-Modern'
 ```

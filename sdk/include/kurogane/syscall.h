@@ -94,6 +94,7 @@ enum ku_open_flags {
     KU_OPEN_DIRECTORY = UINT64_C(1) << 3
 };
 
+#if defined(__x86_64__) || defined(_M_X64)
 static inline ku_result_t ku_syscall3(
     uint64_t number,
     uint64_t argument1,
@@ -110,6 +111,19 @@ static inline ku_result_t ku_syscall3(
         : "memory", "cc");
     return (ku_result_t)rax;
 }
+#else
+static inline ku_result_t ku_syscall3(
+    uint64_t number,
+    uint64_t argument1,
+    uint64_t argument2,
+    uint64_t argument3) {
+    (void)number;
+    (void)argument1;
+    (void)argument2;
+    (void)argument3;
+    return (ku_result_t)KU_STATUS_NOT_SUPPORTED;
+}
+#endif
 
 static inline ku_result_t ku_write(
     uint64_t descriptor,
@@ -195,11 +209,20 @@ static inline ku_status_t ku_enter_console_fallback(void) {
     return (ku_status_t)ku_syscall3(KU_SYS_CONSOLE_FALLBACK, 0U, 0U, 0U);
 }
 
+#if defined(__x86_64__) || defined(_M_X64)
 __attribute__((noreturn)) static inline void ku_exit(int32_t status) {
     (void)ku_syscall3(KU_SYS_EXIT, (uint64_t)(int64_t)status, 0, 0);
     for (;;) {
         __asm__ volatile("ud2");
     }
 }
+#else
+__attribute__((noreturn)) static inline void ku_exit(int32_t status) {
+    (void)status;
+    for (;;) {
+        __asm__ volatile("" ::: "memory");
+    }
+}
+#endif
 
 #endif

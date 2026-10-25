@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-size_t strlcpy(char* destination, const char* source, size_t capacity) {
+static size_t local_strlcpy(char* destination, const char* source, size_t capacity) {
     const size_t length = strlen(source);
     if (capacity != 0U) {
         const size_t copied = length < capacity - 1U ? length : capacity - 1U;
@@ -26,9 +26,13 @@ static int center_y(const ku_ui_native_frame* frame, uint32_t command) {
 }
 
 int main(void) {
+    char scratch[16];
     kui_scene scene;
     kui_flow root;
     ku_ui_native_frame native;
+    if (local_strlcpy(scratch, "TEST", sizeof(scratch)) != 4U || strcmp(scratch, "TEST") != 0) {
+        return 10;
+    }
     kui_scene_initialize(&scene);
     if (scene.background_rgb != KU_FLUX_COLOR_BACKGROUND ||
         scene.foreground_rgb != KU_FLUX_COLOR_TEXT_PRIMARY ||

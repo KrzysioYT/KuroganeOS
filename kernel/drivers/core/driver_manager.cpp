@@ -1,6 +1,8 @@
 #include "driver_manager.hpp"
 
-extern "C" KStatus kurogane_register_builtin_drivers() __attribute__((weak));
+extern "C" __attribute__((weak)) KStatus kurogane_register_builtin_drivers() {
+    return KStatus::Ok;
+}
 
 namespace drivers::driver {
 namespace {
