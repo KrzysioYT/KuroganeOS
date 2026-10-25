@@ -67,3 +67,12 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
 Historyczny QUALIFIED oznacza zakres wskazanej rewizji, a nie bezwarunkowe
 potwierdzenie obecnego HEAD. Oryginalne audyty i informacje o wydaniach zachowują
 daty i znaczenie historyczne.
+
+## 2026-10-25 — macOS runtime image parity (active)
+
+macOS image creation was independently reported to omit 22 baseline Ring-3
+programs despite passing image/UEFI tests. `scripts/build-macos.sh` is being
+aligned with the 33-program Linux/Windows inventory; a mandatory ELF/overlay
+preflight rejects missing accountd, sessiond, notificationd and GUI applications
+before IMG/ISO publication. Actual macOS host execution and boot verification
+remain UNVERIFIED until tested on the matching source SHA.

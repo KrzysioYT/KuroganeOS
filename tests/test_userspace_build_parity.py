@@ -1,4 +1,4 @@
-"""Reject incomplete Windows/Linux runtime images before media qualification."""
+"""Reject incomplete macOS/Windows/Linux runtimes before media qualification."""
 import re
 import unittest
 from pathlib import Path
@@ -22,11 +22,15 @@ def windows_inventory(text):
             for name, source, output, assembly in rows]
 
 
-def validate(linux, windows, init):
+def validate(linux, windows, init, macos=None):
     assert linux and windows, 'Empty userspace build inventory'
     assert len({row[0] for row in linux}) == len(linux), 'Duplicate build names'
     assert len({row[2] for row in linux}) == len(linux), 'Duplicate output paths'
     assert sorted(linux) == sorted(windows), 'Windows/Linux userspace inventory differs'
+    if macos is not None:
+        assert sorted(linux) == sorted(macos), 'macOS/Linux userspace inventory differs'
+        assert len({row[0] for row in macos}) == len(macos), 'Duplicate macOS build names'
+        assert len({row[2] for row in macos}) == len(macos), 'Duplicate macOS output paths'
     required = set(re.findall(r'^#define \w+_PATH "/(system/[^"\n]+)"', init, re.M))
     assert required, 'PID 1 service inventory not found'
     assert required <= {row[2] for row in windows}, 'Missing PID 1 runtime service'
@@ -35,15 +39,35 @@ def validate(linux, windows, init):
 class UserspaceBuildParity(unittest.TestCase):
     def setUp(self):
         self.ps = (ROOT / 'scripts/build.ps1').read_text()
+        self.mac_script = (ROOT / 'scripts/build-macos.sh').read_text()
+        self.mac = linux_inventory(self.mac_script)
         self.sh = (ROOT / 'scripts/build-linux.sh').read_text()
         self.linux = linux_inventory(self.sh)
         self.windows = windows_inventory(self.ps)
         self.init = (ROOT / 'userspace/system/init/main.c').read_text()
 
     def test_inventory_and_sources(self):
-        validate(self.linux, self.windows, self.init)
+        validate(self.linux, self.windows, self.init, self.mac)
         for _, source, _, _ in self.windows:
             self.assertTrue((ROOT / source).is_file(), source)
+
+    def test_old_incomplete_macos_inventory_is_rejected(self):
+        with self.assertRaisesRegex(AssertionError, 'macOS/Linux userspace inventory differs'):
+            validate(self.linux, self.windows, self.init, self.mac[:11])
+
+    def test_macos_missing_account_or_session_is_rejected(self):
+        for missing in ('system/accountd', 'system/sessiond', 'system/notifd'):
+            broken = [row for row in self.mac if row[2] != missing]
+            with self.assertRaisesRegex(AssertionError, 'macOS/Linux userspace inventory differs'):
+                validate(self.linux, self.windows, self.init, broken)
+
+    def test_macos_runtime_compiler_and_package_guard(self):
+        for flag in ('-mno-mmx', '-mno-sse', '-msoft-float'):
+            self.assertIn(flag, self.mac_script)
+        self.assertIn('"$objdump" -d "$target"', self.mac_script)
+        self.assertIn('verify-userspace-overlay.py', self.mac_script)
+        installer = (ROOT / 'scripts/build-installer-macos.sh').read_text()
+        self.assertIn('verify-userspace-overlay.py', installer)
 
     def test_legacy_windows_inventory_is_rejected(self):
         with self.assertRaisesRegex(AssertionError, 'inventory differs'):
