@@ -1,5 +1,8 @@
 # Flux Desktop 8.0 — pointer ownership, capture and chrome isolation
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Date: 2026-10-24. This is a scoped Window Manager 2.0 engineering candidate.
 
 ## Correctness defect

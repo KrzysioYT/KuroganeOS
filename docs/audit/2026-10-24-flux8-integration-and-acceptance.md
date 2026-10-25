@@ -1,5 +1,8 @@
 # KuroganeOS Flux 8 — 2026-10-24 integration & qualification
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 ## Scope and evidence
 This is development **8.0**, not release 8.0.0-dev or stable.
 The latest integration branch must pass its exact SHA gates.

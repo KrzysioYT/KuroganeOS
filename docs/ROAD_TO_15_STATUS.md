@@ -1,5 +1,8 @@
 # KuroganeOS Road to 15 status
 
+> Rejestr historycznych etapów i przyrostów. Status bieżącego kandydata:
+> [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md). Dawny PASS nie kwalifikuje nowego SHA.
+
 This file is generated only from qualified development evidence.
 
 ## 3.6 Flux Stabilization

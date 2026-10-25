@@ -1,5 +1,8 @@
 # PCI PME recovery in same-state restores — 2026-10-24
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Milestone: Iron Shield 7.0.0-dev (not a stable release).
 
 ## Defect

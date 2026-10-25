@@ -1,4 +1,8 @@
 # Flux Desktop 8.0: stable window enumeration and live-session gate
+
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 2026-10-24 — Scoped engineering qualification, not the 8.0.0 release.
 
 ## Defect and fix

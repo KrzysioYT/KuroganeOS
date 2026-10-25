@@ -1,5 +1,8 @@
 # Flux Desktop: Ring-3 wheel delivery and Files paging
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Date: 2026-10-24. Scoped 8.0 desktop input engineering candidate.
 
 ## Defect

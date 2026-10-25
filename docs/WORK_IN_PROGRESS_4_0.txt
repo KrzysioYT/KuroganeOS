@@ -1,1 +1,3 @@
+HISTORICAL SNAPSHOT — current state: ../DEVELOPMENT_STATE.md
+
 KuroFS 4.0 allocator work in progress.

@@ -1,5 +1,8 @@
 # Iron Shield 7.0 supported-device combined qualification — 2026-10-24
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 ## Goal
 
 Make a substantial, same-source-SHA qualification of the supported Iron Shield

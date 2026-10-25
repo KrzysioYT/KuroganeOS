@@ -35,8 +35,8 @@ bash ./scripts/build-media-macos.sh --configuration debug --rebuild
 Wyniki:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-7.0.0-dev-macos-qemu.img
+dist/KuroganeOS-7.0.0-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -78,7 +78,7 @@ qemu-system-x86_64 \
   -vga std \
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
   -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_media,format=raw,file="./dist/KuroganeOS-3.3.1-dev-macos-qemu.img",cache=writeback \
+  -drive if=none,id=kurogane_media,format=raw,file="./dist/KuroganeOS-7.0.0-dev-macos-qemu.img",cache=writeback \
   -device ide-hd,drive=kurogane_media,bus=ide.0,bootindex=1 \
   -display cocoa \
   -serial stdio \
@@ -106,7 +106,7 @@ Możesz sprawdzić, czy niezależny firmware UEFI rzeczywiście bootuje ISO:
 
 ```bash
 bash ./scripts/smoke-uefi-iso-qemu.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+  ./dist/KuroganeOS-7.0.0-dev-x86_64.iso \
   --timeout 60
 ```
 

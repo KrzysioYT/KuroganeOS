@@ -1,5 +1,8 @@
 # KuroganeOS 2.2 — Desktop Developer Preview
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 KuroganeOS 2.2 jest pierwszym wydaniem, w którym pulpit jest traktowany jako
 rzeczywisty **Desktop Developer Preview**, a nie jako obietnica z roadmapy.
 Fundament instalowalnego systemu 2.1 pozostaje bez zmian: UEFI, Ring 3, PID 1,

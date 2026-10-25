@@ -1,5 +1,8 @@
 # Road-to-15 consolidation — 2026-10-20
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 ## Changes
 
 Merged the divergent 7.0 source lines: `chatgpt/7.0-iron-shield` at

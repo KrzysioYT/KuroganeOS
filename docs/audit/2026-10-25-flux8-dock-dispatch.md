@@ -1,5 +1,8 @@
 # Flux 8 runtime blocker: Dock recentering — 2026-10-25
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Run 40141189698 at 621bb56 passed the optimized/UBSan gate but failed the
 live desktop gate. Serial evidence confirms real Login, account lookup, session
 creation, Home first frame, Files launch and Files wheel paging. Terminal never

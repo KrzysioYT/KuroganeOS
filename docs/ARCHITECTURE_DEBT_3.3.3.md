@@ -1,5 +1,8 @@
 # KuroganeOS 3.3.3-dev architecture debt
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
+
 Status: post-VirtualBox audit, clean-room architecture work.
 
 This is a concrete debt list, not a roadmap of features. The goal is to stop

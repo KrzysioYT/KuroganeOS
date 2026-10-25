@@ -1,5 +1,8 @@
 # Audyt KuroganeOS Foundation
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
+
 Data aktualizacji: 14 sierpnia 2026 r.
 
 ## Zasada klasyfikacji

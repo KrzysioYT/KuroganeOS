@@ -1,5 +1,8 @@
 # Flux Desktop — loss-aware Ring-3 input queue
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 2026-10-24. Scoped UI input-delivery milestone, not full 8.0.0.
 
 ## Bug

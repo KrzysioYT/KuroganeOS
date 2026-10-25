@@ -40,16 +40,12 @@ Source of truth: `DEVELOPMENT_STATE.md`; work branch
 - **8.0 — Flux Modern**: clean Login->Home; functional native applications,
   modern widgets; bounded UTF-8; scalable fonts; per-client surfaces; HiDPI;
   fallback console. See `FLUX8_MODERN_COMPLETION.md`.
-- **9.0 — Platform UX**: display/input settings, multi-resolution/window
-  state persistence and robust hotplug/focus handling.
-- **10.0 — Application Platform**: app registration, lifecycle, permissions,
-  package integrity and native application SDK usability.
-- **11.0 — Files & Persistence**: stable writable FS, safe updates, file
-  dialogs, recovery and migration tests.
-- **12.0 — Connected System**: DNS/TCP/TLS, secure services, failure-restart
-  behavior and audio/network integration.
-- **13.0 — Hardware Expansion**: wider UEFI/ACPI/PCI compatibility and
-  measured runtime behavior across supported emulator profiles.
+- **9.0 — Networking & Services**: networking reliability and expanded services.
+- **10.0 — Storage & VFS 2.0**: persistent storage, filesystem and migration safety.
+- **11.0 — Application Platform**: SDK, app lifecycle, packages and native utilities.
+- **12.0 — Security, Updates & Recovery**: permissions, credential security,
+  signed updates, rollback and recovery.
+- **13.0 — Performance & Power**: measured performance, scaling and power lifecycle.
 - **14.0 — Release Candidate**: security audit, regression closeout,
   performance/thermal bounds and installer rollback drills.
 - **15.0.0 stable — public target**: all mandatory evidence green on the

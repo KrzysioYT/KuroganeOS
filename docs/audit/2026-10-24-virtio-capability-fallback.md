@@ -1,5 +1,8 @@
 # Iron Shield VirtIO PCI capability fallback — 2026-10-24
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 VirtIO 1.2 §4.1.4.1 requires ignoring vendor-specific capabilities with a
 reserved BAR value and allows multiple instances of the same configuration
 type. The original transport parser instead rejected the *whole* capability

@@ -1,1 +1,3 @@
+HISTORICAL SNAPSHOT — current state: ../DEVELOPMENT_STATE.md
+
 KuroFS allocator auto-run enabled on self-hosted kurogane/kvm runner.

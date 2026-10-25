@@ -1,5 +1,8 @@
 # HEAD Audit — 2026-08-28
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Audited repository: `KrzysioYT/KuroganeOS`
 Audited commit: `17bd55091c63544b9585840192f0eb288e9cffff`
 Reported version source: `3.3.3-dev` / `DEV BETA`

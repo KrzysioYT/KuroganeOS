@@ -1,216 +1,69 @@
-# KuroganeOS Development State
+# KuroganeOS — stan rozwoju
 
-Last updated: 2026-10-24
+Aktualizacja: 2026-10-25. Gałąź robocza: `codex/road-to-15-stability`,
+[Draft PR #55](https://github.com/KrzysioYT/KuroganeOS/pull/55).
+Bazą integracji jest `gpt/road-to-15-consolidation`.
 
-## Integration branch
+## Wersja i najbliższy cel
 
-`gpt/road-to-15-consolidation`
+Kod w `common/version.h` identyfikuje system jako **7.0.0-dev**.
+Bieżący priorytet to **domknięcie Flux Modern 8.0**, przy zachowaniu regresji
+kernela, sterowników i Classic. **15.0.0 jest docelowym pierwszym wydaniem
+produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
+Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
+są odrębnymi informacjami.
 
-5.0 Steel closeout candidate:
+## Zasady projektu
 
-`90d5ffc80f91236e10118324c8e3b5d6f4a1c781`
+- Własny kernel x86-64 UEFI, sterowniki, Ring-3 ELF64, usługi i SDK.
+- Sprzęt opisują możliwości i identyfikatory urządzeń; VM jest profilem testowym,
+  nie architekturą systemu. Brak opcjonalnego urządzenia ma degradować funkcję.
+- Zachowujemy Windows/WSL, Linux oraz macOS jako ścieżki rozwoju.
+  Apple Silicon uruchamia gościa x86-64 przez emulację QEMU/TCG.
+- Działające logowanie, rzeczywisty proces i widoczne okno mają pierwszeństwo
+  przed zmianą numeru wersji. Nie omijamy autoryzacji kont ani sesji.
+- Nie kasujemy istniejących VDI, profili ani danych jako sposobu naprawy.
+- Kod, build, test hostowy, QEMU, VirtualBox i fizyczny sprzęt mają oddzielne
+  dowody. PASS dotyczy wskazanego SHA i profilu, nie wszystkich komputerów.
+- Niedostępny test pozostaje UNVERIFIED; nie blokuje niezależnej pracy,
+  ale nie zwalnia z obowiązkowego testu przed zamknięciem etapu.
 
-Merged through PR #45 as integration commit:
+## Potwierdzone przyrosty i ograniczenia dowodów
 
-`8374b6ba66a8bb9a4d4ddf8f969816dc789a5be4`
+| Zakres | Źródło | Wynik / granica |
+| --- | --- | --- |
+| Steel 5.0 po audycie współistnienia | `569bae4c33aa0c04db87f0cbe785da1aa45cc084`, run `37661212373` | Historyczna kwalifikacja zakresu 5.0 |
+| Core Steel 6.0 | `717e003b34d47c81495e8ac5c580ae57c5fb16b3`, run `37710493815` | Historyczna kwalifikacja kernela i SMP |
+| Obsługiwany podzbiór urządzeń 7.0 | `faceb4526acbbee3bc3ab544d7af76f12132766d`, run `40055252545` | Podzbiór, nie całe 7.0 ani fizyczny sprzęt |
+| Flux: Login, Home, Files, Terminal, USB-only + host sanitizer | `7f06237be046f782e8c4bb18ef097aab6f34988a`, run `40163835705` | Dwa zadania host/QEMU zakończone sukcesem; nie pełna akceptacja 8.0 |
+| Windows: komplet 33 programów i zakaz SIMD w userspace | `9c8700ce5129f716fabe9558fe7050aaedf8b5ae` | 5 testów zgodności + Linux release --no-image PASS; workflow Flux 8 `40164065199` PASS; pełny natywny Windows/VirtualBox nadal niezweryfikowany |
 
-## 2026-10-24 — active native text and application identity rebuild
+Wyniki Actions: [Flux QEMU i host](https://github.com/KrzysioYT/KuroganeOS/actions/runs/40163835705),
+[kwalifikacja poprawki Windows](https://github.com/KrzysioYT/KuroganeOS/actions/runs/40164065199).
+Workflow `40164065199` zakończył się sukcesem dla `9c8700c`. Dokument nie nadaje
+nowym commitom statusu PASS z poprzedniego uruchomienia.
 
-Current candidate branch: `codex/road-to-15-stability`, Draft PR #55.
-Release identity stays `7.0.0-dev`. This work does **not** qualify 8.0 or
-claim the whole system is stable.
+## Otwarte blokery
 
-- Added bounded UTF-8 text-cell parsing and transitional Polish glyph
-  fallback for kernel software rendering; Modern labels preserve character
-  boundaries and handle malformed input. This is not a proportional font.
-- Canonical `sdk/include/kurogane/flux_app_catalog.h` now centralizes
-  the application window titles and executable paths shared by the Dock,
-  Home and eight native GUI programs. Fixed the Dock expecting `FLUX TERMINAL`
-  while the live app actually opens `RED FLUX TERMINAL`.
-- Added host C/C++ catalog checks, source parity checks and UTF-8 fitting
-  regressions. QEMU/VirtualBox live acceptance has not yet been recorded on
-  this source SHA.
-- Existing `SESSION HOME NOT READY` VirtualBox incident remains an open
-  P0 until the freshly built ISO produces authenticated Home first frame,
-  an actual Files/Terminal process spawn and a live interactive window.
-- The unified rebuild acceptance plan is
-  `docs/roadmap/KUROGANEOS_REBUILD_7_TO_15.md`.
+1. VirtualBox: zgłoszone restarty usług i `flux_account_lookup: FAIL` na starym
+   zainstalowanym obrazie. Brak 22 programów w buildzie Windows został naprawiony,
+   ale związek z całym incydentem wymaga świeżego logu. Nowe ISO nie aktualizuje
+   automatycznie plików starego zainstalowanego rootfs.
+2. Pełna akceptacja Flux: wszystkie aplikacje, lifecycle, focus/capture,
+   restart/recovery, clipboard, interakcje i trwałość ustawień na tym samym SHA.
+3. Skalowalne fonty, HiDPI i zmiany trybu wyświetlania, dostępność, drag/drop
+   oraz pozostałe otwarte pozycje kontraktu 8.0.
+4. Produktowe security/KDF, aktualizacje/rollback, szersza zgodność sprzętowa
+   i długotrwałe testy pozostają pracą do 15.0, nie ukończonymi funkcjami.
 
-## Active development evidence
+## Dokumenty nadrzędne
 
-PR #55 (`codex/road-to-15-stability`) carries the current candidate.
-At `507b242d046f2cf3ea242f0de058af227065898b`, the 5.1 through 5.5
-QEMU workflows, Steel Closeout, Scheduler 2.0 and focused Flux window-manager
-regression all pass. This establishes those automated profiles, not physical
-hardware certification. The 7.0 device and Intel GbE workflows passed on
-`95d96d099b4e4699985ad77f1201903d8257335f` before the compositor-only change.
+- [Indeks dokumentacji](docs/README.md).
+- [Jedyna numeracja etapów](docs/roadmap/MASTER_ROADMAP_15.md).
+- [Kontrakt ukończenia 8.0](docs/roadmap/FLUX8_MODERN_COMPLETION.md).
+- [Plan realizacji](docs/roadmap/KUROGANEOS_REBUILD_7_TO_15.md).
+- [Historyczne dowody etapów](docs/ROAD_TO_15_STATUS.md).
 
-Current desktop hardening preserves redraw requests raised during rendering.
-Clipboard service hardening retains response snapshots under IPC backpressure
-and validates UTF-8; it has host regression coverage and a release build, with
-runtime qualification still required. 8.0–14.0 remain incomplete; no version
-promotion or product-level stable release is implied by these slices.
-
-## Formal release track
-
-- `3.3.3-dev — Red Flux`: QUALIFIED
-- `3.4.0-dev — System Services`: QUALIFIED
-- `3.5.0-dev — Connected Userspace`: QUALIFIED
-- `3.6.0-dev — Flux Stabilization`: QUALIFIED
-- `4.0.0-dev — Pre-Steel`: QUALIFIED
-- `5.0.0-dev — Steel / Hardware`: QUALIFIED AFTER COEXISTENCE AUDIT
-- `5.1 — HAL / Driver Portability`: implemented candidate, qualification pending
-- `5.2 — Universal Input`: implemented candidate, qualification pending
-- `5.3 — Universal Storage`: implemented candidate, qualification pending
-- `5.4 — Platform / Firmware Portability`: implemented candidate, qualification pending
-- `5.5 — Hardware Compatibility Gate`: implemented candidate, qualification pending
-- `6.0.0-dev — Kernel Core 2.0`: QUALIFIED at `717e003b34d47c81495e8ac5c580ae57c5fb16b3`
-- `7.0.0-dev — Iron Shield / Driver & Device Expansion`: active candidate, qualification pending
-- `8.0.0-dev` through `14.0.0-rc`: pending
-- `15.0.0 stable`: target
-
-`5.0.0-dev` is the formal Steel milestone identity. The `-dev` suffix does
-not mean the 5.0 engineering gate is incomplete; only 15.0.0 is planned as the
-first product-level STABLE release.
-
-
-## Active 5.x hardware compatibility transition
-
-The qualified 5.0 hardware substrate is now being generalized for physical
-x86-64 UEFI systems. VirtualBox/QEMU/VMware are test targets, not the system
-architecture.
-
-The 5.x compatibility line now includes the central hardware capability
-policy, optional/boot-critical Device Model semantics, HID report-protocol
-absolute pointers, controller-independent block-device registration,
-transport-neutral installer input/storage, x86 vendor/capability discovery and
-runtime compatibility tiers.
-
-Dedicated QEMU gates cover PS/2-free USB input, USB tablet report protocol,
-NVMe + USB storage coexistence, Intel-like and AMD-like four-vCPU firmware/SMP
-paths, and Tier 1/Tier 3 compatibility profiles. These are implemented
-candidates until the exact branch SHA completes the full regression matrix.
-Physical systems and non-QEMU hypervisors remain external validation rather
-than invented PASS evidence.
-
-See `docs/architecture/HARDWARE_COMPATIBILITY.md`.
-
-## Steel qualified scope
-
-- PCI/MSI/MSI-X and bounded I/O APIC routing with MADT overrides;
-- HPET main-counter runtime;
-- AHCI, writable NVMe and writable xHCI USB Mass Storage through the unified
-  block-device registry used by shell and installer selection;
-- xHCI HID keyboard and mouse runtime, including keyboard hotplug/ring-wrap;
-- Intel HDA PCM DMA with AC'97 compatibility;
-- MADT AP discovery, INIT/SIPI startup, per-CPU AP stacks/state, Local APIC
-  IPIs, cross-CPU work rendezvous and synchronous TLB shootdown;
-- firmware-derived FADT/DSDT reset and S5 power methods with existing hardware
-  and emulator fallbacks preserved.
-
-The old `smp_scheduler` qualification label was inaccurate: it exercised
-cross-CPU work dispatch, not the process/thread scheduler. It is now
-`smp_cross_cpu_work`. Scheduler 2.0 and multicore userspace scheduling are
-the explicit 6.0 Core Steel scope.
-
-## 5.0 authoritative automated evidence
-
-Qualified post-audit runtime candidate:
-
-`569bae4c33aa0c04db87f0cbe785da1aa45cc084`
-
-The original 5.0 closeout matrix was reopened after an external QEMU audit
-found two real configurations that were not covered: xHCI + VirtIO-net and
-simultaneous USB keyboard + mouse. Both issues were fixed before
-requalification.
-
-Post-audit same-SHA evidence:
-
-- Steel Closeout — Actions run `37661212373` — PASS;
-- xHCI + VirtIO coexistence — run `37661212429` — PASS;
-- simultaneous xHCI Multi HID — run `37661212451` — PASS;
-- xHCI USB Keyboard full ring-wrap/hotplug/late-attach — run
-  `37661212449` — PASS;
-- xHCI USB Mouse — run `37661212378` — PASS;
-- xHCI USB Mass Storage — run `37661212361` — PASS;
-- NVMe block runtime — run `37661212483` — PASS;
-- Intel HDA runtime — run `37661212532` — PASS;
-- HPET main counter — run `37661212464` — PASS;
-- Steel Foundations — run `37661212233` — PASS;
-- CLA check — run `37661212400` — PASS.
-
-The strengthened Steel Closeout itself now requires a four-vCPU SMP/HPET/ACPI
-boot and an audited combined QEMU run with USB keyboard + USB mouse + VirtIO,
-real HID input, DHCP and gateway ICMP. The dedicated coexistence workflow also
-proves keyboard+VirtIO, mouse+VirtIO and VirtIO polling fallback.
-
-## Audit closure
-
-- **xHCI/VirtIO MMIO collision: FIXED.** VirtIO-net now owns a dedicated
-  `0xFFFFB7...` virtual region. A host regression prevents overlap with xHCI
-  and the B3 APIC region.
-- **one-active-HID xHCI limitation: FIXED for simultaneous keyboard + mouse.**
-  xHCI now has an independent companion HID slot with its own contexts, EP0
-  ring, interrupt ring, DMA buffer, decoder and lifecycle. Foreign-slot events
-  are deferred rather than consumed by synchronous transfers.
-- **USB Mass Storage / NVMe / SMP / Intel HDA:** the audit's absence findings
-  referred to older source `2d550f1`; these subsystems had been implemented
-  later and passed again on the post-audit candidate.
-- **mouse wheel:** still a P2 limitation of the Boot Mouse path. Wheel/report
-  protocol support is not falsely claimed by the 5.0 gate.
-
-Oracle VirtualBox and physical-machine validation remain external evidence.
-Any real failure there reopens the affected subsystem; absence of that external
-evidence is never converted into a fake PASS.
-
-## Development policy
-
-`AUDIT -> DESIGN -> IMPLEMENT -> BUILD -> TEST -> FIX -> REGRESSION ->
-DOCUMENT -> COMMIT -> NEXT`.
-
-Routine commits, pushes and merges are authorized. Do not force-push, rewrite
-history, delete branches/tags/releases or perform similarly destructive Git
-operations without explicit instruction. Keep Windows PowerShell and Oracle
-VirtualBox support intact.
-
-
-## 6.0 Core Steel qualified baseline
-
-Exact source SHA: `717e003b34d47c81495e8ac5c580ae57c5fb16b3`.
-
-Scheduler 2.0 Foundation run `37710497664` and Core Steel Closeout run
-`37710493815` both passed. The closeout covered full host regression,
-thread/process/IPC regression, a clean release build and four-vCPU QEMU runtime
-including Scheduler 2.0 topology, kernel/Ring-3 preemption, AP Ring-3 execution,
-cross-CPU work, TLB shootdown, networking and the Red Flux login -> desktop ->
-mouse-launched Kurogane Web path.
-
-## Active 7.0 Iron Shield candidate
-
-Branch: `chatgpt/7.0-iron-shield`.
-
-The system identity is now `7.0.0-dev / IRON SHIELD DEV`. The first device
-expansion slice adds Intel 82574L/E1000e support beside the qualified 82540EM
-path while preserving the generic NetworkInterface consumed by higher layers.
-The dedicated 7.0 gate must prove both emulated Intel models with real DHCP and
-gateway ICMP before this slice is considered qualified.
-
-The original Intel GbE + initial PCI PM source at
-`0299d9a39ea2874ed71e3ca41203fe00f864ca2b` passed exact-source workflow
-`37723596871` (full host suite, clean media, E1000 and E1000e DHCP/gateway).
-This qualifies that slice, not the whole 7.0 milestone.
-
-The next PCI PM candidate enforces legal state transitions, mandatory
-settling delays, DMA gating for all low-power states and recoverable
-transaction ownership. The gate now additionally requires four pre-bind
-E1000e D3hot cycles followed by working DHCP/gateway traffic. The new source
-remains a candidate until its own workflow passes. See `docs/PCI_POWER.md`
-for the API contract and remaining driver-integration limits.
-
-## Consolidated continuation (2026-10-20)
-
-Active candidate: `codex/road-to-15-stability`, merging both 7.0 development
-branches without discarding the timed PCI PM fixes or VirtIO block driver.
-The integration branch remains unchanged pending runtime qualification.
-See `docs/audit/2026-10-20-consolidation.md` for current evidence; no 15.0
-stable release or tag has been created.
+Historyczny QUALIFIED oznacza zakres wskazanej rewizji, a nie bezwarunkowe
+potwierdzenie obecnego HEAD. Oryginalne audyty i informacje o wydaniach zachowują
+daty i znaczenie historyczne.

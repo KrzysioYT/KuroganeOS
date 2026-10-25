@@ -1,5 +1,8 @@
 # KuroganeOS branch audit
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 Date: 2026-08-29
 
 This audit records branch ancestry before Road-to-15 consolidation. It is intentionally conservative: **no branch is authorized for deletion by this document**. A branch marked `SUPERSEDED`, `ALREADY INCLUDED`, or `DOCS ONLY` remains historical evidence until an explicit cleanup decision is made.

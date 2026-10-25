@@ -1,5 +1,8 @@
 # Qualification repairs — 2026-10-23
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 CI for `d1c03fa25e93` passed both 7.0 device qualification workflows, including
 Intel GbE and VirtIO coverage. Five older qualification jobs failed:
 

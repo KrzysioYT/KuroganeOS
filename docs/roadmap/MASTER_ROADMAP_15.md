@@ -9,7 +9,11 @@ KuroganeOS is a native x86-64 UEFI operating system with its own kernel, Ring-3 
 
 Progress is counted only from verifiable implementation and evidence: code, host/kernel tests, ABI/SDK tests, regression tests, IMG/ISO generation, FAT32/VFS validation, OVMF/QEMU runtime, networking/TLS runtime and completed GitHub Actions results.
 
-Oracle VirtualBox host acceptance is `OPTIONAL / EXTERNAL VALIDATION`. It is not a Definition-of-Done item, a percentage input or a blocker for formal milestone progression. If an environment cannot be executed, its state stays external/unverified rather than being converted to PASS or FAIL.
+Oracle VirtualBox is required external interactive acceptance for Flux 8;
+QEMU does not substitute for it. An unavailable environment remains UNVERIFIED
+and blocks that gate, while independent engineering may continue. Physical
+Intel/AMD coverage and the documented VM matrix are mandatory for 14/15.
+Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
@@ -25,7 +29,7 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `5.0.0-dev` | Steel / Hardware | QUALIFIED AFTER AUDIT |
 | `6.0.0-dev` | Core Steel | QUALIFIED |
 | `7.0.0-dev` | Iron Shield | IN PROGRESS |
-| `8.0.0-dev` | Flux Desktop Platform | PENDING |
+| `8.0.0-dev` | Flux Desktop Platform / Flux Modern | ACTIVE — NOT QUALIFIED |
 | `9.0.0-dev` | Networking & Services | PENDING |
 | `10.0.0-dev` | Storage & VFS 2.0 | PENDING |
 | `11.0.0-dev` | Application Platform | PENDING |

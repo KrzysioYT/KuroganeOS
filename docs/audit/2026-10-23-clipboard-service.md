@@ -1,5 +1,8 @@
 # Clipboard response ownership and Unicode — 2026-10-23
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 The clipboard daemon previously discarded the return status of IPC sends.
 When the client's inbound queue was full, SET/CLEAR could mutate the clipboard
 without delivering the response. The daemon would then receive another request,

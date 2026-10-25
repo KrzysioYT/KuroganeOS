@@ -1,8 +1,8 @@
 # KuroganeOS Networking
 
-## Status 3.3.x
+## Stan bieżącej linii
 
-Bieżący development target to **3.3.3-dev**. KuroganeOS posiada własny
+Wersja runtime to **7.0.0-dev**, aktywny priorytet to Flux 8. KuroganeOS posiada własny
 kernelowy stos sieciowy i kilka backendów wirtualnych kart PCI.
 
 Warstwa `kernel/net/physical.cpp` próbuje urządzenia w kolejności:
@@ -30,7 +30,8 @@ PCI NIC
 Referencyjnym profilem **Oracle VirtualBox** jest obecnie AMD PCnet-FAST III
 **Am79C973 (`1022:2000`)**. E1000 pozostaje wspieranym backendem i profilem
 QEMU, ale realny VBox smoke 3.3.3-dev wykazał `NIC OFFLINE` dla `82540EM`, więc
-nie jest obecnie canonical profile dla Oracle VirtualBox.
+był wówczas wyłączony z profilu referencyjnego. To historyczny wynik, nie
+kwalifikacja bieżącego kandydata; aktualny profil określa creator VM.
 
 ## Referencyjny VirtualBox NIC
 
@@ -54,8 +55,8 @@ również:
 VirtualBox media i QEMU media są rozdzielone:
 
 ```text
-VirtualBox: KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
-QEMU:       KuroganeOS-3.3.3-dev-qemu-x86_64.img
+VirtualBox: KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso
+QEMU:       KuroganeOS-7.0.0-dev-qemu-x86_64.img
 ```
 
 ## Backendy NIC
@@ -103,7 +104,7 @@ VirtualBox:
 NAT + PCnet-FAST III (Am79C973)
 ```
 
-Helper `create-virtualbox-vm.ps1` używa `pcnet` domyślnie. Można go też wybrać
+Domyślny profil określa bieżący `create-virtualbox-vm.ps1`. Można go też wybrać
 jawnie przez `-Nic pcnet`.
 
 ## DHCP i konfiguracja IPv4
@@ -214,12 +215,12 @@ Na Windows zbuduj ponownie:
 Następnie uruchamiaj wyłącznie canonical artifact:
 
 ```text
-QEMU:       dist/KuroganeOS-3.3.3-dev-qemu-x86_64.img
-VirtualBox: dist/KuroganeOS-3.3.3-dev-virtualbox-x86_64.iso
+QEMU:       dist/KuroganeOS-7.0.0-dev-qemu-x86_64.img
+VirtualBox: dist/KuroganeOS-7.0.0-dev-virtualbox-x86_64.iso
 ```
 
-Stare nazwy `*-windows-qemu.img` i generic `*-x86_64.iso` nie są canonical
-artefaktami bieżącego Windows builda.
+Nazwy te dotyczą Windows. Linux/macOS mają osobne nazwy wyjściowe;
+sprawdź [BUILDING.md](BUILDING.md).
 
 ### Oczekiwany log poprawnego trust store
 
@@ -243,8 +244,8 @@ Klient TCP posiada m.in. SND.UNA/SND.NXT/RCV.NXT, retransmisję z zachowaniem
 sequence number, bounded out-of-order buffering i scalanie segmentów
 kontynuujących strumień.
 
-To nadal nie jest pełny desktopowy socket stack. Publiczna asynchroniczna
-warstwa socket handles/event waits pozostaje dalszym etapem.
+Publiczne uchwyty socketów, readiness i cleanup procesu są zaimplementowane.
+Pełny desktopowy stos sieciowy nadal wymaga rozszerzeń i kwalifikacji.
 
 ## QEMU user NAT
 

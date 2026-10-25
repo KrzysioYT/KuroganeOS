@@ -3,7 +3,7 @@
 This document describes the **public userspace contract**. Internal kernel
 functions are not part of the application ABI.
 
-Target: KuroganeOS **3.3.3-dev**, x86-64 Ring-3.
+Target: KuroganeOS **7.0.0-dev**, x86-64 Ring-3.
 
 ## Headers
 

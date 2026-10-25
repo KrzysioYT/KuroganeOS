@@ -148,8 +148,8 @@ The scoped QEMU smoke had fed physical 1280x800 pixels into the helper,
 but its absolute USB tablet movement explicitly scales input from the
 1024x768 QMP logical coordinate range. This can reliably deliver a primary
 button but miss every Dock button, so the runtime only reports mouse input.
-Files is now targeted at logical (450,726) and Terminal (410,726), within
-their respective pins for both 1024x768 and 1280x800 GOP. The wheel point
+Files is now targeted at logical (450,726) and Terminal (367,726), within
+their respective pins (Terminal after Files changes the task count) for both 1024x768 and 1280x800 GOP. The wheel point
 is independently inside a Files client window. The static test enforces
 QMP scaling assumptions and rejects the old raw-pixel positions.
 
@@ -201,3 +201,18 @@ when a daemon fails before entering Ring-3. Unexpected user-mode faults are
 reported with their vector. PID1's supervised exit code remains separate.
 This is diagnostics, not a verified runtime repair; don't reset installed
 credentials or delete the VM until the fault has been isolated.
+
+## 2026-10-25 — Current acceptance checkpoint
+
+`7f06237` passed the host sanitizer and real QEMU USB-only Login/Home,
+Files and Terminal jobs in run `40163835705`. The Terminal target is (367,726)
+after Files recenters the Dock; the production dispatch test covers both GOP
+sizes. This is scoped evidence, not completion of every checkbox above.
+
+`9c8700c` restores Windows/Linux parity for 33 baseline executables, including
+all PID 1 services, with scalar flags and disassembly inspection. Five host
+regressions and Linux release compilation passed. The scoped Flux 8 workflow
+`40164065199` also passed on `9c8700c`, including PowerShell parsing. Native Windows/VirtualBox
+acceptance, including the old installed-root incident, remains open.
+[Current status](../../DEVELOPMENT_STATE.md) takes precedence over dated
+working-slice notes. No version promotion is implied.

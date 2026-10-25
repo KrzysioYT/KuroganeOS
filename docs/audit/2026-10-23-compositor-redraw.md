@@ -1,5 +1,8 @@
 # Compositor redraw lifecycle — 2026-10-23
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 This is an incremental Flux Desktop Platform hardening change, not an 8.0 or
 15.0 qualification claim.
 

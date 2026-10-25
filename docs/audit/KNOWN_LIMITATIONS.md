@@ -1,5 +1,8 @@
 # Known limitations (historical baseline)
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 This file records the pre-Foundation baseline. Current limitations are maintained in `../KNOWN_ISSUES.md`.
 
 - Kernel and applications share ring 0 and one address space.

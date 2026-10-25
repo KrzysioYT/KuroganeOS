@@ -1,5 +1,8 @@
 # Desktop viewport transitions — 2026-10-24
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 This change adds the compositor/input portion of dynamic display sizing for the
 8.0 roadmap. It does not implement hardware mode switching or qualify 8.0 stable.
 

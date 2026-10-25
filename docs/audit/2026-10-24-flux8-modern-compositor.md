@@ -1,5 +1,8 @@
 # KuroganeOS Flux 8 — Modern compositor migration (2026-10-24)
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 ## Why
 The Classic/Modern toggle previously changed only rectangular widget chrome.
 The desktop still used a 5x7 bitmap typeface and a framebuffer XOR triangle

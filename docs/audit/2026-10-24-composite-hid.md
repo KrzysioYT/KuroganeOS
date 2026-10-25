@@ -1,5 +1,8 @@
 # Iron Shield 7.0: composite USB HID pointer reports
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 The previous pointer descriptor parser refused all interfaces with more than
 one HID Report ID, even when the extra reports belonged to unrelated keyboard or
 vendor functions.

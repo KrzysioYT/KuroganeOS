@@ -1,5 +1,8 @@
 # Capability matrix (historical baseline)
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 This table records the pre-Foundation baseline. See `../FOUNDATION_PROGRESS.md` for current results; AHCI/GPT and read-only FAT32/VFS are now runtime-tested.
 
 | Capability | Status | Evidence |

@@ -1,5 +1,8 @@
 # Flux Desktop: USB wheel through QEMU to the Ring-3 Files Explorer
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 2026-10-24. Scoped integration milestone candidate; qualify only if exact-SHA
 host regressions and QEMU USB-only live desktop both pass.
 

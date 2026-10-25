@@ -1,58 +1,43 @@
-# KuroganeOS current architecture
+# Architektura bieżącej linii
 
-## Layering
+KuroganeOS: własny x86-64 UEFI kernel, runtime `7.0.0-dev`, Flux 8 w rozwoju.
+[Status i dowody](../../DEVELOPMENT_STATE.md) • [Plan](../roadmap/MASTER_ROADMAP_15.md).
 
-KuroganeOS keeps responsibilities separated as:
+## Warstwy
 
-`UEFI boot -> kernel/core -> drivers -> kernel primitives -> system services -> userspace libraries/SDK -> desktop/applications`
+UEFI loader → kernel/core → sterowniki i prymitywy ochrony → usługi Ring-3
+→ publiczne biblioteki/SDK → sesja, desktop i aplikacje.
 
-Application/service policy should remain outside the kernel unless a kernel primitive is required for protection, scheduling, memory, device, filesystem or IPC semantics.
+Kernel odpowiada za pamięć, procesy/wątki, SMP, syscall validation, urządzenia,
+IPC i ochronę zasobów. Procesy ELF64 mają własną przestrzeń adresową i cleanup.
+Generacyjne uchwyty zabezpieczają przed ponownym użyciem nieaktualnych zasobów
+w implementujących je API. Nie oznacza to ukończenia całej polityki security.
 
-## Kernel and Ring-3 foundation
+## Usługi
 
-The current source tree provides native x86-64 UEFI boot, virtual memory, scheduler/process/thread foundations, ELF64 Ring-3 execution, syscall ABI, VFS/FAT32, networking, TLS, audio/graphics foundations and kernel IPC primitives.
+PID 1 nadzoruje eventd, settings, notification, account, session, clipboard,
+network events, DNS, application registry i audio. Named IPC obsługuje bind,
+connect, accept, bounded send/receive i close; uprawnienia dotyczą realnych PID.
+Event Broker używa prawdziwych obiektów zdarzeń z grantami, a nie pozornych
+powiadomień. Historyczne 3.4/3.5 mają kwalifikację swojego zakresu; aktualne
+zmiany wymagają regresji. Windows/Linux muszą budować te same programy usług.
 
-Process-owned resources use generation-safe handles where implemented. Process exit performs cleanup for IPC, shared memory and event access so a dead PID does not intentionally retain those kernel objects.
+## Urządzenia i dane
 
-## Named IPC and services
+AHCI, NVMe, USB mass storage i VirtIO block integrują się z blokową warstwą
+systemu w obsługiwanym zakresie. VFS/FAT32 i KuroFS zapewniają ścieżki trwałych
+danych. USB HID oraz PS/2 dostarczają wspólne zdarzenia input. Sieć obejmuje
+IPv4/DHCP/DNS/TCP, sockety i TLS/HTTPS. Audio obejmuje AC'97/HDA i audiod.
+Dostępność sterownika nie stanowi gwarancji działania na dowolnym urządzeniu.
 
-The System Services milestone builds on the existing named IPC backend rather than introducing a fake or duplicate registry.
+## Desktop
 
-The current public Service SDK maps directly to real named IPC operations:
-- register/bind a unique service name;
-- connect/discover a named service;
-- accept a connection;
-- send and receive bounded messages;
-- close endpoint/connection handles.
+Flux korzysta z UEFI GOP, software backbuffer i compositora w kernelu.
+Aplikacje GUI i usługi sesji działają w Ring-3. Modern/Classic dzielą katalog
+aplikacji i palety; metadane tytułów nie nadają uprawnień do Login/Home.
+Weryfikowane są pochodzenie procesu i właściciel sesji. Rozdzielenie polityki
+UI od kernela pozostaje kierunkiem architektury, nie ukończoną migracją.
 
-Endpoint and connection ownership is tied to real PIDs. Handles are generation-safe and peer/process cleanup is performed by the IPC backend.
-
-## Event primitives
-
-Kernel event objects are real waitable IPC primitives with generation-safe handles and per-PID access grants. They support create, grant, signal, reset, poll/wait and close. The Event Broker uses these primitives for delivery instead of simulating notifications in userspace.
-
-## Event Broker workstream
-
-The active Ring-3 service is `events.v1`.
-
-Implemented design:
-- bounded client table;
-- bounded subscription table;
-- topic validation;
-- subscriber PID ownership;
-- SUBSCRIBE creates a real auto-reset event and grants access to the subscribing PID;
-- PUBLISH signals matching real event objects;
-- UNSUBSCRIBE closes the broker-owned event and clears the subscription;
-- client disconnect cleanup removes subscriptions owned by that client PID.
-
-Qualification state at this document revision: **IMPLEMENTED / PARTIALLY TESTED / NOT QUALIFIED**. The service registers and runs in QEMU, but the real subscribe request currently times out waiting for the server reply. Server-side accept/receive/reply diagnostics are active; no PASS is claimed until the full Ring-3 roundtrip succeeds.
-
-## Formal milestone boundaries
-
-`3.3.3-dev — Red Flux` is qualified for its bounded scope. Hardware 3D, HDA/mixer, SMP, NVMe, final security isolation and updater/recovery belong to later formal milestones and are not retroactively counted as Red Flux defects.
-
-`3.4.0-dev — System Services` owns service architecture, Event Broker, settings, notifications, accounts, sessions, filesystem service APIs, clipboard and service recovery/reliability.
-
-## External validation
-
-Oracle VirtualBox host execution is optional external compatibility validation. It remains useful when available, but it is excluded from formal progress and Definition of Done. QEMU/OVMF and completed automated runtime gates are the currently executable virtual-platform evidence.
+[Granice warstw](../ARCHITECTURE_BOUNDARIES.md) i
+[pełny kontrakt 8.0](../roadmap/FLUX8_MODERN_COMPLETION.md).
+GPU 3D, Wayland, Direct3D ani Chromium nie są deklarowanym gotowym backendem.

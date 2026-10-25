@@ -1,5 +1,8 @@
 # Windows runtime inventory repair for Flux 8
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 The native Windows builder listed only 11 userspace executables; Linux listed
 33. Windows deleted its staging root before building, so accountd, sessiond,
 notificationd and other PID 1 services were absent from the generated overlay.

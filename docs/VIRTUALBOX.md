@@ -1,425 +1,48 @@
-# KuroganeOS + Oracle VirtualBox
+# VirtualBox — Flux Modern 8
 
-Referencyjny profil Oracle VirtualBox dla KuroganeOS **5.0.0-dev STEEL DEV** na
-hoście x86-64 Intel/AMD. Automatyczny milestone 5.0 jest zakwalifikowany;
-VirtualBox pozostaje zewnętrzną walidacją sprzętowo-hostową.
+Host x86-64 z Windows 11, Oracle VirtualBox, Git, cross toolchain i WSL.
+[Przygotowanie builda](BUILDING.md). Wersja runtime: `7.0.0-dev`.
 
-```text
-VirtualBox: dist/KuroganeOS-5.0.0-dev-x86_64.iso
-QEMU:       dist/KuroganeOS-5.0.0-dev-<host>-qemu.img
-```
+## Świeże media
 
-Nie używaj QEMU `.img` jako napędu optycznego VirtualBox.
-
-## Referencyjna VM
-
-KuroganeOS release ISO jest obecnie **x86-64 UEFI-only**.
-
-```text
-Firmware:           EFI64 / UEFI
-Secure Boot:        OFF
-I/O APIC:           ON
-RAM:                2048 MiB
-CPU:                1-2
-Graphics:           VMSVGA, 128 MiB VRAM, 3D OFF
-HDD controller:     SATA / Intel AHCI
-SATA port count:    1 dla pojedynczego VDI
-HDD:                VDI >= 2 GiB, SATA 0:0
-Optical controller: IDE / PIIX4
-DVD:                KuroganeOS-5.0.0-dev-x86_64.iso
-Boot order:         DVD -> Disk
-Network:            NAT
-NIC:                PCnet-FAST III (Am79C973)
-Audio:              Intel AC'97
-Keyboard/Mouse:     PS/2
-Serial:             COM1 0x3F8 IRQ4 -> file
-```
-
-Canonical storage layout:
-
-```text
-SATA / IntelAHCI (Port Count = 1)
-└── SATA 0:0 -> KuroganeOS.vdi
-
-IDE / PIIX4
-└── DVD -> KuroganeOS-5.0.0-dev-x86_64.iso
-```
-
-Installer zapisuje target przez własny sterownik PCI AHCI. VDI podpięty tylko
-pod IDE nie jest wspieranym targetem instalacji.
-
-Przy jednym VDI ustaw `Port Count = 1`. Duża liczba pustych portów AHCI może
-wydłużyć polling linku i fałszować timeout automatycznej kwalifikacji.
-
-## Automatyczne utworzenie VM — Windows
-
-Najprostszy pełny start:
+Z katalogu repozytorium:
 
 ```powershell
-.\scripts\create-virtualbox-vm.ps1 `
-    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
-    -Name "KuroganeOS-5.0-VB" `
-    -Start
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-flux8-virtualbox.ps1
 ```
 
-Domyślny profil helpera to `pcnet`, czyli VirtualBox `PCnet-FAST III
-(Am79C973)` z NAT. `-Nic e1000` i `-Nic virtio` pozostają dostępne jako profile
-jawnie wybierane do dalszych testów, ale nie są canonical VirtualBox profile,
-dopóki nie przejdą realnego install + reboot + network smoke na Oracle
-VirtualBox.
+Helper przełącza na `codex/road-to-15-stability`, pobiera zmiany przez
+fast-forward, buduje release ISO i wypisuje jego SHA256. Nie wykonuje resetu
+Git ani usuwania VDI. Przed ponownym uruchomieniem wyłącz VM normalnie.
+`-SkipGitUpdate` zachowuje lokalną rewizję, `-NoBuild` pomija kompilację;
+nie używaj starego obrazu jako dowodu naprawy nowego kodu.
 
-Helper tworzy EFI64, I/O APIC, `VMSVGA + 128 MiB`, jednoportowy IntelAHCI +
-VDI, IDE/PIIX4 + ISO, DVD-first boot, PCnet/NAT oraz COM1 log.
+Profil generuje `scripts/create-virtualbox-vm.ps1`; ten skrypt jest źródłem
+ustawień EFI, dysku, NIC, grafiki i input. Nie instaluj Guest Additions.
+Do testu instalacji używaj osobnego, pustego VDI. Potwierdzenie `INSTALL`
+kasuje wybrany dysk; nie stosuj reinstalacji jako automatycznej naprawy danych.
 
-Bez `-Start` helper tylko tworzy i weryfikuje VM, a na końcu wypisuje dokładną
-komendę uruchomienia przez znaleziony `VBoxManage.exe`.
-
-Dla domyślnej lokalizacji VM serial znajduje się tutaj:
-
-```text
-%USERPROFILE%\VirtualBox VMs\<NAZWA_VM>\kurogane-serial.log
-```
-
-Windowsowe helpery rozwiązują ścieżki względem bieżącej lokalizacji PowerShell,
-a `VBoxManage.exe` jest uruchamiany przez `System.Diagnostics.Process`, bez
-polegania na PowerShellowym traktowaniu normalnego stderr `0%...100%` jako
-`NativeCommandError`.
-
-## Naprawa istniejącej VM
-
-VM musi być całkowicie wyłączona, nie tylko zapisana w saved state.
+## Diagnostyka i akceptacja
 
 ```powershell
-.\scripts\repair-virtualbox-boot.ps1 `
-    -Name "KuroganeOS" `
-    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso"
+.\scripts\check-flux8-ui.ps1 -Name 'KuroganeOS-Flux8-Modern'
 ```
 
-Helper najpierw próbuje dokładnej nazwy. Jeżeli nie istnieje, pobiera
-`VBoxManage list vms`. Gdy `-Name` pasuje jako prefix do dokładnie jednej VM,
-wybierze ją i wypisze resolved name. Gdy pasuje kilka VM, zatrzyma się i poda
-listę zamiast zgadywać.
-
-Repair wymusza EFI64 + DVD -> Disk + VMSVGA, zapewnia IntelAHCI, może przenieść
-istniejący HDD z IDE na SATA 0:0 z próbą rollbacku, utrzymuje ISO jako IDE DVD
-i konfiguruje COM1 serial diagnostics. Nie usuwa zawartości VDI.
-
-Domyślny serial log naprawianej VM trafia do `%TEMP%` i jego pełna ścieżka jest
-wypisywana przez helper. Można podać własną:
-
-```powershell
-.\scripts\repair-virtualbox-boot.ps1 `
-    -Name "KuroganeOS-VB-Test" `
-    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
-    -SerialLog ".\state\runlogs\virtualbox-manual.log"
-```
-
-## Konfiguracja ręczna
-
-1. `New` -> `Other / Other 64-bit`, bez unattended installation.
-2. RAM 2048 MiB, CPU 1-2.
-3. `System` -> EFI/UEFI ON, I/O APIC ON, Secure Boot OFF.
-4. `Display` -> VMSVGA, 128 MiB VRAM, 3D OFF.
-5. `Storage` -> SATA Controller / Intel AHCI, `Port Count = 1`.
-6. VDI -> SATA Port 0.
-7. IDE Controller / PIIX4.
-8. Canonical VirtualBox ISO -> IDE DVD.
-9. Boot order `Optical -> Hard Disk`.
-10. **Input -> Pointing Device: PS/2 Mouse**. Nie używaj `USB Tablet`, `USB Multi-Touch Tablet` ani `USB Mouse` dla referencyjnej VM 5.0.
-11. Keyboard pozostaw jako **PS/2** (helper wymusza `--keyboard ps2`).
-12. Network -> NAT, PCnet-FAST III (Am79C973), Cable Connected.
-13. Audio -> Intel AC'97.
-14. Opcjonalnie COM1: `0x3F8`, IRQ4, file output.
-
-Jeżeli pulpit się renderuje i kursor/kliknięcia nie działają, najpierw całkowicie
-wyłącz VM i sprawdź typ urządzenia wskazującego. Referencyjny desktop 5.0 używa
-produkcyjnego sterownika PS/2; domyślny VirtualBox `USB Tablet` nie jest
-zamiennikiem dla tego profilu.
-
-## Co oznacza wejście do Red Flux Setup
-
-Ścieżka bootu ISO:
-
-```text
-VirtualBox EFI64
- -> El Torito EFI
- -> GPT EFI System Partition w ISO
- -> FAT EFI image
- -> EFI/BOOT/BOOTX64.EFI
- -> kernel.elf
- -> install.pkg
- -> Red Flux Setup
-```
-
-Jeżeli Red Flux Setup jest widoczny, ISO/UEFI/El Torito/BOOTX64.EFI/kernel już
-zadziałały. Kolejne błędy należy diagnozować jako installer/storage/filesystem,
-a nie jako „ISO nie bootuje”.
-
-## Pełna instalacja
-
-1. Uruchom canonical ISO.
-2. `INSTALL KUROGANEOS`.
-3. Wybierz język i konto.
-4. Wybierz dysk SATA/AHCI.
-5. Wpisz `INSTALL` (`install`/`Install` również są akceptowane).
-6. Poczekaj na `[TEST] installer_complete: PASS`.
-7. Wyłącz VM.
-8. Odłącz ISO lub ustaw HDD przed DVD.
-9. Uruchom system z VDI.
-
-Szczegółowy pipeline i recovery: [`INSTALLATION.md`](INSTALLATION.md).
-
-## Installer 5.0.0-dev — ważne poprawki zachowane z wcześniejszych linii
-
-### Nested package directories
-
-Starszy flow tworzył ręcznie tylko kilka katalogów root. Paczka zawiera jednak
-m.in.:
-
-```text
-/etc/ssl/certs.pem
-```
-
-co wymaga `/etc/ssl`. Brak katalogu powodował:
-
-```text
-PACKAGE COPY FAILED
-```
-
-Bieżący installer tworzy katalogi nadrzędne dynamicznie z każdej zweryfikowanej
-ścieżki package manifestu.
-
-### Retry na tym samym VDI
-
-Starszy flow pisał GPT, a po późniejszym błędzie następny start odrzucał ten sam
-dysk jako `target is not blank`. Bieżąca potwierdzona ścieżka instalacyjna może
-odtworzyć GPT/filesystemy na tym samym wybranym VDI po ponownym wpisaniu
-`INSTALL`.
-
-### Root przed bootloaderem
-
-Bieżąca kolejność publikuje UEFI payload dopiero po skopiowaniu i
-zsynchronizowaniu ROOT. Dzięki temu niekompletna instalacja nie jest celowo
-aktywowanym boot targetem przed trwałym root payloadem.
-
-### Szybka, nadal pełna weryfikacja
-
-Stage 8 nadal robi byte-for-byte readback całego payloadu. Starszy kod używał
-4 KiB okna. Ponieważ każdy `fat32::read(path, offset, ...)` zaczyna traversing
-łańcucha pliku od początku, było to szczególnie kosztowne na ESP z klastrem
-512 B i mogło zatrzymywać realny VirtualBox smoke na stage 7/8 przez ponad 90 s.
-
-Bieżący installer używa bounded 1 MiB readback window, dzięki czemu zachowuje
-pełną weryfikację danych, ale radykalnie ogranicza ponowne przechodzenie FAT.
-Dodatkowo serial pokazuje każdy weryfikowany plik:
-
-```text
-[INSTALL][VERIFY] file=... destination=ROOT path=... bytes=...
-[INSTALL][VERIFY] PASS path=...
-```
-
-### Diagnostyka kopiowania
-
-Serial log przy błędzie podaje np.:
-
-```text
-[INSTALL][COPY] file=17 destination=ROOT path=/etc/ssl/certs.pem operation=mkdir-parent status=...
-```
-
-Dostępne etapy obejmują `mkdir-parent`, `remove-stale`, `create`, `write`,
-`verify-read` i `verify-stat`.
-
-## Oczekiwane markery instalacji
-
-```text
-[TEST] installer_package_preflight: PASS
-[TEST] installer_confirmation: PASS
-installer stage 1/9: target confirmed and GPT written
-installer stage 2/9: GPT validated and partition views ready
-installer stage 3/9: filesystems formatted
-installer stage 4/9: fresh filesystems mounted
-installer stage 5/9: root payload copied and synced
-installer stage 6/9: profile and first-boot state committed
-installer stage 7/9: UEFI payload activated and synced
-[INSTALL][VERIFY] file=...
-[INSTALL][VERIFY] PASS path=...
-installer stage 8/9: installed payload verified
-[TEST] installer_gpt: PASS
-[TEST] installer_filesystems: PASS
-[TEST] installer_root_payload: PASS
-[TEST] installer_uefi_bootloader: PASS
-[TEST] installer_profile: PASS
-[TEST] installer_payload_verify: PASS
-[TEST] installer_complete: PASS
-installer stage 9/9: installation complete
-```
-
-## Realny Oracle VirtualBox smoke
-
-```powershell
-.\scripts\smoke-virtualbox-iso.ps1 `
-    -Iso ".\dist\KuroganeOS-5.0.0-dev-x86_64.iso" `
-    -TimeoutSeconds 180
-```
-
-`TimeoutSeconds` jest **limitem braku postępu**, a nie jednym zegarem od startu
-VM. Nowy serial output resetuje idle deadline. Jednocześnie smoke ma twardy
-całkowity limit, więc prawdziwy hang nadal kończy się FAIL.
-
-Smoke tworzy prawdziwą, całkowicie tymczasową VM:
-
-```text
-EFI64
-VMSVGA / 128 MiB
-1 x SATA/IntelAHCI port
-2 GiB VDI @ SATA 0:0
-IDE/PIIX4 DVD
-PCnet-FAST III (Am79C973) / NAT
-COM1 serial log
-```
-
-VM i VDI są usuwane przez `unregistervm --delete` po PASS i po FAIL. Smoke nie
-jest przeznaczony do zachowywania testowego dysku.
-
-Kwalifikacja nie kończy się już na `kernel entry`, `GPT written` ani nawet na
-samym `installer_complete`. Finalny PASS wymaga kolejno:
-
-```text
-[TEST] installer_complete: PASS
-poweroff
-odłączenie ISO
-boot z zainstalowanego VDI
-persistent FAT32 root mounted read-write
-[TEST] dhcp_lease: PASS
-[TEST] network_gateway_icmp: PASS
-[TEST] dns_resolver: PASS
-[TEST] userspace_init_spawn: PASS
-/system/init: PID 1 online
-```
-
-Oczekiwane zakończenie:
-
-```text
-[virtualbox-smoke] firmware EFI64: PASS
-[virtualbox-smoke] DVD-first optical attachment: PASS
-[virtualbox-smoke] Intel AHCI target disk configuration: PASS
-[virtualbox-smoke] PCnet-FAST III + NAT configuration: PASS
-[virtualbox-smoke] BOOTX64.EFI -> kernel: PASS
-[virtualbox-smoke] SATA/AHCI runtime proof: PASS (...)
-[virtualbox-smoke] full root + UEFI payload installation: PASS
-[virtualbox-smoke] installed payload verification: PASS
-[virtualbox-smoke] installed VDI UEFI boot: PASS
-[virtualbox-smoke] persistent Kurogane Root mount: PASS
-[virtualbox-smoke] /system/init PID 1 online: PASS
-[virtualbox-smoke] PCnet-FAST III NAT + DHCP + gateway + DNS: PASS
-[virtualbox-smoke] REAL ORACLE VIRTUALBOX INSTALL + REBOOT + NETWORK: PASS
-```
-
-## Statyczna walidacja ISO
-
-```bash
-bash ./scripts/verify-virtualbox-iso.sh \
-  ./dist/KuroganeOS-5.0.0-dev-x86_64.iso \
-  --passes 20
-```
-
-Statyczny verifier sprawdza strukturę EFI/El Torito/GPT/ESP. Nie zastępuje
-pełnego runtime smoke.
-
-## Diagnostyka
-
-### Czarny ekran po utworzeniu VM
-
-Najpierw upewnij się, że używasz bieżącego helpera. Referencyjna konfiguracja to `VMSVGA + 128 MiB`, a nie starsze wymuszane
-`VBoxSVGA`.
-
-Dla VM utworzonej helperem sprawdź serial bez zgadywania:
-
-```powershell
-Get-Content "$HOME\VirtualBox VMs\KuroganeOS-5.0-VB\kurogane-serial.log" -Tail 100
-```
-
-Interpretacja:
-
-```text
-serial pusty
-  -> VM nie dotarła do loadera/kernela; sprawdź ISO/EFI/boot order
-
-KuroganeOS loader ... / kernel entry
-  -> boot działa; problem dotyczy widocznego framebuffer/GOP
-
-[SETUP] KuroganeOS ...
-  -> system jest już w installerze nawet jeśli GUI pozostaje czarne
-```
-
-### `Unable to inspect VirtualBox VM`
-
-Bieżący repair helper pokazuje stderr `VBoxManage` i zarejestrowane nazwy VM.
-Jeżeli `-Name "KuroganeOS"` pasuje jednoznacznie np. do
-`KuroganeOS-VB-Test`, helper rozwiąże prefix automatycznie. Przy kilku
-kandydatach poda listę i poprosi o dokładną nazwę.
-
-### `No bootable medium`
-
-Sprawdź EFI64, Secure Boot OFF, canonical ISO i DVD-first boot.
-
-### UEFI Shell
-
-```text
-map -r
-fs0:
-ls
-cd EFI\BOOT
-BOOTX64.EFI
-```
-
-Jeżeli `BOOTX64.EFI` uruchamia loader, problem nie leży w samym EFI executable.
-
-### `[FATAL][INSTALL] no PCI AHCI controller`
-
-ISO już wystartowało. Popraw storage:
-
-```text
-VDI -> SATA / Intel AHCI
-ISO -> IDE / PIIX4 DVD
-```
-
-### `PACKAGE COPY FAILED`
-
-Jeżeli widzisz wyłącznie ten stary komunikat bez `[INSTALL][COPY] ...` w serial
-logu, VM używa starego ISO. Wykonaj pełny rebuild i podepnij świeży
-`KuroganeOS-5.0.0-dev-x86_64.iso`.
-
-### Timeout po `installer stage 7/9`
-
-Jeżeli serial zatrzymuje się po:
-
-```text
-installer stage 7/9: UEFI payload activated and synced
-```
-
-na starym buildzie, problemem był koszt stage 8 verification. Na bieżącym
-buildzie powinny zaraz pojawić się linie `[INSTALL][VERIFY] ...`. Jeżeli jedna
-konkretna ścieżka nie przechodzi przez cały idle timeout, właśnie ten plik lub
-jego FAT chain jest punktem dalszej diagnostyki.
-
-### Setup po restarcie
-
-Po `[TEST] installer_complete: PASS` odłącz ISO lub ustaw HDD przed DVD.
-
-### `NIC OFFLINE` / Internet
-
-Canonical VirtualBox profile:
-
-```text
-Attached to = NAT
-Adapter Type = PCnet-FAST III (Am79C973)
-Cable Connected = ON
-```
-
-`NIC OFFLINE` oznacza, że KuroganeOS nie ma aktywnego fizycznego interfejsu,
-więc nie jest to jeszcze problem TLS ani trust store. E1000 (`82540EM`) pozostaje
-opcją `-Nic e1000` do dalszej kwalifikacji, ale nie jest obecnie profilem
-referencyjnym Oracle VirtualBox.
-
-Szczegóły: [`NETWORKING.md`](NETWORKING.md).
+Log znajduje się w `$HOME\VirtualBox VMs\<nazwa>\kurogane-serial.log`.
+Zapisz nazwę VM, SHA kodu, hash ISO oraz pełny log od bootu, nie tylko końcówkę.
+Sukces spawn/liveness nie dowodzi poprawnej odpowiedzi accountd ani widocznego
+okna. Sprawdź Login → Home, rzeczywiste Files/Terminal oraz input, focus,
+minimalizację, przywracanie, resize, wheel i recovery.
+
+## Znany incydent zainstalowanego systemu
+
+Stary obraz zgłaszał restarty usług i `flux_account_lookup: FAIL`.
+Od `9c8700c` Windows buduje 33 zamiast 11 programów, w tym accountd/sessiond.
+To potwierdzona naprawa buildera; pełna przyczyna incydentu wymaga nowego testu.
+Dołączenie nowego ISO **nie aktualizuje automatycznie zainstalowanego rootfs**.
+Zachowaj istniejący dysk i dane; porównaj zachowanie świeżego Try/live
+z instalacją. Nie kasuj kont ani VDI w celu ukrycia błędu.
+
+QEMU PASS nie zastępuje wymaganej interaktywnej akceptacji VirtualBox.
+[Kontrakt ukończenia](roadmap/FLUX8_MODERN_COMPLETION.md) i
+[stan dowodów](../DEVELOPMENT_STATE.md).
