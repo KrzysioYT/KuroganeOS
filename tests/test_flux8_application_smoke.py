@@ -24,18 +24,18 @@ required = [
     "--require-marker '[TEST] desktop_terminal_ring3: PASS'",
     "--require-marker-count '[INPUT] flux_app_spawn: PASS' 2",
     "--require-marker-count '[INPUT] flux_app_surface_ready: PASS' 2",
-    "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 410 726",
+    "--click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 367 726",
     "--require-marker '[TEST] flux_files_usb_wheel_input: PASS'",
 ]
 for text in required:
     assert text in workflow, f"Flux release gate missing: {text}"
 
-# Fixed-size 1280x800 framebuffer in this scoped QEMU smoke:
-# dock width = 12*2 + (78+7*42+7*8) + 16 = 468, x = (1280-468)/2.
-# button index 2 -> 406+12+78+8+42+8 = 554, center=575.
-# dock top=800-58-12=730, center=759.
+# The production dispatch regression covers both supported GOP modes and
+# the Dock recentering after Files adds a task. Static checks alone previously
+# approved a click that missed Terminal at runtime.
+assert 'tests/test_flux_dock_smoke.cpp' in workflow
 assert '450 726' in workflow, "QMP normalized Files click missing"
-assert '410 726' in workflow, "QMP normalized Terminal click missing"
+assert '367 726' in workflow, "QMP normalized Terminal click missing"
 assert '573 754' not in workflow and '525 754' not in workflow, (
     "Raw GOP pixel clicks reintroduced despite QMP tablet normalization"
 )

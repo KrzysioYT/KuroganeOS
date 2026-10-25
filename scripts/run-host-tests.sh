@@ -27,6 +27,11 @@ echo "[host-tests] python:       $HOST_PYTHON"
   -Wl,--gc-sections -o "$OUT_DIR/test_clipboard_service"
 "$OUT_DIR/test_clipboard_service"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
+"$OUT_DIR/test_flux_dock_smoke"
+"$HOST_PYTHON" tests/test_flux8_application_smoke.py
+
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"
