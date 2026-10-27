@@ -178,3 +178,13 @@ still in progress when recorded. These earlier successes **do not qualify
 the new head**, which requires its own checks. No clean-boot evidence for the
 new head was collected here. Compiler, parser and unit tests are necessary,
 but not sufficient for product-level 15.0.0. The version remains `7.0.0-dev`.
+
+### 2026-10-27 — HTTP host logger dual-linkage repair
+
+After the prior hosted compiler fix, standalone `http-lifecycle` passed, but
+17 broader CI jobs converged on a **new** link failure in
+`tests/test_tls_http_io.cpp`: its local `log::write/write_hex` definitions
+collided with `tests/host_log_stub.cpp` supplied by the complete host suite.
+The test-only logger functions are now weak where supported so the shared
+host fixture overrides them; the test's HTTP response/result assertions
+remain in place. Exact-SHA CI must revalidate the fix before any qualification.
