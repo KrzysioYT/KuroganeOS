@@ -35,7 +35,7 @@ run_test libk "$root/tests/test_libk.cpp" \
     "$root/kernel/libk/hash.cpp" \
     "$root/kernel/libk/crc.cpp" \
     "$root/kernel/libk/utf8.cpp"
-run_test driver-core "$root/tests/test_driver_core.cpp" \
+run_test driver-core -DKUROGANE_HOST_TEST "$root/tests/test_driver_core.cpp" \
     "$root/kernel/drivers/core/device_manager.cpp" \
     "$root/kernel/drivers/core/driver_manager.cpp" \
     "$root/kernel/drivers/core/runtime_qualification.cpp"

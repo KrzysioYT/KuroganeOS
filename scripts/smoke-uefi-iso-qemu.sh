@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -52,6 +52,9 @@ wheel_x=()
 wheel_y=()
 wheel_direction=()
 wheel_sent=()
+screendump_markers=()
+screendump_paths=()
+screendump_sent=()
 require_markers=()
 require_marker_count_markers=()
 require_marker_count_targets=()
@@ -120,6 +123,13 @@ while (($#)); do
             wheel_direction+=("$5")
             wheel_sent+=(false)
             shift 5
+            ;;
+        --screendump-after-marker)
+            [[ $# -ge 3 && -n "$2" && -n "$3" && "$3" == *.ppm ]] || usage
+            screendump_markers+=("$2")
+            screendump_paths+=("$3")
+            screendump_sent+=(false)
+            shift 3
             ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         --require-marker-count)
@@ -196,6 +206,12 @@ for index in "${!wheel_markers[@]}"; do
         exit 2
     fi
 done
+for screenshot in "${screendump_paths[@]}"; do
+    if [[ -e "$screenshot" ]]; then
+        echo "refusing to overwrite screenshot: $screenshot" >&2
+        exit 1
+    fi
+done
 if $require_network && [[ "$nic_model" == "none" ]]; then
     echo "--require-network/--require-tls needs --nic e1000, e1000e, pcnet or virtio" >&2
     exit 2
@@ -248,6 +264,32 @@ marker_occurrences() {
     local count
     count="$(grep -F -c -- "$marker" "$serial" 2>/dev/null || true)"
     printf '%s\n' "${count:-0}"
+}
+
+capture_pending_screenshots() {
+    local index marker
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" == true ]]; then
+            continue
+        fi
+        marker="${screendump_markers[$index]}"
+        if grep -Fq "$marker" "$serial"; then
+            python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/qmp-screendump.py" \
+                "$qmp" "${screendump_paths[$index]}"
+            screendump_sent[$index]=true
+            echo "[uefi-qemu] captured frame after marker: $marker"
+        fi
+    done
+}
+
+screenshots_complete() {
+    local index
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" != true ]]; then
+            return 1
+        fi
+    done
+    return 0
 }
 
 send_qemu_key() {
@@ -837,6 +879,7 @@ done
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        capture_pending_screenshots
         if $usb_hotplug; then
             usb_action=""
             case "$usb_hotplug_phase" in
@@ -925,6 +968,7 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] wheel ${wheel_direction[$index]} at ${wheel_x[$index]},${wheel_y[$index]} after marker: $marker"
             fi
         done
+        capture_pending_screenshots
         all_markers_ready=true
         if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
             for index in "${!require_markers[@]}"; do
@@ -946,7 +990,7 @@ while ((SECONDS < deadline)); do
                     all_markers_ready=false
                 fi
             done
-            if $all_markers_ready && ! $require_network; then
+            if $all_markers_ready && screenshots_complete && ! $require_network; then
                 echo "[uefi-qemu] required runtime markers: PASS"
                 for require_marker in "${require_markers[@]}"; do
                     echo "[uefi-qemu] marker: $require_marker"
@@ -976,7 +1020,8 @@ while ((SECONDS < deadline)); do
                 exit 1
             fi
 
-            if [[ "$network_state" == 0 ]] && $all_markers_ready; then
+            if [[ "$network_state" == 0 ]] &&
+               $all_markers_ready && screenshots_complete; then
                 if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
                     echo "[uefi-qemu] required runtime markers: PASS"
                     for require_marker in "${require_markers[@]}"; do
@@ -995,6 +1040,7 @@ while ((SECONDS < deadline)); do
                 exit 0
             fi
         elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
+             screenshots_complete &&
              grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
             echo "[uefi-qemu] $media_kind UEFI boot: PASS"
             echo "[uefi-qemu] firmware CODE: $firmware_code"
@@ -1030,6 +1076,11 @@ elif $require_network; then
 else
     echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
+for index in "${!screendump_markers[@]}"; do
+    if [[ "${screendump_sent[$index]}" != true ]]; then
+        echo "screenshot marker was not reached: ${screendump_markers[$index]}" >&2
+    fi
+done
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
 [[ -f "$serial" ]] && tail -n 220 "$serial" >&2 || true
 exit 1

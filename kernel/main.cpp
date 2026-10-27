@@ -2243,15 +2243,18 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
         if (!input::initialize(graphics::width(), graphics::height())) {
             boot_failure("INSTALL", "generic input queue initialization failed");
         }
-        if (storage::device_registry::device_count() == 0U) {
-            boot_failure(
-                "INSTALL",
-                "no supported block device discovered for installation");
+        const size_t installer_block_devices =
+            storage::device_registry::device_count();
+        if (installer_block_devices == 0U) {
+            terminal::println("installer block devices: 0");
+            terminal::println(
+                "[TEST] installer_generic_storage: SKIP (live Try needs no disk)");
+        } else {
+            terminal::write("installer block devices: ");
+            terminal::write_u64(installer_block_devices);
+            terminal::println();
+            terminal::println("[TEST] installer_generic_storage: PASS");
         }
-        terminal::write("installer block devices: ");
-        terminal::write_u64(storage::device_registry::device_count());
-        terminal::println();
-        terminal::println("[TEST] installer_generic_storage: PASS");
         terminal::println("[TEST] installer_generic_input: PASS");
 
         install::installer::run_interactive(
@@ -2671,16 +2674,23 @@ extern "C" KUROGANE_SYSV_ABI void kmain(void* boot_argument) {
     terminal::println(
         context.safe_mode
             ? "Type 'help' for emergency kernel commands."
-            : "Starting /system/init and the userspace console...");
+            : "Starting /system/init and the native login session...");
     terminal::println();
 
     if (context.safe_mode) {
         shell::initialize(false);
     } else {
-        if (context.force_desktop) {
-            if (!kurogane_start_desktop_session()) {
+        if (!kurogane_start_desktop_session()) {
+            if (context.force_desktop) {
                 boot_failure("GUI", "cannot establish Flux desktop session owner");
             }
+            log::write(
+                log::Level::Warn,
+                "GUI",
+                "Flux compositor unavailable; PID 1 will use visible recovery");
+            terminal::println(
+                "[SESSION] flux_compositor_start: DEGRADED (recovery available)");
+        } else {
             terminal::println("[TEST] flux_session_owner: PASS");
         }
         user::console::initialize();

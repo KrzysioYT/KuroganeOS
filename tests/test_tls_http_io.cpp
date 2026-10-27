@@ -21,10 +21,6 @@ extern "C" int mbedtls_ssl_read(mbedtls_ssl_context*, unsigned char* output, siz
     fixture::offset += count;
     return static_cast<int>(count);
 }
-namespace log {
-void write(Level, const char*, const char*) {}
-void write_hex(Level, const char*, const char*, uint64_t) {}
-}
 int main() {
     using namespace net::tls;
     uint8_t request[768];

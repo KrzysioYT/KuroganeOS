@@ -8,6 +8,10 @@ HOST_CC="${HOST_CC:-cc}"
 HOST_CXX="${HOST_CXX:-c++}"
 HOST_PYTHON="${HOST_PYTHON:-python3}"
 OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
+gc_sections_flag=(-Wl,--gc-sections)
+if [[ "$(uname -s)" == Darwin ]]; then
+  gc_sections_flag=(-Wl,-dead_strip)
+fi
 
 mkdir -p "$OUT_DIR"
 
@@ -24,7 +28,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
-  -Wl,--gc-sections -o "$OUT_DIR/test_clipboard_service"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_clipboard_service"
 "$OUT_DIR/test_clipboard_service"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -86,7 +90,7 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_scheduler2"
 
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  tests/test_driver_requirement_policy.cpp \
+  -DKUROGANE_HOST_TEST tests/test_driver_requirement_policy.cpp \
   kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
   -o "$OUT_DIR/test_driver_requirement_policy"
 "$OUT_DIR/test_driver_requirement_policy"
@@ -96,6 +100,7 @@ bash tests/test_network_smoke_state.sh
 # legacy test.sh entry also runs this regression, but all qualification gates
 # using this suite must cover the input contract directly.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST \
   tests/test_input.cpp kernel/input/input.cpp kernel/drivers/mouse_protocol.cpp \
   -o "$OUT_DIR/test_input"
 "$OUT_DIR/test_input"
@@ -116,6 +121,7 @@ bash tests/test_network_smoke_state.sh
 # stale-handle rejection, partial-attach cleanup, fallback and slot reuse.
 "$HOST_CXX" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST \
   tests/test_driver_core.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/drivers/core/driver_manager.cpp \
@@ -143,7 +149,7 @@ bash tests/test_network_smoke_state.sh
   tests/test_pci_msi.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_pci_msi"
 
 "$OUT_DIR/test_pci_msi"
@@ -155,7 +161,7 @@ bash tests/test_network_smoke_state.sh
   -ffunction-sections -fdata-sections \
   tests/test_pci_capability_layout.cpp \
   kernel/drivers/pci.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_pci_capability_layout"
 
 # Iron Shield PCI power-management foundation: validate PM capability parsing,
@@ -170,7 +176,7 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_virtio_pci_transport.cpp \
   kernel/drivers/virtio/pci_transport.cpp kernel/drivers/pci.cpp \
-  -ffunction-sections -fdata-sections -Wl,--gc-sections \
+  -ffunction-sections -fdata-sections "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_virtio_pci_transport"
 "$OUT_DIR/test_virtio_pci_transport"
 
@@ -184,7 +190,7 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
   -ffunction-sections -fdata-sections \
   tests/test_virtio_block_lifecycle.cpp kernel/storage/virtio_block_protocol.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_virtio_block_lifecycle"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_virtio_block_lifecycle"
 "$OUT_DIR/test_virtio_block_lifecycle"
 "$OUT_DIR/test_virtio_block_protocol"
 
@@ -197,7 +203,7 @@ bash tests/test_network_smoke_state.sh
   -ffunction-sections -fdata-sections \
   tests/test_pci_bar.cpp \
   kernel/drivers/pci_bar.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_pci_bar"
 
 "$OUT_DIR/test_pci_bar"
@@ -221,7 +227,7 @@ bash tests/test_network_smoke_state.sh
   kernel/drivers/pci_msix.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_pci_msix"
 
 "$OUT_DIR/test_pci_msix"
@@ -236,7 +242,7 @@ bash tests/test_network_smoke_state.sh
   kernel/drivers/pci_msix.cpp \
   kernel/drivers/pci_msi.cpp \
   kernel/arch/x86_64/hardware_vectors.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_pci_msix_group"
 
 "$OUT_DIR/test_pci_msix_group"
@@ -315,19 +321,19 @@ bash tests/test_network_smoke_state.sh
 
 # Execute the production port scanner, including MaxPorts=255 and no device,
 # without initializing hardware. Catch an accidental unbounded scan explicitly.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_ports.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_ports"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_xhci_ports"
 timeout 10 "$OUT_DIR/test_xhci_ports"
 
 # Exercise cycle-bit transitions and stale-event rejection in production rings.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_rings.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_rings"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_xhci_rings"
 timeout 10 "$OUT_DIR/test_xhci_rings"
 
 # Reject unrelated/duplicate transfer completions before touching report DMA.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_completions.cpp \
   kernel/drivers/usb/protocol.cpp \
   kernel/drivers/usb/hid_report.cpp \
@@ -335,28 +341,28 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_completions"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
 python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,
 # retained ownership on failure, exact-once retry and child-slot rollback.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror -ffreestanding \
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_xhci_cleanup.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_xhci_cleanup"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_xhci_cleanup"
 timeout 10 "$OUT_DIR/test_xhci_cleanup"
 
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
-  extra_sources=()
+  source_files=("tests/$test.cpp")
   if [[ "$test" == test_virtio_net_cleanup ]]; then
-    extra_sources+=(kernel/drivers/virtio/pci_transport.cpp)
+    source_files+=(kernel/drivers/virtio/pci_transport.cpp)
   fi
   "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-    -ffunction-sections -fdata-sections "tests/$test.cpp" "${extra_sources[@]}" \
-    -Wl,--gc-sections -o "$OUT_DIR/$test"
+    -ffunction-sections -fdata-sections "${source_files[@]}" \
+    "${gc_sections_flag[@]}" -o "$OUT_DIR/$test"
   "$OUT_DIR/$test"
 done
 
@@ -638,7 +644,7 @@ python3 tests/test_flux8_virtualbox_runner.py
   tests/test_socket.cpp \
   kernel/net/socket.cpp \
   kernel/net/tcp_client.cpp \
-  -Wl,--gc-sections \
+  "${gc_sections_flag[@]}" \
   -o "$OUT_DIR/test_socket"
 
 "$OUT_DIR/test_socket"
@@ -666,7 +672,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections -Isdk/include \
   tests/test_flux_ui_state.cpp kernel/ui/ui.cpp \
-  -Wl,--gc-sections -o "$OUT_DIR/test_flux_ui_state"
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_flux_ui_state"
 "$OUT_DIR/test_flux_ui_state"
 
 # System activity is sampled on a fixed shared interval. Home and Forge
@@ -710,11 +716,16 @@ python3 tests/test_flux8_virtualbox_runner.py
 bash ./scripts/probe-mbedtls-freestanding.sh
 
 # Exercise production HTTPS request construction/read loop with scripted TLS I/O.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  -Wno-builtin-declaration-mismatch -ffunction-sections -fdata-sections \
+tls_flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections)
+if ! "$HOST_CXX" --version 2>&1 | grep -qi clang; then
+  tls_flags+=(-Wno-builtin-declaration-mismatch)
+fi
+"$HOST_CXX" "${tls_flags[@]}" \
   -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
   -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
-  tests/test_tls_http_io.cpp -Wl,--gc-sections -o "$OUT_DIR/test_tls_http_io"
+  tests/test_tls_http_io.cpp tests/host_log_stub.cpp \
+  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_tls_http_io"
 "$OUT_DIR/test_tls_http_io"
 
 
@@ -723,8 +734,17 @@ bash ./scripts/probe-mbedtls-freestanding.sh
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
 bash ./scripts/build-sdk.sh
 
+sdk_project_cxx="${KUROGANE_CXX:-}"
+if [[ -z "$sdk_project_cxx" ]]; then
+  if command -v x86_64-elf-g++ >/dev/null 2>&1; then
+    sdk_project_cxx=x86_64-elf-g++
+  else
+    sdk_project_cxx="${CXX:-g++}"
+  fi
+fi
+
 "$HOST_PYTHON" tests/test_sdk_project_generator.py \
   --root "$ROOT_DIR" \
-  --cxx "${KUROGANE_CXX:-${CXX:-g++}}"
+  --cxx "$sdk_project_cxx"
 
 echo "[host-tests] PASS"

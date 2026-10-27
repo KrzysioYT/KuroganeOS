@@ -14,6 +14,7 @@
 #include "../storage/partition_device.hpp"
 #include "../terminal.hpp"
 #include "../../common/version.h"
+#include <kurogane/design.h>
 
 namespace install::installer {
 namespace {
@@ -25,15 +26,15 @@ fs::fat32::FileSystem g_root{};
 constexpr size_t kVerifyBufferBytes = 1024U * 1024U;
 alignas(64) uint8_t g_verify_buffer[kVerifyBufferBytes]{};
 
-constexpr graphics::Color kBackground = UINT32_C(0x050608);
-constexpr graphics::Color kPanel = UINT32_C(0x111317);
-constexpr graphics::Color kPanelRaised = UINT32_C(0x191C21);
-constexpr graphics::Color kBorder = UINT32_C(0x343941);
-constexpr graphics::Color kText = UINT32_C(0xECEEF1);
-constexpr graphics::Color kMuted = UINT32_C(0x9098A3);
-constexpr graphics::Color kAccent = UINT32_C(0xE0192D);
-constexpr graphics::Color kAccentBright = UINT32_C(0xFF3347);
-constexpr graphics::Color kDanger = UINT32_C(0xFF4055);
+constexpr graphics::Color kBackground = KU_FLUX_COLOR_VOID_BLACK;
+constexpr graphics::Color kPanel = KU_FLUX_COLOR_SURFACE;
+constexpr graphics::Color kPanelRaised = KU_FLUX_COLOR_SURFACE_ELEVATED;
+constexpr graphics::Color kBorder = KU_FLUX_COLOR_BORDER;
+constexpr graphics::Color kText = KU_FLUX_COLOR_TEXT_PRIMARY;
+constexpr graphics::Color kMuted = KU_FLUX_COLOR_TEXT_SECONDARY;
+constexpr graphics::Color kAccent = KU_FLUX_COLOR_ACCENT;
+constexpr graphics::Color kAccentBright = KU_FLUX_COLOR_BORDER_FOCUS;
+constexpr graphics::Color kDanger = KU_FLUX_COLOR_DANGER;
 
 constexpr size_t kUsernameCapacity = 24U;
 constexpr size_t kPasswordCapacity = 48U;
@@ -348,6 +349,25 @@ void show_error(const char* reason) {
     graphics::draw_text(width / 2 - 260, 330,
                         "REBOOT AND RETRY ON THE SAME DISK",
                         kMuted, kPanel, 1U, true);
+}
+
+void show_install_unavailable() {
+    draw_setup_title(
+        "INSTALL UNAVAILABLE",
+        "A TARGET DISK IS REQUIRED ONLY FOR INSTALLATION");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 280;
+    graphics::fill_rect(x, 210, 560, 150, kPanel);
+    graphics::draw_rect(x, 210, 560, 150, kDanger, 2U);
+    graphics::draw_text(x + 28, 240, "NO TARGET DISK DETECTED",
+                        kDanger, kPanel, 2U, true);
+    graphics::draw_text(x + 28, 290, "CONNECT A DISK TO INSTALL",
+                        kText, kPanel, 1U, true);
+    draw_footer("ENTER: CONTINUE TO THE LIVE TRY SESSION");
+    terminal::println(
+        "installer: no target disk; continue to the non-destructive live session");
+    terminal::println("[TEST] installer_target_disk_unavailable: PASS");
+    static_cast<void>(wait_key());
 }
 
 [[noreturn]] void fail(const char* reason) {
@@ -806,14 +826,22 @@ void run_interactive(
         "INSTALL KUROGANEOS",
         "CONFIGURE A USER AND DEPLOY TO A DISK");
 
-    if (mode == 0U) {
+    const bool try_selected = mode == 0U;
+    const bool target_disk_unavailable =
+        storage::device_registry::device_count() == 0U;
+    if (try_selected || target_disk_unavailable) {
         const fs::root_volume::Status live_status =
             fs::root_volume::initialize_live_package(package_bytes, package_size);
         if (live_status != fs::root_volume::Status::Ok) {
             fail(fs::root_volume::status_message(live_status));
         }
         terminal::println("[TEST] live_package_root: PASS");
-        terminal::println("[TEST] setup_try_mode: PASS");
+        if (try_selected) {
+            terminal::println("[TEST] setup_try_mode: PASS");
+            return;
+        }
+        show_install_unavailable();
+        terminal::println("[TEST] setup_no_disk_recovery: PASS");
         return;
     }
 

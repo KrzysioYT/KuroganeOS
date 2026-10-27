@@ -214,5 +214,31 @@ all PID 1 services, with scalar flags and disassembly inspection. Five host
 regressions and Linux release compilation passed. The scoped Flux 8 workflow
 `40164065199` also passed on `9c8700c`, including PowerShell parsing. Native Windows/VirtualBox
 acceptance, including the old installed-root incident, remains open.
+
+## 2026-10-25 — Try boot and no-target recovery increment
+
+The current working-tree changes fix two reproduced startup blockers without
+weakening Login authorization: normal PID 1 startup now has a compositor before
+launching Login, and setup-media Try can boot without a target disk. If Install
+is selected with no target, the UI gives an explicit explanation and only
+enters the read-only live session after user input. Foundation IMG publication
+now validates the actual FAT32/VFS payload and all 44 required runtime ELF64
+paths, rather than trusting a staging file list.
+
+Working-tree checks on arm64 macOS passed: the optimized host suite under
+Rosetta, targeted root-volume UBSan, setup ISO Try/no-disk recovery and a USB
+keyboard/tablet Login -> Home run under QEMU/TCG. A separate live ISO run opened
+Terminal from the Dock, confirmed a Ring-3 process and presented surface, and
+captured a QMP screenshot. Earlier Foundation IMG evidence includes Files and
+Terminal launches plus wheel input. These runs precede a source commit and are
+not exact-SHA media qualification.
+
+Two later Foundation IMG attempts stopped after `userspace ABI probe passed`
+before the Ring-3 preemption marker, so the intermittent boot issue remains
+open. Setup/Login/Home/Files/Terminal screenshots were visually inspected;
+the boot frame is firmware/loader output, not a graphical KuroganeOS splash.
+Full typography/scaling work, app and window lifecycle/recovery, persistent
+settings, blank-disk installation, VirtualBox acceptance and the remaining
+contract items are still unqualified. Status remains **ACTIVE, NOT QUALIFIED**.
 [Current status](../../DEVELOPMENT_STATE.md) takes precedence over dated
 working-slice notes. No version promotion is implied.

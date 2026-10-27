@@ -76,3 +76,41 @@ aligned with the 33-program Linux/Windows inventory; a mandatory ELF/overlay
 preflight rejects missing accountd, sessiond, notificationd and GUI applications
 before IMG/ISO publication. Actual macOS host execution and boot verification
 remain UNVERIFIED until tested on the matching source SHA.
+
+## 2026-10-25 — Try startup and no-target recovery (working tree)
+
+The current uncommitted work is based on `3da0696`; evidence below is useful
+engineering progress, not an exact-SHA release qualification.
+
+- Normal non-safe startup now initializes the compositor before PID 1 starts
+  Login. If optional compositor initialization fails, PID 1 retains a visible
+  recovery path; explicit desktop-only startup remains fatal on that error.
+- Setup-media Try no longer requires a writable target disk. Selecting Install
+  without a target mounts the read-only live package, explains why installation
+  is unavailable, and waits for input before entering Try without writing media.
+- Both Foundation builders now inspect the published FAT32/VFS root and require
+  all 44 declared runtime ELF64 paths, including account/session services and
+  GUI apps. Windows/Linux/macOS inventory parity has host regression coverage;
+  those three native builder environments have not all been executed here.
+- On the arm64 macOS host, the optimized host suite passed under Rosetta.
+  The root-volume validator and a targeted UBSan build both passed against the
+  isolated release IMG; the clean media build and those image checks are from a
+  staging worktree, not yet a committed source SHA.
+- QEMU/TCG verified setup ISO Try and no-disk Install recovery, plus USB-only
+  Login -> authenticated session -> first Home frame. A live ISO interaction
+  opened Terminal from the Dock, presented its native surface and produced a
+  QMP screenshot. A prior Foundation IMG run also passed Files/Terminal launch,
+  wheel input and two presented surfaces.
+- Two later Foundation IMG retries stopped after `userspace ABI probe passed`,
+  before the Ring-3 preemption acceptance marker. This unresolved intermittent
+  boot failure blocks reliability claims despite the earlier successful run.
+- Actual 1280x800 guest screenshots for setup, Login, Home, Files and Terminal
+  were visually inspected. The available boot capture is firmware/loader text,
+  not a graphical OS splash; no graphical splash/progress implementation is
+  evidenced. The visible UI remains on transitional bitmap typography.
+
+The complete Flux redesign and 8.0 qualification remain open: licensed scalable
+font and full text layout, HiDPI/responsive behavior, app/window lifecycle and
+failure recovery, settings persistence, blank-disk install/boot, VirtualBox
+interactive acceptance, and the remaining acceptance matrix. No version
+promotion is implied.

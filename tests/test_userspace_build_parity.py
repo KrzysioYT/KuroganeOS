@@ -69,6 +69,75 @@ class UserspaceBuildParity(unittest.TestCase):
         installer = (ROOT / 'scripts/build-installer-macos.sh').read_text()
         self.assertIn('verify-userspace-overlay.py', installer)
 
+    def test_foundation_image_checks_the_complete_runtime_payload(self):
+        source = (ROOT / 'tests/test_root_volume_image.cpp').read_text()
+        block = source.split('kRequiredRuntimePaths[] = {', 1)[1].split('};', 1)[0]
+        actual = re.findall(r'"(/[^"]+)"', block)
+        expected = ['/' + row[2] for row in self.linux]
+        expected.extend('/gui/' + name for name in (
+            'login', 'launcher', 'terminal', 'files', 'sysmon',
+            'perf', 'browser', 'about', 'settings', 'notify'))
+        expected.append('/apps/external')
+        self.assertEqual(sorted(actual), sorted(expected))
+        builder = (ROOT / 'scripts/build-foundation-image.sh').read_text()
+        self.assertIn('validate-foundation-root-image.sh', builder)
+        mac_builder = (ROOT / 'scripts/build-foundation-image-macos.sh').read_text()
+        self.assertIn('validate-foundation-root-image.sh', mac_builder)
+
+    def test_macos_headless_runner_selects_try_not_install(self):
+        runner = (ROOT / 'scripts/run-qemu-macos.sh').read_text()
+        self.assertIn('installer: select setup mode:', runner)
+        self.assertIn('"data": key', runner)
+        self.assertIn('snapshot=on', runner)
+        self.assertIn('if ! $try_selected', runner)
+        self.assertIn('[TEST] red_flux_login_surface: PASS', runner)
+        self.assertIn('[TEST] live_package_root: PASS', runner)
+        self.assertIn('[TEST] setup_try_mode: PASS', runner)
+        self.assertIn('[TEST] red_flux_owned_session: PASS', runner)
+        self.assertIn('[SESSION] flux_home_first_frame: PASS', runner)
+        self.assertIn('[TEST] red_flux_home_surface: PASS', runner)
+
+    def test_normal_boot_starts_flux_compositor_before_pid1(self):
+        main = (ROOT / 'kernel/main.cpp').read_text()
+        init_spawn = main.index('process::spawn_init("/system/init", &init_pid)')
+        compositor_start = main.index(
+            'if (!kurogane_start_desktop_session())', init_spawn - 1500)
+        self.assertLess(compositor_start, init_spawn)
+        self.assertIn(
+            'Flux compositor unavailable; PID 1 will use visible recovery',
+            main[compositor_start:init_spawn],
+        )
+
+    def test_try_mode_boots_without_an_install_target_disk(self):
+        main = (ROOT / 'kernel/main.cpp').read_text()
+        installer = (ROOT / 'kernel/install/installer.cpp').read_text()
+        self.assertIn(
+            '[TEST] installer_generic_storage: SKIP (live Try needs no disk)',
+            main,
+        )
+        self.assertNotIn(
+            'no supported block device discovered for installation',
+            main,
+        )
+        self.assertIn(
+            'if (try_selected || target_disk_unavailable)', installer)
+        self.assertLess(
+            installer.index('initialize_live_package(package_bytes, package_size)'),
+            installer.index('show_install_unavailable();'),
+        )
+        self.assertIn('show_install_unavailable();', installer)
+        self.assertIn('[TEST] installer_target_disk_unavailable: PASS', installer)
+        self.assertIn('[TEST] setup_no_disk_recovery: PASS', installer)
+
+    def test_qemu_smoke_requires_requested_screenshot_frames(self):
+        runner = (ROOT / 'scripts/smoke-uefi-iso-qemu.sh').read_text()
+        capture = (ROOT / 'scripts/qualification/qmp-screendump.py').read_text()
+        self.assertIn('--screendump-after-marker', runner)
+        self.assertIn('capture_pending_screenshots', runner)
+        self.assertIn('screenshots_complete', runner)
+        self.assertIn('"screendump"', capture)
+        self.assertIn('refusing to overwrite screenshot', capture)
+
     def test_legacy_windows_inventory_is_rejected(self):
         with self.assertRaisesRegex(AssertionError, 'inventory differs'):
             validate(self.linux, self.windows[:11], self.init)
