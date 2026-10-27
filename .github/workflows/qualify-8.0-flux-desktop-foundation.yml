@@ -26,6 +26,8 @@ on:
       - 'tests/test_window_manager.cpp'
       - 'tests/test_input.cpp'
       - 'scripts/run-host-tests.sh'
+      - 'scripts/test-core-ubsan.sh'
+      - 'kernel/arch/x86_64/context_switch.asm'
       - 'scripts/build.ps1'
       - 'scripts/build-linux.sh'
       - 'kernel/install/package.cpp'
@@ -120,6 +122,8 @@ jobs:
               tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-clang
             build/tests/desktop/log-header-clang
           fi
+      - name: Memory, ELF, IPC, scheduler and ownership UBSan
+        run: bash scripts/test-core-ubsan.sh
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop
