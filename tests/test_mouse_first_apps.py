@@ -41,6 +41,12 @@ assert "desktop_files_keyboard_navigation: READY" in files
 assert "flux_files_keyboard_navigation: PASS" in files
 assert "KU_UI_EVENT_KEY" in files and "flux_files_keyboard(" in files
 assert '#include "navigation.h"' in files
+assert "RENAME SELECTED" in files and "CANCEL RENAME" in files
+assert "flux_files_rename_check(" in files and "ku_file_rename(" in files
+assert "ku_file_stat_path(" in files, "files: rename needs a collision preflight"
+assert "secondary_pressed" in files, "files: rename needs pointer folder selection"
+assert "scene->visible_rows = 17U" in files, "files: rename control may be hidden"
+assert "gui_open(KU_FLUX_TITLE_FILES, 250, 75, 650, 630)" in files
 
 settings = read("userspace/gui/settings/main.c")
 assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"

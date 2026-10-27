@@ -162,6 +162,18 @@ manager or 12.0 production users/groups, signed update and isolation work.
   not silently declared durable. Host C/C++ tests cover name validation,
   editing, cancellation, submission and length boundaries. Writable KuroFS
   guest interaction still needs confirmation.
+- Files now has explicit **Rename Selected** for ordinary files and folders,
+  with the existing bounded editor, Enter to save and Escape to cancel.
+  The UI rejects device/mount-point renames, path traversal, unchanged names,
+  existing destinations and unsuccessful destination checks before invoking
+  the real Ring-3 rename syscall. On success it attempts a sync, reloads the
+  current directory and highlights the new name when present; a filtered view
+  is cleared so the renamed item is not hidden. The native window is taller
+  to keep all controls visible. Secondary-click selects a folder without
+  opening it; primary-click still opens it directly. Long names in the editor
+  keep their trailing characters and caret visible. C11/C++17 tests cover
+  unsafe names, type restrictions and bounds. The writable-guest rename
+  interaction is still unverified.
 
 ## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
 

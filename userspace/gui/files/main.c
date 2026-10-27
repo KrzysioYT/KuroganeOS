@@ -5,6 +5,7 @@
 #include "filter.h"
 #include "history.h"
 #include "folder_creation.h"
+#include "rename.h"
 #include "../clipboard_actions.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 512U
@@ -25,6 +26,26 @@ static void append_text(char* destination, size_t capacity, const char* source) 
     const size_t used = strlen(destination);
     if (used >= capacity) return;
     (void)strlcpy(destination + used, source, capacity - used);
+}
+
+/* The native input packet is 64 bytes. Keep the caret and trailing characters
+ * visible even when a file name is longer than the available label width. */
+static void edit_input_label(
+    char* label, size_t capacity, int mode, const char* name) {
+    const char* prefix = mode == 2 ? "RENAME > " : "NEW FOLDER > ";
+    const size_t prefix_length = strlen(prefix);
+    const size_t length = strlen(name);
+    size_t available;
+    if (capacity <= prefix_length + 2U) return;
+    (void)strlcpy(label, prefix, capacity);
+    available = capacity - prefix_length - 2U;
+    if (length > available && available > 3U) {
+        append_text(label, capacity, "...");
+        append_text(label, capacity, name + length - (available - 3U));
+    } else {
+        append_text(label, capacity, name);
+    }
+    append_text(label, capacity, "|");
 }
 
 static int directory_like(uint32_t type) {
@@ -191,6 +212,18 @@ static const char* folder_create_error(ku_status_t result) {
     return "FOLDER / CREATE FAILED";
 }
 
+static const char* rename_error(ku_status_t result) {
+    if (result == KU_STATUS_ALREADY_EXISTS) return "RENAME / NAME ALREADY EXISTS";
+    if (result == KU_STATUS_ACCESS_DENIED || result == KU_STATUS_NOT_SUPPORTED) {
+        return "RENAME / READ-ONLY OR ACCESS DENIED";
+    }
+    if (result == KU_STATUS_OUT_OF_RANGE || result == KU_STATUS_INVALID_ARGUMENT) {
+        return "RENAME / INVALID NAME OR PATH";
+    }
+    if (result == KU_STATUS_NOT_FOUND) return "RENAME / SOURCE NO LONGER EXISTS";
+    return "RENAME / FAILED";
+}
+
 static int is_elf_file(const char* path) {
     unsigned char magic[4];
     const ku_result_t opened = ku_file_open(path, strlen(path));
@@ -268,8 +301,8 @@ static void build_scene(
     const char* path,
     const char* query,
     const flux_files_history* history,
-    int creating_folder,
-    const char* new_folder_name,
+    int edit_mode,
+    const char* edit_name,
     const explorer_entry* entries,
     size_t entry_count,
     size_t page_start,
@@ -279,7 +312,7 @@ static void build_scene(
     kui_flow grid;
     char heading[64] = "FLUX FILES / ";
     char breadcrumb[64] = "PATH ";
-    char folder_input[64] = "NEW FOLDER > ";
+    char folder_input[64] = "";
     char page[24];
     size_t visible = 0U;
     size_t index;
@@ -300,7 +333,7 @@ static void build_scene(
     }
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 16U;
+    scene->visible_rows = 17U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -308,9 +341,8 @@ static void build_scene(
         UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, heading);
-    if (creating_folder) {
-        append_text(folder_input, sizeof(folder_input), new_folder_name);
-        append_text(folder_input, sizeof(folder_input), "|");
+    if (edit_mode != 0) {
+        edit_input_label(folder_input, sizeof(folder_input), edit_mode, edit_name);
         (void)kui_flow_input(&root, 38U, folder_input);
     } else {
         (void)kui_flow_label(&root, 2U, breadcrumb);
@@ -338,9 +370,11 @@ static void build_scene(
     (void)kui_flow_button(&root, 32U, "NEXT PAGE");
     (void)kui_flow_button(&root, 34U, "COPY SELECTED PATH");
     (void)kui_flow_button(&root, 37U,
-        creating_folder ? "CANCEL NEW FOLDER" : "NEW FOLDER");
+        edit_mode == 1 ? "CANCEL NEW FOLDER" : "NEW FOLDER");
+    (void)kui_flow_button(&root, 39U,
+        edit_mode == 2 ? "CANCEL RENAME" : "RENAME SELECTED");
     (void)kui_flow_label(&root, 33U, preview);
-    if (creating_folder) {
+    if (edit_mode != 0) {
         for (uint32_t id = 10U; id < 10U + PAGE_SIZE; ++id) {
             (void)kui_scene_set_flags(scene, id, KUI_VIEW_DISABLED);
         }
@@ -350,6 +384,8 @@ static void build_scene(
         (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 35U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 36U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, edit_mode == 1 ? 39U : 37U,
+                                  KUI_VIEW_DISABLED);
         (void)kui_scene_select(scene, 38U);
         return;
     }
@@ -367,6 +403,10 @@ static void build_scene(
     }
     if (selected == NO_SELECTION || selected >= entry_count) {
         (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 39U, KUI_VIEW_DISABLED);
+    } else if (entries[selected].type != KU_FILE_TYPE_REGULAR &&
+               entries[selected].type != KU_FILE_TYPE_DIRECTORY) {
+        (void)kui_scene_set_flags(scene, 39U, KUI_VIEW_DISABLED);
     }
 }
 
@@ -417,7 +457,7 @@ static int activate_selected(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 75, 650, 580);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 75, 650, 630);
     explorer_entry* entries = s_directory_cache;
     size_t entry_count = 0U;
     size_t page_start = 0U;
@@ -425,10 +465,12 @@ int main(void) {
     uint32_t pointer_buttons = 0U;
     char path[PATH_CAPACITY] = "/";
     char query[FLUX_FILES_FILTER_CAPACITY] = "";
-    char new_folder_name[FLUX_FILES_NEW_FOLDER_CAPACITY] = "";
-    int creating_folder = 0;
+    char edit_name[FLUX_FILES_NEW_FOLDER_CAPACITY] = "";
+    char rename_source[KU_FILE_NAME_CAPACITY] = "";
+    uint32_t rename_type = KU_FILE_TYPE_UNKNOWN;
+    int edit_mode = 0; /* 0: browse, 1: new folder, 2: rename */
     char status[64] = "";
-    char preview[64] = "SELECT A TILE / OPEN OR ENTER";
+    char preview[64] = "LEFT CLICK OPEN / RIGHT CLICK SELECT";
     flux_files_history history;
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
@@ -444,7 +486,7 @@ int main(void) {
     if (status[0] != '\0' && strcmp(status, "DIRECTORY / READY") != 0) {
         (void)strlcpy(preview, status, sizeof(preview));
     }
-    build_scene(&scene, path, query, &history, creating_folder, new_folder_name,
+    build_scene(&scene, path, query, &history, edit_mode, edit_name,
                 entries, entry_count, page_start, selected, preview);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
@@ -461,30 +503,38 @@ int main(void) {
     puts("[TEST] flux_files_search: READY");
     puts("[TEST] flux_files_history: READY");
     puts("[TEST] flux_files_mkdir: READY");
+    puts("[TEST] flux_files_rename: READY");
 
     for (;;) {
         ku_ui_event event;
         uint32_t target;
         const int wait_result = gui_wait_event(window, &event);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (creating_folder && event.type == KU_UI_EVENT_KEY) {
+        if (edit_mode != 0 && event.type == KU_UI_EVENT_KEY) {
             const flux_files_folder_action edit = flux_files_folder_key(
-                new_folder_name, sizeof(new_folder_name), &event);
+                edit_name, sizeof(edit_name), &event);
             if (edit == FLUX_FILES_FOLDER_NONE) continue;
             if (edit == FLUX_FILES_FOLDER_CANCEL) {
-                creating_folder = 0;
-                (void)strlcpy(preview, "NEW FOLDER / CANCELLED", sizeof(preview));
+                (void)strlcpy(preview, edit_mode == 1
+                    ? "NEW FOLDER / CANCELLED" : "RENAME / CANCELLED", sizeof(preview));
+                edit_mode = 0;
             } else if (edit == FLUX_FILES_FOLDER_EDITED) {
-                (void)strlcpy(preview, "NEW FOLDER / ENTER CREATE  ESC CANCEL", sizeof(preview));
+                (void)strlcpy(preview, edit_mode == 1
+                    ? "NEW FOLDER / ENTER CREATE  ESC CANCEL"
+                    : "RENAME / ENTER SAVE  ESC CANCEL", sizeof(preview));
             } else if (edit == FLUX_FILES_FOLDER_INVALID) {
-                (void)strlcpy(preview, "NEW FOLDER / INVALID CHARACTER", sizeof(preview));
+                (void)strlcpy(preview, edit_mode == 1
+                    ? "NEW FOLDER / INVALID CHARACTER"
+                    : "RENAME / INVALID CHARACTER", sizeof(preview));
             } else if (edit == FLUX_FILES_FOLDER_FULL) {
-                (void)strlcpy(preview, "NEW FOLDER / MAXIMUM NAME LENGTH", sizeof(preview));
-            } else if (edit == FLUX_FILES_FOLDER_SUBMIT) {
+                (void)strlcpy(preview, edit_mode == 1
+                    ? "NEW FOLDER / MAXIMUM NAME LENGTH"
+                    : "RENAME / MAXIMUM NAME LENGTH", sizeof(preview));
+            } else if (edit == FLUX_FILES_FOLDER_SUBMIT && edit_mode == 1) {
                 char destination[PATH_CAPACITY];
-                if (!flux_files_folder_valid_name(new_folder_name, sizeof(new_folder_name))) {
+                if (!flux_files_folder_valid_name(edit_name, sizeof(edit_name))) {
                     (void)strlcpy(preview, "NEW FOLDER / ENTER A VALID NAME", sizeof(preview));
-                } else if (!join_path(path, new_folder_name,
+                } else if (!join_path(path, edit_name,
                                       destination, sizeof(destination))) {
                     (void)strlcpy(preview, "NEW FOLDER / PATH TOO LONG", sizeof(preview));
                 } else {
@@ -493,8 +543,8 @@ int main(void) {
                         (void)strlcpy(preview, folder_create_error(created), sizeof(preview));
                     } else {
                         const ku_status_t synced = ku_file_sync();
-                        creating_folder = 0;
-                        new_folder_name[0] = '\0';
+                        edit_mode = 0;
+                        edit_name[0] = '\0';
                         query[0] = '\0';
                         (void)flux_files_history_filter(&history, query);
                         page_start = 0U;
@@ -511,13 +561,69 @@ int main(void) {
                         puts("[TEST] flux_files_mkdir: PASS");
                     }
                 }
+            } else if (edit == FLUX_FILES_FOLDER_SUBMIT && edit_mode == 2) {
+                char source_path[PATH_CAPACITY];
+                char destination[PATH_CAPACITY];
+                const flux_files_rename_policy policy = flux_files_rename_check(
+                    rename_type, rename_source, edit_name, sizeof(edit_name));
+                if (policy == FLUX_FILES_RENAME_INVALID) {
+                    (void)strlcpy(preview, "RENAME / ENTER A VALID NAME", sizeof(preview));
+                } else if (policy == FLUX_FILES_RENAME_UNCHANGED) {
+                    edit_mode = 0;
+                    (void)strlcpy(preview, "RENAME / NAME UNCHANGED", sizeof(preview));
+                } else if (!join_path(path, rename_source, source_path, sizeof(source_path)) ||
+                           !join_path(path, edit_name, destination, sizeof(destination))) {
+                    (void)strlcpy(preview, "RENAME / PATH TOO LONG", sizeof(preview));
+                } else {
+                    ku_file_stat existing;
+                    const ku_status_t found = ku_file_stat_path(
+                        destination, strlen(destination), &existing);
+                    if (found == KU_STATUS_OK) {
+                        (void)strlcpy(preview, "RENAME / NAME ALREADY EXISTS", sizeof(preview));
+                    } else if (found != KU_STATUS_NOT_FOUND) {
+                        (void)strlcpy(preview, "RENAME / DESTINATION CHECK FAILED", sizeof(preview));
+                    } else {
+                        const ku_status_t renamed = ku_file_rename(
+                            source_path, strlen(source_path), destination, strlen(destination));
+                        if (renamed != KU_STATUS_OK) {
+                            (void)strlcpy(preview, rename_error(renamed), sizeof(preview));
+                        } else {
+                            const ku_status_t synced = ku_file_sync();
+                            char renamed_name[KU_FILE_NAME_CAPACITY];
+                            (void)strlcpy(renamed_name, edit_name, sizeof(renamed_name));
+                            edit_mode = 0;
+                            edit_name[0] = '\0';
+                            query[0] = '\0';
+                            (void)flux_files_history_filter(&history, query);
+                            page_start = 0U;
+                            selected = NO_SELECTION;
+                            status[0] = '\0';
+                            if (!load_directory(path, query, entries, &entry_count,
+                                                status, sizeof(status))) {
+                                (void)strlcpy(preview, "RENAMED / REFRESH FAILED", sizeof(preview));
+                            } else {
+                                for (size_t index = 0U; index < entry_count; ++index) {
+                                    if (strcmp(entries[index].name, renamed_name) == 0) {
+                                        selected = (uint32_t)index;
+                                        page_start = (index / PAGE_SIZE) * PAGE_SIZE;
+                                        break;
+                                    }
+                                }
+                                (void)strlcpy(preview, synced == KU_STATUS_OK
+                                    ? "RENAME / SAVED" : "RENAMED / SYNC NOT VERIFIED",
+                                    sizeof(preview));
+                            }
+                            puts("[TEST] flux_files_rename: PASS");
+                        }
+                    }
+                }
             }
-            build_scene(&scene, path, query, &history, creating_folder, new_folder_name,
+            build_scene(&scene, path, query, &history, edit_mode, edit_name,
                         entries, entry_count, page_start, selected, preview);
             (void)kui_scene_present(window, &scene);
             continue;
         }
-        if (creating_folder && event.type == KU_UI_EVENT_SCROLL) continue;
+        if (edit_mode != 0 && event.type == KU_UI_EVENT_SCROLL) continue;
         if (event.type == KU_UI_EVENT_SCROLL) {
             // A scroll event proves HID delivery even in directories with
             // fewer items than a page, where the offset cannot change.
@@ -531,7 +637,7 @@ int main(void) {
                 selected = NO_SELECTION;
                 (void)strlcpy(preview, "WHEEL / PAGE CHANGED", sizeof(preview));
                 build_scene(&scene, path, query, &history,
-                            creating_folder, new_folder_name, entries, entry_count,
+                            edit_mode, edit_name, entries, entry_count,
                             page_start, selected, preview);
                 (void)kui_scene_present(window, &scene);
                 puts("[TEST] flux_files_usb_wheel_paging: PASS");
@@ -559,7 +665,7 @@ int main(void) {
                     (void)strlcpy(preview, status, sizeof(preview));
                 }
                 build_scene(&scene, path, query, &history,
-                            creating_folder, new_folder_name, entries, entry_count,
+                            edit_mode, edit_name, entries, entry_count,
                             page_start, selected, preview);
                 (void)kui_scene_present(window, &scene);
                 puts("[TEST] flux_files_search: PASS");
@@ -571,7 +677,7 @@ int main(void) {
                 if (action == FLUX_FILES_KEY_SELECT) {
                     (void)strlcpy(preview, "KEYBOARD / ITEM SELECTED", sizeof(preview));
                     build_scene(&scene, path, query, &history,
-                                creating_folder, new_folder_name, entries, entry_count,
+                                edit_mode, edit_name, entries, entry_count,
                                 page_start, selected, preview);
                     (void)kui_scene_present(window, &scene);
                     puts("[TEST] flux_files_keyboard_navigation: PASS");
@@ -585,19 +691,54 @@ int main(void) {
             const int primary_pressed =
                 (event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U;
+            const int secondary_pressed =
+                (event.buttons & UINT32_C(2)) != 0U &&
+                (previous_buttons & UINT32_C(2)) == 0U;
             pointer_buttons = event.buttons;
-            if (!primary_pressed) continue;
+            if (!primary_pressed && !secondary_pressed) continue;
             target = kui_scene_hit_test(&scene, event.x, event.y);
+            /* Secondary-click selects folders without navigating. Preserve
+             * the existing single-primary-click activation workflow. */
+            if (secondary_pressed) {
+                if (target >= 10U && target < 10U + PAGE_SIZE && edit_mode == 0) {
+                    const size_t index = page_start + (size_t)(target - 10U);
+                    if (index < entry_count) {
+                        selected = (uint32_t)index;
+                        (void)strlcpy(preview, "SELECTED / RENAME OR OPEN", sizeof(preview));
+                        build_scene(&scene, path, query, &history, edit_mode,
+                                    edit_name, entries, entry_count,
+                                    page_start, selected, preview);
+                        (void)kui_scene_present(window, &scene);
+                    }
+                }
+                continue;
+            }
         } else {
             continue;
         }
         if (target == 37U) {
-            creating_folder = !creating_folder;
-            new_folder_name[0] = '\0';
-            (void)strlcpy(preview, creating_folder
+            edit_mode = edit_mode == 1 ? 0 : 1;
+            edit_name[0] = '\0';
+            (void)strlcpy(preview, edit_mode == 1
                 ? "NEW FOLDER / TYPE NAME  ENTER CREATE  ESC CANCEL"
                 : "NEW FOLDER / CANCELLED", sizeof(preview));
-        } else if (creating_folder) {
+        } else if (target == 39U) {
+            if (edit_mode == 2) {
+                edit_mode = 0;
+                (void)strlcpy(preview, "RENAME / CANCELLED", sizeof(preview));
+            } else if (edit_mode == 0 && selected != NO_SELECTION &&
+                       selected < entry_count &&
+                       (entries[selected].type == KU_FILE_TYPE_REGULAR ||
+                        entries[selected].type == KU_FILE_TYPE_DIRECTORY)) {
+                (void)strlcpy(rename_source, entries[selected].name, sizeof(rename_source));
+                rename_type = entries[selected].type;
+                (void)strlcpy(edit_name, rename_source, sizeof(edit_name));
+                edit_mode = 2;
+                (void)strlcpy(preview, "RENAME / TYPE NAME  ENTER SAVE  ESC CANCEL", sizeof(preview));
+            } else {
+                (void)strlcpy(preview, "RENAME / SELECT FILE OR FOLDER", sizeof(preview));
+            }
+        } else if (edit_mode != 0) {
             continue;
         } else if (target >= 10U && target < 10U + PAGE_SIZE) {
             const size_t index = page_start + (size_t)(target - 10U);
@@ -662,7 +803,7 @@ int main(void) {
             continue;
         }
 
-        build_scene(&scene, path, query, &history, creating_folder, new_folder_name,
+        build_scene(&scene, path, query, &history, edit_mode, edit_name,
                     entries, entry_count, page_start, selected, preview);
         (void)kui_scene_present(window, &scene);
     }
