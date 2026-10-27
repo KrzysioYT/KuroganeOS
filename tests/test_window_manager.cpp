@@ -1,4 +1,9 @@
 #include "../kernel/ui/window_manager.hpp"
+#include "../sdk/include/kurogane/design.h"
+
+// Real style state lives in the graphics module; host-only WM tests have no
+// framebuffer, so supply the default modern style explicitly.
+namespace ui { uint32_t desktop_style_id() { return KU_FLUX_STYLE_MODERN; } }
 
 namespace {
 size_t g_draws = 0U;

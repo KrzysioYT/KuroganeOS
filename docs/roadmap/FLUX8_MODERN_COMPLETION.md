@@ -4,6 +4,60 @@ Status: **ACTIVE DEVELOPMENT, NOT QUALIFIED**
 Branch: `codex/road-to-15-stability` (Draft PR #55)
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
+## Updated direction — feature-led Flux 8 (2026-10-27)
+
+**Goal:** KuroganeOS 8 should feel like a usable, recognizable, personal
+native desktop — not merely a set of compositor checks. Stability is a
+mandatory **release property**, not a reason to postpone every independent
+user-facing feature until the whole hardware matrix is green.
+
+The Red Flux website screenshot is the visual target. The native desktop must
+retain real processes, real files, real settings and honest system telemetry.
+Do not use the web simulation or invented status readouts to meet a checklist.
+
+### Red Flux Next direction (2026-10-27)
+
+The refreshed UI concept refines the existing brand, rather than replacing
+it: **keep the established KuroganeOS logo** and angular black/graphite/red
+identity. Use a narrow navigation rail, legible native window chrome, bottom
+running-app switcher, practical Files/Terminal workflows and an appearance
+panel. Any design-mockup control must be backed by a real native capability
+before it appears as available in the OS. Patterns may be code-drawn; neither
+an image-generation mockup nor a web screenshot is guest implementation proof.
+
+### Feature milestones (deliver user value in this order)
+
+| Slice | Concrete deliverables | Proof before marking a feature done |
+| --- | --- | --- |
+| **8A — Everyday desktop** | Authenticated Home; launch, close, restore, move and switch real applications; visible failures and recovery | Usable Login -> Files and Terminal interaction; owner checks; regression smoke |
+| **8B — Red Flux design parity** | Angular graphite/red shell; fixed side rail, bottom taskbar, consistent native app interiors; responsive layouts | Native screenshots and pointer hitboxes compared at 1024×768, 1280×800 and a HiDPI size |
+| **8C — Personalization** | Existing six palettes and Modern/Classic; wallpaper/background, accent/contrast, text/UI scaling, reordered/pinned Dock and saved window preferences | Set -> restart/login -> restore; invalid-setting fallback; authenticated session ownership |
+| **8D — User workflows** | Discover/search apps, usable Files and Terminal, clipboard/file operations, notification behavior, keyboard-first navigation and accessible errors | Complete real-user tasks without shell-only workarounds or pretend PASS |
+| **8E — Developer preview** | Documented external GUI app example, quickstart, native SDK template and readable diagnostics | Build from public SDK -> install/run in guest -> window responds to input |
+| **8F — Release qualification** | Exact-SHA regression, media, QEMU USB-only, VirtualBox interactive, install/restore and recovery matrix | Recorded SHA, artifact hash, logs, manual evidence; no critical unresolved failure |
+
+Slices **8B–8E may advance while unrelated 8F evidence is pending**. A failure
+that compromises ownership, data integrity or the feature being developed
+must still be fixed first. Feature progress is tracked as `PLANNED`,
+`IMPLEMENTED`, `HOST-TESTED`, `GUEST-VERIFIED`, then `QUALIFIED`; only the last
+is enough to close the milestone. Do not expand 8.0 into the 11.0 package
+manager or 12.0 production users/groups, signed update and isolation work.
+
+### User-friendly / developer-friendly acceptance
+
+- A new user can find Home, Files, Terminal, Browser and Settings, understand
+  a failed launch, change a theme and revert it without reading a manual.
+- The desktop remembers supported appearance choices across a real restart.
+  A theme stored globally is **not** proof of a private per-user profile;
+  never cross account/session trust boundaries to offer personalization.
+- Text remains legible at normal and HiDPI sizes, including Polish characters;
+  all essential controls have visible keyboard focus and sufficient contrast.
+- A developer can compile a tiny native GUI example from public SDK headers,
+  run it in a guest and troubleshoot failure using documented diagnostics.
+- New UI features have unit/host coverage as they land and guest interaction
+  evidence at integration checkpoints. Preserve Classic and the existing
+  keyboard rescue shortcuts during migration.
+
 ## Non-negotiable reliability gate (P0)
 
 - Real authenticated Login -> live `RED FLUX HOME` first frame.
@@ -14,12 +68,15 @@ System identity remains `7.0.0-dev` until exact-SHA acceptance.
 - Exact-SHA release media, QEMU USB-only login and actual Files click, VirtualBox
   interactive smoke, and host optimized/UBSan gates all pass.
 
-## Native compositor and Modern style (P1)
+## Native compositor and Modern style (P1 implementation checklist)
 
 - [x] Own software backbuffer; preserve clipping, damage and non-XOR cursor.
-- [x] Floating compact Dock and Classic fallback.
-- [x] Rounded Modern chrome, cards, switches, notifications, list and progress.
-- [x] Deterministic 4x4 corner anti-aliasing and bounded labels.
+- [x] Compact floating Dock fallback and Classic retained.
+- [x] Square/angular Red Flux Modern chrome, side rail and bottom taskbar
+      for 1024×720+ (host-tested 2026-10-27; not VM-qualified).
+- [x] Rounded-surface/4x4 corner routines retained in the renderer for
+      legacy/optional widgets; bounded label foundation exists. Rounded
+      corners are **not** the Modern reference design.
 - [ ] Explicit per-client surface lifecycle independent of title strings.
 - [ ] Robust focus/capture/z-order and no input event loss under heavy redraw.
 - [ ] HiDPI layout factor 100/125/150/200%, fractional scaling without clipped
@@ -47,9 +104,110 @@ System identity remains `7.0.0-dev` until exact-SHA acceptance.
       dialogs have live integration tests, not just fake labels.
 - [ ] Crash/restart ownership cleanup does not leave stale windows or frozen Dock.
 
+## Personalization and product usability (P1 — added 2026-10-27)
+
+- [x] Shared six-theme palette; Modern/Classic selector; typed persistence
+      foundation (full restart/session qualification remains open).
+- [ ] Wallpaper/background chooser with safe default and user-controlled reset.
+- [x] Built-in wallpaper pattern selector (partial 8C): Forged Steel, Graphite
+      Grid and Minimal Dark are rendered by the native compositor, selectable
+      using three direct radio-like Settings cards and saved under
+      `ui.background` with range-checked U64
+      values. Home restores the choice after presenting its first frame;
+      Reset Interface Profile restores Forged Steel and attempts rollback if
+      persistence or live application fails. Individual wallpaper changes
+      also confirm the stored value and attempt rollback on a failed live
+      update. These are global/session-shared
+      settings like the existing theme; private per-account wallpaper, user
+      image importing and actual guest restart evidence remain open.
+- [ ] Accent/contrast, licensed scalable font and 100/125/150/200% UI scale
+      settings consistently applied by compositor **and** native apps.
+- [ ] Dock pin/order settings, keyboard shortcuts and sensible defaults.
+- [ ] Persist supported window positions/sizes and appearance across restart;
+      bound all preferences to the authenticated session when user-scoped.
+- [ ] Native launcher search, clear empty/error states and first-run guidance.
+- [ ] Real Files/Terminal/Browser/Performance/Settings tasks without simulated
+      content; accessibility and keyboard-only acceptance.
+
+### Settings usability increment (8C/8D, 2026-10-27)
+
+- Native Settings has local keyboard focus/activation: Tab/Shift+Tab, arrow
+  keys, PageUp/PageDown, Enter/Space. Focus automatically follows controls
+  across the bounded settings viewport without bringing back desktop-global
+  launch shortcuts.
+- Offline service and unavailable audio controls are visibly disabled. Actions
+  display save/failure feedback rather than relying on serial markers alone.
+- **Reset Interface Profile** now restores default color, Modern style and
+  normal contrast, verifies stored values and applies the live compositor
+  settings. Failed steps attempt rollback and report a partial failure if the
+  previous state could not be restored.
+- C11/C++17 host tests cover local keyboard/focus policy; live guest/session
+  persistence and reset recovery remain to be qualified before 8.0 stable.
+
+### Terminal workflow increment (8D, 2026-10-27)
+
+- Native Terminal and console shell now expose Ring-3 VFS `ls` to list real
+  directory entries and validate `cd` destinations before changing cwd.
+- Graphical Terminal supports Tab completion for built-in command names and a
+  bounded 96-line scrollback navigated with wheel/PageUp/PageDown.
+- Tab now also completes real VFS paths for `cd`, `ls`, `cat`, `read`, `run`,
+  `open`, and `which`, using current-directory or `/apps/` lookup as the
+  actual command requires. Unique directories gain `/` and files gain a space;
+  ambiguous names extend only their common prefix. Quoted/escaped filenames
+  and multi-argument completion remain out of scope for this parser.
+- C11/C++17 host tests cover completion, scroll bounds, and VFS success/error
+  behavior, including path completion. Guest mouse/keyboard verification
+  remains open; this is **not** an 8.0 release qualification claim.
+
+### Files workflow increment (8D, 2026-10-27)
+
+- Files has keyboard-first live filename filtering in the current VFS directory;
+  typing narrows the results, Backspace edits and Escape clears the filter.
+- The catalog keeps up to 512 matching entries (up from 24) in global BSS,
+  not on the 32-KiB Ring-3 stack, and reports an explicit truncation limit.
+- Native sorting, folder activation, keyboard paging, wheel paging, path copy
+  and non-ELF previews remain available on filtered results. Host C/C++ tests
+  cover search editing, ASCII-case-insensitive matching and empty states;
+  guest usability qualification remains open.
+- Files now has session-local Back and Forward controls (also Alt+Left and
+  Alt+Right) over the most recent 16 visited directories. Search terms are
+  restored on history navigation; entering a new directory after Back removes
+  the stale forward branch. A failed VFS open does not advance history or leave
+  the user in an invalid folder. Host C/C++ tests cover bounded history,
+  search restoration, branch pruning and cursor boundaries.
+- Files supports explicit **New Folder** creation through a focused native
+  name field and Enter/ESC confirmation. Names are bounded ASCII path segments,
+  never interpreted as paths; the operation uses the real Ring-3 mkdir syscall,
+  reports read-only/duplicate errors and refreshes the current folder only
+  after success. An explicit sync is attempted; an unverified sync is reported,
+  not silently declared durable. Host C/C++ tests cover name validation,
+  editing, cancellation, submission and length boundaries. Writable KuroFS
+  guest interaction still needs confirmation.
+- Files now has explicit **Rename Selected** for ordinary files and folders,
+  with the existing bounded editor, Enter to save and Escape to cancel.
+  The UI rejects device/mount-point renames, path traversal, unchanged names,
+  existing destinations and unsuccessful destination checks before invoking
+  the real Ring-3 rename syscall. On success it attempts a sync, reloads the
+  current directory and highlights the new name when present; a filtered view
+  is cleared so the renamed item is not hidden. The native window is taller
+  to keep all controls visible. Secondary-click selects a folder without
+  opening it; primary-click still opens it directly. Long names in the editor
+  keep their trailing characters and caret visible. C11/C++17 tests cover
+  unsafe names, type restrictions and bounds. The writable-guest rename
+  interaction is still unverified.
+
+## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
+
+- [x] Public ELF64 SDK headers, GUI/service templates and sample build
+      infrastructure exist; independent guest usability is not yet qualified.
+- [ ] Short "build your first GUI app" path verified in a clean guest image.
+- [ ] Discoverable process/application log and failure diagnostics.
+- [ ] Stable enough documented *8.0 preview* UI usage without promising
+      dynamic loading, packages, third-party driver ABI or POSIX compatibility.
+
 ## Release gate / acceptance
 
-Do not label 8.0.0 stable just because theme switch and wallpaper render.
+Do not label 8.0.0 qualified just because themes, wallpaper or Dock render.
 The checked build must pass: optimized + sanitizer host UI suites, clean media,
 real USB keyboard/tablet QEMU login and Files/Terminal child spawns, VirtualBox
 manual mouse/keyboard test on the same ISO, and failure/recovery tests.
@@ -295,3 +453,39 @@ controls. Mouse interaction remains available. Production-policy host tests and
 the QEMU lifecycle gate cover navigation; the installed-disk gate separately
 checks actual theme activation and service readback on a writable root.
 This is one application accessibility increment, not full desktop acceptance.
+
+## 2026-10-27 — Dock identity slice (not an 8.0 closeout)
+
+The Dock's running/focus/readiness lookup now binds a window's canonical title
+to the creating Ring-3 process's installed executable path. The result is
+cached per generation-safe window slot, so spoofed titles from other session
+apps cannot satisfy a pinned application's readiness/focus check. This is a
+bounded piece of client identity, **not** the complete per-client surface
+lifecycle, authentication, recovery or compositor acceptance gate above.
+Host regression passed on the working candidate; guest/VirtualBox gates and
+the exact-SHA qualification remain outstanding.
+
+## 2026-10-27 — Home instant app search (8D increment)
+
+Home now offers a real native search field over the installed first-party app
+catalog. Physical typing filters app tiles by title, description and executable
+name; Backspace/Escape edit or clear, arrows/Tab change the matching selection,
+and Enter launches/focuses through the existing session-owned app lifecycle.
+No-match state is explicit, and the Home view accepts wheel scrolling while
+preserving the private Dock app-command transport. The bounded ASCII search
+helper has host coverage, and the Ring-3 launcher builds with the public SDK.
+Full UTF-8 input, accessibility review and QEMU/VirtualBox interaction remain
+open; this is an implemented 8D feature, not a qualified 8.0 milestone.
+
+## 2026-10-27 — Cross-PR integration checkpoint
+
+The candidate combines PR #56 lifecycle/installed-theme evidence with PR #57
+native Home search, Files and Terminal workflows, persistent wallpaper presets
+and Dock executable-identity checks. Settings retains Tab/Shift+Tab activation
+and QMP markers from the lifecycle gate, plus arrow/Page navigation and the
+profile reset behavior. The saved-theme serial value is emitted only after a
+verified successful SET/GET and live theme application.
+
+The combined source passed `make test` and `make kernel` on Linux x86. Media
+packaging is currently **BLOCKED** by unavailable `sgdisk`; combined-QEMU,
+VirtualBox, font and HiDPI gates remain open. The runtime stays `7.0.0-dev`.

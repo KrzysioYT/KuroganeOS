@@ -8,8 +8,11 @@ Source of truth: `DEVELOPMENT_STATE.md`; work branch
 
 1. Keep KuroganeOS's own x86-64 UEFI kernel, not Linux, Wine or a superficial
    shell on Windows. Modern compositor concepts need not implement Wayland.
-2. Progress in atomic slices: audit -> test that reproduces -> implement ->
-   build -> QEMU -> compatibility VM -> regression -> commit.
+2. Deliver atomic **user-visible feature slices**: describe the journey ->
+   design -> implement -> build -> targeted host test -> document -> commit.
+   Run QEMU/compatibility-VM and full regressions at integration checkpoints
+   and before version promotion; an unavailable VM does not stop unrelated
+   feature work. Never turn an unverified result into a PASS.
 3. Keep the last qualified kernel/driver baseline and a working Classic UI
    fallback. Never force-push, delete VDI data, or blindly change boot media.
 4. A CI startup PASS marker is not functional proof: require an actual
@@ -37,9 +40,11 @@ Source of truth: `DEVELOPMENT_STATE.md`; work branch
 - **7.x — Iron Shield**: finish and requalify hardware coexistence, SMP,
   interrupt/drivers and security integration without claiming physical
   hardware coverage from QEMU alone.
-- **8.0 — Flux Modern**: clean Login->Home; functional native applications,
-  modern widgets; bounded UTF-8; scalable fonts; per-client surfaces; HiDPI;
-  fallback console. See `FLUX8_MODERN_COMPLETION.md`.
+- **8.0 — Flux Modern**: clean Login->Home and useful Files/Terminal/Browser;
+  coherent Red Flux application design, personalization, native launcher
+  search, accessibility, scalable fonts/HiDPI, real client surfaces and a
+  basic external-GUI-app developer path. Release still requires exact-SHA
+  guest/security/recovery evidence. See `FLUX8_MODERN_COMPLETION.md`.
 - **9.0 — Networking & Services**: networking reliability and expanded services.
 - **10.0 — Storage & VFS 2.0**: persistent storage, filesystem and migration safety.
 - **11.0 — Application Platform**: SDK, app lifecycle, packages and native utilities.
