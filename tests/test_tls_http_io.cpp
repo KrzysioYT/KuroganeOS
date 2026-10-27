@@ -3,6 +3,22 @@
 #include <string>
 #include "../kernel/net/tls/client.cpp"
 
+namespace host_log_sink {
+unsigned errors = 0;
+unsigned hex_errors = 0;
+}
+
+namespace log {
+// Hermetic Ring-3/TLS test harness: kernel serial/terminal are unavailable.
+// Keep logging calls linked instead of suppressing them in production.
+void write(Level level, const char*, const char*) {
+    if (level == Level::Error) ++host_log_sink::errors;
+}
+void write_hex(Level level, const char*, const char*, uint64_t) {
+    if (level == Level::Error) ++host_log_sink::hex_errors;
+}
+}
+
 namespace fixture {
 const char* payload = nullptr;
 size_t offset = 0;
@@ -56,5 +72,6 @@ int main() {
     assert(receive(0, payload, sizeof(response)) == Status::IoFailure && length == std::strlen(payload));
     assert(receive(-123, payload, sizeof(response)) == Status::IoFailure && length == std::strlen(payload));
     assert(receive(MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY, nullptr, sizeof(response)) == Status::IoFailure);
+    assert(host_log_sink::errors > 0U || host_log_sink::hex_errors > 0U);
     assert(receive(MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY, payload, 10) == Status::ResponseTooLarge && length == 10);
 }

@@ -81,3 +81,14 @@ new source. Do not merge the Draft PR on the strength of appearance alone.
 - Shared kernel/Home/Ring-3 application title/path catalog.
 - Added host/CI tests for Unicode fitting and application identity.
 - This implementation is **in development** pending CI and guest evidence.
+
+## 2026-10-27 — host toolchain portability regressions (active)
+
+The exact-SHA CI at `58c98d62` had 24 failed checks but not 24 distinct
+subsystem regressions. Multiple hosted C++ driver builds stopped at the
+legacy freestanding kernel `namespace log` spelling colliding with the
+compiler math builtin under `-Werror`. A scoped diagnostic suppression in
+`kernel/core/log.hpp` keeps all other warnings enabled. A TLS HTTP host
+harness now supplies its missing kernel diagnostic sink and checks that an
+error path actually uses it. Both changes require new CI confirmation;
+none proves hardware qualification or finished 15.0.0.

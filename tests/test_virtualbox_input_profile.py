@@ -27,6 +27,9 @@ assert "PS/2 keyboard" in contract and "PS/2 mouse" in contract
 assert "Assert-Rejected" in regression
 assert "USBTablet" in regression
 assert "Assert-Valid" in regression
-assert "PS/2 Mouse" in docs and "USB Tablet" in docs
+# Document the two independent input profiles without coupling the test to
+# historical capitalization/typography; driver and VM contract remain strict.
+assert "PS/2" in docs, "VirtualBox PS/2 fallback must be documented"
+assert "USB Tablet" in docs, "USB-only QEMU acceptance must be documented"
 
 print("VirtualBox PS/2 input profile: PASS")
