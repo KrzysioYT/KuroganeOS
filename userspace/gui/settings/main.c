@@ -3,10 +3,12 @@
 #include <kurogane/flux_app_catalog.h>
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
+#include "navigation.h"
 
 #define UI_LOW_CONTRAST_KEY "ui.low_contrast"
 #define UI_THEME_KEY "ui.theme"
 #define UI_STYLE_KEY "ui.style"
+#define UI_BACKGROUND_KEY "ui.background"
 
 typedef struct settings_client {
     ku_service_connection_t connection;
@@ -194,6 +196,46 @@ static ku_status_t write_style_setting(settings_client* client, uint32_t style_i
     return settings_transact(client->connection, &request, &response);
 }
 
+static ku_status_t read_background_setting(
+    settings_client* client, uint32_t* background_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    uint64_t value = 0U;
+    ku_status_t status;
+    if (client == NULL || !client->connected || background_id == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    copy_key(request.key, UI_BACKGROUND_KEY);
+    status = settings_transact(client->connection, &request, &response);
+    if (status != KU_STATUS_OK) return status;
+    if (response.type != KU_SETTINGS_TYPE_U64 ||
+        response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
+    memcpy(&value, response.value, sizeof(value));
+    if (value >= KU_FLUX_BACKGROUND_COUNT) return KU_STATUS_CORRUPT_DATA;
+    *background_id = (uint32_t)value;
+    return KU_STATUS_OK;
+}
+
+static ku_status_t write_background_setting(
+    settings_client* client, uint32_t background_id) {
+    ku_settings_request request;
+    ku_settings_response response;
+    const uint64_t value = (uint64_t)background_id;
+    if (client == NULL || !client->connected ||
+        background_id >= KU_FLUX_BACKGROUND_COUNT) return KU_STATUS_INVALID_ARGUMENT;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_SET;
+    request.type = KU_SETTINGS_TYPE_U64;
+    request.value_size = sizeof(value);
+    copy_key(request.key, UI_BACKGROUND_KEY);
+    memcpy(request.value, &value, sizeof(value));
+    return settings_transact(client->connection, &request, &response);
+}
+
 static int select_desktop_theme(uint32_t theme_id) {
     ku_desktop_theme_request request;
     if (theme_id >= KU_FLUX_THEME_COUNT) return 0;
@@ -216,6 +258,17 @@ static int select_desktop_style(uint32_t style_id) {
         request.style_id == style_id;
 }
 
+static int select_desktop_background(uint32_t background_id) {
+    ku_desktop_background_request request;
+    if (background_id >= KU_FLUX_BACKGROUND_COUNT) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_BACKGROUND_SET;
+    request.background_id = background_id;
+    return ku_desktop_background(&request) == KU_STATUS_OK &&
+        request.background_id == background_id;
+}
+
 static int active_desktop_theme(uint32_t* theme_id) {
     ku_desktop_theme_request request;
     if (theme_id == NULL) return 0;
@@ -225,6 +278,107 @@ static int active_desktop_theme(uint32_t* theme_id) {
     if (ku_desktop_theme(&request) != KU_STATUS_OK ||
         request.theme_id >= KU_FLUX_THEME_COUNT) return 0;
     *theme_id = request.theme_id;
+    return 1;
+}
+
+static int active_desktop_background(uint32_t* background_id) {
+    ku_desktop_background_request request;
+    if (background_id == NULL) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_BACKGROUND_QUERY;
+    if (ku_desktop_background(&request) != KU_STATUS_OK ||
+        request.background_id >= KU_FLUX_BACKGROUND_COUNT) return 0;
+    *background_id = request.background_id;
+    return 1;
+}
+
+/* Apply a wallpaper only when both persistent and live states agree. Failed
+ * saves attempt to restore both; never show "saved" for a partial change. */
+static int apply_background_choice(
+    settings_client* client, uint32_t requested, uint32_t previous) {
+    uint32_t confirmed = KU_FLUX_BACKGROUND_COUNT;
+    if (client == NULL || !client->connected ||
+        requested >= KU_FLUX_BACKGROUND_COUNT ||
+        previous >= KU_FLUX_BACKGROUND_COUNT) return 0;
+    if (requested == previous) return 1;
+    if (write_background_setting(client, requested) == KU_STATUS_OK &&
+        read_background_setting(client, &confirmed) == KU_STATUS_OK &&
+        confirmed == requested && select_desktop_background(requested)) return 1;
+
+    confirmed = KU_FLUX_BACKGROUND_COUNT;
+    const int wrote_previous =
+        write_background_setting(client, previous) == KU_STATUS_OK;
+    const int restored_live = select_desktop_background(previous);
+    const int verified_previous =
+        read_background_setting(client, &confirmed) == KU_STATUS_OK &&
+        confirmed == previous;
+    return wrote_previous && restored_live && verified_previous ? 0 : -1;
+}
+
+/* A profile reset is not a cosmetic toggle: persist all four defaults,
+ * confirm each stored value and update the compositor. On failure, attempt
+ * to restore the previously confirmed profile and report partial rollback. */
+static int reset_interface_profile(
+    settings_client* client, int* low_contrast,
+    uint32_t* theme_id, uint32_t* style_id, uint32_t* background_id) {
+    if (client == NULL || !client->connected || low_contrast == NULL ||
+        theme_id == NULL || style_id == NULL || background_id == NULL) return 0;
+    const int original_contrast = *low_contrast;
+    const uint32_t original_theme = *theme_id;
+    const uint32_t original_style = *style_id;
+    const uint32_t original_background = *background_id;
+    int confirmed_contrast = 1;
+    uint32_t confirmed_theme = KU_FLUX_THEME_COUNT;
+    uint32_t confirmed_style = KU_FLUX_STYLE_COUNT;
+    uint32_t confirmed_background = KU_FLUX_BACKGROUND_COUNT;
+    if (write_bool_setting(client, UI_LOW_CONTRAST_KEY, 0) != KU_STATUS_OK ||
+        write_theme_setting(client, KU_FLUX_THEME_RED) != KU_STATUS_OK ||
+        write_style_setting(client, KU_FLUX_STYLE_MODERN) != KU_STATUS_OK ||
+        write_background_setting(client, KU_FLUX_BACKGROUND_FORGED) != KU_STATUS_OK ||
+        read_bool_setting(client, UI_LOW_CONTRAST_KEY, &confirmed_contrast) != KU_STATUS_OK ||
+        read_theme_setting(client, &confirmed_theme) != KU_STATUS_OK ||
+        read_style_setting(client, &confirmed_style) != KU_STATUS_OK ||
+        read_background_setting(client, &confirmed_background) != KU_STATUS_OK ||
+        confirmed_contrast != 0 || confirmed_theme != KU_FLUX_THEME_RED ||
+        confirmed_style != KU_FLUX_STYLE_MODERN ||
+        confirmed_background != KU_FLUX_BACKGROUND_FORGED ||
+        !select_desktop_theme(KU_FLUX_THEME_RED) ||
+        !select_desktop_style(KU_FLUX_STYLE_MODERN) ||
+        !select_desktop_background(KU_FLUX_BACKGROUND_FORGED)) {
+        int restored_contrast = 0;
+        uint32_t restored_theme = KU_FLUX_THEME_COUNT;
+        uint32_t restored_style = KU_FLUX_STYLE_COUNT;
+        uint32_t restored_background = KU_FLUX_BACKGROUND_COUNT;
+        /* Always attempt every rollback step; do not short-circuit writes. */
+        const int wrote_contrast =
+            write_bool_setting(client, UI_LOW_CONTRAST_KEY, original_contrast) == KU_STATUS_OK;
+        const int wrote_theme =
+            write_theme_setting(client, original_theme) == KU_STATUS_OK;
+        const int wrote_style =
+            write_style_setting(client, original_style) == KU_STATUS_OK;
+        const int wrote_background =
+            write_background_setting(client, original_background) == KU_STATUS_OK;
+        const int live_theme = select_desktop_theme(original_theme);
+        const int live_style = select_desktop_style(original_style);
+        const int live_background = select_desktop_background(original_background);
+        const int rolled_back =
+            wrote_contrast && wrote_theme && wrote_style && wrote_background &&
+            read_bool_setting(client, UI_LOW_CONTRAST_KEY, &restored_contrast) == KU_STATUS_OK &&
+            read_theme_setting(client, &restored_theme) == KU_STATUS_OK &&
+            read_style_setting(client, &restored_style) == KU_STATUS_OK &&
+            read_background_setting(client, &restored_background) == KU_STATUS_OK &&
+            restored_contrast == original_contrast &&
+            restored_theme == original_theme &&
+            restored_style == original_style &&
+            restored_background == original_background &&
+            live_theme && live_style && live_background;
+        return rolled_back ? 0 : -1;
+    }
+    *low_contrast = 0;
+    *theme_id = KU_FLUX_THEME_RED;
+    *style_id = KU_FLUX_STYLE_MODERN;
+    *background_id = KU_FLUX_BACKGROUND_FORGED;
     return 1;
 }
 
@@ -267,12 +421,15 @@ static void build_scene(
     int low_contrast,
     uint32_t theme_id,
     uint32_t style_id,
+    uint32_t background_id,
     const ku_audio_state* audio,
-    int settings_online) {
+    int settings_online,
+    const char* feedback) {
     kui_flow root;
     char volume[64] = "MASTER VOLUME\n";
     char service[64] = "SETTINGS SERVICE\n";
     char palette_label[64] = "ACTIVE COLOR / ";
+    char background_label[64] = "WALLPAPER / ";
     uint32_t volume_value = 0U;
     int muted = 0;
 
@@ -295,14 +452,24 @@ static void build_scene(
         scene->accent_rgb = palette.accent_muted;
     }
     append_text(palette_label, sizeof(palette_label), ku_flux_theme_name(theme_id));
+    append_text(background_label, sizeof(background_label),
+                ku_flux_background_name(background_id));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX SETTINGS / PERSONALIZATION");
+    (void)kui_flow_label(&root, 4U, feedback);
     (void)kui_flow_metric(&root, 2U, service, settings_online ? 100U : 0U, 100U);
     (void)kui_flow_metric(&root, 3U, volume, volume_value, 100U);
     (void)kui_flow_panel(&root, 28U, "FLUX 8 / COLOR PERSONALIZATION");
     (void)kui_flow_label(&root, 29U, palette_label);
     (void)kui_flow_button(&root, 30U, "PREVIOUS COLOR");
     (void)kui_flow_button(&root, 31U, "NEXT COLOR");
+    (void)kui_flow_label(&root, 45U, background_label);
+    (void)kui_flow_toggle(&root, 40U, "FORGED STEEL\nANGULAR RED FLUX",
+        background_id == KU_FLUX_BACKGROUND_FORGED);
+    (void)kui_flow_toggle(&root, 41U, "GRAPHITE GRID\nSTRUCTURED WORKSPACE",
+        background_id == KU_FLUX_BACKGROUND_GRID);
+    (void)kui_flow_toggle(&root, 42U, "MINIMAL DARK\nDISTRACTION FREE",
+        background_id == KU_FLUX_BACKGROUND_MINIMAL);
     (void)kui_flow_toggle(&root, 32U, "FLUX MODERN\nSLEEK WINDOW CHROME / DOCK",
         style_id == KU_FLUX_STYLE_MODERN);
     (void)kui_flow_toggle(
@@ -316,6 +483,21 @@ static void build_scene(
     (void)kui_flow_button(&root, 20U, "VOLUME -10");
     (void)kui_flow_button(&root, 21U, "VOLUME +10");
     (void)kui_flow_button(&root, 22U, "RESET INTERFACE PROFILE");
+    if (!settings_online) {
+        (void)kui_scene_set_flags(scene, 10U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 31U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 32U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 40U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 41U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 42U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 22U, KUI_VIEW_DISABLED);
+    }
+    if (audio == NULL || audio->available == 0U) {
+        (void)kui_scene_set_flags(scene, 11U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 20U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 21U, KUI_VIEW_DISABLED);
+    }
 }
 
 int main(void) {
@@ -327,10 +509,13 @@ int main(void) {
     int low_contrast = 0;
     uint32_t theme_id = KU_FLUX_THEME_RED;
     uint32_t style_id = KU_FLUX_STYLE_MODERN;
+    uint32_t background_id = KU_FLUX_BACKGROUND_FORGED;
+    const char* feedback = "TAB / ARROWS FOCUS  ENTER / SPACE APPLY";
     int restored = 0;
     if (window == KU_INVALID_WINDOW) return 1;
 
     (void)active_desktop_theme(&theme_id);
+    (void)active_desktop_background(&background_id);
     if (connect_settings(&settings)) {
         const ku_status_t status = read_bool_setting(
             &settings, UI_LOW_CONTRAST_KEY, &low_contrast);
@@ -345,10 +530,18 @@ int main(void) {
                 if (read_style_setting(&settings, &stored_style) == KU_STATUS_OK &&
                     select_desktop_style(stored_style)) style_id = stored_style;
             }
+            {
+                uint32_t stored_background = KU_FLUX_BACKGROUND_FORGED;
+                if (read_background_setting(&settings, &stored_background) == KU_STATUS_OK &&
+                    select_desktop_background(stored_background)) background_id = stored_background;
+            }
         }
     }
     (void)read_audio(&audio);
-    build_scene(&scene, low_contrast, theme_id, style_id, &audio, settings.connected);
+    build_scene(&scene, low_contrast, theme_id, style_id, background_id,
+                &audio, settings.connected, feedback);
+    (void)kui_scene_select(&scene, 30U);
+    flux_settings_reveal_selection(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         if (settings.connected) (void)ku_service_close(settings.connection);
         (void)ku_ui_close(window);
@@ -363,6 +556,9 @@ int main(void) {
     puts("[TEST] flux_settings_toggle_cards: PASS");
     puts("[TEST] flux_8_theme_selector: PASS");
     puts("[TEST] flux_8_style_selector: PASS");
+    puts("[TEST] flux_8_wallpaper_selector: READY");
+    puts("[TEST] flux_settings_keyboard_access: READY");
+    puts("[TEST] flux_settings_profile_reset: READY");
     if (restored) puts("[TEST] desktop_settings_profile_restore: PASS");
     else puts("[TEST] desktop_settings_profile_restore: DEFAULT");
 
@@ -390,12 +586,37 @@ int main(void) {
         if (event.type == KU_UI_EVENT_KEY) {
             const int action = flux_settings_key(&scene, &event, &target);
             if (action == 1) {
+                flux_settings_reveal_selection(&scene);
                 (void)kui_scene_present(window, &scene);
                 puts("[INPUT] flux_settings_keyboard_focus: PASS");
+                puts("[TEST] flux_settings_keyboard_access: PASS");
                 continue;
             }
-            if (action != 2) continue;
-            puts("[INPUT] flux_settings_keyboard_activate: PASS");
+            if (action == 2) {
+                puts("[INPUT] flux_settings_keyboard_activate: PASS");
+                puts("[TEST] flux_settings_keyboard_access: PASS");
+            } else {
+                const flux_settings_key_action navigation = flux_settings_keyboard(&event);
+                if (navigation != FLUX_SETTINGS_KEY_NEXT &&
+                    navigation != FLUX_SETTINGS_KEY_PREVIOUS &&
+                    navigation != FLUX_SETTINGS_KEY_PAGE_UP &&
+                    navigation != FLUX_SETTINGS_KEY_PAGE_DOWN) continue;
+                const int32_t direction =
+                    navigation == FLUX_SETTINGS_KEY_NEXT ||
+                    navigation == FLUX_SETTINGS_KEY_PAGE_DOWN
+                        ? 1 : -1;
+                const uint32_t steps = navigation == FLUX_SETTINGS_KEY_PAGE_UP ||
+                    navigation == FLUX_SETTINGS_KEY_PAGE_DOWN
+                        ? 4U : 1U;
+                for (uint32_t index = 0U; index < steps; ++index) {
+                    if (kui_scene_select_next(&scene, direction) != KU_STATUS_OK) break;
+                }
+                flux_settings_reveal_selection(&scene);
+                (void)kui_scene_present(window, &scene);
+                puts("[INPUT] flux_settings_keyboard_focus: PASS");
+                puts("[TEST] flux_settings_keyboard_access: PASS");
+                continue;
+            }
         } else if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
@@ -404,8 +625,11 @@ int main(void) {
             pointer_buttons = event.buttons;
             if (!primary_pressed) continue;
             target = kui_scene_hit_test(&scene, event.x, event.y);
+            if (target == 0U) continue;
             (void)kui_scene_select(&scene, target);
-        } else continue;
+        } else {
+            continue;
+        }
         if (target == 10U) {
             int confirmed = 0;
             const int requested = low_contrast == 0;
@@ -414,10 +638,12 @@ int main(void) {
                 read_bool_setting(&settings, UI_LOW_CONTRAST_KEY, &confirmed) != KU_STATUS_OK ||
                 confirmed != requested) {
                 puts("[TEST] desktop_settings_profile_persist: FAIL");
-                continue;
+                feedback = "CONTRAST / SAVE FAILED";
+            } else {
+                low_contrast = confirmed;
+                feedback = "CONTRAST / SAVED";
+                puts("[TEST] desktop_settings_profile_persist: PASS");
             }
-            low_contrast = confirmed;
-            puts("[TEST] desktop_settings_profile_persist: PASS");
         } else if (target == 30U || target == 31U) {
             const uint32_t requested = target == 30U
                 ? (theme_id + KU_FLUX_THEME_COUNT - 1U) % KU_FLUX_THEME_COUNT
@@ -428,15 +654,15 @@ int main(void) {
                 read_theme_setting(&settings, &confirmed) != KU_STATUS_OK ||
                 confirmed != requested || !select_desktop_theme(confirmed)) {
                 puts("[TEST] flux_theme_persistence: FAIL");
-                continue;
-            }
-            theme_id = confirmed;
-            {
+                feedback = "COLOR / SAVE FAILED";
+            } else {
+                theme_id = confirmed;
+                feedback = "COLOR / SAVED";
+                puts("[TEST] flux_theme_persistence: PASS");
                 char value[24];
                 gui_u64(value, sizeof(value), theme_id);
                 printf("[SETTINGS] theme_saved=%s\n", value);
             }
-            puts("[TEST] flux_theme_persistence: PASS");
         } else if (target == 32U) {
             const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN
                 ? KU_FLUX_STYLE_CLASSIC : KU_FLUX_STYLE_MODERN;
@@ -446,35 +672,54 @@ int main(void) {
                 read_style_setting(&settings, &confirmed) != KU_STATUS_OK ||
                 confirmed != requested || !select_desktop_style(confirmed)) {
                 puts("[TEST] flux_style_persistence: FAIL");
-                continue;
+                feedback = "STYLE / SAVE FAILED";
+            } else {
+                style_id = confirmed;
+                feedback = "STYLE / SAVED";
+                puts("[TEST] flux_style_persistence: PASS");
             }
-            style_id = confirmed;
-            puts("[TEST] flux_style_persistence: PASS");
+        } else if (target >= 40U && target <= 42U) {
+            const uint32_t requested = target - 40U;
+            const int applied = apply_background_choice(
+                &settings, requested, background_id);
+            if (applied <= 0) {
+                puts("[TEST] flux_background_persistence: FAIL");
+                feedback = applied == 0 ? "WALLPAPER / SAVE FAILED; PREVIOUS KEPT"
+                    : "WALLPAPER / PARTIAL FAILURE; CHECK SETTINGS";
+            } else {
+                background_id = requested;
+                feedback = "WALLPAPER / SAVED";
+                puts("[TEST] flux_background_persistence: PASS");
+            }
         } else if (target == 11U) {
-            (void)apply_audio_mute(&audio);
+            feedback = apply_audio_mute(&audio)
+                ? "AUDIO / MUTE UPDATED" : "AUDIO / UNAVAILABLE";
         } else if (target == 20U) {
-            (void)apply_audio_delta(&audio, -1);
+            feedback = apply_audio_delta(&audio, -1)
+                ? "AUDIO / VOLUME UPDATED" : "AUDIO / UNAVAILABLE";
         } else if (target == 21U) {
-            (void)apply_audio_delta(&audio, 1);
+            feedback = apply_audio_delta(&audio, 1)
+                ? "AUDIO / VOLUME UPDATED" : "AUDIO / UNAVAILABLE";
         } else if (target == 22U) {
-            int confirmed = 1;
-            if (settings.connected &&
-                write_bool_setting(&settings, UI_LOW_CONTRAST_KEY, 0) == KU_STATUS_OK &&
-                read_bool_setting(&settings, UI_LOW_CONTRAST_KEY, &confirmed) == KU_STATUS_OK &&
-                confirmed == 0) {
-                low_contrast = 0;
-            }
+            const int reset = reset_interface_profile(
+                &settings, &low_contrast, &theme_id, &style_id, &background_id);
+            feedback = reset > 0 ? "PROFILE / DEFAULTS RESTORED" : reset == 0
+                ? "PROFILE / RESET FAILED; PREVIOUS VALUES KEPT"
+                : "PROFILE / PARTIAL FAILURE; CHECK SETTINGS";
+            puts(reset > 0 ? "[TEST] flux_settings_profile_reset: PASS" :
+                 "[TEST] flux_settings_profile_reset: FAIL");
         } else {
             continue;
         }
         {
             const uint32_t old_offset = scene.scroll_offset;
-            const uint32_t selected = kui_scene_selected(&scene);
-            build_scene(&scene, low_contrast, theme_id, style_id,
-                        &audio, settings.connected);
-            (void)kui_scene_select(&scene, selected);
+            const uint32_t old_selected = kui_scene_selected(&scene);
+            build_scene(&scene, low_contrast, theme_id, style_id, background_id,
+                        &audio, settings.connected, feedback);
+            if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
             scene.scroll_offset = old_offset;
             (void)kui_scene_scroll(&scene, 0);
+            flux_settings_reveal_selection(&scene);
         }
         (void)kui_scene_present(window, &scene);
     }

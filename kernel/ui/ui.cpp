@@ -20,6 +20,7 @@ Theme kTheme = {
 
 uint32_t gThemeId = KU_FLUX_THEME_RED;
 uint32_t gStyleId = KU_FLUX_STYLE_MODERN;
+uint32_t gBackgroundId = KU_FLUX_BACKGROUND_FORGED;
 graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
 graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
 graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
@@ -34,18 +35,22 @@ constexpr graphics::Color kHeaderBand = graphics::rgb(12, 13, 16);
 constexpr graphics::Color kDockSurface = graphics::rgb(14, 15, 18);
 constexpr graphics::Color kDockRaised = graphics::rgb(27, 28, 33);
 
-// Flux Modern compositor surfaces: soft corners, restrained borders and
-// compact shadows; Classic retains the previous angular visual language.
+// The web reference uses machined, square steel frames. Keep all Modern
+// widgets on the same one-pixel grid; Classic keeps its original decoration.
 void modern_surface(const Rect& bounds, graphics::Color surface,
-                    graphics::Color border, uint32_t radius = 9U) {
+                    graphics::Color border, uint32_t /*radius*/ = 9U) {
     if (bounds.width <= 2 || bounds.height <= 2) return;
-    graphics::fill_rounded_rect(bounds.x + 2, bounds.y + 4,
-        bounds.width, bounds.height, radius, kSurfaceShadow);
-    graphics::fill_rounded_rect(bounds.x, bounds.y,
-        bounds.width, bounds.height, radius, border);
-    graphics::fill_rounded_rect(bounds.x + 1, bounds.y + 1,
-        bounds.width - 2, bounds.height - 2,
-        radius > 0U ? radius - 1U : 0U, surface);
+    graphics::fill_rect(bounds.x + 3, bounds.y + 4,
+                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(bounds.x, bounds.y,
+                        bounds.width, bounds.height, surface);
+    graphics::draw_rect(bounds.x, bounds.y,
+                        bounds.width, bounds.height, border);
+}
+
+bool modern_wide_desktop() {
+    return gStyleId == KU_FLUX_STYLE_MODERN &&
+        graphics::width() >= 1024U && graphics::height() >= 720U;
 }
 
 bool text_equals(const char* left, const char* right) {
@@ -243,6 +248,17 @@ void dock_icon(const Rect& bounds, DockIcon icon,
             graphics::fill_rect(cx - 2, cy - 7, 4, 4, accent);
             graphics::fill_rect(cx - 2, cy, 4, 11, foreground);
             break;
+        case DockIcon::Docs:
+            graphics::draw_rect(cx - 12, cy - 9, 11, 19, foreground, 2U);
+            graphics::draw_rect(cx + 1, cy - 9, 11, 19, foreground, 2U);
+            graphics::fill_rect(cx - 1, cy - 7, 2, 17, accent);
+            break;
+        case DockIcon::Tools:
+            line(cx - 9, cy + 10, cx + 5, cy - 4, foreground);
+            line(cx - 7, cy + 10, cx + 7, cy - 4, foreground);
+            line(cx + 5, cy - 4, cx + 10, cy - 10, accent);
+            line(cx + 7, cy - 4, cx + 11, cy - 8, accent);
+            break;
     }
 }
 void app_icon_glyph(
@@ -329,6 +345,12 @@ bool set_desktop_style(uint32_t id) {
     gStyleId = id;
     return true;
 }
+uint32_t desktop_background_id() { return gBackgroundId; }
+bool set_desktop_background(uint32_t id) {
+    if (id >= KU_FLUX_BACKGROUND_COUNT) return false;
+    gBackgroundId = id;
+    return true;
+}
 bool set_desktop_theme(uint32_t id) {
     if (id >= KU_FLUX_THEME_COUNT) return false;
     const ku_flux_palette palette = ku_flux_theme_palette(id);
@@ -410,11 +432,53 @@ void desktop(const char* title) {
 
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t height = static_cast<int32_t>(graphics::height());
-    backdrop_gradient();
+    if (gBackgroundId == KU_FLUX_BACKGROUND_MINIMAL) {
+        graphics::clear(kTheme.desktop);
+    } else {
+        backdrop_gradient();
+    }
+
+    if (gBackgroundId == KU_FLUX_BACKGROUND_GRID) {
+        // Bounded and resolution-independent; no image decoding in Ring 0.
+        // Never draw through the actual UI chrome: later layers cover it.
+        for (int32_t x = 32; x < width; x += 64) {
+            graphics::fill_rect(x, 58, 1, height - 58, kTheme.panel);
+        }
+        for (int32_t y = 58; y < height; y += 64) {
+            graphics::fill_rect(0, y, width, 1, kTheme.panel);
+        }
+        graphics::fill_rect(width / 4, height / 3, 36, 2, kRedMuted);
+        graphics::fill_rect(width * 3 / 4, height * 2 / 3, 36, 2, kRedMuted);
+    }
+
+    if (modern_wide_desktop()) {
+        if (gBackgroundId == KU_FLUX_BACKGROUND_FORGED) {
+            // Brand reference: low-noise steel with subtle angular red slashes.
+            const graphics::Color ember = kRedDeep;
+            line(width / 4, height - 58, width / 4 + 72, height - 180, ember);
+            line(width * 3 / 4, 100, width * 3 / 4 + 74, 0, ember);
+            line(width - 90, height - 205, width - 28, height - 299, ember);
+        }
+
+        graphics::fill_rect(0, 0, width, 58, kHeaderBand);
+        graphics::fill_rect(0, 57, width, 1, kTheme.border);
+        graphics::fill_rect(width / 4, 58, width / 2, 1, kRedDeep);
+        brand_mark(37, 29, 2, kTheme.accent, kRedMuted);
+        graphics::draw_text(77, 17, "KUROGANEOS", kTheme.text,
+                            kHeaderBand, 2U, true);
+        graphics::draw_text(248, 22, KUROGANE_VERSION_STRING,
+                            kTheme.text_muted, kHeaderBand, 1U, true);
+        graphics::draw_text(77, 42, "BUILT IN STEEL. REFINED IN FIRE.",
+                            kTheme.text_muted, kHeaderBand, 1U, true);
+        graphics::draw_text(width - 187, 23, "FLUX 8 / MODERN",
+                            kTheme.text_muted, kHeaderBand, 1U, true);
+        return;
+    }
 
     // Quiet geometric wallpaper: a large low-contrast Kurogane mark creates
     // depth without imitating a conventional OS wallpaper/taskbar layout.
-    if (width > 760 && height > 520) {
+    if (gBackgroundId == KU_FLUX_BACKGROUND_FORGED &&
+        width > 760 && height > 520) {
         brand_mark(width / 2, height / 2 - 28, 9,
                    kRedDeep, kTheme.panel);
     }
@@ -471,6 +535,18 @@ void desktop(const char* title) {
         red_chevron(width / 2, 24);
 }
 
+void desktop_session_status(bool ready) {
+    if (!graphics::available() || !modern_wide_desktop()) return;
+    const int32_t x = static_cast<int32_t>(graphics::width()) / 2 - 104;
+    graphics::draw_text(x, 25, "DESKTOP SESSION:", kTheme.text_muted,
+                        kHeaderBand, 1U, true);
+    graphics::draw_text(x + 143, 25, ready ? "ONLINE" : "OFFLINE",
+                        ready ? graphics::rgb(102, 199, 89) : kRedMuted,
+                        kHeaderBand, 1U, true);
+    graphics::fill_rect(x + 201, 27, 5, 5,
+                        ready ? graphics::rgb(102, 199, 89) : kRedDeep);
+}
+
 void panel(const Rect& bounds, bool raised) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
@@ -489,16 +565,33 @@ void panel(const Rect& bounds, bool raised) {
 void flux_window(const Rect& bounds, const char* title, bool focused) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
-        const graphics::Color surface = focused ? kGraphiteFocused : kGraphite;
-        modern_surface(bounds, surface, focused ? kRedMuted : kTheme.border, 10U);
-        if (bounds.width > 2 && bounds.height > 36) {
-            graphics::fill_rect(bounds.x + 12, bounds.y + 35,
-                bounds.width - 24, 1, kTheme.border);
-        }
-        graphics::draw_text(bounds.x + 16, bounds.y + 11,
-                            title ? title : "SURFACE",
+        const bool red_theme = gThemeId == KU_FLUX_THEME_RED;
+        const graphics::Color surface = red_theme
+            ? (focused ? graphics::rgb(12, 13, 16) : graphics::rgb(9, 10, 13))
+            : (focused ? kTheme.panel : kTheme.panel_alt);
+        const graphics::Color header = red_theme ? kHeaderBand : kTheme.panel;
+        modern_surface(bounds, surface,
+                       focused ? graphics::rgb(91, 95, 102) : kTheme.border);
+        graphics::fill_rect(bounds.x + 1, bounds.y + 1,
+                            bounds.width - 2, 34, header);
+        graphics::fill_rect(bounds.x + 1, bounds.y + 35,
+                            bounds.width - 2, 1, kTheme.border);
+        graphics::fill_rect(bounds.x, bounds.y, 3, 29,
+                            focused ? kRedHot : kRedDeep);
+        char short_title[33];
+        int32_t max_chars = (bounds.width - 115) / 8;
+        if (max_chars < 1) max_chars = 1;
+        if (max_chars > 32) max_chars = 32;
+        copy_short_label(short_title, static_cast<size_t>(max_chars + 1),
+                         title ? title : "SURFACE");
+        graphics::draw_text(bounds.x + 14, bounds.y + 14,
+                            short_title,
                             focused ? kTheme.text : kTheme.text_muted,
-                            surface, 2U, true);
+                            header, 1U, true);
+        graphics::fill_rect(bounds.x + bounds.width - 12,
+                            bounds.y + bounds.height - 2, 11, 2, kRedHot);
+        graphics::fill_rect(bounds.x + bounds.width - 2,
+                            bounds.y + bounds.height - 12, 2, 11, kRedHot);
         return;
     }
 
@@ -536,12 +629,14 @@ void window(const Rect& bounds, const char* title) {
 void flux_control(const Rect& bounds, FluxControl control, bool active) {
     if (bounds.width <= 8 || bounds.height <= 8) return;
     const graphics::Color background = active
-        ? (gStyleId == KU_FLUX_STYLE_MODERN ? kTheme.panel : graphics::rgb(45, 27, 31))
+        ? (gStyleId == KU_FLUX_STYLE_MODERN ? kHeaderBand : graphics::rgb(45, 27, 31))
         : kGraphite;
-    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
-    graphics::fill_rect(bounds.x, bounds.y + bounds.height - 1,
-                        bounds.width, 1,
-                        active ? kTheme.accent : kTheme.border);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        gStyleId == KU_FLUX_STYLE_MODERN ? kHeaderBand : background);
+    if (gStyleId == KU_FLUX_STYLE_CLASSIC)
+        graphics::fill_rect(bounds.x, bounds.y + bounds.height - 1,
+                            bounds.width, 1,
+                            active ? kTheme.accent : kTheme.border);
 
     switch (control) {
         case FluxControl::Minimize:
@@ -582,6 +677,18 @@ void signal_spine(const Rect& bounds, size_t window_count, size_t focused_positi
 
 void dock_bar(const Rect& bounds, size_t running_count) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (modern_wide_desktop()) {
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width,
+                            bounds.height, graphics::rgb(9, 10, 13));
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width, 1, kTheme.border);
+        graphics::fill_rect(bounds.x + 8, bounds.y + 6, 52,
+                            bounds.height - 12, kTheme.panel);
+        graphics::draw_rect(bounds.x + 8, bounds.y + 6, 52,
+                            bounds.height - 12, kTheme.border);
+        brand_mark(bounds.x + 34, bounds.y + bounds.height / 2, 1,
+                   kRedHot, kRedMuted);
+        return;
+    }
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
         modern_surface(bounds, kDockSurface, kTheme.border, 12U);
         if (running_count != 0U)
@@ -637,6 +744,23 @@ void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused) {
 
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    if (modern_wide_desktop()) {
+        const graphics::Color background = graphics::rgb(13, 14, 17);
+        graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
+        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                            focused ? kRedMuted : kTheme.border);
+        if (focused)
+            graphics::fill_rect(bounds.x, bounds.y + 2, 2,
+                                bounds.height - 4, kRedHot);
+        char task_label[19];
+        copy_short_label(task_label, sizeof(task_label), title ? title : "APP");
+        graphics::draw_text(bounds.x + 13, bounds.y + (bounds.height - 8) / 2,
+                            task_label,
+                            minimized ? kTheme.text_muted :
+                                (focused ? kTheme.text : kSteel),
+                            background, 1U, true);
+        return;
+    }
     const graphics::Color background = focused
         ? graphics::rgb(49, 20, 25)
         : (minimized ? graphics::rgb(10, 11, 13) : kGraphite);
@@ -652,6 +776,49 @@ void dock_task(const Rect& bounds, const char* title, bool focused, bool minimiz
     copy_short_label(task_label, sizeof(task_label), title ? title : "APP");
     graphics::draw_text(bounds.x + 8, bounds.y + 9, task_label,
                         minimized ? kTheme.text_muted : kTheme.text,
+                        background, 1U, true);
+}
+
+void side_dock(const Rect& bounds) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        graphics::rgb(10, 11, 14));
+    graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        kTheme.border);
+    const int32_t signature_y = bounds.y + bounds.height - 66;
+    graphics::fill_rect(bounds.x + 5, signature_y,
+                        bounds.width - 10, 1, kTheme.border);
+    brand_mark(bounds.x + bounds.width / 2, signature_y + 31,
+               2, kRedMuted, kTheme.border);
+}
+
+void side_dock_item(const Rect& bounds, DockIcon icon, const char* label,
+                    bool running, bool focused) {
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const graphics::Color background = focused
+        ? graphics::rgb(28, 17, 21) : graphics::rgb(10, 11, 14);
+    graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                        background);
+    if (focused) {
+        graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
+                            kRedDeep);
+        graphics::fill_rect(bounds.x, bounds.y, 2, bounds.height, kRedHot);
+    } else if (running) {
+        graphics::fill_rect(bounds.x, bounds.y + 9, 2,
+                            bounds.height - 18, kRedMuted);
+    }
+    dock_icon({bounds.x + (bounds.width - 26) / 2, bounds.y + 14, 26, 26},
+              icon, focused ? kTheme.text : kTheme.text_muted,
+              focused ? kRedHot : kRedMuted);
+    // The native bitmap font is 8px wide; center labels without truncating
+    // pixels into adjacent rail tiles.
+    char short_label[9];
+    copy_short_label(short_label, sizeof(short_label), label ? label : "APP");
+    int32_t chars = 0;
+    while (chars < 8 && short_label[chars] != '\0') ++chars;
+    graphics::draw_text(bounds.x + (bounds.width - chars * 8) / 2,
+                        bounds.y + 48, short_label,
+                        focused ? kTheme.text : kTheme.text_muted,
                         background, 1U, true);
 }
 

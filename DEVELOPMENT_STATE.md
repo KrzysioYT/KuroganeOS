@@ -280,3 +280,43 @@ second disk-only boot. Final run results and hashes belong to the delivered
 audit matrix, not historical PASS claims. VirtualBox x86 launch on this Apple M4
 returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED`; that gate remains BLOCKED.
 Product KDF and atomic settings replacement under power loss remain unresolved.
+
+## 2026-10-27 — Flux Dock application identity hardening
+
+- Flux now assigns a canonical Dock app ID when its Ring-3 window is created,
+  comparing both the shared application title and the owner's immutable
+  executable path. A different same-session program that copies `FILES` or
+  `RED FLUX TERMINAL` may retain its normal window but cannot impersonate a
+  running Dock app, claim readiness or steal its focus action. The resolved ID
+  is kept with the generation-safe window slot, without per-frame process
+  table queries; closing/reusing the slot releases that identity.
+- `tests/test_flux_app_identity.cpp` covers exact matches, alternate image
+  paths, prefix/suffix spoofing, wrong titles and absent inputs. Existing Flux
+  Dock click/launcher smoke and catalog source-parity checks remain active.
+- Kept the QEMU lifecycle/installer contracts and native Settings keyboard
+  policies alongside the newly integrated Files, Terminal, Home and wallpaper
+  workflows. The merge retains both families of host regression tests.
+- Local Linux `make test` passed the entire host suite, including freestanding
+  Mbed TLS, SDK, driver, KuroFS, Flux and QMP-protocol tests. The changed
+  `kernel/ui/window_manager.cpp` compiled as a freestanding kernel object in
+  both debug and optimized release configurations; the new identity policy
+  also passed a targeted UBSan run.
+
+This is **host-side evidence**, not guest proof for the combined source. Clean
+release media, USB-only QEMU login/app usage, VirtualBox interactive acceptance
+and the remaining 8.0 requirements still need separate verification. Runtime
+identity stays `7.0.0-dev`; neither 8.0 nor 15.0 is promoted by this merge.
+
+## 2026-10-27 — Flux 8 cross-PR integration candidate
+
+Integrated the 12 Home, Files, Terminal, Settings, wallpaper and Dock-identity
+commits from PR #57 on top of PR #56's installer, theme-restart,
+accessibility and window-lifecycle changes. Seven merge conflicts were resolved
+while retaining both keyboard policies, the QEMU lifecycle tests, the verified
+theme-save marker and the real profile/wallpaper controls.
+
+Linux x86 host `make test`: **PASS** after initializing pinned Mbed TLS; debug
+`make kernel`: **PASS**. `make stage` compiled kernel, Ring-3 binaries and SDK
+but stopped at media packaging because `sgdisk` is absent on this host. No
+combined-commit QEMU/VirtualBox boot or full release-media PASS is claimed.
+The integrated branch is a Draft PR candidate, not an 8.0 release closeout.
