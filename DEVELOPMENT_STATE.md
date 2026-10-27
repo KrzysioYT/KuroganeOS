@@ -114,3 +114,42 @@ font and full text layout, HiDPI/responsive behavior, app/window lifecycle and
 failure recovery, settings persistence, blank-disk install/boot, VirtualBox
 interactive acceptance, and the remaining acceptance matrix. No version
 promotion is implied.
+
+## Exact-SHA runtime checkpoint — 4ca69f57
+
+Source: `4ca69f5797904f4152ad4a74ef3b8ceb3d807847` on
+`codex/road-to-15-stability`. The host was Apple Silicon macOS `arm64`;
+x86-64 guest runs used QEMU/TCG. The clean release build and all generated
+media were kept in an isolated worktree at
+`/tmp/kuroganeos-release-4ca69f57`.
+
+| Evidence | Result |
+| --- | --- |
+| macOS release IMG and ISO build | PASS; both generated from the exact source SHA |
+| Published root FAT32/VFS payload | PASS; all 44 required ELF64 programs validated in the image |
+| `arch -x86_64 /bin/bash scripts/run-host-tests.sh` | PASS; optimized host regression suite, including package VFS listing; one pre-existing mbedTLS `x509_crt.c` compiler warning |
+| `bash scripts/validate-foundation-root-image.sh dist/KuroganeOS-7.0.0-dev-macos-qemu.img` | PASS; 44 required ELF64 payloads |
+| Targeted root-image test with `-fsanitize=undefined -fno-sanitize-recover=all` | PASS |
+| IMG QEMU/TCG, USB keyboard + tablet, no PS/2 | PASS; Try → Login → authenticated owned session → first Home frame; Files enumerated and received wheel input; Terminal launched as Ring-3; two child spawns and two presented surfaces |
+| ISO QEMU/TCG, USB keyboard + tablet, no PS/2 | PASS; Install without a target disk showed the explicit refusal, entered the read-only live package and reached the authenticated Home frame |
+
+Generated media and SHA256:
+
+- `dist/KuroganeOS-7.0.0-dev-macos-qemu.img` —
+  `48723c4f84de9d28897cafc4fb5bf2862d435b0a8112855de64de86ad0a856cf`
+- `dist/KuroganeOS-7.0.0-dev-x86_64.iso` —
+  `53586c4f5fc98a8a983c9ab36d439de3ab41bbdd56740deb15c58930b674cd14`
+
+QMP guest screenshots for setup refusal, Login, Home, Files and Terminal were
+captured from this build and visually reviewed. They show the existing bitmap
+typography and no graphical OS splash; these images do not constitute full
+layout, accessibility or clipping acceptance. The VFS change fixes the
+reproduced live-Try Files failure: directory enumeration now works through
+the read-only package adapter, allowing Files to present a surface.
+
+This exact candidate did not receive complete 8.0 acceptance. In particular,
+the blank-disk install/boot, VirtualBox interaction, persistence across
+restart, full window/input/clipboard lifecycle, crash and service recovery
+matrix, licensed scalable typography, HiDPI, and the complete application
+suite remain unverified or incomplete. Version remains `7.0.0-dev`; 8.0 is
+**ACTIVE / NOT QUALIFIED** and 15.0.0 stable remains the product goal.

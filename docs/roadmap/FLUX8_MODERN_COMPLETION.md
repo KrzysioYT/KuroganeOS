@@ -242,3 +242,37 @@ settings, blank-disk installation, VirtualBox acceptance and the remaining
 contract items are still unqualified. Status remains **ACTIVE, NOT QUALIFIED**.
 [Current status](../../DEVELOPMENT_STATE.md) takes precedence over dated
 working-slice notes. No version promotion is implied.
+
+## Exact-SHA verification — 4ca69f57
+
+Source SHA: `4ca69f5797904f4152ad4a74ef3b8ceb3d807847`. This is a verified
+runtime increment, not a qualification of the contract above:
+
+- On arm64 macOS, the release IMG and ISO built in an isolated worktree for
+  QEMU/TCG. The resulting root FAT32/VFS image contains all 44 required
+  ELF64 programs; the root-image validator and targeted UBSan test passed.
+- The optimized host suite passed under Rosetta, including the new live
+  package VFS directory enumeration regression.
+- USB keyboard/tablet QEMU runs with PS/2 disabled verified Try → Login →
+  authenticated Home, Files directory enumeration and wheel input, and a
+  Terminal Ring-3 process with a presented surface. The exact run required
+  two child spawns and two compositor-observed surfaces.
+- A separate exact-SHA ISO run selected Install without a target disk and
+  verified the explicit refusal, read-only live package, authenticated
+  session and first Home frame.
+- Guest screenshots for setup refusal, Login, Home, Files and Terminal were
+  captured and visually reviewed. They still use transitional bitmap text;
+  no graphical OS splash was evidenced.
+
+Media SHA256:
+
+| Artifact | SHA256 |
+| --- | --- |
+| `KuroganeOS-7.0.0-dev-macos-qemu.img` | `48723c4f84de9d28897cafc4fb5bf2862d435b0a8112855de64de86ad0a856cf` |
+| `KuroganeOS-7.0.0-dev-x86_64.iso` | `53586c4f5fc98a8a983c9ab36d439de3ab41bbdd56740deb15c58930b674cd14` |
+
+Still open: VirtualBox manual acceptance, installation and boot from a blank
+test disk, full app/window/focus/input/clipboard and recovery matrix,
+settings persistence after restart, licensed scalable font rendering,
+HiDPI/responsive layout, and remaining contract checks. The exact-SHA
+successes above do not establish those behaviors or qualify 8.0.
