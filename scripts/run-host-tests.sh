@@ -498,6 +498,17 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_filter_cpp"
 "$OUT_DIR/test_flux_files_filter_cpp"
 
+# Settings can now be traversed without a pointer, including focus reveal
+# for controls outside the native scene viewport.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_settings_navigation.c \
+  -o "$OUT_DIR/test_flux_settings_navigation"
+"$OUT_DIR/test_flux_settings_navigation"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_settings_navigation.c \
+  -o "$OUT_DIR/test_flux_settings_navigation_cpp"
+"$OUT_DIR/test_flux_settings_navigation_cpp"
+
 # Flux 8 responsive geometry: compile the actual SDK placement contract
 # in both freestanding-compatible C and C++ and test overflow and small GOP.
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \

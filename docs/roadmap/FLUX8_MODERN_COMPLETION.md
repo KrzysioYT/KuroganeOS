@@ -108,6 +108,21 @@ manager or 12.0 production users/groups, signed update and isolation work.
 - [ ] Real Files/Terminal/Browser/Performance/Settings tasks without simulated
       content; accessibility and keyboard-only acceptance.
 
+### Settings usability increment (8C/8D, 2026-10-27)
+
+- Native Settings has local keyboard focus/activation: Tab/Shift+Tab, arrow
+  keys, PageUp/PageDown, Enter/Space. Focus automatically follows controls
+  across the bounded settings viewport without bringing back desktop-global
+  launch shortcuts.
+- Offline service and unavailable audio controls are visibly disabled. Actions
+  display save/failure feedback rather than relying on serial markers alone.
+- **Reset Interface Profile** now restores default color, Modern style and
+  normal contrast, verifies stored values and applies the live compositor
+  settings. Failed steps attempt rollback and report a partial failure if the
+  previous state could not be restored.
+- C11/C++17 host tests cover local keyboard/focus policy; live guest/session
+  persistence and reset recovery remain to be qualified before 8.0 stable.
+
 ### Terminal workflow increment (8D, 2026-10-27)
 
 - Native Terminal and console shell now expose Ring-3 VFS `ls` to list real

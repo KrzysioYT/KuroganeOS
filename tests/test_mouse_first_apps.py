@@ -13,7 +13,10 @@ for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
     assert "KU_UI_EVENT_POINTER" in text, f"{path}: pointer path missing"
     assert "kui_scene_hit_test" in text, f"{path}: libui hit test missing"
     if path.endswith("/settings/main.c"):
-        assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
+        # Settings now accepts focus/activation keys through a bounded local
+        # policy. The desktop-global app launcher shortcuts remain detached.
+        assert "KU_UI_EVENT_KEY" in text and "flux_settings_keyboard(" in text
+        assert "flux_settings_keyboard_access: PASS" in text
     for helper in (
         "gui_key_down(", "gui_key_up(", "gui_key_left(", "gui_key_right(",
         "gui_key_tab(", "gui_key_activate(", "gui_key_cancel(",
