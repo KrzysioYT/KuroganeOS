@@ -83,6 +83,23 @@ enum ku_flux_typography_role {
  */
 enum ku_flux_style_id { KU_FLUX_STYLE_CLASSIC = 0, KU_FLUX_STYLE_MODERN = 1, KU_FLUX_STYLE_COUNT = 2 };
 
+/* Code-drawn Red Flux backgrounds: no framebuffer-sized image or font asset
+ * needs to be loaded in the guest. IDs are stable persisted preferences. */
+enum ku_flux_background_id {
+    KU_FLUX_BACKGROUND_FORGED = 0,
+    KU_FLUX_BACKGROUND_GRID = 1,
+    KU_FLUX_BACKGROUND_MINIMAL = 2,
+    KU_FLUX_BACKGROUND_COUNT = 3
+};
+
+static inline const char* ku_flux_background_name(uint32_t background_id) {
+    static const char* const names[KU_FLUX_BACKGROUND_COUNT] = {
+        "FORGED STEEL", "GRAPHITE GRID", "MINIMAL DARK"
+    };
+    return names[background_id < (uint32_t)KU_FLUX_BACKGROUND_COUNT
+        ? background_id : (uint32_t)KU_FLUX_BACKGROUND_FORGED];
+}
+
 enum ku_flux_theme_id {
     KU_FLUX_THEME_RED = 0,
     KU_FLUX_THEME_VIOLET = 1,

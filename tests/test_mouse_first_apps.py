@@ -57,6 +57,18 @@ assert "desktop_settings_profile_restore: PASS" in settings
 for control in ("LOW CONTRAST ACCENT", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE", "NEXT COLOR", "PREVIOUS COLOR", "FLUX MODERN"):
     assert control in settings, f"settings: missing modern control {control}"
 assert "UI_THEME_KEY" in settings and "UI_STYLE_KEY" in settings
+assert "UI_BACKGROUND_KEY" in settings
+for preset in ("FORGED STEEL", "GRAPHITE GRID", "MINIMAL DARK"):
+    assert preset in settings, f"settings: missing wallpaper choice {preset}"
+assert 'kui_flow_toggle(&root, 40U' in settings
+assert 'kui_flow_toggle(&root, 41U' in settings
+assert 'kui_flow_toggle(&root, 42U' in settings
+assert "write_background_setting" in settings and "read_background_setting" in settings
+assert "apply_background_choice" in settings
+assert "WALLPAPER / PARTIAL FAILURE" in settings
+assert "select_desktop_background" in settings
+assert "restore_desktop_background()" in read("userspace/gui/launcher/main.c")
+assert "KU_SYS_DESKTOP_BACKGROUND" in read("kernel/user/runtime_base.inc")
 assert "read_theme_setting" in settings and "write_theme_setting" in settings
 assert "read_style_setting" in settings and "write_style_setting" in settings
 assert "flux_theme_persistence: PASS" in settings

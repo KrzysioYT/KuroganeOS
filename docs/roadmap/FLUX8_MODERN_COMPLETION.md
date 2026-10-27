@@ -15,6 +15,16 @@ The Red Flux website screenshot is the visual target. The native desktop must
 retain real processes, real files, real settings and honest system telemetry.
 Do not use the web simulation or invented status readouts to meet a checklist.
 
+### Red Flux Next direction (2026-10-27)
+
+The refreshed UI concept refines the existing brand, rather than replacing
+it: **keep the established KuroganeOS logo** and angular black/graphite/red
+identity. Use a narrow navigation rail, legible native window chrome, bottom
+running-app switcher, practical Files/Terminal workflows and an appearance
+panel. Any design-mockup control must be backed by a real native capability
+before it appears as available in the OS. Patterns may be code-drawn; neither
+an image-generation mockup nor a web screenshot is guest implementation proof.
+
 ### Feature milestones (deliver user value in this order)
 
 | Slice | Concrete deliverables | Proof before marking a feature done |
@@ -99,6 +109,17 @@ manager or 12.0 production users/groups, signed update and isolation work.
 - [x] Shared six-theme palette; Modern/Classic selector; typed persistence
       foundation (full restart/session qualification remains open).
 - [ ] Wallpaper/background chooser with safe default and user-controlled reset.
+- [x] Built-in wallpaper pattern selector (partial 8C): Forged Steel, Graphite
+      Grid and Minimal Dark are rendered by the native compositor, selectable
+      using three direct radio-like Settings cards and saved under
+      `ui.background` with range-checked U64
+      values. Home restores the choice after presenting its first frame;
+      Reset Interface Profile restores Forged Steel and attempts rollback if
+      persistence or live application fails. Individual wallpaper changes
+      also confirm the stored value and attempt rollback on a failed live
+      update. These are global/session-shared
+      settings like the existing theme; private per-account wallpaper, user
+      image importing and actual guest restart evidence remain open.
 - [ ] Accent/contrast, licensed scalable font and 100/125/150/200% UI scale
       settings consistently applied by compositor **and** native apps.
 - [ ] Dock pin/order settings, keyboard shortcuts and sensible defaults.

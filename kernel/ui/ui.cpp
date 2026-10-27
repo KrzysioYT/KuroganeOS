@@ -20,6 +20,7 @@ Theme kTheme = {
 
 uint32_t gThemeId = KU_FLUX_THEME_RED;
 uint32_t gStyleId = KU_FLUX_STYLE_MODERN;
+uint32_t gBackgroundId = KU_FLUX_BACKGROUND_FORGED;
 graphics::Color kRedBright = KU_FLUX_COLOR_BORDER_FOCUS;
 graphics::Color kRedHot = KU_FLUX_COLOR_ACCENT;
 graphics::Color kRedDeep = KU_FLUX_COLOR_ACCENT_DEEP;
@@ -344,6 +345,12 @@ bool set_desktop_style(uint32_t id) {
     gStyleId = id;
     return true;
 }
+uint32_t desktop_background_id() { return gBackgroundId; }
+bool set_desktop_background(uint32_t id) {
+    if (id >= KU_FLUX_BACKGROUND_COUNT) return false;
+    gBackgroundId = id;
+    return true;
+}
 bool set_desktop_theme(uint32_t id) {
     if (id >= KU_FLUX_THEME_COUNT) return false;
     const ku_flux_palette palette = ku_flux_theme_palette(id);
@@ -425,14 +432,33 @@ void desktop(const char* title) {
 
     const int32_t width = static_cast<int32_t>(graphics::width());
     const int32_t height = static_cast<int32_t>(graphics::height());
-    backdrop_gradient();
+    if (gBackgroundId == KU_FLUX_BACKGROUND_MINIMAL) {
+        graphics::clear(kTheme.desktop);
+    } else {
+        backdrop_gradient();
+    }
+
+    if (gBackgroundId == KU_FLUX_BACKGROUND_GRID) {
+        // Bounded and resolution-independent; no image decoding in Ring 0.
+        // Never draw through the actual UI chrome: later layers cover it.
+        for (int32_t x = 32; x < width; x += 64) {
+            graphics::fill_rect(x, 58, 1, height - 58, kTheme.panel);
+        }
+        for (int32_t y = 58; y < height; y += 64) {
+            graphics::fill_rect(0, y, width, 1, kTheme.panel);
+        }
+        graphics::fill_rect(width / 4, height / 3, 36, 2, kRedMuted);
+        graphics::fill_rect(width * 3 / 4, height * 2 / 3, 36, 2, kRedMuted);
+    }
 
     if (modern_wide_desktop()) {
-        // Red Flux site reference: low-noise graphite with subtle red slashes.
-        const graphics::Color ember = graphics::rgb(39, 10, 17);
-        line(width / 4, height - 58, width / 4 + 72, height - 180, ember);
-        line(width * 3 / 4, 100, width * 3 / 4 + 74, 0, ember);
-        line(width - 90, height - 205, width - 28, height - 299, ember);
+        if (gBackgroundId == KU_FLUX_BACKGROUND_FORGED) {
+            // Brand reference: low-noise steel with subtle angular red slashes.
+            const graphics::Color ember = kRedDeep;
+            line(width / 4, height - 58, width / 4 + 72, height - 180, ember);
+            line(width * 3 / 4, 100, width * 3 / 4 + 74, 0, ember);
+            line(width - 90, height - 205, width - 28, height - 299, ember);
+        }
 
         graphics::fill_rect(0, 0, width, 58, kHeaderBand);
         graphics::fill_rect(0, 57, width, 1, kTheme.border);
@@ -451,7 +477,8 @@ void desktop(const char* title) {
 
     // Quiet geometric wallpaper: a large low-contrast Kurogane mark creates
     // depth without imitating a conventional OS wallpaper/taskbar layout.
-    if (width > 760 && height > 520) {
+    if (gBackgroundId == KU_FLUX_BACKGROUND_FORGED &&
+        width > 760 && height > 520) {
         brand_mark(width / 2, height / 2 - 28, 9,
                    kRedDeep, kTheme.panel);
     }

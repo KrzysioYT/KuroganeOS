@@ -94,6 +94,7 @@ int main() {
     static_assert(KU_SYS_DISPLAY_INFO == 70);
     static_assert(KU_SYS_TERMINATE_CHILD == 71);
     static_assert(KU_SYS_CONSOLE_FALLBACK == 72);
+    static_assert(KU_SYS_DESKTOP_BACKGROUND == 73);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(KU_UI_MOD_SHIFT == 1U);
     static_assert(KU_UI_MOD_CONTROL == 2U);
@@ -103,6 +104,8 @@ int main() {
     static_assert(sizeof(ku_display_info) == 32);
     static_assert(sizeof(ku_desktop_style_request) == 16);
     static_assert(sizeof(ku_desktop_theme_request) == 16);
+    static_assert(sizeof(ku_desktop_background_request) == 16);
+    static_assert(KU_FLUX_BACKGROUND_COUNT == 3);
     static_assert(KU_FLUX_THEME_COUNT == 6);
 
     static_assert(KU_DEVICE_MAX_DEVICES == 192U);

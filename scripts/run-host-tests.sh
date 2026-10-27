@@ -767,6 +767,24 @@ python3 tests/test_flux8_virtualbox_runner.py
   "${gc_sections_flag[@]}" -o "$OUT_DIR/test_flux_ui_state"
 "$OUT_DIR/test_flux_ui_state"
 
+# Wallpaper IDs and Ring-3 query/set packet layout must remain compatible
+# across C11 and C++17, including a safe fallback for invalid persisted IDs.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_background.c -o "$OUT_DIR/test_flux_background"
+"$OUT_DIR/test_flux_background"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_background.c \
+  -o "$OUT_DIR/test_flux_background_cpp"
+"$OUT_DIR/test_flux_background_cpp"
+
+# Draw all three actual native wallpapers at 1024x720 and distinguish their
+# pixels, not merely their persisted IDs. No QEMU/GOP hardware is required.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_wallpaper_render.cpp \
+  kernel/ui/ui.cpp kernel/drivers/framebuffer.cpp \
+  -o "$OUT_DIR/test_flux_wallpaper_render"
+"$OUT_DIR/test_flux_wallpaper_render"
+
 # System activity is sampled on a fixed shared interval. Home and Forge
 # Control must not consume counters from each other's independent reads.
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

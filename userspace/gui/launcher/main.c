@@ -13,6 +13,7 @@
 #define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
 #define DESKTOP_THEME_STATE_KEY "ui.theme"
 #define DESKTOP_STYLE_STATE_KEY "ui.style"
+#define DESKTOP_BACKGROUND_STATE_KEY "ui.background"
 
 typedef struct launcher_app {
     const char* label;
@@ -139,6 +140,62 @@ static int restore_desktop_style(void) {
         apply.action = KU_DESKTOP_STYLE_SET;
         apply.style_id = (uint32_t)saved_style;
         const int success = ku_desktop_style(&apply) == KU_STATUS_OK;
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
+
+/* Restore the user-selected code-drawn wallpaper after Home has presented
+ * its first frame. Missing/corrupt preferences keep the safe forged default. */
+static int restore_desktop_background(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_background = KU_FLUX_BACKGROUND_FORGED;
+    ku_desktop_background_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_BACKGROUND_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_background)) break;
+        memcpy(&saved_background, response.value, sizeof(saved_background));
+        if (saved_background >= KU_FLUX_BACKGROUND_COUNT) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_BACKGROUND_SET;
+        apply.background_id = (uint32_t)saved_background;
+        const int success = ku_desktop_background(&apply) == KU_STATUS_OK;
         (void)ku_service_close(connection);
         return success;
     }
@@ -699,6 +756,11 @@ int main(void) {
         puts("[TEST] flux_style_restore: PASS");
     } else {
         puts("[TEST] flux_style_restore: DEFAULT");
+    }
+    if (restore_desktop_background()) {
+        puts("[TEST] flux_background_restore: PASS");
+    } else {
+        puts("[TEST] flux_background_restore: DEFAULT");
     }
     if (load_pin_state()) {
         (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
