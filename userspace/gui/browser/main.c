@@ -1,5 +1,7 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
+#include "../clipboard_actions.h"
 
 #define BROWSER_URL_CAPACITY 192U
 #define BROWSER_STATUS_CAPACITY 96U
@@ -626,20 +628,18 @@ static void build_scene(kui_scene* scene, int omnibox_active) {
        interactive browser control inside that real ABI instead of building
        off-screen rows that the renderer can never present. */
     scene->visible_rows = KU_UI_MAX_LINES;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "KUROGANE WEB / CHROMIUM PORT");
     (void)kui_flow_input(&root, 2U, address);
     (void)kui_flow_button(&root, 3U, "GO / SEARCH");
     (void)kui_flow_button(&root, 4U, "CLEAR ADDRESS");
+    (void)kui_flow_button(&root, 7U, "COPY ADDRESS");
+    (void)kui_flow_button(&root, 8U, "PASTE ADDRESS");
     (void)kui_flow_label(&root, 5U, g_browser.network);
     (void)kui_flow_label(&root, 6U, navigation);
-    for (index = 0U; index < BROWSER_RENDER_LINES && index < 6U; ++index) {
+    for (index = 0U; index < BROWSER_RENDER_LINES && index < 4U; ++index) {
         (void)kui_flow_label(
             &root,
             10U + (uint32_t)index,
@@ -649,9 +649,11 @@ static void build_scene(kui_scene* scene, int omnibox_active) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("KUROGANE WEB", 120, 90, 820, 570);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_BROWSER, 120, 90, 820, 570);
     kui_scene scene;
     int omnibox_active = 0;
+    int omnibox_select_all = 0;
+    int surface_reported = 0;
     uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
 
@@ -673,6 +675,10 @@ int main(void) {
             (void)ku_ui_close(window);
             return 2;
         }
+        if (!surface_reported) {
+            puts("[TEST] kurogane_web_surface: PASS");
+            surface_reported = 1;
+        }
 
         if (gui_wait_event(window, &event) < 0 || event.type == KU_UI_EVENT_CLOSE) break;
 
@@ -688,33 +694,101 @@ int main(void) {
             target = kui_scene_hit_test(&scene, event.x, event.y);
             if (target == 2U) {
                 omnibox_active = 1;
+                omnibox_select_all = 0;
             } else if (target == 3U) {
                 (void)navigation_controller_load(&g_browser);
                 omnibox_active = 0;
+            } else if (target == 7U) {
+                if (flux_clipboard_set_text(g_browser.url)) {
+                    (void)strlcpy(g_browser.status, "ADDRESS COPIED", sizeof(g_browser.status));
+                    puts("[TEST] flux_browser_copy_clipboard: PASS");
+                } else {
+                    (void)strlcpy(g_browser.status, "CLIPBOARD UNAVAILABLE", sizeof(g_browser.status));
+                }
+                omnibox_active = 0;
+            } else if (target == 8U) {
+                char pasted[BROWSER_URL_CAPACITY];
+                if (flux_clipboard_get_text(pasted, sizeof(pasted))) {
+                    (void)strlcpy(g_browser.url, pasted, sizeof(g_browser.url));
+                    g_browser.url_length = strlen(g_browser.url);
+                    (void)strlcpy(g_browser.status, "ADDRESS PASTED", sizeof(g_browser.status));
+                    puts("[TEST] flux_browser_paste_clipboard: PASS");
+                } else {
+                    (void)strlcpy(g_browser.status, "CLIPBOARD UNAVAILABLE", sizeof(g_browser.status));
+                }
+                omnibox_active = 1;
+                omnibox_select_all = 0;
             } else if (target == 4U) {
                 g_browser.url_length = 0U;
                 g_browser.url[0] = '\0';
                 g_browser.stage = CHROMIUM_STAGE_IDLE;
                 (void)strlcpy(g_browser.status, "ADDRESS CLEARED", sizeof(g_browser.status));
                 omnibox_active = 1;
+                omnibox_select_all = 0;
             } else {
                 omnibox_active = 0;
+                omnibox_select_all = 0;
             }
             continue;
         }
 
         if (event.type != KU_UI_EVENT_KEY || !omnibox_active) continue;
+        if ((event.modifiers & KU_UI_MOD_CONTROL) != 0U) {
+            const char key = ku_ui_clipboard_shortcut(&event);
+            if (key == 'a') {
+                omnibox_select_all = 1;
+                puts("[TEST] flux_browser_select_all: PASS");
+            } else if (key == 'c' || key == 'x') {
+                if (flux_clipboard_set_text(g_browser.url)) {
+                    if (key == 'x') {
+                        g_browser.url_length = 0U;
+                        g_browser.url[0] = '\0';
+                        omnibox_select_all = 0;
+                    }
+                    puts("[TEST] flux_browser_ctrl_copy: PASS");
+                }
+            } else if (key == 'v') {
+                char pasted[BROWSER_URL_CAPACITY];
+                if (flux_clipboard_get_text(pasted, sizeof(pasted))) {
+                    const size_t length = strlen(pasted);
+                    const size_t prefix = omnibox_select_all ? 0U : g_browser.url_length;
+                    if (length < sizeof(g_browser.url) &&
+                        prefix <= sizeof(g_browser.url) - 1U - length) {
+                        memcpy(g_browser.url + prefix, pasted, length + 1U);
+                        g_browser.url_length = prefix + length;
+                        omnibox_select_all = 0;
+                        puts("[TEST] flux_browser_ctrl_paste: PASS");
+                    } else {
+                        (void)strlcpy(g_browser.status, "PASTE / ADDRESS TOO LONG",
+                                      sizeof(g_browser.status));
+                    }
+                }
+            }
+            // Consume all control shortcuts. Never insert Ctrl+C/V as text.
+            continue;
+        }
         if (event.key == KU_UI_KEY_BACKSPACE) {
-            if (g_browser.url_length != 0U) {
+            if (omnibox_select_all) {
+                g_browser.url_length = 0U;
+                g_browser.url[0] = '\0';
+                omnibox_select_all = 0;
+            } else if (g_browser.url_length != 0U) {
                 g_browser.url[--g_browser.url_length] = '\0';
             }
         } else if (event.key == KU_UI_KEY_ENTER) {
             (void)navigation_controller_load(&g_browser);
             omnibox_active = 0;
-        } else if (event.character >= 0x20U && event.character <= 0x7EU &&
-                   g_browser.url_length + 1U < sizeof(g_browser.url)) {
-            g_browser.url[g_browser.url_length++] = (char)event.character;
-            g_browser.url[g_browser.url_length] = '\0';
+            omnibox_select_all = 0;
+        } else if (event.character >= 0x20U && event.character <= 0x7EU) {
+            if (omnibox_select_all) {
+                g_browser.url_length = 0U;
+                g_browser.url[0] = '\0';
+                omnibox_select_all = 0;
+            }
+            if (g_browser.url_length + 1U < sizeof(g_browser.url)) {
+                g_browser.url[g_browser.url_length++] = (char)event.character;
+                g_browser.url[g_browser.url_length] = '\0';
+            }
         }
     }
 

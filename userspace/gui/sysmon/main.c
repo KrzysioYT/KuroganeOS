@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 
 static void build_scene(kui_scene* scene, uint32_t heartbeat) {
     kui_flow root;
@@ -32,7 +33,7 @@ static void build_scene(kui_scene* scene, uint32_t heartbeat) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("SYSTEM MONITOR", 315, 190, 520, 320);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_MONITOR, 315, 190, 520, 320);
     if (window == KU_INVALID_WINDOW) return 1;
     puts("[TEST] desktop_sysmon_ring3: PASS");
 

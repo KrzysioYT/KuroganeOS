@@ -182,10 +182,58 @@ int main() {
     if (!input::try_read(&event) || event.type != input::EventType::MouseWheel ||
         event.wheel != 1 || input::try_read(&event)) return 9;
 
+    const input::AbsolutePointerSample absolute{
+        16384, 32767,
+        0, 32767,
+        0, 32767,
+        -1,
+        drivers::mouse::Right,
+        static_cast<uint8_t>(drivers::mouse::Left | drivers::mouse::Right)
+    };
+    if (!input::submit_absolute_pointer(absolute)) return 10;
+    if (input::pointer_x() != 49 || input::pointer_y() != 79 ||
+        input::pointer_buttons() != drivers::mouse::Right) return 11;
+    if (!input::try_read(&event) || event.type != input::EventType::MouseMove ||
+        event.x != 49 || event.y != 79) return 12;
+    if (!input::try_read(&event) ||
+        event.type != input::EventType::MouseButtonUp ||
+        event.button != drivers::mouse::Left) return 13;
+    if (!input::try_read(&event) ||
+        event.type != input::EventType::MouseButtonDown ||
+        event.button != drivers::mouse::Right) return 14;
+    if (!input::try_read(&event) ||
+        event.type != input::EventType::MouseWheel || event.wheel != -1 ||
+        input::try_read(&event)) return 15;
+
+    const input::AbsolutePointerSample invalid_absolute{
+        1, 1, 10, 10, 0, 100, 0, 0U, 0U
+    };
+    if (input::submit_absolute_pointer(invalid_absolute)) return 16;
+    if (input::pointer_x() != 49 || input::pointer_y() != 79) return 17;
+
     drivers::mouse::initialize_decoder(&decoder, false);
     if (drivers::mouse::decode_byte(&decoder, 0x00U, &sample) ||
-        decoder.position != 0U) return 10;
+        decoder.position != 0U) return 18;
     mouse_publication_regression();
     pump_backpressure_regression();
+    assert(input::initialize(1000, 800));
+    const input::AbsolutePointerSample held{100, 100, 0, 100, 0, 100, 0, 1U, 1U};
+    assert(input::submit_absolute_pointer(held));
+    const size_t queued_before_resize = input::pending_events();
+    assert(queued_before_resize > 0 && input::pointer_buttons() == 1U);
+    assert(!input::set_screen_bounds(0, 100));
+    assert(input::pointer_x() == 999 && input::pending_events() == queued_before_resize);
+    assert(input::set_screen_bounds(320, 200));
+    assert(input::pointer_x() == 319 && input::pointer_y() == 199);
+    assert(input::pointer_buttons() == 1U && input::pending_events() == queued_before_resize);
+    bool saw_button = false;
+    while (input::try_read(&event)) {
+        assert(event.x <= 319 && event.y <= 199);
+        if (event.type == input::EventType::MouseButtonDown) saw_button = true;
+    }
+    assert(saw_button);
+    assert(input::set_screen_bounds(1280, 720));
+    assert(input::submit_absolute_pointer(held));
+    assert(input::pointer_x() == 1279 && input::pointer_y() == 719);
     return 0;
 }

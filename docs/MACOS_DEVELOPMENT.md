@@ -35,8 +35,8 @@ bash ./scripts/build-media-macos.sh --configuration debug --rebuild
 Wyniki:
 
 ```text
-dist/KuroganeOS-3.3.1-dev-macos-qemu.img
-dist/KuroganeOS-3.3.1-dev-x86_64.iso
+dist/KuroganeOS-7.0.0-dev-macos-qemu.img
+dist/KuroganeOS-7.0.0-dev-x86_64.iso
 dist/SHA256SUMS.txt
 ```
 
@@ -46,6 +46,10 @@ IMG i ISO wchodzą do tego samego Red Flux Setup:
 Try KuroganeOS
 Install KuroganeOS
 ```
+
+Try działa także z ISO bez docelowego dysku. Install jest blokowane z
+czytelnym komunikatem, jeśli nie wykryto dysku; potwierdzenie komunikatu
+przechodzi do nieinwazyjnej sesji Try i nie zapisuje na żadnym nośniku.
 
 Builder ISO 3.3.1 używa 30 MiB FAT16 El Torito EFI image, GPT ESP oraz
 obowiązkowego 20-pass verifiera. Szczegóły: [`VIRTUALBOX.md`](VIRTUALBOX.md).
@@ -64,9 +68,23 @@ Po zmianie tylko userspace/SDK i istniejącym kernelu:
 ./scripts/build-macos.sh --configuration debug --stage-only
 ```
 
+Na Apple Silicon testy hostowe korzystają z x86-64 inline assembly i muszą
+działać jako proces x86-64 pod Rosettą:
+
+```bash
+arch -x86_64 /bin/bash scripts/run-host-tests.sh
+```
+
 Do wydawania/testowania pełnego nośnika preferuj `build-media-macos.sh`.
 
 ## QEMU — IMG
+
+Headless smoke on the default release IMG automatically selects the safe
+**Try** session from Red Flux Setup through QMP. It never selects Install and
+boots with a snapshot, so the source IMG is not modified. It then activates the
+passwordless live profile and requires an authenticated session and the first
+real Home surface frame; a spawn-only or console-fallback result is a failure.
+The interactive `--display` mode leaves setup selection and login to the user.
 
 ```bash
 cp "$(brew --prefix qemu)/share/qemu/edk2-i386-vars.fd" /tmp/kurogane-vars.fd
@@ -78,7 +96,7 @@ qemu-system-x86_64 \
   -vga std \
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$(brew --prefix qemu)/share/qemu/edk2-x86_64-code.fd" \
   -drive if=pflash,format=raw,unit=1,file=/tmp/kurogane-vars.fd \
-  -drive if=none,id=kurogane_media,format=raw,file="./dist/KuroganeOS-3.3.1-dev-macos-qemu.img",cache=writeback \
+  -drive if=none,id=kurogane_media,format=raw,file="./dist/KuroganeOS-7.0.0-dev-macos-qemu.img",cache=writeback \
   -device ide-hd,drive=kurogane_media,bus=ide.0,bootindex=1 \
   -display cocoa \
   -serial stdio \
@@ -106,12 +124,23 @@ Możesz sprawdzić, czy niezależny firmware UEFI rzeczywiście bootuje ISO:
 
 ```bash
 bash ./scripts/smoke-uefi-iso-qemu.sh \
-  ./dist/KuroganeOS-3.3.1-dev-x86_64.iso \
+  ./dist/KuroganeOS-7.0.0-dev-x86_64.iso \
   --timeout 60
 ```
 
 Helper używa split CODE/VARS pflash firmware z QEMU/Homebrew i czeka na marker
 kernela przez port szeregowy.
+
+Istniejący scenariusz smoke może także zapisać rzeczywistą klatkę gościa po
+osiągnięciu markera COM1. Dodaj do polecenia
+`--screendump-after-marker 'MARKER' /bezwzgledna/sciezka/frame.ppm`.
+Zrzut jest wymagany do sukcesu scenariusza i nie nadpisuje istniejącego pliku.
+Na macOS można go obejrzeć po konwersji:
+
+```bash
+sips -s format png /bezwzgledna/sciezka/frame.ppm \
+  --out /bezwzgledna/sciezka/frame.png
+```
 
 ## Test instalacji
 

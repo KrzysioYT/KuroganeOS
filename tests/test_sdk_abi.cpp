@@ -2,6 +2,8 @@
 #include <kurogane/audio.h>
 #include <kurogane/dns_service.h>
 #include <kurogane/device.h>
+#include <kurogane/desktop.h>
+#include <kurogane/display.h>
 #include <kurogane/event.h>
 #include <kurogane/event_broker.h>
 #include <kurogane/filesystem.h>
@@ -37,6 +39,8 @@ int main() {
     static_assert(KU_SYS_UI_CLOSE == 17);
     static_assert(KU_SYS_SYSTEM_SNAPSHOT == 18);
     static_assert(KU_SYS_DESKTOP_PIN == 19);
+    static_assert(KU_DESKTOP_PIN_FOCUS_RUNNING == 4);
+    static_assert(KU_DESKTOP_PIN_APP_READY == 5);
     static_assert(KU_SYS_NET_STATUS == 20);
     static_assert(KU_SYS_HTTP_GET == 21);
     static_assert(KU_SYS_AUDIO_STATUS == 22);
@@ -85,6 +89,21 @@ int main() {
     static_assert(KU_SYS_DEVICE_QUERY == 65);
     static_assert(KU_SYS_DEVICE_RESOURCE == 66);
     static_assert(KU_SYS_SOCKET_WAIT == 67);
+    static_assert(KU_SYS_DESKTOP_THEME == 68);
+    static_assert(KU_SYS_DESKTOP_STYLE == 69);
+    static_assert(KU_SYS_DISPLAY_INFO == 70);
+    static_assert(KU_SYS_TERMINATE_CHILD == 71);
+    static_assert(KU_SYS_CONSOLE_FALLBACK == 72);
+    static_assert(sizeof(ku_ui_event) == 32);
+    static_assert(KU_UI_MOD_SHIFT == 1U);
+    static_assert(KU_UI_MOD_CONTROL == 2U);
+    static_assert(KU_UI_MOD_ALT == 4U);
+    static_assert(KU_UI_KEY_A == 30U);
+    static_assert(KU_UI_KEY_C == 46U);
+    static_assert(sizeof(ku_display_info) == 32);
+    static_assert(sizeof(ku_desktop_style_request) == 16);
+    static_assert(sizeof(ku_desktop_theme_request) == 16);
+    static_assert(KU_FLUX_THEME_COUNT == 6);
 
     static_assert(KU_DEVICE_MAX_DEVICES == 192U);
     static_assert(KU_DEVICE_MAX_RESOURCES == 8U);

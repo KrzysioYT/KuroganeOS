@@ -1,5 +1,8 @@
 # KuroganeOS — roadmap 0.0.1–1.0
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
+
 Ten dokument opisuje rzeczywisty zakres pierwszego zintegrowanego wydania.
 Znacznik „zrealizowano” oznacza ukończenie zakresu demonstracyjnego danego
 kamienia milowego, nie implementację wszystkich funkcji spotykanych w

@@ -1,0 +1,29 @@
+name: Validate VirtualBox creator contract
+on:
+  push:
+    branches:
+      - codex/road-to-15-stability
+    paths:
+      - 'scripts/create-virtualbox-vm.ps1'
+      - 'scripts/lib/virtualbox-vm-contract.ps1'
+      - 'tests/test_create_virtualbox_vm_contract.ps1'
+      - '.github/workflows/validate-virtualbox-vm-contract.yml'
+  pull_request:
+    paths:
+      - 'scripts/create-virtualbox-vm.ps1'
+      - 'scripts/lib/virtualbox-vm-contract.ps1'
+      - 'tests/test_create_virtualbox_vm_contract.ps1'
+      - '.github/workflows/validate-virtualbox-vm-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-profile-regression:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate supported VirtualBox formats and reject bad hardware
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\test_create_virtualbox_vm_contract.ps1

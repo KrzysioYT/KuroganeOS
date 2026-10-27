@@ -1,4 +1,5 @@
 #include <kurogane/libui.h>
+#include <kurogane/desktop.h>
 #include <string.h>
 
 static kui_view* find_view(kui_scene* scene, uint32_t id) {
@@ -88,10 +89,25 @@ void kui_scene_initialize(kui_scene* scene) {
 }
 
 void kui_scene_apply_flux_theme(kui_scene* scene) {
+    ku_flux_palette palette;
+    uint32_t theme_id = KU_FLUX_THEME_RED;
     if (scene == (kui_scene*)0) return;
-    scene->background_rgb = KU_FLUX_COLOR_BACKGROUND;
-    scene->foreground_rgb = KU_FLUX_COLOR_TEXT_PRIMARY;
-    scene->accent_rgb = KU_FLUX_COLOR_ACCENT;
+#if !defined(KUROGANE_HOST_TEST)
+    {
+        ku_desktop_theme_request request;
+        memset(&request, 0, sizeof(request));
+        request.structure_size = sizeof(request);
+        request.action = KU_DESKTOP_THEME_QUERY;
+        if (ku_desktop_theme(&request) == KU_STATUS_OK &&
+            request.theme_id < KU_FLUX_THEME_COUNT) {
+            theme_id = request.theme_id;
+        }
+    }
+#endif
+    palette = ku_flux_theme_palette(theme_id);
+    scene->background_rgb = palette.background;
+    scene->foreground_rgb = palette.text;
+    scene->accent_rgb = palette.accent;
 }
 
 void kui_scene_set_palette(

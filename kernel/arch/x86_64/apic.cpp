@@ -17,7 +17,13 @@ constexpr size_t LOCAL_EOI_REGISTER = 0xB0U;
 constexpr size_t LOCAL_SPURIOUS_REGISTER = 0xF0U;
 constexpr size_t LOCAL_INTERRUPT_COMMAND_LOW_REGISTER = 0x300U;
 constexpr size_t LOCAL_INTERRUPT_COMMAND_HIGH_REGISTER = 0x310U;
+constexpr size_t LOCAL_LVT_TIMER_REGISTER = 0x320U;
+constexpr size_t LOCAL_TIMER_INITIAL_COUNT_REGISTER = 0x380U;
+constexpr size_t LOCAL_TIMER_CURRENT_COUNT_REGISTER = 0x390U;
+constexpr size_t LOCAL_TIMER_DIVIDE_REGISTER = 0x3E0U;
 constexpr uint32_t LOCAL_SPURIOUS_SOFTWARE_ENABLE = UINT32_C(1) << 8U;
+constexpr uint32_t LOCAL_LVT_MASKED = UINT32_C(1) << 16U;
+constexpr uint32_t LOCAL_LVT_TIMER_PERIODIC = UINT32_C(1) << 17U;
 constexpr uint32_t ICR_DELIVERY_PENDING = UINT32_C(1) << 12U;
 constexpr uint32_t ICR_LEVEL_ASSERT = UINT32_C(1) << 14U;
 constexpr uint32_t ICR_TRIGGER_LEVEL = UINT32_C(1) << 15U;
@@ -286,6 +292,51 @@ Status send_startup(uint32_t destination_apic_id, uint8_t startup_vector) {
         destination_apic_id,
         ICR_DELIVERY_MODE_STARTUP | static_cast<uint32_t>(startup_vector));
 }
+
+Status timer_begin_calibration(uint32_t divide_config) {
+    if (!local_enabled() || g_local_registers == nullptr) {
+        return Status::TimerUnavailable;
+    }
+    local_write(LOCAL_TIMER_DIVIDE_REGISTER, divide_config & UINT32_C(0xB));
+    local_write(
+        LOCAL_LVT_TIMER_REGISTER,
+        LOCAL_LVT_MASKED | static_cast<uint32_t>(SCHEDULER_TIMER_VECTOR));
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, UINT32_MAX);
+    return Status::Ok;
+}
+
+uint32_t timer_current_count() {
+    if (!local_enabled() || g_local_registers == nullptr) return 0U;
+    return local_read(LOCAL_TIMER_CURRENT_COUNT_REGISTER);
+}
+
+Status timer_start_periodic(
+    uint8_t vector,
+    uint32_t initial_count,
+    uint32_t divide_config) {
+    if (!local_enabled() || g_local_registers == nullptr) {
+        return Status::TimerUnavailable;
+    }
+    if (vector < UINT8_C(0x20) || vector == SPURIOUS_VECTOR ||
+        initial_count == 0U) {
+        return Status::InvalidRoute;
+    }
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, 0U);
+    local_write(LOCAL_TIMER_DIVIDE_REGISTER, divide_config & UINT32_C(0xB));
+    local_write(
+        LOCAL_LVT_TIMER_REGISTER,
+        LOCAL_LVT_TIMER_PERIODIC | static_cast<uint32_t>(vector));
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, initial_count);
+    return Status::Ok;
+}
+
+void timer_stop() {
+    if (!local_enabled() || g_local_registers == nullptr) return;
+    const uint32_t lvt = local_read(LOCAL_LVT_TIMER_REGISTER);
+    local_write(LOCAL_LVT_TIMER_REGISTER, lvt | LOCAL_LVT_MASKED);
+    local_write(LOCAL_TIMER_INITIAL_COUNT_REGISTER, 0U);
+}
+
 size_t io_apic_count() { return g_io_count; }
 uint32_t io_apic_version(size_t index) {
     return index < g_io_count ? g_io_versions[index] : 0U;
@@ -406,6 +457,7 @@ const char* status_message(Status status) {
         case Status::InvalidLegacyIrq: return "invalid legacy IRQ override";
         case Status::GsiOutOfRange: return "GSI is outside every I/O APIC";
         case Status::IpiTimeout: return "Local APIC IPI delivery timed out";
+        case Status::TimerUnavailable: return "Local APIC timer unavailable";
     }
     return "unknown APIC status";
 }

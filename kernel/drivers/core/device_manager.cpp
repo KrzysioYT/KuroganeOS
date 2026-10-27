@@ -174,6 +174,7 @@ KStatus register_device(const Descriptor& descriptor, DeviceId* id) {
     value.subclass = descriptor.subclass;
     value.programming_interface = descriptor.programming_interface;
     value.bus_address = descriptor.bus_address;
+    value.requirement = descriptor.requirement;
     value.status = Status::Discovered;
     value.driver = INVALID_DRIVER_ID;
     value.parent = descriptor.parent;
@@ -387,6 +388,14 @@ const char* bus_name(Bus bus) {
         case Bus::Virtual: return "Virtual";
     }
     return "Unknown";
+}
+
+const char* requirement_name(Requirement requirement) {
+    switch (requirement) {
+        case Requirement::Optional: return "OPTIONAL";
+        case Requirement::BootCritical: return "BOOT_CRITICAL";
+    }
+    return "UNKNOWN";
 }
 
 const char* status_name(Status status) {

@@ -18,6 +18,9 @@ bool submit_key(const drivers::keyboard::KeyEvent& event) {
 bool submit_mouse(const drivers::mouse::Sample&) {
     return true;
 }
+bool submit_absolute_pointer(const AbsolutePointerSample&) {
+    return true;
+}
 }
 namespace log {
 void write(Level, const char*, const char*) {}

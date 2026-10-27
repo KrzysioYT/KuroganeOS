@@ -1,4 +1,8 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
+#include "paging.h"
+#include "navigation.h"
+#include "../clipboard_actions.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 24U
 #define PAGE_SIZE 6U
@@ -257,12 +261,16 @@ static void build_scene(
     (void)kui_flow_button(&root, 30U, "PARENT FOLDER");
     (void)kui_flow_button(&root, 31U, "OPEN / ENTER");
     (void)kui_flow_button(&root, 32U, "NEXT PAGE");
+    (void)kui_flow_button(&root, 34U, "COPY SELECTED PATH");
     (void)kui_flow_label(&root, 33U, preview);
     if (path[0] == '/' && path[1] == '\0') {
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
     }
     if (entry_count <= PAGE_SIZE) {
         (void)kui_scene_set_flags(scene, 32U, KUI_VIEW_DISABLED);
+    }
+    if (selected == NO_SELECTION || selected >= entry_count) {
+        (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
     }
 }
 
@@ -313,7 +321,7 @@ static int activate_selected(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("FILES", 250, 110, 650, 480);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 110, 650, 480);
     explorer_entry entries[DIRECTORY_ENTRY_CAPACITY];
     size_t entry_count = 0U;
     size_t page_start = 0U;
@@ -341,7 +349,7 @@ int main(void) {
     puts("[TEST] desktop_files_real_vfs: PASS");
     puts("[TEST] flux_scene_files: PASS");
     puts("[TEST] desktop_files_mouse_navigation: PASS");
-    puts("[TEST] desktop_files_keyboard_shortcuts_detached: PASS");
+    puts("[TEST] desktop_files_keyboard_navigation: READY");
     puts("[TEST] flux_files_readdir: PASS");
     puts("[TEST] flux_files_directory_grid: PASS");
     puts("[TEST] flux_files_breadcrumb: PASS");
@@ -351,17 +359,50 @@ int main(void) {
         uint32_t target;
         const int wait_result = gui_wait_event(window, &event);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
-        if (event.type != KU_UI_EVENT_POINTER) continue;
-        {
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            // A scroll event proves HID delivery even in directories with
+            // fewer items than a page, where the offset cannot change.
+            if (event.wheel_y != 0)
+                puts("[TEST] flux_files_usb_wheel_input: PASS");
+            // Preserve combined wheel detents without integer overflow.
+            const size_t before = page_start;
+            page_start = flux_files_wheel_page(
+                page_start, entry_count, PAGE_SIZE, event.wheel_y);
+            if (page_start != before) {
+                selected = NO_SELECTION;
+                (void)strlcpy(preview, "WHEEL / PAGE CHANGED", sizeof(preview));
+                build_scene(&scene, path, entries, entry_count,
+                            page_start, selected, preview);
+                (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_files_usb_wheel_paging: PASS");
+            }
+            continue;
+        }
+        if (event.type == KU_UI_EVENT_KEY) {
+            const flux_files_key_action action = flux_files_keyboard(
+                &event, entry_count, PAGE_SIZE, &page_start, &selected);
+            if (action == FLUX_FILES_KEY_NONE) continue;
+            if (action == FLUX_FILES_KEY_SELECT) {
+                (void)strlcpy(preview, "KEYBOARD / ITEM SELECTED", sizeof(preview));
+                build_scene(&scene, path, entries, entry_count,
+                            page_start, selected, preview);
+                (void)kui_scene_present(window, &scene);
+                puts("[TEST] flux_files_keyboard_navigation: PASS");
+                continue;
+            }
+            target = action == FLUX_FILES_KEY_PARENT ? 30U :
+                     action == FLUX_FILES_KEY_OPEN ? 31U : 34U;
+        } else if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
                 (event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U;
             pointer_buttons = event.buttons;
             if (!primary_pressed) continue;
+            target = kui_scene_hit_test(&scene, event.x, event.y);
+        } else {
+            continue;
         }
-
-        target = kui_scene_hit_test(&scene, event.x, event.y);
         if (target >= 10U && target < 10U + PAGE_SIZE) {
             const size_t index = page_start + (size_t)(target - 10U);
             if (index >= entry_count) continue;
@@ -390,6 +431,18 @@ int main(void) {
             (void)activate_selected(
                 path, entries, &entry_count, &page_start, &selected,
                 status, sizeof(status), preview, sizeof(preview));
+        } else if (target == 34U) {
+            char selected_path[PATH_CAPACITY];
+            if (selected == NO_SELECTION || selected >= entry_count ||
+                !join_path(path, entries[selected].name,
+                           selected_path, sizeof(selected_path))) {
+                (void)strlcpy(preview, "COPY PATH / INVALID SELECTION", sizeof(preview));
+            } else if (flux_clipboard_set_text(selected_path)) {
+                (void)strlcpy(preview, "COPY PATH / CLIPBOARD READY", sizeof(preview));
+                puts("[TEST] flux_files_copy_path_clipboard: PASS");
+            } else {
+                (void)strlcpy(preview, "COPY PATH / CLIPBOARD UNAVAILABLE", sizeof(preview));
+            }
         } else if (target == 32U) {
             if (entry_count > PAGE_SIZE) {
                 page_start += PAGE_SIZE;

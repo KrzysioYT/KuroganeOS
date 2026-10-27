@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "job.hpp"
+
 namespace threading {
 struct PreemptRunResult;
 }
@@ -38,7 +40,9 @@ enum class Status : uint8_t {
     PermissionDenied,
     WouldBlock,
     RunnerFailed,
-    SchedulerFailed
+    SchedulerFailed,
+    JobFailed,
+    ResourcesBusy
 };
 
 struct Stat {
@@ -50,6 +54,7 @@ struct Stat {
     uint64_t address_space_root;
     uint64_t main_thread;
     uint32_t handle_count;
+    job::JobId job_id;
     char name[MAX_PROCESS_NAME + 1U];
     char executable[MAX_EXECUTABLE_PATH + 1U];
     char working_directory[MAX_EXECUTABLE_PATH + 1U];

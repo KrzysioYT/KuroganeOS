@@ -15,6 +15,7 @@ enum ku_clipboard_operation {
 
 enum ku_clipboard_format {
     KU_CLIPBOARD_FORMAT_NONE = 0,
+    /* Valid Unicode scalar UTF-8, one final NUL included in data_size; no embedded NUL. */
     KU_CLIPBOARD_FORMAT_UTF8 = 1,
     KU_CLIPBOARD_FORMAT_BINARY = 2
 };

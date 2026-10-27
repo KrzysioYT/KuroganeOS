@@ -49,6 +49,14 @@ void flux_session_stop() {
 }
 
 void flux_session_input(const input::Event& event) {
+    // Runtime proof, not a startup-only PASS: serial logs distinguish missing
+    // PS/2/USB button events from an actual compositor hit-test failure.
+    static uint32_t observed_primary_clicks = 0U;
+    if (event.type == input::EventType::MouseButtonDown &&
+        event.button == drivers::mouse::Left &&
+        observed_primary_clicks++ < 8U) {
+        terminal::println("[INPUT] flux_primary_button_delivered: PASS");
+    }
     const windowing::Status status = windowing::dispatch(event);
     if (status != windowing::Status::Ok &&
         status != windowing::Status::NotFound &&

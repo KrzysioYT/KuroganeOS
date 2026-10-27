@@ -98,6 +98,9 @@ using InputCallback = void (*)(
 using ListCallback = bool (*)(const WindowInfo& window, void* context);
 
 Status initialize(uint32_t screen_width, uint32_t screen_height);
+// Apply the dimensions of an already configured display backend, preserving
+// window identities/surfaces. Serialized compositor context; no hardware mode set.
+Status set_screen_size(uint32_t screen_width, uint32_t screen_height);
 Status create_window(
     const char* title,
     uint64_t owner_pid,
@@ -121,9 +124,21 @@ Status minimize(WindowId id);
 Status maximize(WindowId id);
 Status restore(WindowId id);
 Status query(WindowId id, WindowInfo* out_info);
+// Iterates a stable z-ordered metadata snapshot. Callbacks may modify
+// windows; closed generations are skipped, and newly created windows are
+// visible only on the next iteration. Callback metadata remains immutable.
 Status list(ListCallback callback, void* context);
+// Keyboard events go to focus. Pointer events go to the topmost client
+// content; primary-button capture survives movement outside that content,
+// but chrome, dock and desktop commands consume their own gestures.
 Status dispatch(const input::Event& event);
 WorkspaceGeometry workspace_geometry();
+// The session Home is ready only after it has presented a real UI surface.
+// Login uses this as a bounded hand-off gate, never a timer-based assumption.
+bool home_surface_ready();
+// Floating dock is rendered over the work area and collapses on pointer exit.
+// These queries expose exact geometry and visibility for host/runtime tests.
+bool dock_visible();
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry);
 // Returns the drawable application-content rectangle in screen coordinates.
 // Login owns its full surface; normal Flux windows exclude chrome.

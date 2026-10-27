@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -11,6 +11,7 @@ media=""
 media_kind="iso"
 persistent_disk=false
 accel_model="tcg"
+cpu_model_override=""
 smp_cpus=1
 timeout_seconds=60
 nic_model="none"
@@ -18,8 +19,11 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 nvme=false
+virtio_block=false
+no_ps2=false
 usb_keyboard=false
 usb_mouse=false
+usb_tablet=false
 usb_storage=false
 usb_controller=false
 usb_hotplug=false
@@ -43,6 +47,14 @@ click_count_targets=()
 click_count_x=()
 click_count_y=()
 click_count_sent=()
+wheel_markers=()
+wheel_x=()
+wheel_y=()
+wheel_direction=()
+wheel_sent=()
+screendump_markers=()
+screendump_paths=()
+screendump_sent=()
 require_markers=()
 require_marker_count_markers=()
 require_marker_count_targets=()
@@ -51,6 +63,7 @@ while (($#)); do
         --disk) media_kind="disk"; shift ;;
         --persistent-disk) persistent_disk=true; shift ;;
         --accel) [[ $# -ge 2 ]] || usage; accel_model="$2"; shift 2 ;;
+        --cpu-model) [[ $# -ge 2 && -n "$2" ]] || usage; cpu_model_override="$2"; shift 2 ;;
         --smp) [[ $# -ge 2 ]] || usage; smp_cpus="$2"; shift 2 ;;
         --timeout) [[ $# -ge 2 ]] || usage; timeout_seconds="$2"; shift 2 ;;
         --nic) [[ $# -ge 2 ]] || usage; nic_model="$2"; shift 2 ;;
@@ -58,9 +71,12 @@ while (($#)); do
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --nvme) nvme=true; shift ;;
+        --virtio-block) virtio_block=true; shift ;;
+        --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
         --usb-keyboard) usb_controller=true; usb_keyboard=true; shift ;;
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
+        --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
         --usb-storage) usb_controller=true; usb_storage=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
@@ -98,6 +114,23 @@ while (($#)); do
             click_count_sent+=(false)
             shift 5
             ;;
+        --wheel-after-marker)
+            [[ $# -ge 5 && -n "$2" && "$3" =~ ^[0-9]+$ &&
+               "$4" =~ ^[0-9]+$ && "$5" =~ ^(up|down)$ ]] || usage
+            wheel_markers+=("$2")
+            wheel_x+=("$3")
+            wheel_y+=("$4")
+            wheel_direction+=("$5")
+            wheel_sent+=(false)
+            shift 5
+            ;;
+        --screendump-after-marker)
+            [[ $# -ge 3 && -n "$2" && -n "$3" && "$3" == *.ppm ]] || usage
+            screendump_markers+=("$2")
+            screendump_paths+=("$3")
+            screendump_sent+=(false)
+            shift 3
+            ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         --require-marker-count)
             [[ $# -ge 3 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ ]] || usage
@@ -120,7 +153,7 @@ fi
 [[ "$timeout_seconds" =~ ^[0-9]+$ ]] && ((timeout_seconds >= 10 && timeout_seconds <= 240)) || {
     echo "invalid timeout" >&2; exit 2; }
 case "$nic_model" in
-    none|e1000|pcnet|virtio) ;;
+    none|e1000|e1000e|pcnet|virtio) ;;
     *) echo "invalid NIC model: $nic_model" >&2; usage ;;
 esac
 case "$accel_model" in
@@ -134,6 +167,13 @@ case "$accel_model" in
         ;;
     *) echo "invalid accelerator: $accel_model" >&2; usage ;;
 esac
+if [[ -n "$cpu_model_override" ]]; then
+    [[ "$cpu_model_override" =~ ^[A-Za-z0-9_.=,+:-]+$ ]] || {
+        echo "invalid CPU model string: $cpu_model_override" >&2
+        exit 2
+    }
+    cpu_model="$cpu_model_override"
+fi
 case "$audio_model" in
     none|ac97|hda) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
@@ -160,8 +200,20 @@ for index in "${!click_count_markers[@]}"; do
         exit 2
     fi
 done
+for index in "${!wheel_markers[@]}"; do
+    if (( wheel_x[index] > 4095 || wheel_y[index] > 4095 )); then
+        echo "invalid QEMU wheel coordinate: ${wheel_x[$index]},${wheel_y[$index]}" >&2
+        exit 2
+    fi
+done
+for screenshot in "${screendump_paths[@]}"; do
+    if [[ -e "$screenshot" ]]; then
+        echo "refusing to overwrite screenshot: $screenshot" >&2
+        exit 1
+    fi
+done
 if $require_network && [[ "$nic_model" == "none" ]]; then
-    echo "--require-network/--require-tls needs --nic e1000, pcnet or virtio" >&2
+    echo "--require-network/--require-tls needs --nic e1000, e1000e, pcnet or virtio" >&2
     exit 2
 fi
 if [[ -n "$virtio_vectors" ]]; then
@@ -212,6 +264,32 @@ marker_occurrences() {
     local count
     count="$(grep -F -c -- "$marker" "$serial" 2>/dev/null || true)"
     printf '%s\n' "${count:-0}"
+}
+
+capture_pending_screenshots() {
+    local index marker
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" == true ]]; then
+            continue
+        fi
+        marker="${screendump_markers[$index]}"
+        if grep -Fq "$marker" "$serial"; then
+            python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/qmp-screendump.py" \
+                "$qmp" "${screendump_paths[$index]}"
+            screendump_sent[$index]=true
+            echo "[uefi-qemu] captured frame after marker: $marker"
+        fi
+    done
+}
+
+screenshots_complete() {
+    local index
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" != true ]]; then
+            return 1
+        fi
+    done
+    return 0
 }
 
 send_qemu_key() {
@@ -285,7 +363,9 @@ send_qemu_click() {
     local target_x="$1"
     local target_y="$2"
     local pointer_kind="default"
-    if $usb_mouse; then
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
         pointer_kind="usb-mouse"
     fi
     python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" <<'PY'
@@ -356,28 +436,40 @@ for _ in range(40):
             raise RuntimeError(f"invalid QMP greeting: {greeting}")
         execute(stream, "qmp_capabilities")
 
-        if pointer_kind == "usb-mouse":
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
             mice = execute(stream, "human-monitor-command", {
                 "command-line": "info mice"
             })
-            match = re.search(
-                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse",
-                mice,
-                re.IGNORECASE,
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
             )
+            match = re.search(pattern, mice, re.IGNORECASE)
             if match is None:
-                raise RuntimeError(f"QEMU HID/USB Mouse not present in info mice: {mice!r}")
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
             execute(stream, "human-monitor-command", {
                 "command-line": f"mouse_set {match.group(1)}"
             })
 
-        # Kurogane's pointer state is clamped. Drive far negative first so the
-        # resulting guest coordinate is deterministically (0,0), independent
-        # of the firmware/guest cursor history, then walk to the target.
-        for _ in range(50):
-            relative(stream, -100, -100)
-        move_axis(stream, "x", target_x)
-        move_axis(stream, "y", target_y)
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        # The button event is shared by relative and absolute pointer devices.
         execute(stream, "input-send-event", {"events": [
             {"type": "btn", "data": {"down": True, "button": "left"}}
         ]})
@@ -398,6 +490,142 @@ for _ in range(40):
             pass
         time.sleep(0.05)
 raise SystemExit(f"cannot click through QMP: {last_error}")
+PY
+}
+
+send_qemu_wheel() {
+    local target_x="$1"
+    local target_y="$2"
+    local wheel_direction="$3"
+    local pointer_kind="default"
+    if $usb_tablet; then
+        pointer_kind="usb-tablet"
+    elif $usb_mouse; then
+        pointer_kind="usb-mouse"
+    fi
+    python3 - "$qmp" "$target_x" "$target_y" "$pointer_kind" "$wheel_direction" <<'PY'
+import json
+import re
+import socket
+import sys
+import time
+
+path = sys.argv[1]
+target_x = int(sys.argv[2])
+target_y = int(sys.argv[3])
+pointer_kind = sys.argv[4]
+wheel_direction = sys.argv[5]
+last_error = None
+
+
+def receive_object(stream, operation):
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError(f"QMP disconnected during {operation}")
+        message = json.loads(line.decode("utf-8"))
+        if "event" in message:
+            continue
+        if "error" in message:
+            error = message["error"]
+            raise RuntimeError(
+                f"QMP {operation} failed: {error.get('class', 'Error')}: "
+                f"{error.get('desc', error)}")
+        if "return" in message:
+            return message["return"]
+
+
+def execute(stream, name, arguments=None):
+    payload = {"execute": name}
+    if arguments is not None:
+        payload["arguments"] = arguments
+    stream.write(json.dumps(payload).encode("utf-8") + b"\r\n")
+    return receive_object(stream, name)
+
+
+def relative(stream, dx, dy):
+    events = []
+    if dx:
+        events.append({"type": "rel", "data": {"axis": "x", "value": dx}})
+    if dy:
+        events.append({"type": "rel", "data": {"axis": "y", "value": dy}})
+    if events:
+        execute(stream, "input-send-event", {"events": events})
+
+
+def move_axis(stream, axis, amount):
+    remaining = amount
+    while remaining:
+        step = max(-100, min(100, remaining))
+        relative(stream, step if axis == "x" else 0, step if axis == "y" else 0)
+        remaining -= step
+
+
+for _ in range(40):
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        client.settimeout(2.0)
+        client.connect(path)
+        stream = client.makefile("rwb", buffering=0)
+        greeting = json.loads(stream.readline().decode("utf-8"))
+        if "QMP" not in greeting:
+            raise RuntimeError(f"invalid QMP greeting: {greeting}")
+        execute(stream, "qmp_capabilities")
+
+        if pointer_kind in ("usb-mouse", "usb-tablet"):
+            mice = execute(stream, "human-monitor-command", {
+                "command-line": "info mice"
+            })
+            pattern = (
+                r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Mouse"
+                if pointer_kind == "usb-mouse"
+                else r"Mouse #(\d+):[^\n]*QEMU (?:USB|HID) Tablet"
+            )
+            match = re.search(pattern, mice, re.IGNORECASE)
+            if match is None:
+                raise RuntimeError(
+                    f"QEMU {pointer_kind} not present in info mice: {mice!r}")
+            execute(stream, "human-monitor-command", {
+                "command-line": f"mouse_set {match.group(1)}"
+            })
+
+        if pointer_kind == "usb-tablet":
+            absolute_x = max(0, min(32767, target_x * 32767 // 1023))
+            absolute_y = max(0, min(32767, target_y * 32767 // 767))
+            execute(stream, "input-send-event", {"events": [
+                {"type": "abs", "data": {"axis": "x", "value": absolute_x}},
+                {"type": "abs", "data": {"axis": "y", "value": absolute_y}},
+            ]})
+            time.sleep(0.05)
+        else:
+            # Kurogane's relative pointer state is clamped. Drive far negative
+            # first so the resulting guest coordinate is deterministic.
+            for _ in range(50):
+                relative(stream, -100, -100)
+            move_axis(stream, "x", target_x)
+            move_axis(stream, "y", target_y)
+
+        button = "wheel-down" if wheel_direction == "down" else "wheel-up"
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": True, "button": button}}
+        ]})
+        time.sleep(0.08)
+        execute(stream, "input-send-event", {"events": [
+            {"type": "btn", "data": {"down": False, "button": button}}
+        ]})
+        time.sleep(0.35)
+        stream.close()
+        client.close()
+        print(f"[qmp] USB wheel {wheel_direction} at {target_x},{target_y}")
+        raise SystemExit(0)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        last_error = error
+        try:
+            client.close()
+        except OSError:
+            pass
+        time.sleep(0.05)
+raise SystemExit(f"cannot scroll USB mouse through QMP: {last_error}")
 PY
 }
 
@@ -495,6 +723,40 @@ if [[ "$audio_model" == "hda" ]]; then
     )
 fi
 
+virtio_block_args=()
+if $virtio_block; then
+    virtio_block_image="$tmp/virtio-block-storage.img"
+    python3 - "$virtio_block_image" <<'PY'
+import struct
+import sys
+
+path = sys.argv[1]
+size = 8 * 1024 * 1024
+sector_count = size // 512
+header = bytearray(512)
+magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+header[:len(magic)] = magic
+struct.pack_into("<I", header, 32, 1)
+struct.pack_into("<I", header, 36, 64)
+struct.pack_into("<Q", header, 40, sector_count)
+struct.pack_into("<Q", header, 48, 8)
+struct.pack_into("<I", header, 56, 8)
+struct.pack_into("<I", header, 60, 0x4B535431)
+with open(path, "wb") as image:
+    image.truncate(size)
+    image.seek(0)
+    image.write(header)
+    image.seek(8 * 512)
+    image.write(bytes((index * 19 + 7) & 0xFF for index in range(8 * 512)))
+PY
+    # Modern-only transport makes the runtime exercise the shared PCI vendor
+    # capability path rather than silently falling back to legacy I/O ports.
+    virtio_block_args=(
+        -drive "if=none,id=kurogane_virtio_block,format=raw,file=$virtio_block_image"
+        -device "virtio-blk-pci,drive=kurogane_virtio_block,disable-legacy=on,id=kurogane_virtio_block"
+    )
+fi
+
 nvme_args=()
 if $nvme; then
     nvme_image="$tmp/nvme-storage.img"
@@ -531,6 +793,13 @@ if $usb_mouse; then
     # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
     usb_args+=(
         -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
+    )
+fi
+if $usb_tablet; then
+    # Absolute HID report-protocol device. This deliberately does not satisfy
+    # the boot-mouse interface matcher.
+    usb_args+=(
+        -device usb-tablet,bus=kurogane_xhci.0,id=kurogane_usb_tablet
     )
 fi
 if $usb_storage; then
@@ -571,8 +840,13 @@ else
     )
 fi
 
+machine_model="q35,accel=$accel_model"
+if $no_ps2; then
+    machine_model+=",i8042=off"
+fi
+
 qemu-system-x86_64 \
-    -machine "q35,accel=$accel_model" \
+    -machine "$machine_model" \
     -cpu "$cpu_model" \
     -smp "$smp_cpus" \
     -m 1024 \
@@ -586,6 +860,7 @@ qemu-system-x86_64 \
     "${network_args[@]}" \
     "${audio_args[@]}" \
     "${nvme_args[@]}" \
+    "${virtio_block_args[@]}" \
     "${usb_args[@]}" \
     -no-reboot \
     -no-shutdown \
@@ -604,6 +879,7 @@ done
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        capture_pending_screenshots
         if $usb_hotplug; then
             usb_action=""
             case "$usb_hotplug_phase" in
@@ -681,6 +957,18 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] clicked ${click_count_x[$index]},${click_count_y[$index]} after marker occurrence $target: $marker"
             fi
         done
+        for index in "${!wheel_markers[@]}"; do
+            if [[ "${wheel_sent[$index]}" == true ]]; then
+                continue
+            fi
+            marker="${wheel_markers[$index]}"
+            if grep -Fq "$marker" "$serial"; then
+                send_qemu_wheel "${wheel_x[$index]}" "${wheel_y[$index]}" "${wheel_direction[$index]}"
+                wheel_sent[$index]=true
+                echo "[uefi-qemu] wheel ${wheel_direction[$index]} at ${wheel_x[$index]},${wheel_y[$index]} after marker: $marker"
+            fi
+        done
+        capture_pending_screenshots
         all_markers_ready=true
         if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
             for index in "${!require_markers[@]}"; do
@@ -702,7 +990,7 @@ while ((SECONDS < deadline)); do
                     all_markers_ready=false
                 fi
             done
-            if $all_markers_ready && ! $require_network; then
+            if $all_markers_ready && screenshots_complete && ! $require_network; then
                 echo "[uefi-qemu] required runtime markers: PASS"
                 for require_marker in "${require_markers[@]}"; do
                     echo "[uefi-qemu] marker: $require_marker"
@@ -732,7 +1020,8 @@ while ((SECONDS < deadline)); do
                 exit 1
             fi
 
-            if [[ "$network_state" == 0 ]] && $all_markers_ready; then
+            if [[ "$network_state" == 0 ]] &&
+               $all_markers_ready && screenshots_complete; then
                 if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
                     echo "[uefi-qemu] required runtime markers: PASS"
                     for require_marker in "${require_markers[@]}"; do
@@ -751,6 +1040,7 @@ while ((SECONDS < deadline)); do
                 exit 0
             fi
         elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
+             screenshots_complete &&
              grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
             echo "[uefi-qemu] $media_kind UEFI boot: PASS"
             echo "[uefi-qemu] firmware CODE: $firmware_code"
@@ -786,6 +1076,11 @@ elif $require_network; then
 else
     echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
+for index in "${!screendump_markers[@]}"; do
+    if [[ "${screendump_sent[$index]}" != true ]]; then
+        echo "screenshot marker was not reached: ${screendump_markers[$index]}" >&2
+    fi
+done
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
 [[ -f "$serial" ]] && tail -n 220 "$serial" >&2 || true
 exit 1

@@ -40,10 +40,14 @@ enum class Status : uint8_t {
 };
 
 /*
- * One bounded, verified HTTPS/1.0 GET. The caller owns DNS and supplies the
+ * One bounded, verified HTTPS/1.1 GET. The caller owns DNS and supplies the
  * resolved peer plus a NUL-terminated PEM trust store. The TLS layer enforces
  * SNI/hostname verification, required CA verification and explicit RTC-based
- * certificate validity checks.
+ * certificate validity checks. Host must be ASCII DNS/IPv4 text and path must
+ * be an origin-form, percent-encoded URI without whitespace or fragments.
+ * Success requires authenticated TLS close_notify; timeout/transport EOF
+ * leaves diagnostic partial bytes but never reports success. HTTP body framing
+ * and decoding remain the caller's responsibility.
  */
 Status https_get(
     NetworkStack* stack,

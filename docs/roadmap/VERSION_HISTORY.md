@@ -1,5 +1,8 @@
 # KuroganeOS Version History
 
+> Rejestr historycznych etapów i przyrostów. Status bieżącego kandydata:
+> [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md). Dawny PASS nie kwalifikuje nowego SHA.
+
 This file tracks formal product milestones. Branch/task suffixes are preserved only as historical engineering references.
 
 ## Versioning rule
@@ -16,7 +19,7 @@ Status: **QUALIFIED scoped DEV milestone**.
 
 Initial baseline: `17bd55091c63544b9585840192f0eb288e9cffff`.
 
-Red Flux was completed through internal installer, networking, TLS/HTTPS, userspace ownership, desktop/audio and regression workstreams. The reopened Kurogane Fatal Diagnostic release gate is also qualified. Oracle VirtualBox host execution remains optional external compatibility validation.
+Red Flux was completed through internal installer, networking, TLS/HTTPS, userspace ownership, desktop/audio and regression workstreams. The reopened Kurogane Fatal Diagnostic release gate is also qualified. Oracle VirtualBox was optional for that historical scope; Flux 8 has its own required external acceptance.
 
 Representative closeout evidence:
 - `33220748290` — userspace ownership regression PASS;
@@ -93,15 +96,8 @@ delivery and four-cycle resource cleanup passed at
 `103527144398`. Formal 5.0 remains ACTIVE; this does not change the embedded
 runtime version or qualify SMP/multi-vector support.
 
-## Future formal milestones
 
-- `6.0.0-dev` — Core Steel.
-- `7.0.0-dev` — Iron Shield.
-- `8.0.0-dev` — Connected Steel.
-- `9.0.0-dev` — Forge Graphics.
-- `10.0.0-dev` — Steel Applications.
-- `11.0.0-dev` — Anvil.
-- `12.0.0-dev` — Platform / Web.
-- `13.0.0-dev` — Forge Design.
-- `14.0.0-rc` — Forge Desktop.
-- `15.0.0` — first STABLE release.
+## Kolejne etapy
+
+Numeracja i zakres przyszłych wersji są utrzymywane wyłącznie w
+[MASTER_ROADMAP_15.md](MASTER_ROADMAP_15.md).

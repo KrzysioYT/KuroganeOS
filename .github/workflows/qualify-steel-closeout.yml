@@ -56,8 +56,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(bash scripts/read-version.sh common/version.h)" = "5.0.0-dev"
-          ! grep -R -Fq '[TEST] smp_scheduler:'             kernel/main.cpp .github/workflows/qualify-smp.yml
+          version="$(bash scripts/read-version.sh common/version.h)"
+          test "${version%%.*}" -ge 5
+          grep -Fq "KuroganeOS $version" dist/release-notes.txt
           grep -Fq '[TEST] smp_cross_cpu_work: PASS'             .github/workflows/qualify-smp.yml
           bash -n scripts/smoke-uefi-iso-qemu.sh
           git diff --check

@@ -91,6 +91,7 @@ static void load_profile(void) {
         copy_text(profile.username, sizeof(profile.username), "developer");
         copy_text(profile.locale, sizeof(profile.locale), "en-US");
         profile.available = 1;
+        (void)u_puts("[ACCOUNTD] profile_live_ready: PASS\n");
         return;
     }
 
@@ -98,6 +99,7 @@ static void load_profile(void) {
     if (!locale_valid || !ku_dev_profile_parse_user_config(user_config, &parsed)) {
         profile.flags = KU_ACCOUNT_FLAG_INSTALLED;
         profile.available = 0;
+        (void)u_puts("[ACCOUNTD] installed_profile_invalid: FAIL\n");
         return;
     }
 
@@ -106,6 +108,7 @@ static void load_profile(void) {
     copy_text(profile.username, sizeof(profile.username), parsed.username);
     copy_text(profile.locale, sizeof(profile.locale), locale);
     profile.available = 1;
+    (void)u_puts("[ACCOUNTD] profile_installed_ready: PASS\n");
 }
 
 static ku_status_t send_response(
@@ -144,6 +147,7 @@ static void handle_request(accountd_client* client, const ku_service_message* me
         return;
     }
     if (!profile.available) {
+        (void)u_puts("[ACCOUNTD] request_invalid_profile: FAIL\n");
         (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, 0);
         return;
     }
@@ -210,13 +214,23 @@ static void service_clients(void) {
 }
 
 __attribute__((noreturn)) void _start(void) {
+    // This marker is intentionally BEFORE service registration and before
+    // reading installed root config. Absence on a new ISO indicates an ELF,
+    // scheduler or user-output failure rather than an invalid account.
+    (void)u_puts("[ACCOUNTD] process_entry: PASS\n");
     const ku_result_t endpoint = ku_service_register(
         KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
     if (endpoint <= 0) {
+        (void)u_puts("[ACCOUNTD] bind_account_v1: FAIL\n");
+        (void)u_puts("[ACCOUNTD] bind_status_abs=");
+        // Negative ku_result_t is an error, never an IPC endpoint handle.
+        (void)u_put_u64((uint64_t)(-endpoint));
+        (void)u_puts("\n");
         (void)u_puts("accountd: service registration failed\n");
         (void)u_puts("[TEST] account_service: FAIL\n");
         ku_exit(1);
     }
+    (void)u_puts("[ACCOUNTD] bind_account_v1: PASS\n");
     load_profile();
     (void)u_puts("accountd: account.v1 online\n");
     (void)u_puts("[TEST] account_service: PASS\n");

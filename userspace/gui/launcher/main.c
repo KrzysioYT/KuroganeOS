@@ -1,11 +1,17 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include "../../../common/version.h"
 #include <kurogane/notification.h>
+#include <kurogane/settings.h>
+#include <kurogane/desktop.h>
+#include <kurogane/flux_app_lifecycle.h>
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
 #define NO_APP_ID UINT32_C(0xFFFFFFFF)
 #define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
+#define DESKTOP_THEME_STATE_KEY "ui.theme"
+#define DESKTOP_STYLE_STATE_KEY "ui.style"
 
 typedef struct launcher_app {
     const char* label;
@@ -17,18 +23,132 @@ typedef struct launcher_app {
 } launcher_app;
 
 static const launcher_app g_apps[APP_COUNT] = {
-    {"TERMINAL", "shared shell / development", "/gui/terminal", KU_DESKTOP_APP_TERMINAL, KU_UI_NATIVE_ICON_TERMINAL, 1},
-    {"FILES", "persistent root / applications", "/gui/files", KU_DESKTOP_APP_FILES, KU_UI_NATIVE_ICON_FILES, 1},
-    {"FORGE CONTROL", "system pulse / network / audio", "/gui/perf", KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
-    {"KUROGANE WEB", "native HTTP browser", "/gui/browser", KU_DESKTOP_APP_BROWSER, KU_UI_NATIVE_ICON_BROWSER, 1},
-    {"MONITOR", "runtime / process health", "/gui/sysmon", KU_DESKTOP_APP_MONITOR, KU_UI_NATIVE_ICON_MONITOR, 1},
-    {"SETTINGS", "appearance / sound", "/gui/settings", KU_DESKTOP_APP_SETTINGS, KU_UI_NATIVE_ICON_SETTINGS, 1},
-    {"ABOUT", "KuroganeOS platform", "/gui/about", KU_DESKTOP_APP_ABOUT, KU_UI_NATIVE_ICON_ABOUT, 1},
-    {"NOTIFICATIONS", "public system activity", "/gui/notify", NO_APP_ID, KU_UI_NATIVE_ICON_NOTIFICATION, 0},
+    {"TERMINAL", "shared shell / development", KU_FLUX_EXEC_TERMINAL, KU_DESKTOP_APP_TERMINAL, KU_UI_NATIVE_ICON_TERMINAL, 1},
+    {"FILES", "persistent root / applications", KU_FLUX_EXEC_FILES, KU_DESKTOP_APP_FILES, KU_UI_NATIVE_ICON_FILES, 1},
+    {"FORGE CONTROL", "system pulse / network / audio", KU_FLUX_EXEC_PERFORMANCE, KU_DESKTOP_APP_PERFORMANCE, KU_UI_NATIVE_ICON_PERFORMANCE, 1},
+    {"KUROGANE WEB", "native HTTP browser", KU_FLUX_EXEC_BROWSER, KU_DESKTOP_APP_BROWSER, KU_UI_NATIVE_ICON_BROWSER, 1},
+    {"MONITOR", "runtime / process health", KU_FLUX_EXEC_MONITOR, KU_DESKTOP_APP_MONITOR, KU_UI_NATIVE_ICON_MONITOR, 1},
+    {"SETTINGS", "appearance / sound", KU_FLUX_EXEC_SETTINGS, KU_DESKTOP_APP_SETTINGS, KU_UI_NATIVE_ICON_SETTINGS, 1},
+    {"ABOUT", "KuroganeOS platform", KU_FLUX_EXEC_ABOUT, KU_DESKTOP_APP_ABOUT, KU_UI_NATIVE_ICON_ABOUT, 1},
+    {"NOTIFICATIONS", "public system activity", KU_FLUX_EXEC_NOTIFICATIONS, NO_APP_ID, KU_UI_NATIVE_ICON_NOTIFICATION, 0},
 };
+
+
+/* Restore theme from the persistent Settings Service at every new session.
+ * A failure leaves the kernel default untouched, never blocks login.
+ */
+static int restore_desktop_theme(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_theme = KU_FLUX_THEME_RED;
+    ku_desktop_theme_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_THEME_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_theme)) break;
+        memcpy(&saved_theme, response.value, sizeof(saved_theme));
+        if (saved_theme >= KU_FLUX_THEME_COUNT) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_THEME_SET;
+        apply.theme_id = (uint32_t)saved_theme;
+        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK;
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
+
+static int restore_desktop_style(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_style = KU_FLUX_STYLE_MODERN;
+    ku_desktop_style_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_STYLE_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_style)) break;
+        memcpy(&saved_style, response.value, sizeof(saved_style));
+        if (saved_style >= KU_FLUX_STYLE_COUNT) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_STYLE_SET;
+        apply.style_id = (uint32_t)saved_style;
+        const int success = ku_desktop_style(&apply) == KU_STATUS_OK;
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
 
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
+static uint64_t g_child_spawned_at[CHILD_CAPACITY];
+static uint8_t g_child_ready_logged[CHILD_CAPACITY];
 static size_t g_selected = 0U;
 static char g_status[64] = "FLUX DECK / READY";
 static ku_service_connection_t g_notification_connection = 0U;
@@ -130,6 +250,8 @@ static void reap_children(void) {
             if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
                 g_children[index] = 0U;
                 g_child_apps[index] = NO_APP_ID;
+                g_child_spawned_at[index] = 0U;
+                g_child_ready_logged[index] = 0U;
             }
         }
     }
@@ -144,6 +266,30 @@ static int app_is_running(uint32_t app_id) {
     return 0;
 }
 
+static uint64_t launch_clock_ticks(void) {
+    ku_system_snapshot sample;
+    return read_system(&sample) ? sample.uptime_ticks : UINT64_MAX;
+}
+
+static int native_app_ready(uint32_t desktop_id) {
+    ku_desktop_pin_request request;
+    if (desktop_id >= KU_DESKTOP_APP_COUNT) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = desktop_id;
+    request.action = KU_DESKTOP_PIN_APP_READY;
+    return ku_desktop_pin(&request) == KU_STATUS_OK && request.pinned != 0U;
+}
+
+static int child_slot_for_app(uint32_t app_id) {
+    size_t slot;
+    reap_children();
+    for (slot = 0U; slot < CHILD_CAPACITY; ++slot)
+        if (g_children[slot] != 0U && g_child_apps[slot] == app_id)
+            return (int)slot;
+    return -1;
+}
+
 static int remember_child(uint64_t pid, uint32_t app_id) {
     size_t index;
     reap_children();
@@ -151,10 +297,25 @@ static int remember_child(uint64_t pid, uint32_t app_id) {
         if (g_children[index] == 0U) {
             g_children[index] = pid;
             g_child_apps[index] = app_id;
+            g_child_spawned_at[index] = launch_clock_ticks();
+            g_child_ready_logged[index] = 0U;
             return 1;
         }
     }
     return 0;
+}
+
+static void report_ready_apps(void) {
+    size_t slot;
+    for (slot = 0U; slot < CHILD_CAPACITY; ++slot) {
+        if (g_children[slot] == 0U || g_child_ready_logged[slot] != 0U)
+            continue;
+        const uint32_t app_index = g_child_apps[slot];
+        if (app_index >= APP_COUNT || !g_apps[app_index].pinnable) continue;
+        if (!native_app_ready(g_apps[app_index].desktop_id)) continue;
+        g_child_ready_logged[slot] = 1U;
+        puts("[INPUT] flux_app_surface_ready: PASS");
+    }
 }
 
 static int launch_app(size_t index, int quiet_if_running) {
@@ -163,18 +324,85 @@ static int launch_app(size_t index, int quiet_if_running) {
     char number[24];
     if (index >= APP_COUNT) return 0;
     app = &g_apps[index];
-    if (app_is_running((uint32_t)index)) {
-        if (!quiet_if_running) {
-            (void)strlcpy(g_status, "ALREADY RUNNING / USE DOCK TO FOCUS", sizeof(g_status));
+    const int child_slot = child_slot_for_app((uint32_t)index);
+    if (child_slot >= 0) {
+        const int ready = app->pinnable && native_app_ready(app->desktop_id);
+        if (ready) {
+            ku_desktop_pin_request focus_request;
+            memset(&focus_request, 0, sizeof(focus_request));
+            focus_request.structure_size = sizeof(focus_request);
+            focus_request.app_id = app->desktop_id;
+            focus_request.action = KU_DESKTOP_PIN_FOCUS_RUNNING;
+            if (ku_desktop_pin(&focus_request) == KU_STATUS_OK) {
+                puts("[INPUT] flux_app_existing_focused: PASS");
+                if (!quiet_if_running) {
+                    (void)strlcpy(g_status, "FOCUSED EXISTING APP", sizeof(g_status));
+                }
+                return 1;
+            }
         }
-        return 1;
+        // The process exists but has not produced a usable window. Do not
+        // mistake PID creation for a working application and do not spawn a
+        // duplicate while the first process is still starting.
+        const uint64_t now = launch_clock_ticks();
+        if (!app->pinnable ||
+            !ku_flux_app_retry_eligible(g_child_spawned_at[child_slot],
+                                        now, ready)) {
+            if (!quiet_if_running)
+                (void)strlcpy(g_status, "APP STARTING / WAIT FOR WINDOW",
+                              sizeof(g_status));
+            return 1;
+        }
+        // Explicit user click after 15 seconds requests a bounded restart.
+        // Only our own child is terminated. Never kill another user's PID.
+        const uint64_t stalled_pid = g_children[child_slot];
+        const ku_status_t stopped = ku_process_terminate_child(stalled_pid, 1);
+        if (stopped != KU_STATUS_OK && stopped != KU_STATUS_NOT_FOUND) {
+            (void)strlcpy(g_status, "APP RETRY BLOCKED / CHILD ACTIVE",
+                          sizeof(g_status));
+            return 0;
+        }
+        int finished = stopped == KU_STATUS_NOT_FOUND;
+        if (stopped == KU_STATUS_OK) {
+            for (uint32_t attempt = 0U; attempt < 200U; ++attempt) {
+                int32_t exit_code = 0;
+                const ku_status_t waited = ku_process_wait(stalled_pid, &exit_code);
+                if (waited == KU_STATUS_OK || waited == KU_STATUS_NOT_FOUND) {
+                    finished = 1;
+                    break;
+                }
+                if (waited != KU_STATUS_WOULD_BLOCK) break;
+                (void)kuro_sleep(1U);
+            }
+        }
+        if (!finished) {
+            (void)strlcpy(g_status, "APP RETRY WAIT / CHILD EXIT",
+                          sizeof(g_status));
+            return 0;
+        }
+        g_children[child_slot] = 0U;
+        g_child_apps[child_slot] = NO_APP_ID;
+        g_child_spawned_at[child_slot] = 0U;
+        g_child_ready_logged[child_slot] = 0U;
+        puts("[INPUT] flux_app_stalled_retry: PASS");
+    }
+    // Avoid untracked children if the table ever fills unexpectedly.
+    reap_children();
+    size_t free_slot = CHILD_CAPACITY;
+    for (size_t i = 0U; i < CHILD_CAPACITY; ++i)
+        if (g_children[i] == 0U) { free_slot = i; break; }
+    if (free_slot == CHILD_CAPACITY) {
+        (void)strlcpy(g_status, "APP LIMIT REACHED", sizeof(g_status));
+        return 0;
     }
 
     result = ku_process_spawn(app->path, strlen(app->path));
     if (result <= 0) {
         (void)strlcpy(g_status, "APP LAUNCH FAILED", sizeof(g_status));
+        puts("[INPUT] flux_app_spawn: FAIL");
         return 0;
     }
+    puts("[INPUT] flux_app_spawn: PASS");
     (void)remember_child((uint64_t)result, (uint32_t)index);
     gui_u64(number, sizeof(number), (uint64_t)result);
     (void)strlcpy(g_status, "OPENED ", sizeof(g_status));
@@ -191,6 +419,7 @@ static void launch_selected(void) {
 static void select_and_launch(size_t index) {
     if (index >= APP_COUNT) return;
     g_selected = index;
+    puts("[INPUT] flux_launcher_action_received: PASS");
     launch_selected();
 }
 
@@ -297,9 +526,9 @@ static void build_scene(kui_scene* scene) {
     const int system_valid = read_system(&system);
     const int network_valid = read_network(&network);
     const int audio_valid = read_audio(&audio);
-    char cpu[64] = "CPU\n";
+    char cpu[64] = "SCHED LOAD*\n";
     char ram[64] = "RAM\n";
-    char disk[64] = "DISK\n";
+    char disk[64] = "DISK I/O*\n";
     char net[64] = "NETWORK\n";
     char sound[64] = "AUDIO\n";
     uint32_t net_value = 0U;
@@ -308,7 +537,12 @@ static void build_scene(kui_scene* scene) {
 
     if (system_valid) {
         append_percent(cpu, sizeof(cpu), system.cpu_percent);
-        append_percent(ram, sizeof(ram), system.ram_percent);
+        if (system.ram_percent == 0U &&
+            system.memory_total_bytes > system.memory_free_bytes) {
+            append_text(ram, sizeof(ram), "<1%");
+        } else {
+            append_percent(ram, sizeof(ram), system.ram_percent);
+        }
         append_percent(disk, sizeof(disk), system.disk_percent);
     } else {
         append_text(cpu, sizeof(cpu), "--");
@@ -318,7 +552,7 @@ static void build_scene(kui_scene* scene) {
     if (!network_valid) {
         append_text(net, sizeof(net), "UNKNOWN");
     } else if (network.ready != 0U) {
-        append_text(net, sizeof(net), "ONLINE");
+        append_text(net, sizeof(net), "STACK READY");
         net_value = 100U;
     } else if (network.physical != 0U) {
         append_text(net, sizeof(net), "LINK");
@@ -338,11 +572,7 @@ static void build_scene(kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX HOME / SYSTEM PULSE");
@@ -365,7 +595,11 @@ static void build_scene(kui_scene* scene) {
         (void)kui_flow_tile(
             &apps, 10U + (uint32_t)index, label, g_apps[index].icon);
         if (g_apps[index].pinnable && pin_state(g_apps[index].desktop_id)) flags |= KUI_VIEW_PINNED;
-        if (app_is_running((uint32_t)index)) flags |= KUI_VIEW_RUNNING;
+        // A PID without a presented surface is STARTING, not RUNNING.
+        if (app_is_running((uint32_t)index) &&
+            (!g_apps[index].pinnable ||
+             native_app_ready(g_apps[index].desktop_id)))
+            flags |= KUI_VIEW_RUNNING;
         (void)kui_scene_set_flags(scene, 10U + (uint32_t)index, flags);
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
@@ -375,18 +609,48 @@ static void build_scene(kui_scene* scene) {
 
 int main(void) {
     /* Keep the window title stable: WindowManager treats it as session root. */
-    const ku_window_t window = gui_open("RED FLUX HOME", 250, 135, 650, 460);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_HOME, 250, 135, 650, 460);
     kui_scene scene;
     size_t index;
     uint32_t pointer_buttons = 0U;
     uint32_t refresh_ticks = 0U;
-    if (window == KU_INVALID_WINDOW) return 1;
+    if (window == KU_INVALID_WINDOW) {
+        puts("[SESSION] flux_home_ui_create: FAIL");
+        return 1;
+    }
+    puts("[SESSION] flux_home_ui_create: PASS");
 
     for (index = 0U; index < CHILD_CAPACITY; ++index) {
         g_children[index] = 0U;
         g_child_apps[index] = NO_APP_ID;
+        g_child_spawned_at[index] = 0U;
+        g_child_ready_logged[index] = 0U;
     }
 
+    // The first Home frame is the authenticated desktop handoff contract.
+    // Never block this milestone on settingsd, notifd or persistent pin IO.
+    // Live services can load after the window is already displayed.
+    build_scene(&scene);
+    if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+        puts("[SESSION] flux_home_ui_present: FAIL");
+        (void)ku_ui_close(window);
+        return 2;
+    }
+    puts("[SESSION] flux_home_ui_present: PASS");
+    puts("[TEST] red_flux_home_surface: PASS");
+    puts("[TEST] red_flux_tile_launcher: PASS");
+    puts("[TEST] flux_home_system_pulse: PASS");
+
+    if (restore_desktop_theme()) {
+        puts("[TEST] flux_theme_restore: PASS");
+    } else {
+        puts("[TEST] flux_theme_restore: DEFAULT");
+    }
+    if (restore_desktop_style()) {
+        puts("[TEST] flux_style_restore: PASS");
+    } else {
+        puts("[TEST] flux_style_restore: DEFAULT");
+    }
     if (load_pin_state()) {
         (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
         puts("[TEST] desktop_pin_persistence_load: PASS");
@@ -408,14 +672,12 @@ int main(void) {
         puts("[TEST] flux_home_public_notification: FAIL");
     }
 
+    // Optional services might be temporarily unavailable; Home must remain
+    // alive and allow Dock/keyboard commands even if this refresh fails.
     build_scene(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
-        (void)ku_ui_close(window);
-        return 2;
+        puts("[SESSION] flux_home_optional_refresh: FAIL");
     }
-    puts("[TEST] red_flux_home_surface: PASS");
-    puts("[TEST] red_flux_tile_launcher: PASS");
-    puts("[TEST] flux_home_system_pulse: PASS");
 
     for (;;) {
         ku_ui_event event;
@@ -427,6 +689,7 @@ int main(void) {
             ++refresh_ticks;
             if (refresh_ticks >= KU_SYSTEM_TICKS_PER_SECOND) {
                 refresh_ticks = 0U;
+                report_ready_apps();
                 build_scene(&scene);
                 if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
             }
@@ -445,6 +708,7 @@ int main(void) {
             if (!primary_pressed) continue;
             target = kui_scene_hit_test(&scene, event.x, event.y);
             if (target >= 10U && target < 10U + APP_COUNT) {
+                puts("[INPUT] flux_home_tile_hit: PASS");
                 select_and_launch((size_t)(target - 10U));
             } else if (target == 30U) {
                 toggle_selected_pin();
@@ -466,6 +730,7 @@ int main(void) {
          * is introduced.
          */
         if (event.type != KU_UI_EVENT_KEY || event.key != KU_UI_KEY_UNKNOWN) continue;
+        puts("[INPUT] flux_dock_shortcut_received: PASS");
         if (event.character == 't') {
             select_and_launch(0U);
         } else if (event.character == 'f') {

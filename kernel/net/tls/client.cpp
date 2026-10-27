@@ -139,13 +139,6 @@ void zero_bytes(void* pointer, size_t size) {
     for (size_t index = 0U; index < size; ++index) bytes[index] = 0U;
 }
 
-size_t text_length(const char* text) {
-    if (text == nullptr) return 0U;
-    size_t length = 0U;
-    while (text[length] != '\0') ++length;
-    return length;
-}
-
 bool append_text(
     uint8_t* output,
     size_t capacity,
@@ -160,6 +153,41 @@ bool append_text(
         output[(*length)++] = static_cast<uint8_t>(text[index]);
     }
     return true;
+}
+
+Status build_http_request(const char* host, const char* path,
+    uint8_t* output, size_t capacity, size_t* length) {
+    if (length == nullptr) return Status::InvalidArgument;
+    *length = 0U;
+    if (host == nullptr || path == nullptr || output == nullptr || path[0] != '/')
+        return Status::InvalidArgument;
+    size_t host_size = 0U, path_size = 0U;
+    for (; host_size <= 253U && host[host_size] != '\0'; ++host_size) {
+        const unsigned char c = static_cast<unsigned char>(host[host_size]);
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-'))
+            return Status::InvalidArgument;
+    }
+    if (host_size == 0U || host_size > 253U) return Status::InvalidArgument;
+    for (; path_size <= 1024U && path[path_size] != '\0'; ++path_size) {
+        const unsigned char c = static_cast<unsigned char>(path[path_size]);
+        // URI bytes must be escaped by the caller, never interpreted as headers.
+        if (c <= 0x20U || c >= 0x7FU || c == '#') return Status::InvalidArgument;
+    }
+    if (path_size > 1024U) return Status::InvalidArgument;
+    constexpr char prefix[] = "GET ";
+    constexpr char middle[] = " HTTP/1.1\r\nHost: ";
+    constexpr char suffix[] = "\r\nUser-Agent: KuroganeWeb/0.3\r\n"
+        "Accept: text/html,text/plain,*/*\r\nConnection: close\r\n\r\n";
+    const size_t required = sizeof(prefix) - 1U + path_size + sizeof(middle) - 1U +
+        host_size + sizeof(suffix) - 1U;
+    if (required > capacity) return Status::ResponseTooLarge;
+    if (!append_text(output, capacity, length, prefix) ||
+        !append_text(output, capacity, length, path) ||
+        !append_text(output, capacity, length, middle) ||
+        !append_text(output, capacity, length, host) ||
+        !append_text(output, capacity, length, suffix)) return Status::ResponseTooLarge;
+    return Status::Ok;
 }
 
 uint16_t parse_http_status(const uint8_t* bytes, size_t length) {
@@ -600,9 +628,17 @@ Status read_response(
             ++idle_attempts;
             continue;
         }
-        if (result == 0 || result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) break;
+        if (result == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+            *out_length = written;
+            return written == 0U ? Status::IoFailure : Status::Ok;
+        }
+        if (result == 0) {
+            *out_length = written;
+            return Status::IoFailure; // Unauthenticated transport EOF may be truncation.
+        }
         if (result < 0) {
             log_mbedtls_error("ssl_read error=", result);
+            *out_length = written;
             return Status::IoFailure;
         }
         idle_attempts = 0U;
@@ -631,7 +667,7 @@ Status read_response(
     if (written == 0U) {
         log::write(log::Level::Error, "TLS", "HTTPS peer returned no response bytes");
     }
-    return written == 0U ? Status::IoFailure : Status::Ok;
+    return Status::Timeout;
 }
 
 } // namespace
@@ -654,10 +690,15 @@ Status https_get(
     if (stack == nullptr || host_name == nullptr || host_name[0] == '\0' ||
         path == nullptr || path[0] != '/' || trust_pem == nullptr ||
         output == nullptr || output_capacity == 0U || out_length == nullptr ||
-        out_http_status == nullptr || local_port == 0U ||
-        text_length(host_name) > 253U || text_length(path) > 1024U) {
+        out_http_status == nullptr || local_port == 0U) {
         return Status::InvalidArgument;
     }
+
+    uint8_t request[kRequestCapacity]{};
+    size_t request_length = 0U;
+    const Status request_status = build_http_request(
+        host_name, path, request, sizeof(request), &request_length);
+    if (request_status != Status::Ok) return request_status;
 
     auto* session = static_cast<Session*>(
         memory::kmalloc(sizeof(Session), alignof(Session)));
@@ -695,21 +736,6 @@ Status https_get(
     if (status != Status::Ok) {
         free_session(session);
         return status;
-    }
-
-    uint8_t request[kRequestCapacity]{};
-    size_t request_length = 0U;
-    if (!append_text(request, sizeof(request), &request_length, "GET ") ||
-        !append_text(request, sizeof(request), &request_length, path) ||
-        !append_text(request, sizeof(request), &request_length,
-            " HTTP/1.1\r\nHost: ") ||
-        !append_text(request, sizeof(request), &request_length, host_name) ||
-        !append_text(request, sizeof(request), &request_length,
-            "\r\nUser-Agent: KuroganeWeb/0.3\r\n"
-            "Accept: text/html,text/plain,*/*\r\n"
-            "Connection: close\r\n\r\n")) {
-        free_session(session);
-        return Status::ResponseTooLarge;
     }
 
     status = write_all(session, request, request_length);

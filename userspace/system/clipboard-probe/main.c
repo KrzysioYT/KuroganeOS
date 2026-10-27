@@ -3,7 +3,7 @@
 #include <kurogane/clipboard.h>
 
 #define PROBE_ATTEMPTS 300U
-#define PROBE_TEXT "Kurogane clipboard"
+#define PROBE_TEXT "Kurogane \xC5\xBC\xC3\xB3\xC5\x82\xC4\x87 \xF0\x9F\x98\x80"
 
 static void clear_bytes(void* destination, size_t size) {
     uint8_t* bytes = (uint8_t*)destination;
@@ -100,6 +100,18 @@ __attribute__((noreturn)) void _start(void) {
         !bytes_equal(response.data, text, sizeof(text))) {
         fail(4U);
     }
+
+    clear_bytes(&request, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_CLIPBOARD_SET;
+    request.format = KU_CLIPBOARD_FORMAT_UTF8;
+    request.data_size = 3U;
+    request.data[0] = 0xC0U;
+    request.data[1] = 0x80U;
+    if (transact(connection, &request, &response) != KU_STATUS_INVALID_ARGUMENT ||
+        response.generation != generation || response.data_size != sizeof(text) ||
+        !bytes_equal(response.data, text, sizeof(text))) fail(7U);
+    (void)u_puts("[TEST] clipboard_unicode_validation: PASS\n");
 
     clear_bytes(&request, sizeof(request));
     clear_bytes(&response, sizeof(response));

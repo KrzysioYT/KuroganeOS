@@ -1,7 +1,11 @@
 #include "channel.hpp"
 
+#include "../sync/spinlock.hpp"
+
 namespace ipc {
 namespace {
+
+sync::TicketSpinLock g_state_lock{};
 
 constexpr uint64_t kIndexMask = UINT64_C(0xFF);
 constexpr uint64_t kKindMask = UINT64_C(0xFF) << 16U;
@@ -227,6 +231,7 @@ Status pop_message(MessageQueue& queue, Message* output) {
 } // namespace
 
 Status initialize() {
+    sync::LockGuard state_guard(g_state_lock);
     if (g_initialized) return Status::AlreadyInitialized;
     clear_bytes(g_endpoints, sizeof(g_endpoints));
     clear_bytes(g_channels, sizeof(g_channels));
@@ -240,6 +245,7 @@ Status bind(
     size_t name_length,
     Handle* endpoint,
     const ServiceMetadata* metadata) {
+    sync::LockGuard state_guard(g_state_lock);
     if (endpoint != nullptr) *endpoint = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || endpoint == nullptr) {
@@ -284,6 +290,7 @@ Status query(
     const char* name,
     size_t name_length,
     ServiceInfo* info) {
+    sync::LockGuard state_guard(g_state_lock);
     if (info != nullptr) *info = {};
     if (!g_initialized) return Status::NotInitialized;
     if (info == nullptr) return Status::InvalidArgument;
@@ -307,6 +314,7 @@ Status connect(
     size_t name_length,
     Handle* channel,
     ServiceNegotiation* negotiation) {
+    sync::LockGuard state_guard(g_state_lock);
     if (channel != nullptr) *channel = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (client_pid == INVALID_PROCESS_ID || channel == nullptr) {
@@ -373,6 +381,7 @@ Status connect(
 }
 
 Status accept(ProcessId server_pid, Handle endpoint_handle, Handle* channel) {
+    sync::LockGuard state_guard(g_state_lock);
     if (channel != nullptr) *channel = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (server_pid == INVALID_PROCESS_ID || channel == nullptr) {
@@ -404,6 +413,7 @@ Status send(
     Handle channel_handle,
     const void* data,
     size_t size) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (sender_pid == INVALID_PROCESS_ID || size > MAX_MESSAGE_SIZE ||
         (size != 0U && data == nullptr)) {
@@ -423,6 +433,7 @@ Status receive(
     ProcessId receiver_pid,
     Handle channel_handle,
     Message* message) {
+    sync::LockGuard state_guard(g_state_lock);
     if (message != nullptr) *message = {};
     if (!g_initialized) return Status::NotInitialized;
     if (receiver_pid == INVALID_PROCESS_ID || message == nullptr) {
@@ -443,6 +454,7 @@ Status receive(
 }
 
 Status close(ProcessId owner_pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || handle == INVALID_HANDLE) {
         return Status::InvalidArgument;
@@ -475,6 +487,7 @@ Status close(ProcessId owner_pid, Handle handle) {
 }
 
 void release_process(ProcessId pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized || pid == INVALID_PROCESS_ID) return;
     for (EndpointSlot& endpoint : g_endpoints) {
         if (!endpoint.active || endpoint.owner_pid != pid) continue;

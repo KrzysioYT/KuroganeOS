@@ -1,9 +1,13 @@
 #include "shared_memory.hpp"
 
+#include "../sync/spinlock.hpp"
+
 #include "../memory/physical_memory.hpp"
 
 namespace ipc::shared_memory {
 namespace {
+
+sync::TicketSpinLock g_state_lock{};
 
 constexpr uint64_t kIndexMask = UINT64_C(0xFF);
 constexpr uint64_t kKindMask = UINT64_C(0xFF) << 16U;
@@ -108,6 +112,7 @@ Status access_slot(ObjectSlot& slot, ProcessId pid, uint16_t** mappings, bool** 
 } // namespace
 
 Status initialize() {
+    sync::LockGuard state_guard(g_state_lock);
     if (g_initialized) return Status::AlreadyInitialized;
     clear_bytes(g_objects, sizeof(g_objects));
     g_initialized = true;
@@ -115,6 +120,7 @@ Status initialize() {
 }
 
 Status create(ProcessId owner_pid, size_t size, Handle* handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (handle != nullptr) *handle = INVALID_HANDLE;
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || handle == nullptr || size == 0U) {
@@ -161,6 +167,7 @@ Status create(ProcessId owner_pid, size_t size, Handle* handle) {
 }
 
 Status grant(ProcessId owner_pid, Handle handle, ProcessId target_pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (owner_pid == INVALID_PROCESS_ID || target_pid == INVALID_PROCESS_ID ||
         owner_pid == target_pid) return Status::InvalidArgument;
@@ -188,6 +195,7 @@ Status grant(ProcessId owner_pid, Handle handle, ProcessId target_pid) {
 }
 
 Status acquire(ProcessId pid, Handle handle, View* view) {
+    sync::LockGuard state_guard(g_state_lock);
     if (view != nullptr) *view = {};
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID || view == nullptr) return Status::InvalidArgument;
@@ -209,6 +217,7 @@ Status acquire(ProcessId pid, Handle handle, View* view) {
 }
 
 Status release(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     ObjectSlot* slot = nullptr;
@@ -225,6 +234,7 @@ Status release(ProcessId pid, Handle handle) {
 }
 
 Status close(ProcessId pid, Handle handle) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized) return Status::NotInitialized;
     if (pid == INVALID_PROCESS_ID) return Status::InvalidArgument;
     ObjectSlot* slot = nullptr;
@@ -239,6 +249,7 @@ Status close(ProcessId pid, Handle handle) {
 }
 
 void release_process(ProcessId pid) {
+    sync::LockGuard state_guard(g_state_lock);
     if (!g_initialized || pid == INVALID_PROCESS_ID) return;
     for (ObjectSlot& slot : g_objects) {
         if (!slot.active) continue;

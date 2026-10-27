@@ -1,5 +1,8 @@
 # KuroganeOS 5.0 Steel — manual validation
 
+> Zapis historyczny / dowód dla wskazanej rewizji. Nie jest instrukcją
+> bieżącego wydania. Aktualny stan: [DEVELOPMENT_STATE.md](../../DEVELOPMENT_STATE.md).
+
 This checklist is for external validation after the automated Steel milestone
 qualified on 2026-10-07.
 

@@ -17,6 +17,12 @@
 
 __attribute__((noreturn)) static void run_console_fallback(void) {
     (void)u_puts("init: Red Flux session unavailable; entering console fallback\n");
+    if (ku_enter_console_fallback() != KU_STATUS_OK) {
+        // Never claim that the shell is visible if ownership transfer failed.
+        (void)u_puts("[RECOVERY] console_display_handoff: FAIL\n");
+        ku_exit(40);
+    }
+    (void)u_puts("[RECOVERY] console_display_handoff: PASS\n");
     (void)u_puts("[TEST] desktop_session_fallback: PASS\n");
     for (;;) {
         const ku_result_t shell_pid = u_spawn("/apps/shell");
@@ -112,7 +118,22 @@ static int supervise_service(service_watch* watch) {
     status = ku_wait(watch->pid, &exit_code);
     if (status == KU_STATUS_WOULD_BLOCK) return 1;
     if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
-    if (watch->restarts >= SERVICE_RESTART_LIMIT) return 0;
+    // Restart is evidence of a DEAD child, not service readiness.
+    // Report exit reason adjacent to the existing per-service restart marker,
+    // without logging account identity or credential material.
+    (void)u_puts("[SUPERVISOR] child_exit_kind=");
+    (void)u_puts(status == KU_STATUS_OK ? "REAPED\n" : "NOT_FOUND\n");
+    if (status == KU_STATUS_OK) {
+        (void)u_puts("[SUPERVISOR] child_exit_code=");
+        if (exit_code < 0) (void)u_puts("-");
+        (void)u_put_u64(exit_code < 0
+            ? (uint64_t)(-(int64_t)exit_code) : (uint64_t)exit_code);
+        (void)u_puts("\n");
+    }
+    if (watch->restarts >= SERVICE_RESTART_LIMIT) {
+        (void)u_puts("[SUPERVISOR] restart_limit_exhausted: FAIL\n");
+        return 0;
+    }
 
     delay = SERVICE_RESTART_BASE_DELAY * (uint64_t)(watch->restarts + 1U);
     (void)u_puts("init: supervised service terminated; restarting\n");
@@ -250,18 +271,31 @@ __attribute__((noreturn)) void _start(void) {
         "[TEST] clipboard_service_restart: PASS\n"
     };
 
+    // A transient accountd/sessiond/login startup race must not strand the
+    // GUI in an invisible serial-only console. Retry the trusted login gate
+    // with bounded backoff; never spawn Home or an app from PID 1.
     uint64_t session_pid = spawn_session_gate();
-    if (session_pid == 0U) run_console_fallback();
-
-    (void)ku_sleep(UINT64_C(25));
+    uint32_t login_boot_attempt = 0U;
+    for (; login_boot_attempt < 4U; ++login_boot_attempt) {
+        int32_t early_status = 0;
+        if (session_pid != 0U) {
+            (void)ku_sleep(UINT64_C(25));
+            const ku_status_t early = ku_wait(session_pid, &early_status);
+            if (early == KU_STATUS_WOULD_BLOCK) break;
+            if (early != KU_STATUS_OK && early != KU_STATUS_NOT_FOUND) {
+                (void)u_puts("[SESSION] flux_login_boot_wait_error: FAIL\n");
+                run_console_fallback();
+            }
+        }
+        (void)u_puts("[SESSION] flux_login_boot_retry: PASS\n");
+        if (login_boot_attempt + 1U == 4U) {
+            (void)u_puts("[SESSION] flux_login_boot_exhausted: FAIL\n");
+            run_console_fallback();
+        }
+        (void)ku_sleep(UINT64_C(8) * (uint64_t)(login_boot_attempt + 1U));
+        session_pid = spawn_session_gate();
+    }
     int32_t status = 0;
-    const ku_status_t early = ku_wait(session_pid, &status);
-    if (early == KU_STATUS_OK || early == KU_STATUS_NOT_FOUND) {
-        run_console_fallback();
-    }
-    if (early != KU_STATUS_WOULD_BLOCK) {
-        run_console_fallback();
-    }
 
     if (!supervise_service(&event_watch)) {
         (void)u_puts("[TEST] event_broker_liveness: FAIL\n");
@@ -372,6 +406,11 @@ __attribute__((noreturn)) void _start(void) {
             (void)u_puts("init: session gate ended; returning to login\n");
             (void)ku_sleep(UINT64_C(8));
             session_pid = spawn_session_gate();
+            if (session_pid == 0U) {
+                (void)u_puts("[SESSION] flux_login_restart_spawn: FAIL\n");
+                (void)ku_sleep(UINT64_C(8));
+                session_pid = spawn_session_gate();
+            }
             if (session_pid == 0U) run_console_fallback();
         } else if (wait_status != KU_STATUS_WOULD_BLOCK) {
             run_console_fallback();

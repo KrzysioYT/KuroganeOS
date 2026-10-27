@@ -51,6 +51,11 @@ enum class Bus : uint8_t {
     Virtual,
 };
 
+enum class Requirement : uint8_t {
+    Optional = 0,
+    BootCritical,
+};
+
 enum class Status : uint8_t {
     Discovered = 0,
     Probing,
@@ -95,6 +100,7 @@ struct Descriptor {
     DeviceId parent;
     const Resource* resources;
     size_t resource_count;
+    Requirement requirement = Requirement::Optional;
 };
 
 struct Device {
@@ -111,6 +117,7 @@ struct Device {
     uint8_t subclass;
     uint8_t programming_interface;
     BusAddress bus_address;
+    Requirement requirement;
     Status status;
     DriverId driver;
     char driver_name[MAXIMUM_DRIVER_NAME_LENGTH + 1];
@@ -153,6 +160,7 @@ void visit(VisitCallback callback, void* context);
 
 const char* type_name(Type type);
 const char* bus_name(Bus bus);
+const char* requirement_name(Requirement requirement);
 const char* status_name(Status status);
 
 } // namespace drivers::device

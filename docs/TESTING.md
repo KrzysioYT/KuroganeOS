@@ -4,6 +4,22 @@ Hosted tests cover deterministic logic; QEMU proves CPU privilege, timer
 preemption, hardware/DMA paths, persistence, networking, GUI input and install.
 A marker counts only with a successful runner exit and no `[TEST] ...: FAIL`.
 
+## Current Flux 8 acceptance
+
+Use `.github/workflows/qualify-8.0-flux-desktop-foundation.yml` for the scoped
+host/UBSan and USB-only QEMU gate. It verifies authenticated Home and real
+Files/Terminal child processes plus presented surfaces. Windows/Linux userspace
+inventory parity and PowerShell parsing are separate build checks.
+
+Run `bash scripts/run-host-tests.sh` for host regression. A skipped test must be
+reported, never silently counted as PASS. VirtualBox interactive acceptance
+is required separately; see [VIRTUALBOX.md](VIRTUALBOX.md). Record source SHA,
+media SHA256, VM/device profile, log and runner result. A documentation-only
+change does not requalify changed runtime code.
+
+The older scenario runners below remain specialized tools; `validate-2.0.ps1`
+is not the complete release gate for 8.0 or 15.0.
+
 ## Hosted tests
 
 ```powershell

@@ -1,4 +1,5 @@
 #include "../common.h"
+#include <kurogane/flux_app_catalog.h>
 #include <kurogane/notification.h>
 
 #define NOTICE_PAGE_SIZE 3U
@@ -145,7 +146,7 @@ static void build_scene(kui_scene* scene, const notice_page* page) {
 }
 
 int main(void) {
-    const ku_window_t window = gui_open("NOTIFICATIONS", 470, 100, 520, 455);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_NOTIFICATIONS, 470, 100, 520, 455);
     const ku_result_t connected = connect_notifications();
     ku_service_connection_t connection;
     notice_page page;

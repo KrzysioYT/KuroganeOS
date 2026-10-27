@@ -54,6 +54,26 @@ bool find_boot_mouse_interface(
     size_t length,
     HidBootMouseInterface* output);
 
+struct HidReportInterface {
+    uint8_t configuration_value;
+    uint8_t interface_number;
+    uint8_t endpoint_address;
+    uint16_t maximum_packet_size;
+    uint8_t interval;
+    uint16_t report_descriptor_length;
+};
+
+bool find_hid_report_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    HidReportInterface* output);
+
+bool find_hid_report_interface_for_interface(
+    const uint8_t* descriptors,
+    size_t length,
+    uint8_t interface_number,
+    HidReportInterface* output);
+
 struct MouseDecoder {
     uint8_t previous_buttons;
 };

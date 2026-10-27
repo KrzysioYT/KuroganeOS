@@ -2,6 +2,7 @@
 
 #include <kurogane/audio.h>
 #include <kurogane/desktop.h>
+#include <kurogane/display.h>
 #include <kurogane/filesystem.h>
 #include <kurogane/network.h>
 #include <kurogane/status.h>
@@ -14,6 +15,9 @@
 #include "file_handle.hpp"
 #include "../arch/x86_64/gdt.hpp"
 #include "../core/log.hpp"
+#include "../core/string.hpp"
+#include "../apps/framework.hpp"
+#include "console_fallback_policy.hpp"
 #include "../core/system_metrics.hpp"
 #include "../drivers/audio/audio_backend.hpp"
 #include "../fs/root_volume.hpp"
@@ -28,6 +32,8 @@
 #include "../drivers/framebuffer.hpp"
 #include "../ui/ui.hpp"
 #include "../ui/window_manager.hpp"
+#include "ui_event_queue.hpp"
+#include "child_termination_policy.hpp"
 
 struct UserReturnState {
     uint64_t kernel_rsp;
@@ -71,14 +77,10 @@ struct Allocation {
     bool active;
 };
 
-constexpr size_t kMaximumUiEvents = 16U;
-
 struct UiState {
     ku_ui_frame frame;
-    ku_ui_event events[kMaximumUiEvents];
+    ui_event_queue::Queue events;
     windowing::WindowId window;
-    uint8_t head;
-    uint8_t tail;
     bool active;
 };
 
@@ -213,9 +215,14 @@ void draw_native_frame(
     const int32_t pointer_y = input::pointer_y();
     const bool primary_down =
         (input::pointer_buttons() & drivers::mouse::Left) != 0U;
-    const graphics::Color background = frame.background_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color foreground = frame.foreground_rgb & UINT32_C(0xFFFFFF);
-    const graphics::Color accent = frame.accent_rgb & UINT32_C(0xFFFFFF);
+    const ku_flux_scene_colors live = ku_flux_resolve_scene_colors(
+        frame.background_rgb & UINT32_C(0xFFFFFF),
+        frame.foreground_rgb & UINT32_C(0xFFFFFF),
+        frame.accent_rgb & UINT32_C(0xFFFFFF),
+        ui::desktop_theme_id());
+    const graphics::Color background = live.background;
+    const graphics::Color foreground = live.foreground;
+    const graphics::Color accent = live.accent;
     graphics::fill_rect(content.x, content.y, content.width, content.height, background);
     if (content.width > 48) {
         graphics::fill_rect(content.x + 16, content.y + 7,
@@ -368,14 +375,7 @@ void draw_user_window(
 }
 
 void queue_user_event(Context& context, const ku_ui_event& event) {
-    const uint8_t next = static_cast<uint8_t>(
-        (context.ui.head + 1U) % kMaximumUiEvents);
-    if (next == context.ui.tail) {
-        context.ui.tail = static_cast<uint8_t>(
-            (context.ui.tail + 1U) % kMaximumUiEvents);
-    }
-    context.ui.events[context.ui.head] = event;
-    context.ui.head = next;
+    static_cast<void>(ui_event_queue::push(context.ui.events, event));
 }
 
 void input_user_window(
@@ -383,24 +383,34 @@ void input_user_window(
     const input::Event& input_event,
     void* opaque) {
     auto* context = static_cast<Context*>(opaque);
-    if (context == nullptr || !context->active || !context->ui.active) return;
+    if (context == nullptr || !context->active || !context->ui.active ||
+        context->ui.window != window) return;
     ku_ui_event event{};
     event.structure_size = sizeof(event);
     if (input_event.type == input::EventType::KeyDown) {
         event.type = KU_UI_EVENT_KEY;
         event.key = static_cast<uint32_t>(input_event.key);
         event.character = static_cast<uint8_t>(input_event.character);
+        event.modifiers =
+            (input_event.shift ? KU_UI_MOD_SHIFT : 0U) |
+            (input_event.control ? KU_UI_MOD_CONTROL : 0U) |
+            (input_event.alt ? KU_UI_MOD_ALT : 0U);
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
-               input_event.type == input::EventType::MouseButtonUp) {
+               input_event.type == input::EventType::MouseButtonUp ||
+               input_event.type == input::EventType::MouseWheel) {
         ui::Rect content{};
         if (windowing::content_geometry(window, &content) != windowing::Status::Ok) {
             return;
         }
-        event.type = KU_UI_EVENT_POINTER;
+        event.type = input_event.type == input::EventType::MouseWheel
+            ? KU_UI_EVENT_SCROLL : KU_UI_EVENT_POINTER;
         event.x = input_event.x - content.x;
         event.y = input_event.y - content.y;
         event.buttons = input_event.buttons;
+        if (input_event.type == input::EventType::MouseWheel) {
+            event.wheel_y = static_cast<int32_t>(input_event.wheel);
+        }
     } else {
         return;
     }
@@ -1395,6 +1405,51 @@ void syscall_handler(
             frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
             return;
         }
+        case KU_SYS_CONSOLE_FALLBACK: {
+            if (!console_fallback_policy::allowed(
+                    context->pid, frame.rdi, frame.rsi, frame.rdx)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            // Flux's stop callback hands GOP back to the boot/emergency
+            // terminal. A userspace shell spawned by init can now actually
+            // be seen rather than running behind an inert desktop.
+            if (applications::running() &&
+                kstd::streq(applications::active_name(), "flux-session")) {
+                static_cast<void>(applications::stop());
+            }
+            terminal::set_framebuffer_output(true);
+            terminal::clear();
+            terminal::println("[RECOVERY] GUI unavailable, entering console");
+            frame.rax = static_cast<uint64_t>(KU_STATUS_OK);
+            return;
+        }
+        case KU_SYS_TERMINATE_CHILD: {
+            if (frame.rdi == 0U || frame.rdi == context->pid || frame.rdx != 0U) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            process::Stat child{};
+            if (process::stat(static_cast<process::ProcessId>(frame.rdi), &child)
+                    != process::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            // Never allow arbitrary-PID termination from Ring-3, including
+            // login/sessiond, system services, siblings or the kernel init.
+            if (!child_termination_policy::allowed(
+                    context->pid, child.pid, child.parent_pid)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                return;
+            }
+            const process::Status terminated = process::terminate(
+                child.pid, static_cast<int32_t>(frame.rsi));
+            frame.rax = static_cast<uint64_t>(
+                terminated == process::Status::Ok ? KU_STATUS_OK :
+                terminated == process::Status::NotFound ? KU_STATUS_NOT_FOUND :
+                KU_STATUS_BAD_STATE);
+            return;
+        }
         case KU_SYS_WAIT: {
             if (!validate_user_buffer(*context, frame.rsi, sizeof(int32_t), true)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
@@ -1546,13 +1601,10 @@ void syscall_handler(
                 frame.rax = KU_STATUS_OK;
                 return;
             }
-            if (context->ui.tail == context->ui.head) {
+            if (!ui_event_queue::pop(context->ui.events, user_event)) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_WOULD_BLOCK);
                 return;
             }
-            *user_event = context->ui.events[context->ui.tail];
-            context->ui.tail = static_cast<uint8_t>(
-                (context->ui.tail + 1U) % kMaximumUiEvents);
             frame.rax = KU_STATUS_OK;
             return;
         }
@@ -1622,9 +1674,20 @@ void syscall_handler(
                 static_cast<uintptr_t>(frame.rdi));
             if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
                 request->app_id >= KU_DESKTOP_APP_COUNT ||
-                request->action > KU_DESKTOP_PIN_TOGGLE) {
+                request->action > KU_DESKTOP_PIN_APP_READY) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
+            }
+            if (request->action == KU_DESKTOP_PIN_FOCUS_RUNNING) {
+                windowing::WindowInfo caller_window{};
+                if (!context->ui.active ||
+                    windowing::query(context->ui.window, &caller_window) !=
+                        windowing::Status::Ok ||
+                    caller_window.owner_pid != context->pid ||
+                    !kstd::streq(caller_window.title, "RED FLUX HOME")) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
+                    return;
+                }
             }
             bool pinned = false;
             const windowing::Status status = windowing::desktop_pin(
@@ -1635,7 +1698,95 @@ void syscall_handler(
             request->pinned = pinned ? 1U : 0U;
             frame.rax = status == windowing::Status::Ok
                 ? static_cast<uint64_t>(KU_STATUS_OK)
-                : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                : status == windowing::Status::NotFound
+                    ? static_cast<uint64_t>(KU_STATUS_NOT_FOUND)
+                    : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+            return;
+        }
+        case KU_SYS_DISPLAY_INFO: {
+            if (frame.rsi != sizeof(ku_display_info) ||
+                !validate_user_buffer(*context, frame.rdi,
+                                      sizeof(ku_display_info), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* info = reinterpret_cast<ku_display_info*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (info->structure_size != sizeof(*info)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            if (!graphics::available() || !windowing::initialized()) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            const windowing::WorkspaceGeometry workspace =
+                windowing::workspace_geometry();
+            *info = {};
+            info->structure_size = sizeof(*info);
+            info->version = KU_DISPLAY_INFO_VERSION;
+            info->screen_width = graphics::width();
+            info->screen_height = graphics::height();
+            info->work_x = workspace.work_area.x;
+            info->work_y = workspace.work_area.y;
+            info->work_width = workspace.work_area.width;
+            info->work_height = workspace.work_area.height;
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_STYLE: {
+            if (frame.rsi != sizeof(ku_desktop_style_request) ||
+                !validate_user_buffer(*context, frame.rdi, sizeof(ku_desktop_style_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_style_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_STYLE_SET ||
+                (request->action == KU_DESKTOP_STYLE_SET &&
+                 request->style_id >= KU_FLUX_STYLE_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_STYLE_SET) {
+                if (!ui::set_desktop_style(request->style_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->style_id = ui::desktop_style_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_THEME: {
+            if (frame.rsi != sizeof(ku_desktop_theme_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_theme_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_theme_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_THEME_SET ||
+                (request->action == KU_DESKTOP_THEME_SET &&
+                 request->theme_id >= KU_FLUX_THEME_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_THEME_SET) {
+                if (!ui::set_desktop_theme(request->theme_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->theme_id = ui::desktop_theme_id();
+            frame.rax = KU_STATUS_OK;
             return;
         }
         case KU_SYS_NET_STATUS: {

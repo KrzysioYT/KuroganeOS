@@ -78,6 +78,9 @@ using IrqScheduleHook = InterruptFrame* (*)(
 using SoftwareScheduleHook = InterruptFrame* (*)(
     uint8_t vector,
     InterruptFrame& frame);
+using FixedScheduleHook = InterruptFrame* (*)(
+    uint8_t vector,
+    InterruptFrame& frame);
 
 enum class GatePrivilege : uint8_t {
     Kernel = 0,
@@ -136,6 +139,12 @@ void unregister_irq_schedule_hook(IrqScheduleHook hook);
 // kernel IRQ frame.
 bool register_software_schedule_hook(SoftwareScheduleHook hook);
 void unregister_software_schedule_hook(SoftwareScheduleHook hook);
+
+// Dedicated kernel-only fixed-vector scheduling boundary, used by the Local
+// APIC timer. It is intentionally separate from both legacy IRQ0 and user
+// software gates so an IPI can never be mistaken for a syscall boundary.
+bool register_fixed_schedule_hook(uint8_t vector, FixedScheduleHook hook);
+void unregister_fixed_schedule_hook(FixedScheduleHook hook);
 
 void enable();
 void disable();

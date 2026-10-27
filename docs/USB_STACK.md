@@ -149,9 +149,11 @@ wrap ringów transfer/event, cleanup pustego kontrolera, trzy cykle
 disconnect/re-enumeration oraz late attach. Hotfix został scalony jako
 `2516dcb010f61d3ceed25647431d5530db112208`.
 
-Aktualny runtime nadal świadomie obsługuje jeden slot / jedno aktywne urządzenie
-boot HID naraz (keyboard **albo** mouse). Nie jest to kwalifikacja hubów,
-równoczesnej klawiatury i myszy, report-protocol wheel ani fizycznego sprzętu.
+Historyczny etap opisany powyżej obsługiwał jedno aktywne boot HID.
+Ograniczenie równoczesnej klawiatury i myszy usunięto przez companion HID;
+report-protocol tablet/wheel mają późniejsze przyrosty i testy. Szerokie huby
+i fizyczny sprzęt nadal wymagają własnej kwalifikacji.
+Poniższa lista opisuje ówczesny plan, nie bieżący brak mass storage.
 
 1. USB Mass Storage: bounded parser interfejsu Bulk-Only Transport, CBW/CSW i
    podstawowe SCSI CDB, bez aktywowania runtime.

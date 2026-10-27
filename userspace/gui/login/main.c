@@ -10,6 +10,13 @@
 #define LOGIN_CONFIG_CAPACITY 384U
 #define LOGIN_SERVICE_ATTEMPTS 200U
 
+// On-screen, non-sensitive session-stage label. The specific transport and
+// account response codes remain on COM1; never reveal credentials or hashes.
+static const char* g_failed_stage = "UNKNOWN";
+static char g_retry_message[96];
+
+
+
 typedef struct login_profile {
     char username[LOGIN_USERNAME_CAPACITY];
     char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
@@ -168,7 +175,10 @@ static ku_status_t account_transact(
     ku_account_response* response) {
     uint32_t attempt;
     ku_status_t status = ku_service_send(connection, request, sizeof(*request));
-    if (status != KU_STATUS_OK) return status;
+    if (status != KU_STATUS_OK) {
+        puts("[SESSION] flux_account_ipc_send: FAIL");
+        return status;
+    }
     for (attempt = 0U; attempt < LOGIN_SERVICE_ATTEMPTS; ++attempt) {
         ku_service_message message;
         status = ku_service_receive(connection, &message);
@@ -176,12 +186,24 @@ static ku_status_t account_transact(
             (void)kuro_sleep(1U);
             continue;
         }
-        if (status != KU_STATUS_OK) return status;
-        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        if (status != KU_STATUS_OK) {
+            puts("[SESSION] flux_account_ipc_receive: FAIL");
+            return status;
+        }
+        if (message.data_size != sizeof(*response)) {
+            puts("[SESSION] flux_account_response_size: FAIL");
+            return KU_STATUS_CORRUPT_DATA;
+        }
         *response = *(const ku_account_response*)(const void*)message.data;
-        if (response->structure_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        if (response->structure_size != sizeof(*response)) {
+            puts("[SESSION] flux_account_response_layout: FAIL");
+            return KU_STATUS_CORRUPT_DATA;
+        }
+        if (response->status != KU_STATUS_OK)
+            puts("[SESSION] flux_account_service_rejected: FAIL");
         return (ku_status_t)response->status;
     }
+    puts("[SESSION] flux_account_ipc_timeout: FAIL");
     return KU_STATUS_WOULD_BLOCK;
 }
 
@@ -218,7 +240,10 @@ static int current_account(const login_profile* profile, uint64_t* account_id) {
     if (profile == NULL || account_id == NULL) return 0;
     *account_id = 0U;
     connected = connect_service(KU_ACCOUNT_SERVICE_NAME, KU_ACCOUNT_SERVICE_NAME_SIZE);
-    if (connected <= 0) return 0;
+    if (connected <= 0) {
+        puts("[SESSION] flux_account_connect: FAIL");
+        return 0;
+    }
     connection = (ku_service_connection_t)connected;
     memset(&request, 0, sizeof(request));
     memset(&response, 0, sizeof(response));
@@ -226,11 +251,19 @@ static int current_account(const login_profile* profile, uint64_t* account_id) {
     request.operation = KU_ACCOUNT_GET_CURRENT;
     status = account_transact(connection, &request, &response);
     (void)ku_service_close(connection);
-    if (status != KU_STATUS_OK || response.account_id == 0U ||
-        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
-        strcmp(response.username, profile->username) != 0) {
+    if (status != KU_STATUS_OK) {
+        puts("[SESSION] flux_account_reply: FAIL");
         return 0;
     }
+    if (response.account_id == 0U ||
+        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
+        strcmp(response.username, profile->username) != 0) {
+        // No user/profile values are written to serial; a mismatch is
+        // important when booting with a persisted installed account.
+        puts("[SESSION] flux_account_profile_mismatch: FAIL");
+        return 0;
+    }
+    puts("[SESSION] flux_account_profile_match: PASS");
     *account_id = response.account_id;
     return 1;
 }
@@ -265,6 +298,44 @@ static int response_has_application(
     return 0;
 }
 
+/* Prevent a blank authenticated desktop when /gui/launcher either
+ * fails to open a window or dies before presenting native controls.
+ * Reuse the desktop pin syscall's explicit read-only Home-ready action:
+ * it does not add a new syscall number or change existing request size.
+ */
+static int home_surface_ready(void) {
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = KU_DESKTOP_APP_HOME;
+    request.action = KU_DESKTOP_PIN_HOME_READY;
+    return ku_desktop_pin(&request) == KU_STATUS_OK && request.pinned != 0U;
+}
+
+static int wait_for_home_surface(uint64_t launcher_pid) {
+    uint32_t attempt;
+    for (attempt = 0U; attempt < 2500U; ++attempt) {
+        int32_t status = 0;
+        ku_status_t result;
+        if (home_surface_ready()) {
+            puts("[SESSION] flux_home_first_frame: PASS");
+            return 1;
+        }
+        result = ku_process_wait(launcher_pid, &status);
+        if (result == KU_STATUS_OK || result == KU_STATUS_NOT_FOUND) {
+            puts("[SESSION] flux_launcher_exited_before_ui: FAIL");
+            return 0;
+        }
+        if (result != KU_STATUS_WOULD_BLOCK) {
+            puts("[SESSION] flux_launcher_wait_error: FAIL");
+            return 0;
+        }
+        (void)kuro_sleep(1U);
+    }
+    puts("[SESSION] flux_home_first_frame_timeout: FAIL");
+    return 0;
+}
+
 static int wait_for_desktop(uint64_t pid) {
     for (;;) {
         int32_t status = 0;
@@ -283,49 +354,121 @@ static int start_session(ku_window_t window, const login_profile* profile) {
     uint64_t account_id = 0U;
     uint64_t session_id = 0U;
     uint64_t launcher_pid = 0U;
-    int desktop_status = 4;
+    int desktop_status = -4; // Window stays open until a real Home frame.
+    g_failed_stage = "PREPARING";
 
-    if (!current_account(profile, &account_id)) return 5;
+    if (!current_account(profile, &account_id)) {
+        g_failed_stage = "ACCOUNT LOOKUP";
+        puts("[SESSION] flux_account_lookup: FAIL");
+        return -5;
+    }
+    puts("[SESSION] flux_account_lookup: PASS");
     connected = connect_service(KU_SESSION_SERVICE_NAME, KU_SESSION_SERVICE_NAME_SIZE);
-    if (connected <= 0) return 6;
+    if (connected <= 0) {
+        g_failed_stage = "SESSION SERVICE";
+        puts("[SESSION] flux_session_connect: FAIL");
+        return -6;
+    }
+    puts("[SESSION] flux_session_connect: PASS");
     connection = (ku_service_connection_t)connected;
 
     if (!session_request(connection, KU_SESSION_CREATE, 0U, account_id, 0U, &response) ||
         response.session_id == 0U || response.account_id != account_id ||
         response.owner_pid != ku_process_id() || response.state != KU_SESSION_STATE_ACTIVE) {
+        g_failed_stage = "CREATE SESSION";
+        puts("[SESSION] flux_session_create: FAIL");
         (void)ku_service_close(connection);
-        return 7;
+        return -7;
     }
+    puts("[SESSION] flux_session_create: PASS");
     session_id = response.session_id;
 
-    (void)ku_ui_close(window);
+    // Keep the authenticated login surface visible while the Ring-3
+    // session starts. No desktop handoff until native Home really exists.
     {
         const ku_result_t spawned = ku_process_spawn(launcher, sizeof(launcher) - 1U);
-        if (spawned <= 0) goto cleanup;
+        if (spawned <= 0) {
+            g_failed_stage = "LAUNCHER SPAWN";
+            puts("[SESSION] flux_launcher_spawn: FAIL");
+            goto cleanup;
+        }
+        puts("[SESSION] flux_launcher_spawn: PASS");
         launcher_pid = (uint64_t)spawned;
     }
 
     if (!session_request(
             connection, KU_SESSION_SET_HOME, session_id, 0U, launcher_pid, &response)) {
+        g_failed_stage = "SET HOME";
+        puts("[SESSION] flux_session_set_home: FAIL");
         goto cleanup;
     }
     if (!session_request(
             connection, KU_SESSION_ATTACH_APPLICATION, session_id, 0U,
             launcher_pid, &response)) {
+        g_failed_stage = "ATTACH HOME";
+        puts("[SESSION] flux_session_attach_home: FAIL");
         goto cleanup;
     }
     if (!session_request(connection, KU_SESSION_QUERY, session_id, 0U, 0U, &response) ||
         response.account_id != account_id || response.owner_pid != ku_process_id() ||
         response.home_pid != launcher_pid || response.state != KU_SESSION_STATE_ACTIVE ||
         !response_has_application(&response, launcher_pid)) {
+        g_failed_stage = "VERIFY HOME";
+        puts("[SESSION] flux_session_verify: FAIL");
         goto cleanup;
     }
 
     puts("[TEST] red_flux_owned_session: PASS");
+    if (!wait_for_home_surface(launcher_pid)) {
+        g_failed_stage = "HOME FIRST FRAME";
+        desktop_status = -8;
+        goto cleanup;
+    }
+    // The launcher has presented a real retained surface. It is now safe
+    // to dismiss Login and release pointer ownership to the Home window.
+    if (ku_ui_close(window) != KU_STATUS_OK) {
+        g_failed_stage = "CLOSE LOGIN";
+        puts("[SESSION] flux_login_window_close: FAIL");
+        desktop_status = 9;
+        goto cleanup;
+    }
     puts("[TEST] red_flux_login_to_desktop: PASS");
     desktop_status = wait_for_desktop(launcher_pid);
 
 cleanup:
+    if (desktop_status < 0 && launcher_pid != 0U) {
+        // A partially registered launcher must never survive a failed
+        // authenticated handoff and poison the next retry with a duplicate
+        // RED FLUX HOME window or stale session root.
+        ku_status_t stopped = ku_process_terminate_child(launcher_pid, 1);
+        int child_finished = stopped == KU_STATUS_NOT_FOUND;
+        if (stopped == KU_STATUS_OK) {
+            for (uint32_t attempt = 0U; attempt < 600U; ++attempt) {
+                int32_t discarded_exit_code = 0;
+                const ku_status_t waited = ku_process_wait(
+                    launcher_pid, &discarded_exit_code);
+                if (waited == KU_STATUS_OK || waited == KU_STATUS_NOT_FOUND) {
+                    child_finished = 1;
+                    break;
+                }
+                if (waited != KU_STATUS_WOULD_BLOCK) break;
+                (void)kuro_sleep(1U);
+            }
+        }
+        if (!child_finished) {
+            g_failed_stage = "CLEANUP";
+            puts("[SESSION] flux_launcher_cleanup: FAIL");
+            desktop_status = 11; // Exit Login rather than spawn a duplicate.
+        } else {
+            puts("[SESSION] flux_launcher_cleanup: PASS");
+        }
+    }
+    if (desktop_status < 0) {
+        // Nothing has dismissed Login: let the user retry on the same window.
+        puts("[SESSION] flux_login_retry_available: PASS");
+    } else if (desktop_status != 0) {
+        puts("[SESSION] flux_login_handoff: FAIL");
+    }
     if (launcher_pid != 0U) {
         (void)session_request(
             connection, KU_SESSION_DETACH_APPLICATION, session_id, 0U,
@@ -335,6 +478,33 @@ cleanup:
         connection, KU_SESSION_TERMINATE, session_id, 0U, 0U, &response);
     (void)ku_service_close(connection);
     return desktop_status;
+}
+
+/* A failed desktop launch must never exit this Login process.
+ * Negative results guarantee that the Login window is still alive.
+ */
+static int try_start_session(
+    ku_window_t window, const login_profile* profile, char* password,
+    size_t* password_length, const char** error, kui_scene* scene) {
+    const int status = start_session(window, profile);
+    if (status >= 0) return status;
+    memset(password, 0, LOGIN_PASSWORD_CAPACITY);
+    *password_length = 0U;
+    // The stage is deliberately short enough for the fixed-width Login
+    // panel. A screenshot now points to the failing component.
+    (void)strlcpy(g_retry_message, is_polish(profile)
+        ? "SESJA: " : "SESSION: ", sizeof(g_retry_message));
+    size_t used = strlen(g_retry_message);
+    (void)strlcpy(g_retry_message + used, g_failed_stage,
+                  sizeof(g_retry_message) - used);
+    *error = g_retry_message;
+    build_scene(scene, profile, password, *error);
+    if (kui_scene_present(window, scene) != KU_STATUS_OK) {
+        puts("[SESSION] flux_login_error_render: FAIL");
+        return 10;
+    }
+    puts("[SESSION] flux_login_error_render: PASS");
+    return -1;
 }
 
 int main(void) {
@@ -384,14 +554,22 @@ int main(void) {
             if ((event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U &&
                 kui_scene_hit_test(&scene, event.x, event.y) == 10U) {
-                return start_session(window, &profile);
+                {
+                    const int launched = try_start_session(
+                        window, &profile, password, &password_length, &error, &scene);
+                    if (launched >= 0) return launched;
+                }
             }
             continue;
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
         if (!profile.password_required) {
-            if (gui_key_activate(&event)) return start_session(window, &profile);
+            if (gui_key_activate(&event)) {
+                const int launched = try_start_session(
+                    window, &profile, password, &password_length, &error, &scene);
+                if (launched >= 0) return launched;
+            }
             continue;
         }
 
@@ -406,7 +584,12 @@ int main(void) {
             if (ku_dev_credential_verify(
                     profile.username, password, profile.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
-                return start_session(window, &profile);
+                const int launched = try_start_session(
+                    window, &profile, password, &password_length, &error, &scene);
+                if (launched >= 0) return launched;
+                // A valid password followed by Home failure is NOT an
+                // incorrect password and must not overwrite the retry UI.
+                continue;
             }
             puts("[TEST] installed_login_bad_password_rejected: PASS");
             password_length = 0U;

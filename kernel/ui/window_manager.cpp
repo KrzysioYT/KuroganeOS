@@ -1,8 +1,11 @@
 #include "window_manager.hpp"
+#include "../../sdk/include/kurogane/flux_app_catalog.h"
 
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
+#include "cursor_sprite.hpp"
+#include "session_owner_policy.hpp"
 #endif
 
 namespace windowing {
@@ -16,7 +19,9 @@ constexpr int32_t WORKSPACE_TOP = 50;
 constexpr int32_t WORKSPACE_RIGHT = 12;
 constexpr int32_t DOCK_HEIGHT = 58;
 constexpr int32_t DOCK_BOTTOM = 12;
-constexpr int32_t WORKSPACE_BOTTOM = DOCK_HEIGHT + DOCK_BOTTOM + 12;
+// A floating dock is an overlay. Only a slim bottom safety margin belongs
+// to the maximized window work area, never the full dock height.
+constexpr int32_t WORKSPACE_BOTTOM = 18;
 constexpr int32_t SPINE_X = 8;
 constexpr int32_t SPINE_WIDTH = 18;
 constexpr int32_t CONTROL_WIDTH = 22;
@@ -39,6 +44,9 @@ constexpr size_t DOCK_PIN_COUNT = 8U;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
 constexpr uint32_t DESKTOP_PIN_TOGGLE = 2U;
+constexpr uint32_t DESKTOP_PIN_HOME_READY = 3U;
+constexpr uint32_t DESKTOP_PIN_FOCUS_RUNNING = 4U;
+constexpr uint32_t DESKTOP_PIN_APP_READY = 5U;
 
 enum class DirtyMode : uint8_t {
     None = 0,
@@ -63,6 +71,7 @@ struct Slot {
     void* context;
     uint16_t generation;
     bool occupied;
+    WindowState state_before_minimize;
 };
 
 struct DockPin {
@@ -74,14 +83,14 @@ struct DockPin {
 
 // Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {"RED FLUX HOME", 0, ui::DockIcon::Home, "HOME"},
-    {"FLUX TERMINAL", 't', ui::DockIcon::Terminal, "TERM"},
-    {"FILES", 'f', ui::DockIcon::Files, "FILES"},
-    {"FORGE CONTROL", 'v', ui::DockIcon::Monitor, "CTRL"},
-    {"KUROGANE WEB", 'b', ui::DockIcon::Files, "WEB"},
-    {"SYSTEM MONITOR", 'm', ui::DockIcon::Monitor, "MON"},
-    {"SETTINGS", 's', ui::DockIcon::Settings, "SET"},
-    {"ABOUT KUROGANEOS", 'a', ui::DockIcon::About, "ABOUT"},
+    {KU_FLUX_TITLE_HOME, 0, ui::DockIcon::Home, "HOME"},
+    {KU_FLUX_TITLE_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
+    {KU_FLUX_TITLE_FILES, 'f', ui::DockIcon::Files, "FILES"},
+    {KU_FLUX_TITLE_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
+    {KU_FLUX_TITLE_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
+    {KU_FLUX_TITLE_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
+    {KU_FLUX_TITLE_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
+    {KU_FLUX_TITLE_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
@@ -94,12 +103,18 @@ WindowId g_focused = INVALID_WINDOW;
 WindowId g_dragged = INVALID_WINDOW;
 WindowId g_resized = INVALID_WINDOW;
 WindowId g_hovered = INVALID_WINDOW;
+// Application-level left-button capture is distinct from window-chrome drag.
+WindowId g_pointer_capture = INVALID_WINDOW;
 int32_t g_drag_offset_x = 0;
 int32_t g_drag_offset_y = 0;
 DirtyMode g_dirty = DirtyMode::None;
 ui::Rect g_damage_regions[MAX_DAMAGE_REGIONS]{};
 size_t g_damage_count = 0U;
 bool g_initialized = false;
+bool g_rendering = false;
+// Mouse proximity reveals the floating dock; moving away collapses it into
+// a narrow bottom-edge handle. This state never changes the work-area size.
+bool g_dock_visible = true;
 #ifndef KUROGANE_HOST_TEST
 process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 #endif
@@ -108,6 +123,8 @@ process::ProcessId g_session_root_pid = process::INVALID_PROCESS_ID;
 bool g_cursor_visible = false;
 int32_t g_cursor_x = 0;
 int32_t g_cursor_y = 0;
+uint32_t g_cursor_under[flux_cursor::kWidth * flux_cursor::kHeight]{};
+bool g_cursor_saved[flux_cursor::kWidth * flux_cursor::kHeight]{};
 #endif
 
 void clear_surface(SurfaceState& surface) {
@@ -173,6 +190,17 @@ Slot* find(WindowId id, size_t* out_slot = nullptr) {
     if (!candidate.occupied || candidate.info.id != id) return nullptr;
     if (out_slot != nullptr) *out_slot = slot;
     return &candidate;
+}
+
+// Draw callbacks are allowed to change window lifecycle and z-order.
+// Capture the generation-safe IDs so this frame never skips a survivor,
+// repeats a window or draws a newly reused slot in place of a closed one.
+size_t snapshot_frame_windows(WindowId (&ids)[MAX_WINDOWS]) {
+    const size_t count = g_count;
+    for (size_t position = 0U; position < count; ++position) {
+        ids[position] = g_slots[g_order[position]].info.id;
+    }
+    return count;
 }
 
 bool exposed(const Slot& slot) {
@@ -552,6 +580,7 @@ void purge_exposed_session() {
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
     g_hovered = INVALID_WINDOW;
+    g_pointer_capture = INVALID_WINDOW;
     update_z_order();
     mark_full_dirty();
 }
@@ -562,6 +591,7 @@ WindowId hit_test(int32_t x, int32_t y);
 void cancel_capture(WindowId id) {
     if (g_dragged == id) g_dragged = INVALID_WINDOW;
     if (g_resized == id) g_resized = INVALID_WINDOW;
+    if (g_pointer_capture == id) g_pointer_capture = INVALID_WINDOW;
 }
 
 void clear_hover(WindowId id) {
@@ -643,9 +673,9 @@ Status activate_dock_pin(size_t position) {
         if (existing->info.state == WindowState::Minimized) {
             return restore(existing->info.id);
         }
-        if (position == 0U && existing->info.focused) {
-            return minimize(existing->info.id);
-        }
+        // APPS is the session rescue entry point. Never hide an already
+        // focused Home surface here: the launcher is also the command
+        // broker for all pinned native application tiles.
         return focus(existing->info.id);
     }
     if (pin.command == 0) return Status::NotFound;
@@ -671,53 +701,64 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
         workspace.work_area.y + workspace.work_area.height - slot.info.bounds.y;
     slot.info.bounds.width = clamp_size(
         pointer_x - slot.info.bounds.x + 1,
-        MINIMUM_WIDTH,
+        maximum_width < MINIMUM_WIDTH ? maximum_width : MINIMUM_WIDTH,
         maximum_width);
     slot.info.bounds.height = clamp_size(
         pointer_y - slot.info.bounds.y + 1,
-        MINIMUM_HEIGHT,
+        maximum_height < MINIMUM_HEIGHT ? maximum_height : MINIMUM_HEIGHT,
         maximum_height);
     slot.info.restore_bounds = slot.info.bounds;
     mark_full_dirty();
 }
 
 #ifndef KUROGANE_HOST_TEST
-void xor_pixel(int32_t x, int32_t y) {
-    if (!graphics::available() || x < 0 || y < 0 ||
-        x >= static_cast<int32_t>(graphics::width()) ||
-        y >= static_cast<int32_t>(graphics::height())) return;
-    const KuroganeFramebuffer& framebuffer = graphics::info();
-    auto* row = reinterpret_cast<uint32_t*>(
-        reinterpret_cast<uint8_t*>(framebuffer.base) +
-        static_cast<size_t>(y) * framebuffer.pitch);
-    row[x] ^= UINT32_C(0x00FFFFFF);
-}
-
-void xor_cursor_shape(int32_t x, int32_t y) {
-    for (int32_t row = 0; row < 14; ++row) {
-        const int32_t width = row / 2 + 1;
-        for (int32_t column = 0; column < width; ++column) {
-            xor_pixel(x + column, y + row);
-        }
+uint32_t cursor_native_color(flux_cursor::Ink ink) {
+    uint32_t rgb = UINT32_C(0xF5F7FA);
+    switch (ink) {
+        case flux_cursor::Ink::Outline: rgb = UINT32_C(0x14171D); break;
+        case flux_cursor::Ink::Edge: rgb = UINT32_C(0xD0D7E2); break;
+        case flux_cursor::Ink::Shadow: rgb = UINT32_C(0x535B68); break;
+        case flux_cursor::Ink::Fill:
+        case flux_cursor::Ink::Transparent: break;
     }
-    for (int32_t row = 10; row < 18; ++row) {
-        for (int32_t column = 3; column < 6; ++column) {
-            xor_pixel(x + column, y + row);
-        }
+    if (graphics::info().pixel_format == KUROGANE_PIXEL_RGBX8) {
+        return ((rgb & 0x0000FFU) << 16U) |
+               (rgb & 0x00FF00U) |
+               ((rgb & 0xFF0000U) >> 16U);
     }
+    return rgb;
 }
 
 void hide_cursor() {
-    if (!g_cursor_visible) return;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    if (!g_cursor_visible || !graphics::available()) return;
+    const KuroganeFramebuffer& fb = graphics::info();
+    flux_cursor::visit_visible(g_cursor_x, g_cursor_y, fb.width, fb.height,
+        [&](uint32_t index, int32_t x, int32_t y, flux_cursor::Ink) {
+            if (!g_cursor_saved[index]) return;
+            auto* row = reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(fb.base) +
+                static_cast<size_t>(y) * fb.pitch);
+            row[x] = g_cursor_under[index];
+            g_cursor_saved[index] = false;
+        });
     g_cursor_visible = false;
 }
 
 void show_cursor(int32_t x, int32_t y) {
     if (g_cursor_visible) hide_cursor();
+    if (!graphics::available()) return;
+    const KuroganeFramebuffer& fb = graphics::info();
     g_cursor_x = x;
     g_cursor_y = y;
-    xor_cursor_shape(g_cursor_x, g_cursor_y);
+    flux_cursor::visit_visible(x, y, fb.width, fb.height,
+        [&](uint32_t index, int32_t px, int32_t py, flux_cursor::Ink ink) {
+            auto* row = reinterpret_cast<uint32_t*>(
+                reinterpret_cast<uint8_t*>(fb.base) +
+                static_cast<size_t>(py) * fb.pitch);
+            g_cursor_under[index] = row[px];
+            g_cursor_saved[index] = true;
+            row[px] = cursor_native_color(ink);
+        });
     g_cursor_visible = true;
 }
 
@@ -795,6 +836,18 @@ void render_layers() {
     }
 
     ui::desktop("KUROGANE / RED FLUX");
+    // Do not imply a healthy session when neither Login nor its Home app is
+    // present. This is deliberately shown only in the failure state, so
+    // users can distinguish a missing Ring-3 launcher from a dead pointer.
+    if (find_by_title("RED FLUX HOME") == nullptr) {
+        const ui::Theme& colors = ui::default_theme();
+        graphics::draw_text(
+            54, g_screen_height / 2 + 170, "SESSION HOME NOT READY",
+            colors.text, colors.desktop, 2U, true);
+        graphics::draw_text(
+            54, g_screen_height / 2 + 194, "CHECK COM1 LOG / FLUX DIAGNOSTIC",
+            colors.text_muted, colors.desktop, 1U, true);
+    }
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
     ui::signal_spine(workspace.signal_spine, tasks, focused_position());
@@ -820,33 +873,46 @@ void render_layers() {
             theme.text, theme.desktop, 1U, true);
     }
 
-    for (size_t position = 0U; position < g_count; ++position) {
-        draw_window_slot(g_slots[g_order[position]]);
+    WindowId frame_windows[MAX_WINDOWS]{};
+    const size_t frame_count = snapshot_frame_windows(frame_windows);
+    for (size_t position = 0U; position < frame_count; ++position) {
+        // A callback can close a window and immediately reuse its slot.
+        // Matching the original ID prevents drawing the replacement early.
+        Slot* slot = find(frame_windows[position]);
+        if (slot != nullptr) draw_window_slot(*slot);
     }
 
-    ui::dock_bar(workspace.pulse_ribbon, tasks);
-    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
-        const Slot* running = find_by_title(kDockPins[index].title);
-        const bool active = running != nullptr && running->info.focused;
-        if (index == 0U) {
-            // The session-root Home surface is also the system application
-            // menu. Present it as an explicit Start-style APPS button while
-            // keeping the HOME desktop shortcut permanently pinned.
-            ui::button(dock_pin_rect(index), "APPS", active);
-        } else {
-            ui::dock_item(
-                dock_pin_rect(index), kDockPins[index].icon,
-                running != nullptr, active);
+    if (g_dock_visible) {
+        ui::dock_bar(workspace.pulse_ribbon, tasks);
+        for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+            const Slot* running = find_by_title(kDockPins[index].title);
+            const bool active = running != nullptr && running->info.focused;
+            if (index == 0U) {
+                // HOME is the session application broker: APPS always focuses
+                // or restores it, never hides it when already focused.
+                ui::button(dock_pin_rect(index), "APPS", active);
+            } else {
+                ui::dock_item(
+                    dock_pin_rect(index), kDockPins[index].icon,
+                    running != nullptr, active);
+            }
         }
-    }
-    for (size_t position = 0U; position < tasks; ++position) {
-        const Slot* slot = exposed_at(position);
-        if (slot == nullptr) continue;
-        ui::dock_task(
-            ribbon_item_rect(position),
-            slot->info.title,
-            slot->info.focused,
-            slot->info.state == WindowState::Minimized);
+        for (size_t position = 0U; position < tasks; ++position) {
+            const Slot* slot = exposed_at(position);
+            if (slot == nullptr) continue;
+            ui::dock_task(
+                ribbon_item_rect(position),
+                slot->info.title,
+                slot->info.focused,
+                slot->info.state == WindowState::Minimized);
+        }
+    } else {
+        // A tiny centered grabber replaces the full dock when the mouse is
+        // elsewhere. No opaque 1/10-screen footer or permanent reservation.
+        const ui::Theme& colors = ui::default_theme();
+        graphics::fill_rounded_rect(
+            g_screen_width / 2 - 26, g_screen_height - 5,
+            52, 3, 1U, colors.text_muted);
     }
 }
 #endif
@@ -876,13 +942,62 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     g_dragged = INVALID_WINDOW;
     g_resized = INVALID_WINDOW;
     g_hovered = INVALID_WINDOW;
+    g_pointer_capture = INVALID_WINDOW;
+    g_dock_visible = true;
 #ifndef KUROGANE_HOST_TEST
     g_session_root_pid = process::INVALID_PROCESS_ID;
     g_cursor_visible = false;
+    for (size_t i = 0U; i < flux_cursor::kWidth * flux_cursor::kHeight; ++i)
+        g_cursor_saved[i] = false;
     g_cursor_x = input::pointer_x();
     g_cursor_y = input::pointer_y();
 #endif
     g_initialized = true;
+    mark_full_dirty();
+    return Status::Ok;
+}
+
+Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (g_rendering) return Status::InvalidState;
+    if (screen_width < 320U || screen_height < 200U ||
+        screen_width > static_cast<uint32_t>(INT32_MAX) ||
+        screen_height > static_cast<uint32_t>(INT32_MAX)) return Status::InvalidArgument;
+    if (screen_width == static_cast<uint32_t>(g_screen_width) &&
+        screen_height == static_cast<uint32_t>(g_screen_height)) return Status::Ok;
+#ifndef KUROGANE_HOST_TEST
+    if (graphics::width() != screen_width || graphics::height() != screen_height ||
+        !input::set_screen_bounds(screen_width, screen_height)) return Status::InvalidState;
+    // The old cursor backup belongs to the previous display geometry. Do not
+    // restore it onto a new framebuffer; the next full frame will rebuild it.
+    g_cursor_visible = false;
+    for (size_t i = 0U; i < flux_cursor::kWidth * flux_cursor::kHeight; ++i)
+        g_cursor_saved[i] = false;
+#endif
+    g_screen_width = static_cast<int32_t>(screen_width);
+    g_screen_height = static_cast<int32_t>(screen_height);
+    const ui::Rect area = calculate_workspace().work_area;
+    const auto fit = [&area](ui::Rect bounds) {
+        if (bounds.width > area.width) bounds.width = area.width;
+        if (bounds.height > area.height) bounds.height = area.height;
+        bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
+        bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
+        return bounds;
+    };
+    for (Slot& slot : g_slots) {
+        if (!slot.occupied) continue;
+        if (is_login_surface(slot)) {
+            slot.info.bounds = {0, 0, g_screen_width, g_screen_height};
+            slot.info.restore_bounds = slot.info.bounds;
+        } else {
+            slot.info.restore_bounds = fit(slot.info.restore_bounds);
+            const bool maximized = slot.info.state == WindowState::Maximized ||
+                (slot.info.state == WindowState::Minimized &&
+                 slot.state_before_minimize == WindowState::Maximized);
+            slot.info.bounds = maximized ? area : fit(slot.info.bounds);
+        }
+    }
+    g_dragged = g_resized = g_hovered = g_pointer_capture = INVALID_WINDOW;
     mark_full_dirty();
     return Status::Ok;
 }
@@ -906,11 +1021,28 @@ Status create_window(
 #ifndef KUROGANE_HOST_TEST
     const bool home = is_home_surface(title);
     const bool login = text_equals(title, "KUROGANE LOGIN");
-    if (login) {
-        purge_exposed_session();
-        g_session_root_pid = process::INVALID_PROCESS_ID;
-    } else if (home) {
-        g_session_root_pid = owner_pid;
+    if (login || home) {
+        process::Stat caller{};
+        if (process::stat(owner_pid, &caller) != process::Status::Ok) {
+            return Status::InvalidState;
+        }
+        if (login) {
+            // Otherwise any Ring-3 process could name its window LOGIN and
+            // trigger purge_exposed_session() against the real user.
+            if (!session_owner_policy::login_allowed(
+                    owner_pid, caller.parent_pid)) return Status::InvalidState;
+            purge_exposed_session();
+            g_session_root_pid = process::INVALID_PROCESS_ID;
+        } else {
+            const Slot* authenticated_login = login_surface();
+            if (authenticated_login == nullptr ||
+                find_by_title("RED FLUX HOME") != nullptr ||
+                !session_owner_policy::home_allowed(
+                    owner_pid, caller.parent_pid,
+                    authenticated_login->info.owner_pid)) {
+                return Status::InvalidState;
+            }
+        }
     } else if (owner_pid != 0U && !belongs_to_session_tree(owner_pid)) {
         return Status::InvalidState;
     }
@@ -942,6 +1074,10 @@ Status create_window(
     slot.context = context;
     clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
+#ifndef KUROGANE_HOST_TEST
+    // Commit the session owner only after the Home window really exists.
+    if (home) g_session_root_pid = owner_pid;
+#endif
     if (owner_pid != 0U) g_focused = slot.info.id;
     update_z_order();
     mark_full_dirty();
@@ -1108,6 +1244,7 @@ Status minimize(WindowId id) {
     }
     cancel_capture(id);
     clear_hover(id);
+    slot->state_before_minimize = slot->info.state;
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
@@ -1139,8 +1276,11 @@ Status restore(WindowId id) {
         return Status::InvalidState;
     }
     cancel_capture(id);
-    slot->info.state = WindowState::Normal;
-    slot->info.bounds = slot->info.restore_bounds;
+    const bool restore_maximized = slot->info.state == WindowState::Minimized &&
+        slot->state_before_minimize == WindowState::Maximized;
+    slot->info.state = restore_maximized ? WindowState::Maximized : WindowState::Normal;
+    slot->info.bounds = restore_maximized
+        ? calculate_workspace().work_area : slot->info.restore_bounds;
     static_cast<void>(focus(id));
     mark_full_dirty();
     return Status::Ok;
@@ -1158,13 +1298,33 @@ Status query(WindowId id, WindowInfo* out_info) {
 Status list(ListCallback callback, void* context) {
     if (!g_initialized) return Status::NotInitialized;
     if (callback == nullptr) return Status::InvalidArgument;
-    for (size_t position = 0U; position < g_count; ++position) {
-        if (!callback(g_slots[g_order[position]].info, context)) return Status::IterationStopped;
+
+    // A callback may close, create or focus windows, mutating g_order and
+    // reclaiming a slot. Snapshot metadata before calling it. Generation-safe
+    // lookup excludes closed windows and avoids passing a replacement as if
+    // it were the former occupant; new windows appear on the next listing.
+    WindowInfo snapshot[MAX_WINDOWS]{};
+    const size_t count = g_count;
+    for (size_t position = 0U; position < count; ++position) {
+        snapshot[position] = g_slots[g_order[position]].info;
+    }
+    for (size_t position = 0U; position < count; ++position) {
+        if (find(snapshot[position].id) == nullptr) continue;
+        if (!callback(snapshot[position], context)) return Status::IterationStopped;
     }
     return Status::Ok;
 }
 
 WorkspaceGeometry workspace_geometry() { return calculate_workspace(); }
+
+bool home_surface_ready() {
+    if (!g_initialized) return false;
+    const Slot* home = find_by_title("RED FLUX HOME");
+    return home != nullptr && home->occupied &&
+        home->info.state != WindowState::Minimized &&
+        home->surface.valid && home->draw != nullptr;
+}
+bool dock_visible() { return g_dock_visible; }
 
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     if (!g_initialized) return Status::NotInitialized;
@@ -1201,6 +1361,26 @@ Status desktop_pin(
     if (out_pinned == nullptr || app_id >= DOCK_PIN_COUNT) {
         return Status::InvalidArgument;
     }
+    if (action == DESKTOP_PIN_HOME_READY) {
+        if (app_id != 0U) return Status::InvalidArgument;
+        *out_pinned = home_surface_ready();
+        return Status::Ok;
+    }
+    if (action == DESKTOP_PIN_APP_READY) {
+        const Slot* existing = find_by_title(kDockPins[app_id].title);
+        *out_pinned = existing != nullptr && existing->surface.valid;
+        return Status::Ok;
+    }
+    if (action == DESKTOP_PIN_FOCUS_RUNNING) {
+        // The caller's Home-process identity is checked at the syscall
+        // boundary. This action never sends a synthetic command back to
+        // itself and cannot spawn a process.
+        Slot* existing = find_by_title(kDockPins[app_id].title);
+        if (existing == nullptr) return Status::NotFound;
+        *out_pinned = g_desktop_pinned[app_id];
+        return existing->info.state == WindowState::Minimized
+            ? restore(existing->info.id) : focus(existing->info.id);
+    }
     if (app_id == 0U) {
         g_desktop_pinned[0U] = true;
         *out_pinned = true;
@@ -1227,6 +1407,50 @@ Status desktop_pin(
 Status dispatch(const input::Event& event) {
     if (!g_initialized) return Status::NotInitialized;
 
+    const bool primary_release =
+        event.type == input::EventType::MouseButtonUp &&
+        event.button == drivers::mouse::Left;
+    const bool pointer_event =
+        event.type == input::EventType::MouseMove ||
+        event.type == input::EventType::MouseButtonDown ||
+        event.type == input::EventType::MouseButtonUp ||
+        event.type == input::EventType::MouseWheel;
+    // A chrome drag/resize never becomes an application release.
+    const bool system_release = primary_release &&
+        (g_dragged != INVALID_WINDOW || g_resized != INVALID_WINDOW);
+
+    // Flux rescue shortcuts are intentionally chorded to avoid intercepting
+    // text input or normal function keys: Ctrl+Alt+F1..F8 brings up/focuses
+    // Home, Terminal, Files, Forge, Web, Monitor, Settings and About.
+    if (event.type == input::EventType::KeyDown && event.control && event.alt) {
+        size_t pin = DOCK_PIN_COUNT;
+        switch (event.key) {
+            case drivers::keyboard::KeyCode::F1: pin = 0U; break;
+            case drivers::keyboard::KeyCode::F2: pin = 1U; break;
+            case drivers::keyboard::KeyCode::F3: pin = 2U; break;
+            case drivers::keyboard::KeyCode::F4: pin = 3U; break;
+            case drivers::keyboard::KeyCode::F5: pin = 4U; break;
+            case drivers::keyboard::KeyCode::F6: pin = 5U; break;
+            case drivers::keyboard::KeyCode::F7: pin = 6U; break;
+            case drivers::keyboard::KeyCode::F8: pin = 7U; break;
+            default: break;
+        }
+        if (pin < DOCK_PIN_COUNT && login_surface() == nullptr) {
+            const Status result = activate_dock_pin(pin);
+            // A missing session launcher must not corrupt keyboard state.
+            return result == Status::NotFound ? Status::Ok : result;
+        }
+    }
+
+    if (event.type == input::EventType::MouseMove && login_surface() == nullptr) {
+        const bool visible = rect_contains(
+            calculate_workspace().pulse_ribbon, event.x, event.y);
+        if (visible != g_dock_visible) {
+            g_dock_visible = visible;
+            mark_full_dirty();  // Reveal/hide must repaint the old dock pixels.
+        }
+    }
+
     // Red Flux is mouse-first: physical desktop/window shortcuts are not
     // intercepted globally. Keyboard events continue to the focused app so
     // text entry, terminals and accessibility paths remain available.
@@ -1237,9 +1461,14 @@ Status dispatch(const input::Event& event) {
         // This recovers deterministically if a prior button-up was lost.
         g_dragged = INVALID_WINDOW;
         g_resized = INVALID_WINDOW;
+        g_pointer_capture = INVALID_WINDOW;
         const WorkspaceGeometry workspace = calculate_workspace();
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+            if (!g_dock_visible) {
+                g_dock_visible = true;
+                mark_full_dirty();
+            }
             for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
                 if (rect_contains(dock_pin_rect(index), event.x, event.y)) {
                     return activate_dock_pin(index);
@@ -1284,8 +1513,15 @@ Status dispatch(const input::Event& event) {
                     g_resized = INVALID_WINDOW;
                     g_drag_offset_x = event.x - slot->info.bounds.x;
                     g_drag_offset_y = event.y - slot->info.bounds.y;
+                    return Status::Ok;
                 }
             }
+            // Non-client borders/chrome may focus a window but must not
+            // deliver synthetic clicks to its application contents.
+            if (!rect_contains(calculate_content(*slot), event.x, event.y)) {
+                return Status::Ok;
+            }
+            g_pointer_capture = target;
         }
     } else if (event.type == input::EventType::MouseMove &&
                (event.buttons & drivers::mouse::Left) != 0U) {
@@ -1317,9 +1553,34 @@ Status dispatch(const input::Event& event) {
     if (event.type == input::EventType::MouseMove) move_cursor(event.x, event.y);
 #endif
 
-    Slot* focused = find(g_focused);
-    if (focused != nullptr && focused->input_callback != nullptr) {
-        focused->input_callback(focused->info.id, event, focused->context);
+    // Keyboard ownership follows focus; pointer ownership follows the
+    // topmost client content below the pointer, independently of focus.
+    // While held, a primary-button gesture remains with its original
+    // application even outside its bounds. System chrome consumes its own
+    // gestures and unmatched primary releases must not leak to other apps.
+    if (pointer_event) {
+        if (!system_release && g_dragged == INVALID_WINDOW &&
+            g_resized == INVALID_WINDOW) {
+            WindowId destination = g_pointer_capture;
+            if (destination == INVALID_WINDOW && !primary_release) {
+                destination = hit_test(event.x, event.y);
+                const Slot* candidate = find(destination);
+                if (candidate == nullptr ||
+                    !rect_contains(calculate_content(*candidate), event.x, event.y)) {
+                    destination = INVALID_WINDOW;
+                }
+            }
+            Slot* receiver = find(destination);
+            if (receiver != nullptr && receiver->input_callback != nullptr) {
+                receiver->input_callback(receiver->info.id, event, receiver->context);
+            }
+        }
+        if (primary_release) g_pointer_capture = INVALID_WINDOW;
+    } else {
+        Slot* focused = find(g_focused);
+        if (focused != nullptr && focused->input_callback != nullptr) {
+            focused->input_callback(focused->info.id, event, focused->context);
+        }
     }
     return Status::Ok;
 }
@@ -1378,7 +1639,15 @@ Status resource_snapshot(ResourceSnapshot* out_snapshot) {
 }
 
 bool render_if_needed() {
-    if (!g_initialized || g_dirty == DirtyMode::None) return false;
+#ifndef KUROGANE_HOST_TEST
+    if (g_initialized && !g_rendering && graphics::available() &&
+        (graphics::width() != static_cast<uint32_t>(g_screen_width) ||
+         graphics::height() != static_cast<uint32_t>(g_screen_height))) {
+        if (set_screen_size(graphics::width(), graphics::height()) != Status::Ok) return false;
+    }
+#endif
+    if (!g_initialized || g_rendering || g_dirty == DirtyMode::None) return false;
+    g_rendering = true;
 #ifndef KUROGANE_HOST_TEST
     const DirtyMode pending_mode = g_dirty;
 #endif
@@ -1387,6 +1656,10 @@ bool render_if_needed() {
     for (size_t index = 0U; index < pending_count; ++index) {
         pending[index] = g_damage_regions[index];
     }
+    // Consume only this frame's snapshot. Draw callbacks may invalidate new
+    // regions (or the entire desktop) for the following frame.
+    g_dirty = DirtyMode::None;
+    g_damage_count = 0U;
 #ifndef KUROGANE_HOST_TEST
     hide_cursor();
     const bool buffered = graphics::begin_frame();
@@ -1411,9 +1684,21 @@ bool render_if_needed() {
         }
     }
     show_cursor(input::pointer_x(), input::pointer_y());
+#else
+    // Host adapter omits framebuffer operations but exercises draw callbacks
+    // inside the same frame lifecycle as production.
+    WindowId frame_windows[MAX_WINDOWS]{};
+    const size_t frame_count = snapshot_frame_windows(frame_windows);
+    for (size_t position = 0U; position < frame_count; ++position) {
+        Slot* slot = find(frame_windows[position]);
+        if (slot != nullptr && slot->info.state != WindowState::Minimized &&
+            slot->draw != nullptr) {
+            slot->draw(slot->info.id, calculate_content(*slot),
+                slot->info.focused, slot->context);
+        }
+    }
 #endif
-    g_dirty = DirtyMode::None;
-    g_damage_count = 0U;
+    g_rendering = false;
     return true;
 }
 

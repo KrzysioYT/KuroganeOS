@@ -1,0 +1,96 @@
+name: Qualify 5.5 Hardware Compatibility Gate
+
+on:
+  pull_request:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-hardware-compatibility-gate.yml'
+      - 'kernel/hardware/**'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/drivers/**'
+      - 'kernel/input/**'
+      - 'kernel/storage/**'
+      - 'kernel/net/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/test_hardware_compatibility.cpp'
+  push:
+    branches:
+      - gpt/road-to-15-consolidation
+    paths:
+      - '.github/workflows/qualify-hardware-compatibility-gate.yml'
+      - 'kernel/hardware/**'
+      - 'kernel/arch/x86_64/**'
+      - 'kernel/drivers/**'
+      - 'kernel/input/**'
+      - 'kernel/storage/**'
+      - 'kernel/net/**'
+      - 'kernel/main.cpp'
+      - 'scripts/smoke-uefi-iso-qemu.sh'
+      - 'scripts/run-host-tests.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify portability contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/smoke-uefi-iso-qemu.sh
+          git diff --check
+          grep -Fq 'TIER 1 USABLE' kernel/hardware/compatibility.cpp
+          grep -Fq 'TIER 3 EXTENDED' kernel/hardware/compatibility.cpp
+          ! grep -Fq 'required timer or PS/2 input unavailable' kernel/main.cpp
+          ! grep -Fq 'boot_failure("NET"' kernel/main.cpp
+
+      - name: Install build and QEMU dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils python3             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+
+      - name: Run full host regression
+        run: bash ./scripts/run-host-tests.sh
+
+      - name: Build clean release media
+        run: |
+          bash ./scripts/build-media-linux.sh --configuration release --rebuild
+          test -s build/images/KuroganeOS-linux.img
+
+      - name: Tier 1 usable without legacy PS2
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --no-ps2             --usb-keyboard --usb-tablet --nvme --nic none             --log-dir build/tests/compat-tier1 --timeout 190             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12             --click-after-marker '[TEST] red_flux_login_surface: PASS' 320 240             --require-marker '[TEST] generic_storage_registry: PASS'             --require-marker '[TEST] usb_hid_keyboard_input: PASS'             --require-marker '[TEST] usb_hid_report_pointer_input: PASS'             --require-marker '[TEST] hardware_compatibility_tier: PASS (TIER 1 USABLE)'             --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|hardware_compatibility_tier: FAIL'             build/tests/compat-tier1/serial.log
+
+      - name: Tier 3 extended platform profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./scripts/smoke-uefi-iso-qemu.sh             build/images/KuroganeOS-linux.img --disk --smp 4             --usb-keyboard --usb-mouse --nvme             --nic e1000 --require-network --audio hda             --log-dir build/tests/compat-tier3 --timeout 210             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12             --click-after-marker '[TEST] red_flux_login_surface: PASS' 320 240             --require-marker '[TEST] generic_storage_registry: PASS'             --require-marker '[TEST] hda_pcm_dma: PASS'             --require-marker '[TEST] dhcp_lease: PASS'             --require-marker '[TEST] network_gateway_icmp: PASS'             --require-marker '[TEST] smp_ap_startup: PASS'             --require-marker '[TEST] hardware_compatibility_tier: PASS (TIER 3 EXTENDED)'             --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|hardware_compatibility_tier: FAIL|hda_.*: FAIL|smp_.*: FAIL'             build/tests/compat-tier3/serial.log
+
+      - name: Retain compatibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-compatibility-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            build/tests/compat-tier1
+            build/tests/compat-tier3
+          if-no-files-found: warn

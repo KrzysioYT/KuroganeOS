@@ -49,6 +49,10 @@ static volatile bool g_caps_key_down = false;
 static bool g_extended_prefix = false;
 static uint8_t g_pause_bytes_remaining = 0;
 
+#ifdef KUROGANE_KEYBOARD_HOST_TEST
+inline void out8(uint16_t port, uint8_t value) { keyboard_test_io::write(port, value); }
+inline uint8_t in8(uint16_t port) { return keyboard_test_io::read(port); }
+#else
 inline void out8(uint16_t port, uint8_t value) {
     __asm__ volatile(
         "outb %0, %1"
@@ -66,6 +70,8 @@ inline uint8_t in8(uint16_t port) {
         : "memory");
     return value;
 }
+
+#endif
 
 inline void io_wait() {
     out8(0x80, 0);
@@ -427,13 +433,12 @@ bool initialize() {
     }
 
     g_controller_configured = configure_controller();
-    g_initialized = drivers::pic::unmask(1);
+    g_initialized = g_controller_configured && drivers::pic::unmask(1);
     if (!g_initialized) {
         arch::x86_64::interrupts::unregister_irq_handler(1);
     }
-    // Keep polling available when an odd controller only partially responds,
-    // but do not advertise the keyboard as fully ready in that state.
-    return g_initialized && g_controller_configured;
+    // An unmasked IRQ alone does not prove that a keyboard is present.
+    return g_initialized;
 }
 
 void shutdown() {

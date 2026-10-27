@@ -4,6 +4,7 @@ namespace install::package_vfs {
 namespace {
 
 using fs::vfs::BackendFile;
+using fs::vfs::DirectoryEntry;
 using fs::vfs::FileStat;
 using fs::vfs::NodeFlags;
 using fs::vfs::NodeType;
@@ -12,12 +13,23 @@ using fs::vfs::Status;
 
 constexpr uintptr_t kDirectoryBit =
     static_cast<uintptr_t>(1) << (sizeof(uintptr_t) * 8U - 1U);
+constexpr uintptr_t kDirectoryIndexMask = ~kDirectoryBit;
+
+// Package manifests contain bounded 7-bit FAT 8.3 paths. Treat path
+// components with the same case-folding rule as the installed FAT root,
+// so live Try mode and installed mode do not resolve files differently.
+constexpr char fold_ascii(char c) {
+    return c >= 'a' && c <= 'z'
+        ? static_cast<char>(c - ('a' - 'A')) : c;
+}
 
 bool path_equal(const char* left, const char* right) {
     if (left == nullptr || right == nullptr) return false;
     size_t index = 0U;
-    while (left[index] != '\0' && left[index] == right[index]) ++index;
-    return left[index] == right[index];
+    while (left[index] != '\0' &&
+           fold_ascii(left[index]) == fold_ascii(right[index]))
+        ++index;
+    return fold_ascii(left[index]) == fold_ascii(right[index]);
 }
 
 size_t path_length(const char* path) {
@@ -32,14 +44,14 @@ bool is_directory_path(const Adapter& adapter, const char* path) {
     const size_t length = path_length(path);
     if (length == 0U) return false;
     for (size_t index = 0U; index < adapter.package.file_count; ++index) {
-        package::File file{};
-        if (package::file_at(adapter.package, index, &file) !=
-            package::Status::Ok ||
-            file.destination != package::DESTINATION_ROOT) {
+        const package::File& file = adapter.files[index];
+        if (file.destination != package::DESTINATION_ROOT) {
             continue;
         }
         size_t cursor = 0U;
-        while (cursor < length && file.path[cursor] == path[cursor]) ++cursor;
+        while (cursor < length &&
+               fold_ascii(file.path[cursor]) == fold_ascii(path[cursor]))
+            ++cursor;
         if (cursor == length && file.path[cursor] == '/') return true;
     }
     return false;
@@ -51,10 +63,8 @@ bool find_file(
     size_t* out_index,
     package::File* out_file) {
     for (size_t index = 0U; index < adapter.package.file_count; ++index) {
-        package::File file{};
-        if (package::file_at(adapter.package, index, &file) !=
-            package::Status::Ok ||
-            file.destination != package::DESTINATION_ROOT ||
+        const package::File& file = adapter.files[index];
+        if (file.destination != package::DESTINATION_ROOT ||
             !path_equal(file.path, path)) {
             continue;
         }
@@ -102,8 +112,29 @@ Status open_file(
         return Status::Ok;
     }
     if (is_directory_path(adapter, path)) {
-        backend->words[0] = kDirectoryBit;
-        backend->words[1] = 0U;
+        const size_t length = path_length(path);
+        uintptr_t directory_index = 0U;
+        if (!path_equal(path, "/")) {
+            for (size_t index = 0U;
+                 index < adapter.package.file_count;
+                 ++index) {
+                const package::File& file = adapter.files[index];
+                if (file.destination != package::DESTINATION_ROOT) continue;
+                size_t cursor = 0U;
+                while (cursor < length &&
+                       fold_ascii(file.path[cursor]) ==
+                           fold_ascii(path[cursor])) {
+                    ++cursor;
+                }
+                if (cursor == length && file.path[cursor] == '/') {
+                    directory_index = static_cast<uintptr_t>(index + 1U);
+                    break;
+                }
+            }
+            if (directory_index == 0U) return Status::BackendFailure;
+        }
+        backend->words[0] = kDirectoryBit | directory_index;
+        backend->words[1] = static_cast<uintptr_t>(length);
         return Status::Ok;
     }
     return Status::NotFound;
@@ -122,10 +153,10 @@ Status decode_regular(
     }
     const size_t index = static_cast<size_t>(backend->words[0] - 1U);
     if (index >= adapter.package.file_count ||
-        package::file_at(adapter.package, index, file) != package::Status::Ok ||
-        file->destination != package::DESTINATION_ROOT) {
+        adapter.files[index].destination != package::DESTINATION_ROOT) {
         return Status::StaleHandle;
     }
+    *file = adapter.files[index];
     return Status::Ok;
 }
 
@@ -178,10 +209,147 @@ Status stat_open(void* context, const BackendFile* backend, FileStat* info) {
     return Status::Ok;
 }
 
-Status unsupported_readdir(
-    void*, const BackendFile*, uint64_t,
-    fs::vfs::DirectoryEntry*, uint64_t*) {
-    return Status::Unsupported;
+bool immediate_child(
+    const package::File& file,
+    const char* directory_path,
+    size_t directory_length,
+    bool root_directory,
+    const char** name,
+    size_t* name_length,
+    bool* is_directory) {
+    if (file.destination != package::DESTINATION_ROOT ||
+        directory_path == nullptr || name == nullptr ||
+        name_length == nullptr) {
+        return false;
+    }
+
+    const char* suffix = nullptr;
+    if (root_directory) {
+        if (file.path[0] != '/' || file.path[1] == '\0') return false;
+        suffix = file.path + 1U;
+    } else {
+        for (size_t index = 0U; index < directory_length; ++index) {
+            if (fold_ascii(file.path[index]) !=
+                fold_ascii(directory_path[index])) return false;
+        }
+        if (file.path[directory_length] != '/' ||
+            file.path[directory_length + 1U] == '\0') {
+            return false;
+        }
+        suffix = file.path + directory_length + 1U;
+    }
+
+    size_t length = 0U;
+    while (suffix[length] != '\0' && suffix[length] != '/') ++length;
+    if (length == 0U || length > fs::vfs::MAX_NAME_LENGTH) return false;
+    *name = suffix;
+    *name_length = length;
+    if (is_directory != nullptr) *is_directory = suffix[length] == '/';
+    return true;
+}
+
+Status read_directory(
+    void* context,
+    const BackendFile* backend,
+    uint64_t cookie,
+    DirectoryEntry* entry,
+    uint64_t* next_cookie) {
+    if (context == nullptr || backend == nullptr || entry == nullptr ||
+        next_cookie == nullptr) {
+        return Status::InvalidArgument;
+    }
+    const auto& adapter = *static_cast<const Adapter*>(context);
+    if ((backend->words[0] & kDirectoryBit) == 0U) {
+        return Status::InvalidHandle;
+    }
+
+    const uintptr_t encoded_index =
+        backend->words[0] & kDirectoryIndexMask;
+    const uintptr_t encoded_length = backend->words[1];
+    if (encoded_index > adapter.package.file_count ||
+        encoded_length == 0U ||
+        encoded_length > package::MAXIMUM_PATH) {
+        return Status::InvalidHandle;
+    }
+
+    const bool root_directory = encoded_index == 0U;
+    const char* directory_path = "/";
+    const size_t directory_length = static_cast<size_t>(encoded_length);
+    if (!root_directory) {
+        const package::File& representative =
+            adapter.files[static_cast<size_t>(encoded_index - 1U)];
+        const size_t representative_length = path_length(representative.path);
+        if (representative.destination != package::DESTINATION_ROOT ||
+            representative_length <= directory_length ||
+            representative.path[directory_length] != '/') {
+            return Status::InvalidHandle;
+        }
+        directory_path = representative.path;
+    } else if (directory_length != 1U) {
+        return Status::InvalidHandle;
+    }
+
+    uint64_t visible_index = 0U;
+    for (size_t index = 0U; index < adapter.package.file_count; ++index) {
+        const package::File& candidate = adapter.files[index];
+        const char* candidate_name = nullptr;
+        size_t candidate_length = 0U;
+        bool candidate_is_directory = false;
+        if (!immediate_child(
+                candidate,
+                directory_path,
+                directory_length,
+                root_directory,
+                &candidate_name,
+                &candidate_length,
+                &candidate_is_directory)) {
+            continue;
+        }
+
+        bool duplicate = false;
+        for (size_t earlier = 0U; earlier < index; ++earlier) {
+            const char* earlier_name = nullptr;
+            size_t earlier_length = 0U;
+            if (immediate_child(
+                    adapter.files[earlier],
+                    directory_path,
+                    directory_length,
+                    root_directory,
+                    &earlier_name,
+                    &earlier_length,
+                    nullptr) &&
+                candidate_length == earlier_length) {
+                size_t character = 0U;
+                while (character < candidate_length &&
+                       fold_ascii(candidate_name[character]) ==
+                           fold_ascii(earlier_name[character])) {
+                    ++character;
+                }
+                duplicate = character == candidate_length;
+                if (duplicate) break;
+            }
+        }
+        if (duplicate) continue;
+        if (visible_index == cookie) {
+            *entry = {};
+            for (size_t character = 0U;
+                 character < candidate_length;
+                 ++character) {
+                entry->name[character] = candidate_name[character];
+            }
+            entry->name[candidate_length] = '\0';
+            entry->name_length = candidate_length;
+            entry->info = {
+                candidate_is_directory ? NodeType::Directory : NodeType::Regular,
+                NodeFlags::Seekable,
+                candidate_is_directory ? 0U : candidate.size,
+            };
+            *next_cookie = cookie + 1U;
+            return Status::Ok;
+        }
+        ++visible_index;
+    }
+    return Status::EndOfDirectory;
 }
 
 Status read_only_mutation(void*, const char*) { return Status::ReadOnly; }
@@ -195,10 +363,17 @@ fs::vfs::Status initialize(
     const package::View& package,
     fs::vfs::FileSystem* filesystem) {
     if (adapter == nullptr || filesystem == nullptr || package.bytes == nullptr ||
-        package.file_count == 0U) {
+        package.file_count == 0U ||
+        package.file_count > package::MAXIMUM_FILES) {
         return fs::vfs::Status::InvalidArgument;
     }
     adapter->package = package;
+    for (size_t index = 0U; index < package.file_count; ++index) {
+        if (package::file_at(package, index, &adapter->files[index]) !=
+            package::Status::Ok) {
+            return fs::vfs::Status::BackendFailure;
+        }
+    }
     *filesystem = {};
     filesystem->context = adapter;
     filesystem->read_only = true;
@@ -208,7 +383,7 @@ fs::vfs::Status initialize(
     filesystem->operations.read = read_file;
     filesystem->operations.write = write_file;
     filesystem->operations.stat_open = stat_open;
-    filesystem->operations.readdir = unsupported_readdir;
+    filesystem->operations.readdir = read_directory;
     filesystem->operations.create = read_only_mutation;
     filesystem->operations.unlink = read_only_mutation;
     filesystem->operations.rename = read_only_rename;

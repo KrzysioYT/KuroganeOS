@@ -1,4 +1,5 @@
 #include "ahci.hpp"
+#include "device_registry.hpp"
 
 #include "ahci_protocol.hpp"
 #include "dma.hpp"
@@ -1065,6 +1066,17 @@ Status configure_port(Controller& controller, uint8_t port_number) {
         read_blocks_callback,
         write_blocks_callback,
         flush_callback};
+    const char* const model =
+        port.info.model[0] != '\0' ? port.info.model : "SATA/AHCI disk";
+    if (!device_registry::register_device(
+            device_registry::Backend::Ahci,
+            g_device_count,
+            &port.device,
+            model)) {
+        port.device = {};
+        release_port_memory(port);
+        return Status::DeviceLimitReached;
+    }
     port.registered = true;
     g_devices[g_device_count++] = &port;
     return Status::Ok;

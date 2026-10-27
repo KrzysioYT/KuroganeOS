@@ -1,5 +1,14 @@
-# Real hardware
+# Fizyczny sprzęt
 
-Real hardware is untested. Boot requires x86-64 UEFI GOP and no Secure Boot.
-Input currently depends on legacy PS/2 behavior; USB, ACPI, APIC, storage and
-NIC drivers are absent. Use QEMU as the reference platform.
+KuroganeOS celuje w x86-64 UEFI/GOP na udokumentowanych urządzeniach.
+USB HID, AHCI/NVMe, ACPI/APIC i sterowniki sieci istnieją; ich obecność nie
+jest dowodem pełnej zgodności z konkretnym komputerem.
+
+Przed próbą sprawdź [macierz sprzętu](../compatibility/HARDWARE_MATRIX.md)
+i [ograniczenia](../CURRENT_LIMITATIONS.md). Zachowaj kopie danych i używaj
+osobnego dysku testowego; instalacja kasuje wybrany nośnik. Nie ma deklarowanej
+uniwersalnej obsługi laptopów ani produkcyjnego Secure Boot.
+
+Dla 14.0/15.0 wymagamy dowodów z fizycznych Intel i AMD: model, firmware,
+identyfikatory urządzeń, SHA, hash obrazu, serial/log oraz wyniki każdego scenariusza.
+QEMU i VirtualBox nie zastępują tych testów.
