@@ -276,3 +276,22 @@ test disk, full app/window/focus/input/clipboard and recovery matrix,
 settings persistence after restart, licensed scalable font rendering,
 HiDPI/responsive layout, and remaining contract checks. The exact-SHA
 successes above do not establish those behaviors or qualify 8.0.
+
+## 2026-10-27 — Automated live window lifecycle slice
+
+The QEMU gate now has an additional USB-only `--flux-lifecycle` scenario for
+Terminal/Files. It checks completed guest state transitions rather than only
+startup markers: minimize/restore (including maximized restore), move, resize,
+focus, close, new PID/window-generation relaunch and repeated resource cleanup.
+The first local working-tree ISO run passed the single-cycle lifecycle on
+macOS QEMU/TCG. The expanded churn gate is separately recorded with its tested
+source and logs; no full 8.0 completion or VirtualBox equivalence is implied.
+
+## 2026-10-27 — Settings keyboard accessibility slice
+
+Settings exposes its existing native controls through Tab/Shift+Tab and
+Enter/Space, retaining visible focus after actions and scrolling to off-screen
+controls. Mouse interaction remains available. Production-policy host tests and
+the QEMU lifecycle gate cover navigation; the installed-disk gate separately
+checks actual theme activation and service readback on a writable root.
+This is one application accessibility increment, not full desktop acceptance.

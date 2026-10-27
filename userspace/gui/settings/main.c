@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "keyboard.h"
 #include <kurogane/flux_app_catalog.h>
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
@@ -357,7 +358,7 @@ int main(void) {
     puts("[TEST] desktop_settings_real: PASS");
     puts("[TEST] flux_scene_settings: PASS");
     puts("[TEST] desktop_settings_mouse_navigation: PASS");
-    puts("[TEST] desktop_settings_keyboard_shortcuts_detached: PASS");
+    puts("[TEST] flux_settings_keyboard_ready: PASS");
     puts("[TEST] desktop_audio_settings_ui: PASS");
     puts("[TEST] flux_settings_toggle_cards: PASS");
     puts("[TEST] flux_8_theme_selector: PASS");
@@ -386,16 +387,25 @@ int main(void) {
             }
             continue;
         }
-        if (event.type != KU_UI_EVENT_POINTER) continue;
-        {
+        if (event.type == KU_UI_EVENT_KEY) {
+            const int action = flux_settings_key(&scene, &event, &target);
+            if (action == 1) {
+                (void)kui_scene_present(window, &scene);
+                puts("[INPUT] flux_settings_keyboard_focus: PASS");
+                continue;
+            }
+            if (action != 2) continue;
+            puts("[INPUT] flux_settings_keyboard_activate: PASS");
+        } else if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
                 (event.buttons & UINT32_C(1)) != 0U &&
                 (previous_buttons & UINT32_C(1)) == 0U;
             pointer_buttons = event.buttons;
             if (!primary_pressed) continue;
-        }
-        target = kui_scene_hit_test(&scene, event.x, event.y);
+            target = kui_scene_hit_test(&scene, event.x, event.y);
+            (void)kui_scene_select(&scene, target);
+        } else continue;
         if (target == 10U) {
             int confirmed = 0;
             const int requested = low_contrast == 0;
@@ -421,6 +431,11 @@ int main(void) {
                 continue;
             }
             theme_id = confirmed;
+            {
+                char value[24];
+                gui_u64(value, sizeof(value), theme_id);
+                printf("[SETTINGS] theme_saved=%s\n", value);
+            }
             puts("[TEST] flux_theme_persistence: PASS");
         } else if (target == 32U) {
             const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN
@@ -454,8 +469,10 @@ int main(void) {
         }
         {
             const uint32_t old_offset = scene.scroll_offset;
+            const uint32_t selected = kui_scene_selected(&scene);
             build_scene(&scene, low_contrast, theme_id, style_id,
                         &audio, settings.connected);
+            (void)kui_scene_select(&scene, selected);
             scene.scroll_offset = old_offset;
             (void)kui_scene_scroll(&scene, 0);
         }

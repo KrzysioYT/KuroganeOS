@@ -83,7 +83,13 @@ static int restore_desktop_theme(void) {
         apply.structure_size = sizeof(apply);
         apply.action = KU_DESKTOP_THEME_SET;
         apply.theme_id = (uint32_t)saved_theme;
-        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK;
+        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK &&
+            apply.theme_id == (uint32_t)saved_theme;
+        if (success) {
+            char value[24];
+            gui_u64(value, sizeof(value), apply.theme_id);
+            printf("[SETTINGS] theme_restored=%s\n", value);
+        }
         (void)ku_service_close(connection);
         return success;
     }

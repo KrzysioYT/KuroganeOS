@@ -154,6 +154,65 @@ matrix, licensed scalable typography, HiDPI, and the complete application
 suite remain unverified or incomplete. Version remains `7.0.0-dev`; 8.0 is
 **ACTIVE / NOT QUALIFIED** and 15.0.0 stable remains the product goal.
 
+## 2026-10-27 — Restore hosted regression gates
+
+The latest roadmap source `58c98d62` passed the scoped Flux workflow
+`40432993532`, but other gates failed before exercising their runtime cases:
+the full Linux host suite stopped at `test_xhci_ports` because GCC treated the
+kernel `log` namespace as a conflicting math builtin, and standalone HTTPS
+workflow `40433000556` omitted the logger fixture required by the client.
+
+The logger header now scopes the GCC diagnostic exception to the namespace
+declaration, retaining caller warnings and `-Werror`. The complete host suite
+and standalone HTTPS workflow share `scripts/test-tls-http.sh`, including
+`host_log_stub.cpp`; `--ubsan` retains the sanitizer gate. Workflow path filters
+also cover the shared runner, logger header and fixture.
+
+Local validation on Apple Silicon: optimized host suite under Rosetta PASS;
+standalone HTTPS optimized and UBSan PASS; hosted-mode GCC 16 header probe
+reproduced the diagnostic before the change and passed afterward. This is not
+a claim that the complete Linux CI matrix has been rerun. The unmodified
+`58c98d62` release ISO also passed USB-only QEMU/TCG Try -> authenticated Home
+-> Files wheel -> Terminal, with two child spawns and two presented surfaces.
+Full 8.0 acceptance, including VirtualBox, remains open.
+
+## 2026-10-27 — Local installer and disk-only reboot evidence
+
+A portable QEMU runner now installs to an exclusively created 512 MiB image;
+existing output directories/symlinks are rejected. It cancels before INSTALL
+and compares the full blank-disk hash, then installs and boots the same disk
+twice with the ISO detached. Both boots must authenticate the installed account
+and present Home; first-boot transaction and persisted-install markers are
+required separately. CI now includes this scenario and retains evidence but
+not the writable disk.
+
+Local macOS/QEMU/TCG passed installation and both disk-only boots against the
+`42e73a0d` release ISO (SHA256
+`c11fecc76140adca1e79dda6095a442c585cb17845d6969ef43db800a76749c6`).
+The expanded run also passed cancellation with an unchanged disk hash. The
+runner was working-tree code during that test; its manifest records its own
+SHA256 in addition to the guest ISO hash. This is scoped evidence for an
+English default no-password account, AHCI, 4 vCPU, USB keyboard/tablet. It does
+not qualify password login, upgrades, settings persistence, power-loss recovery
+or native VirtualBox. The remote QEMU job for `42e73a0d` was still installing
+host dependencies when this evidence was recorded; no remote QEMU PASS is
+claimed. Hosted Flux sanitizer and standalone HTTPS jobs passed on that SHA.
+
+## 2026-10-27 — Settings keyboard development
+
+The previous commit `452d8e2e` completed both hosted sanitizer and QEMU jobs in
+Actions run `40437531957`, including installation and two disk-only boots.
+
+Settings previously ignored all keyboard events. It now supports visible
+Tab/Shift+Tab focus, Enter/Space activation, scroll-to-focus and focus preservation
+after rebuilding its scene. Optimized/UBSan policy tests and the complete local
+host suite passed. A working-tree QEMU installed boot passed navigation and the
+window lifecycle; screenshots confirmed the final reset control is visible.
+The initial ISO Try test correctly rejected theme persistence on its read-only
+root. Write acceptance is explicitly reserved for a writable installed disk.
+Exact candidate media and final runtime results are recorded with the delivery
+artifacts; this does not promote the system version or qualify all of 8.0.
+
 ## 2026-10-27 — Road to 15: kernel-host portability and FAT32 packaging
 
 On `58c98d62`, the exact-SHA GitHub checks returned 10 successes and 24
@@ -204,3 +263,20 @@ remain in place. Exact-SHA CI must revalidate the fix before any qualification.
 Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
 checkpoint was recorded; a prior successful run is not transferable. Native
 macOS/QEMU/VirtualBox profiles require their own acceptance evidence.
+
+## 2026-10-27 — Repository cleanup and integrated audit
+
+Rechecked 63 remote branches / 11 PRs, backed up all refs, atomically deleted 39
+fully contained branch tips with expected-SHA leases, retained 24 and all PR
+heads/bases. See `docs/audit/2026-10-27-deleted-branches.json` for recovery pairs.
+Integrated current roadmap base `0feb33db` without rewriting either history.
+Resolved host-runner merge syntax, consolidated the HTTP logger fixture, enabled
+real context-switch tests on Mach-O, and separated host/ELF compiler selection
+in the legacy SDK test. Added a reusable 11-case core UBSan runner.
+
+Settings/Home now report only confirmed numeric theme IDs; installer qualification
+compares the saved nondefault theme with Home's exact restored value on the
+second disk-only boot. Final run results and hashes belong to the delivered
+audit matrix, not historical PASS claims. VirtualBox x86 launch on this Apple M4
+returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED`; that gate remains BLOCKED.
+Product KDF and atomic settings replacement under power loss remain unresolved.

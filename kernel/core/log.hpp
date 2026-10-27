@@ -8,11 +8,15 @@
 // strictly scoped to this existing declaration; do not disable unrelated
 // warnings across driver/security tests. Migrate to a distinct namespace in
 // a future coordinated kernel ABI refactor.
+
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
 #endif
 namespace log {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 enum class Level : uint8_t {
     Trace = 0,

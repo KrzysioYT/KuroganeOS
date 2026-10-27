@@ -24,13 +24,15 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
 "$OUT_DIR/test_keyboard_lifecycle"
-"$HOST_PYTHON" tests/test_qmp_pointer_selection.py"
+"$HOST_PYTHON" tests/test_qmp_pointer_selection.py
+"$HOST_PYTHON" tests/test_flux_lifecycle_qmp.py
+"$HOST_PYTHON" tests/test_installer_qemu_safety.py
 
-# GCC must accept the legacy freestanding logger with -Werror, and macOS
-# Clang must not see GCC-only diagnostic names.
+# Keep the strict compiler probe alongside the lifecycle evidence tests.
 "$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
 "$OUT_DIR/test_kernel_log_header"
+
 
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
@@ -729,17 +731,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 bash ./scripts/probe-mbedtls-freestanding.sh
 
 # Exercise production HTTPS request construction/read loop with scripted TLS I/O.
-tls_flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  -ffunction-sections -fdata-sections)
-if ! "$HOST_CXX" --version 2>&1 | grep -qi clang; then
-  tls_flags+=(-Wno-builtin-declaration-mismatch)
-fi
-"$HOST_CXX" "${tls_flags[@]}" \
-  -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
-  -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
-  tests/test_tls_http_io.cpp tests/host_log_stub.cpp \
-  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_tls_http_io"
-"$OUT_DIR/test_tls_http_io"
+HOST_CXX="$HOST_CXX" HOST_TEST_DIR="$OUT_DIR" bash scripts/test-tls-http.sh
 
 
 # The project-generator integration test consumes the real SDK sysroot rather
