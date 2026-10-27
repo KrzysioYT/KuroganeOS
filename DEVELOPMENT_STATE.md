@@ -197,3 +197,18 @@ not qualify password login, upgrades, settings persistence, power-loss recovery
 or native VirtualBox. The remote QEMU job for `42e73a0d` was still installing
 host dependencies when this evidence was recorded; no remote QEMU PASS is
 claimed. Hosted Flux sanitizer and standalone HTTPS jobs passed on that SHA.
+
+## 2026-10-27 — Settings keyboard development
+
+The previous commit `452d8e2e` completed both hosted sanitizer and QEMU jobs in
+Actions run `40437531957`, including installation and two disk-only boots.
+
+Settings previously ignored all keyboard events. It now supports visible
+Tab/Shift+Tab focus, Enter/Space activation, scroll-to-focus and focus preservation
+after rebuilding its scene. Optimized/UBSan policy tests and the complete local
+host suite passed. A working-tree QEMU installed boot passed navigation and the
+window lifecycle; screenshots confirmed the final reset control is visible.
+The initial ISO Try test correctly rejected theme persistence on its read-only
+root. Write acceptance is explicitly reserved for a writable installed disk.
+Exact candidate media and final runtime results are recorded with the delivery
+artifacts; this does not promote the system version or qualify all of 8.0.

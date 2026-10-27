@@ -91,6 +91,8 @@ def main():
     parser.add_argument('--iso', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path, help='new directory, must not exist')
     parser.add_argument('--timeout', type=int, default=240)
+    parser.add_argument('--desktop-lifecycle', action='store_true',
+                        help='exercise windows and Settings keyboard on first installed boot')
     args = parser.parse_args()
     if not 60 <= args.timeout <= 240:
         parser.error('timeout must be 60..240 seconds per phase')
@@ -173,6 +175,8 @@ def main():
             '--require-marker', f'[TEST] {marker}: PASS',
             '--require-marker', '[SESSION] flux_home_first_frame: PASS',
             '--screendump-after-marker', '[SESSION] flux_home_first_frame: PASS', str(output / (phase + '.ppm'))]
+        if args.desktop_lifecycle and phase == 'first-boot':
+            cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
         with (output / (phase + '-runner.log')).open('wb') as log:
             subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         text = (output / phase / 'serial.log').read_text(errors='replace')

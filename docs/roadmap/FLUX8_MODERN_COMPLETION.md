@@ -286,3 +286,12 @@ focus, close, new PID/window-generation relaunch and repeated resource cleanup.
 The first local working-tree ISO run passed the single-cycle lifecycle on
 macOS QEMU/TCG. The expanded churn gate is separately recorded with its tested
 source and logs; no full 8.0 completion or VirtualBox equivalence is implied.
+
+## 2026-10-27 — Settings keyboard accessibility slice
+
+Settings exposes its existing native controls through Tab/Shift+Tab and
+Enter/Space, retaining visible focus after actions and scrolling to off-screen
+controls. Mouse interaction remains available. Production-policy host tests and
+the QEMU lifecycle gate cover navigation; the installed-disk gate separately
+checks actual theme activation and service readback on a writable root.
+This is one application accessibility increment, not full desktop acceptance.

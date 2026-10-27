@@ -12,8 +12,6 @@ for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
     text = read(path)
     assert "KU_UI_EVENT_POINTER" in text, f"{path}: pointer path missing"
     assert "kui_scene_hit_test" in text, f"{path}: libui hit test missing"
-    if path.endswith("/settings/main.c"):
-        assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
     for helper in (
         "gui_key_down(", "gui_key_up(", "gui_key_left(", "gui_key_right(",
         "gui_key_tab(", "gui_key_activate(", "gui_key_cancel(",
@@ -63,7 +61,7 @@ assert "write_bool_setting" in settings and "read_bool_setting" in settings
 assert "desktop_settings_profile_persist: PASS" in settings
 assert "desktop_settings_profile_restore: PASS" in settings
 assert "desktop_settings_mouse_navigation: PASS" in settings
-assert "desktop_settings_keyboard_shortcuts_detached: PASS" in settings
+assert "flux_settings_keyboard_ready: PASS" in settings
 
 terminal = read("userspace/gui/terminal/main.c")
 assert "KU_UI_EVENT_KEY" in terminal, "terminal: required keyboard input was removed"

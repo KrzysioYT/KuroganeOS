@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -31,6 +31,7 @@ usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
 require_tls=false
+flux_settings_write=false
 flux_lifecycle=false
 flux_lifecycle_done=false
 send_key_after_marker=""
@@ -85,6 +86,7 @@ while (($#)); do
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
         --flux-lifecycle) flux_lifecycle=true; shift ;;
+        --flux-settings-write) flux_settings_write=true; shift ;;
         --send-key-after-marker)
             [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
             [[ -z "$send_key_after_marker" ]] || { echo "only one --send-key-after-marker is supported" >&2; exit 2; }
@@ -147,6 +149,10 @@ while (($#)); do
     esac
 done
 [[ -n "$media" ]] || usage
+if $flux_settings_write && { ! $flux_lifecycle || [[ "$media_kind" != disk ]]; }; then
+    echo "--flux-settings-write requires --flux-lifecycle --disk and a writable root" >&2
+    exit 2
+fi
 if $flux_lifecycle; then
     if ! $usb_keyboard || ! $usb_tablet || [[ -z "$log_dir" ]]; then
         echo "--flux-lifecycle requires --usb-keyboard --usb-tablet --log-dir" >&2
@@ -981,9 +987,11 @@ while ((SECONDS < deadline)); do
         capture_pending_screenshots
         all_markers_ready=true
         if $flux_lifecycle && ! $flux_lifecycle_done && grep -Fq '[SESSION] flux_home_first_frame: PASS' "$serial"; then
+            lifecycle_options=(--timeout "$((deadline - SECONDS))")
+            if $flux_settings_write; then lifecycle_options+=(--settings-write); fi
             python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/flux-lifecycle-qmp.py" \
                 --qmp "$qmp" --serial "$serial" --output "$log_dir" \
-                --timeout "$((deadline - SECONDS))"
+                "${lifecycle_options[@]}"
             echo "[uefi-qemu] Flux window lifecycle: PASS"
             flux_lifecycle_done=true
         fi

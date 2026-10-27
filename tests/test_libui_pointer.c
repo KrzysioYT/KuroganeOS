@@ -1,4 +1,5 @@
 #include <kurogane/libui.h>
+#include "../userspace/gui/settings/keyboard.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -227,6 +228,48 @@ int main(void) {
         native.commands[0].type != KU_UI_NATIVE_PANEL ||
         kui_scene_scroll(&scene, -100) != KU_STATUS_OK ||
         scene.scroll_offset != 0U) return 19;
+    {
+        kui_scene form;
+        ku_ui_event key = {0};
+        uint32_t target = 999U;
+        kui_scene_initialize(&form);
+        form.visible_rows = 2U;
+        kui_flow_begin(&root, &form, 0U);
+        (void)kui_flow_label(&root, 1U, "LABEL");
+        (void)kui_flow_button(&root, 2U, "FIRST");
+        (void)kui_flow_button(&root, 3U, "DISABLED");
+        (void)kui_scene_set_flags(&form, 3U, KUI_VIEW_DISABLED);
+        (void)kui_flow_button(&root, 4U, "HIDDEN");
+        (void)kui_scene_set_flags(&form, 4U, KUI_VIEW_HIDDEN);
+        (void)kui_flow_toggle(&root, 5U, "LAST", 0);
+        key.type = KU_UI_EVENT_KEY;
+        key.key = KU_UI_KEY_ENTER;
+        if (flux_settings_key(&form, &key, &target) != 0) return 30;
+        key.key = KU_UI_KEY_TAB;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 2U || form.scroll_offset != 0U) return 31;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 5U || form.scroll_offset != 2U) return 32;
+        key.key = KU_UI_KEY_ENTER;
+        if (flux_settings_key(&form, &key, &target) != 2 || target != 5U) return 33;
+        key.key = KU_UI_KEY_UNKNOWN;
+        key.character = ' ';
+        if (flux_settings_key(&form, &key, &target) != 2 || target != 5U) return 34;
+        key.character = 0U;
+        key.key = KU_UI_KEY_TAB;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 2U || form.scroll_offset != 1U) return 35;
+        key.modifiers = KU_UI_MOD_SHIFT;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 5U || form.scroll_offset != 2U) return 36;
+        key.modifiers = KU_UI_MOD_CONTROL;
+        if (flux_settings_key(&form, &key, &target) != 0 ||
+            form.selected_id != 5U) return 37;
+        key.modifiers = KU_UI_MOD_ALT;
+        if (flux_settings_key(&form, &key, &target) != 0) return 38;
+        key.type = KU_UI_EVENT_POINTER;
+        if (flux_settings_key(&form, &key, &target) != 0) return 39;
+    }
     puts("libui native packet + mouse hit-test + scroll ABI tests passed");
     return 0;
 }

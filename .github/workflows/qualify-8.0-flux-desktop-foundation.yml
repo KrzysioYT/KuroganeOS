@@ -357,7 +357,7 @@ jobs:
           python3 tests/test_installer_qemu_safety.py
           python3 scripts/qualification/installer-qemu.py \
             --iso "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
-            --output build/tests/flux-8-installed --timeout 240
+            --output build/tests/flux-8-installed --desktop-lifecycle --timeout 240
       - name: Retain desktop serial evidence
         if: always()
         uses: actions/upload-artifact@v4

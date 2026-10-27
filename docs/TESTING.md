@@ -136,3 +136,20 @@ CI uploads evidence without the large writable disk image. Existing output
 and symlink refusal regressions run via `tests/test_installer_qemu_safety.py`.
 This covers the default no-password account on emulated AHCI; it is not a
 password, upgrade, settings-persistence, power-loss or physical-install gate.
+
+## Settings keyboard accessibility
+
+Settings now supports Tab/Shift+Tab focus, Enter/Space activation, and automatic
+scrolling to the focused control. Mouse selection shares that focus and a scene
+rebuild after an action preserves it. Control/Alt chords remain reserved.
+`test_libui_pointer.c` exercises the production keyboard policy with disabled
+and hidden controls, forward/reverse wrap, scrolling and activation.
+
+`--flux-lifecycle` additionally launches Settings with Ctrl+Alt+F7 and captures
+keyboard focus at both ends of the form. Add `--flux-settings-write` only with
+`--disk` and a writable installed root to verify Enter and Space through actual
+theme SET/GET and desktop application. An ISO Try package is read-only; its
+settings write failure must not be mistaken for a keyboard transport failure.
+`installer-qemu.py --desktop-lifecycle` enables both checks on the first installed
+boot, then verifies the ordinary second disk-only boot. This does not yet assert
+the selected theme value across reboot.

@@ -29,6 +29,7 @@ class Harness:
         self.output.mkdir(parents=True, exist_ok=True)
         self.deadline = time.monotonic() + args.timeout
         self.results = []
+        self.settings_write = getattr(args, "settings_write", False)
         self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connection.settimeout(3)
         self.connection.connect(args.qmp)
@@ -54,6 +55,15 @@ class Harness:
         if re.search(r'PANIC_BEGIN|FATAL ERROR|\[(?:TEST|SESSION|INPUT)\][^\n]*: FAIL', text):
             raise RuntimeError('guest reported a failure; inspect serial.log')
         return records(text)
+
+    def wait_marker(self, marker, previous=0):
+        deadline = min(self.deadline, time.monotonic() + 30)
+        while time.monotonic() < deadline:
+            self.read()
+            if self.serial.read_text(errors='replace').count(marker) > previous:
+                return
+            time.sleep(.1)
+        raise TimeoutError('no fresh marker: ' + marker)
 
     def mark(self):
         return len(self.read())
@@ -193,9 +203,33 @@ class Harness:
             assert reopened['pid'] != previous['pid'] and reopened['id'] != previous['id']
             assert all(reopened[k] == files[k] for k in ('windows', 'surfaces', 'bytes'))
         self.screenshot('05-churn-complete')
+        start = self.mark()
+        self.key('ctrl', 'alt', 'f7')
+        settings = self.wait(start, 'present', app=6)
+        self.wait_marker('[TEST] flux_settings_keyboard_ready: PASS')
+        self.key('tab')
+        self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS')
+        if self.settings_write:
+            self.key('ret')
+            self.wait_marker('[TEST] flux_theme_persistence: PASS')
+        # Focus survives the theme rebuild. Reverse Tab wraps to the final
+        # profile control and scrolls it into view. Space then exercises
+        # activation on the first control after forward wrap (writable root).
+        self.key('shift', 'tab')
+        self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 1)
+        self.screenshot('06-settings-keyboard-scroll')
+        self.key('tab')
+        self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
+        self.screenshot('07-settings-keyboard-wrap')
+        if self.settings_write:
+            self.key('spc')
+            self.wait_marker('[TEST] flux_theme_persistence: PASS', 1)
+        start = self.mark()
+        self.control(settings, 0)
+        self.wait(start, 'close', app=6, window=settings['id'])
         (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
         self.read()  # Fail even if a fault follows the last accepted transition.
-        print('[lifecycle] PASS: minimize/restore/maximize/move/resize/focus/close/reopen', flush=True)
+        print('[lifecycle] PASS: minimize/restore/maximize/move/resize/focus/close/reopen/settings-keyboard', flush=True)
 
 
 def main():
@@ -203,6 +237,8 @@ def main():
     for field in ('qmp', 'serial', 'output'):
         parser.add_argument('--' + field, required=True)
     parser.add_argument('--timeout', type=float, default=180)
+    parser.add_argument('--settings-write', action='store_true',
+                        help='also activate and save themes; requires writable root')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')
