@@ -26,6 +26,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_keyboard_lifecycle"
 "$HOST_PYTHON" tests/test_qmp_pointer_selection.py
 "$HOST_PYTHON" tests/test_flux_lifecycle_qmp.py
+"$HOST_PYTHON" tests/test_installer_qemu_safety.py
 
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \

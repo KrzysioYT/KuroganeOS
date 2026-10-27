@@ -36,6 +36,8 @@ on:
       - 'scripts/smoke-uefi-iso-qemu.sh'
       - 'scripts/qualification/flux-lifecycle-qmp.py'
       - 'tests/test_flux_lifecycle_qmp.py'
+      - 'scripts/qualification/installer-qemu.py'
+      - 'tests/test_installer_qemu_safety.py'
       - 'kernel/user/runtime_base.inc'
       - 'sdk/include/kurogane/design.h'
       - 'sdk/include/kurogane/desktop.h'
@@ -350,6 +352,12 @@ jobs:
             --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle \
             --log-dir build/tests/flux-8-lifecycle --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret
+      - name: Install to a new disk and boot twice without ISO
+        run: |
+          python3 tests/test_installer_qemu_safety.py
+          python3 scripts/qualification/installer-qemu.py \
+            --iso "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
+            --output build/tests/flux-8-installed --timeout 240
       - name: Retain desktop serial evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -358,6 +366,8 @@ jobs:
           path: |
             build/tests/flux-8-foundation
             build/tests/flux-8-lifecycle
+            build/tests/flux-8-installed
+            !build/tests/flux-8-installed/*.img
           if-no-files-found: warn
 
   scoped-desktop-gate:

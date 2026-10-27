@@ -175,3 +175,25 @@ a claim that the complete Linux CI matrix has been rerun. The unmodified
 `58c98d62` release ISO also passed USB-only QEMU/TCG Try -> authenticated Home
 -> Files wheel -> Terminal, with two child spawns and two presented surfaces.
 Full 8.0 acceptance, including VirtualBox, remains open.
+
+## 2026-10-27 — Local installer and disk-only reboot evidence
+
+A portable QEMU runner now installs to an exclusively created 512 MiB image;
+existing output directories/symlinks are rejected. It cancels before INSTALL
+and compares the full blank-disk hash, then installs and boots the same disk
+twice with the ISO detached. Both boots must authenticate the installed account
+and present Home; first-boot transaction and persisted-install markers are
+required separately. CI now includes this scenario and retains evidence but
+not the writable disk.
+
+Local macOS/QEMU/TCG passed installation and both disk-only boots against the
+`42e73a0d` release ISO (SHA256
+`c11fecc76140adca1e79dda6095a442c585cb17845d6969ef43db800a76749c6`).
+The expanded run also passed cancellation with an unchanged disk hash. The
+runner was working-tree code during that test; its manifest records its own
+SHA256 in addition to the guest ISO hash. This is scoped evidence for an
+English default no-password account, AHCI, 4 vCPU, USB keyboard/tablet. It does
+not qualify password login, upgrades, settings persistence, power-loss recovery
+or native VirtualBox. The remote QEMU job for `42e73a0d` was still installing
+host dependencies when this evidence was recorded; no remote QEMU PASS is
+claimed. Hosted Flux sanitizer and standalone HTTPS jobs passed on that SHA.

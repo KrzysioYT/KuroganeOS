@@ -110,3 +110,29 @@ with `python3 tests/test_flux_lifecycle_qmp.py`.
 
 This covers Terminal and Files in a fresh live session, not the complete app,
 crash/recovery, installed persistence, Classic, or VirtualBox acceptance matrix.
+
+## Portable installer / two disk-only boots
+
+```bash
+python3 scripts/qualification/installer-qemu.py \
+  --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso \
+  --output build/tests/flux-8-installed --timeout 240
+```
+
+The output directory must not exist. The runner creates its own 512 MiB raw
+file with exclusive creation; it never accepts an existing target disk. Only
+that file and the read-only ISO are attached during installation. Real USB
+input chooses Install, the default English/user/no-password profile, and the
+sole test disk. It first cancels at the erase prompt and verifies the entire
+blank-disk hash is unchanged, then confirms INSTALL and requires the guest's
+payload verification and completion marker.
+
+The installer VM stops before two separate disk-only boots. Both must reach
+an authenticated Home; the first must finish the first-boot transaction and
+the second must report persisted installation state. The runner rejects
+fallback to live media, guest FAIL markers and failed QEMU exits. It retains
+serial logs, screenshots, the disk and a manifest with ISO/disk/harness hashes.
+CI uploads evidence without the large writable disk image. Existing output
+and symlink refusal regressions run via `tests/test_installer_qemu_safety.py`.
+This covers the default no-password account on emulated AHCI; it is not a
+password, upgrade, settings-persistence, power-loss or physical-install gate.
