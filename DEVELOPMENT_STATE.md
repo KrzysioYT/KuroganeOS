@@ -188,3 +188,19 @@ collided with `tests/host_log_stub.cpp` supplied by the complete host suite.
 The test-only logger functions are now weak where supported so the shared
 host fixture overrides them; the test's HTTP response/result assertions
 remain in place. Exact-SHA CI must revalidate the fix before any qualification.
+
+## 2026-10-27 — FAT32 installed/live parity and HTTP harness recovery
+
+- `90156e9e`: removed a duplicate strong host logging definition introduced
+  by the earlier TLS HTTP regression fix. The isolated HTTP workflow and the
+  complete host runner must both link against the same test without conflict.
+  Its test-local definitions are weak, overridden by the host suite's existing
+  `host_log_stub.cpp` where available; this is test-only, not guest code.
+- `44cc2bce`: completed the case-insensitive ASCII path equivalence across
+  live installation-package VFS lookup, opening and directory enumeration.
+  The host fixture covers mixed-case direct reads and deduplicated folder
+  listing while retaining read-only semantics and separate ESP/root contents.
+
+Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
+checkpoint was recorded; a prior successful run is not transferable. Native
+macOS/QEMU/VirtualBox profiles require their own acceptance evidence.
