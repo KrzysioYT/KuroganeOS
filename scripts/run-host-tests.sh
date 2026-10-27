@@ -498,6 +498,17 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_filter_cpp"
 "$OUT_DIR/test_flux_files_filter_cpp"
 
+# Files Back/Forward must retain bounded path/filter history, prune forward
+# branches only on a successful visit, and behave identically in C/C++.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_files_history.c \
+  -o "$OUT_DIR/test_flux_files_history"
+"$OUT_DIR/test_flux_files_history"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -x c++ tests/test_flux_files_history.c \
+  -o "$OUT_DIR/test_flux_files_history_cpp"
+"$OUT_DIR/test_flux_files_history_cpp"
+
 # Settings can now be traversed without a pointer, including focus reveal
 # for controls outside the native scene viewport.
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \

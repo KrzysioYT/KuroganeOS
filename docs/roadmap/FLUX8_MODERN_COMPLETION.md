@@ -148,6 +148,12 @@ manager or 12.0 production users/groups, signed update and isolation work.
   and non-ELF previews remain available on filtered results. Host C/C++ tests
   cover search editing, ASCII-case-insensitive matching and empty states;
   guest usability qualification remains open.
+- Files now has session-local Back and Forward controls (also Alt+Left and
+  Alt+Right) over the most recent 16 visited directories. Search terms are
+  restored on history navigation; entering a new directory after Back removes
+  the stale forward branch. A failed VFS open does not advance history or leave
+  the user in an invalid folder. Host C/C++ tests cover bounded history,
+  search restoration, branch pruning and cursor boundaries.
 
 ## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
 

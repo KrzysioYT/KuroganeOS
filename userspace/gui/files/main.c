@@ -3,6 +3,7 @@
 #include "paging.h"
 #include "navigation.h"
 #include "filter.h"
+#include "history.h"
 #include "../clipboard_actions.h"
 
 #define DIRECTORY_ENTRY_CAPACITY 512U
@@ -146,6 +147,38 @@ static void parent_path(char* path) {
     }
 }
 
+/* Keep the visible folder and history unchanged until the VFS has actually
+ * opened the destination. On failure restore the previous cached listing. */
+static int navigate_directory(
+    char* path, char* query, const char* destination, const char* filter,
+    explorer_entry* entries, size_t* entry_count, size_t* page_start,
+    uint32_t* selected, char* status, size_t status_capacity,
+    char* preview, size_t preview_capacity) {
+    char next_status[64] = "";
+    char restore_status[64] = "";
+    if (destination == NULL || filter == NULL || destination[0] != '/' ||
+        strlen(destination) >= PATH_CAPACITY ||
+        strlen(filter) >= FLUX_FILES_FILTER_CAPACITY) {
+        (void)strlcpy(preview, "FOLDER / INVALID PATH", preview_capacity);
+        return 0;
+    }
+    if (!load_directory(destination, filter, entries, entry_count,
+                        next_status, sizeof(next_status))) {
+        (void)load_directory(path, query, entries, entry_count,
+                             restore_status, sizeof(restore_status));
+        (void)strlcpy(preview, next_status, preview_capacity);
+        (void)strlcpy(status, next_status, status_capacity);
+        return 0;
+    }
+    (void)strlcpy(path, destination, PATH_CAPACITY);
+    (void)strlcpy(query, filter, FLUX_FILES_FILTER_CAPACITY);
+    *page_start = 0U;
+    *selected = NO_SELECTION;
+    (void)strlcpy(status, next_status, status_capacity);
+    (void)strlcpy(preview, next_status, preview_capacity);
+    return 1;
+}
+
 static int is_elf_file(const char* path) {
     unsigned char magic[4];
     const ku_result_t opened = ku_file_open(path, strlen(path));
@@ -222,6 +255,7 @@ static void build_scene(
     kui_scene* scene,
     const char* path,
     const char* query,
+    const flux_files_history* history,
     const explorer_entry* entries,
     size_t entry_count,
     size_t page_start,
@@ -251,7 +285,7 @@ static void build_scene(
     }
 
     kui_scene_initialize(scene);
-    scene->visible_rows = 13U;
+    scene->visible_rows = 15U;
     kui_scene_set_palette(
         scene,
         UINT32_C(0x090A0C),
@@ -276,11 +310,19 @@ static void build_scene(
                 ? KU_UI_NATIVE_ICON_FOLDER : KU_UI_NATIVE_ICON_DOCUMENT);
         if (selected == (uint32_t)index) (void)kui_scene_select(scene, id);
     }
+    (void)kui_flow_button(&root, 35U, "BACK / ALT + LEFT");
+    (void)kui_flow_button(&root, 36U, "FORWARD / ALT + RIGHT");
     (void)kui_flow_button(&root, 30U, "PARENT FOLDER");
     (void)kui_flow_button(&root, 31U, "OPEN / ENTER");
     (void)kui_flow_button(&root, 32U, "NEXT PAGE");
     (void)kui_flow_button(&root, 34U, "COPY SELECTED PATH");
     (void)kui_flow_label(&root, 33U, preview);
+    if (!flux_files_history_can_move(history, -1)) {
+        (void)kui_scene_set_flags(scene, 35U, KUI_VIEW_DISABLED);
+    }
+    if (!flux_files_history_can_move(history, 1)) {
+        (void)kui_scene_set_flags(scene, 36U, KUI_VIEW_DISABLED);
+    }
     if (path[0] == '/' && path[1] == '\0') {
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
     }
@@ -295,6 +337,7 @@ static void build_scene(
 static int activate_selected(
     char* path,
     char* query,
+    flux_files_history* history,
     explorer_entry* entries,
     size_t* entry_count,
     size_t* page_start,
@@ -315,13 +358,10 @@ static int activate_selected(
         return 0;
     }
     if (directory_like(entry->type)) {
-        if (strlcpy(path, target, PATH_CAPACITY) >= PATH_CAPACITY) return 0;
-        query[0] = '\0';
-        *page_start = 0U;
-        *selected = NO_SELECTION;
-        status[0] = '\0';
-        if (!load_directory(path, query, entries, entry_count, status, status_capacity)) return 0;
-        (void)strlcpy(preview, status, preview_capacity);
+        if (!navigate_directory(path, query, target, "", entries, entry_count,
+                                page_start, selected, status, status_capacity,
+                                preview, preview_capacity)) return 0;
+        (void)flux_files_history_visit(history, target);
         return 1;
     }
     if (is_elf_file(target)) {
@@ -341,7 +381,7 @@ static int activate_selected(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 110, 650, 480);
+    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 90, 650, 560);
     explorer_entry* entries = s_directory_cache;
     size_t entry_count = 0U;
     size_t page_start = 0U;
@@ -351,8 +391,13 @@ int main(void) {
     char query[FLUX_FILES_FILTER_CAPACITY] = "";
     char status[64] = "";
     char preview[64] = "SELECT A TILE / OPEN OR ENTER";
+    flux_files_history history;
     kui_scene scene;
     if (window == KU_INVALID_WINDOW) return 1;
+    if (!flux_files_history_init(&history, path)) {
+        (void)ku_ui_close(window);
+        return 2;
+    }
 
     if (!load_directory(path, query, entries, &entry_count, status, sizeof(status))) {
         (void)ku_ui_close(window);
@@ -361,7 +406,8 @@ int main(void) {
     if (status[0] != '\0' && strcmp(status, "DIRECTORY / READY") != 0) {
         (void)strlcpy(preview, status, sizeof(preview));
     }
-    build_scene(&scene, path, query, entries, entry_count, page_start, selected, preview);
+    build_scene(&scene, path, query, &history,
+                entries, entry_count, page_start, selected, preview);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
         return 3;
@@ -375,6 +421,7 @@ int main(void) {
     puts("[TEST] flux_files_directory_grid: PASS");
     puts("[TEST] flux_files_breadcrumb: PASS");
     puts("[TEST] flux_files_search: READY");
+    puts("[TEST] flux_files_history: READY");
 
     for (;;) {
         ku_ui_event event;
@@ -393,7 +440,7 @@ int main(void) {
             if (page_start != before) {
                 selected = NO_SELECTION;
                 (void)strlcpy(preview, "WHEEL / PAGE CHANGED", sizeof(preview));
-                build_scene(&scene, path, query, entries, entry_count,
+                build_scene(&scene, path, query, &history, entries, entry_count,
                             page_start, selected, preview);
                 (void)kui_scene_present(window, &scene);
                 puts("[TEST] flux_files_usb_wheel_paging: PASS");
@@ -401,7 +448,12 @@ int main(void) {
             continue;
         }
         if (event.type == KU_UI_EVENT_KEY) {
-            if (flux_files_filter_edit(query, sizeof(query), &event)) {
+            if (event.modifiers == KU_UI_MOD_ALT &&
+                (event.key == KU_UI_KEY_ARROW_LEFT ||
+                 event.key == KU_UI_KEY_ARROW_RIGHT)) {
+                target = event.key == KU_UI_KEY_ARROW_LEFT ? 35U : 36U;
+            } else if (flux_files_filter_edit(query, sizeof(query), &event)) {
+                (void)flux_files_history_filter(&history, query);
                 page_start = 0U;
                 selected = NO_SELECTION;
                 status[0] = '\0';
@@ -415,25 +467,26 @@ int main(void) {
                 } else {
                     (void)strlcpy(preview, status, sizeof(preview));
                 }
-                build_scene(&scene, path, query, entries, entry_count,
+                build_scene(&scene, path, query, &history, entries, entry_count,
                             page_start, selected, preview);
                 (void)kui_scene_present(window, &scene);
                 puts("[TEST] flux_files_search: PASS");
                 continue;
+            } else {
+                const flux_files_key_action action = flux_files_keyboard(
+                    &event, entry_count, PAGE_SIZE, &page_start, &selected);
+                if (action == FLUX_FILES_KEY_NONE) continue;
+                if (action == FLUX_FILES_KEY_SELECT) {
+                    (void)strlcpy(preview, "KEYBOARD / ITEM SELECTED", sizeof(preview));
+                    build_scene(&scene, path, query, &history, entries, entry_count,
+                                page_start, selected, preview);
+                    (void)kui_scene_present(window, &scene);
+                    puts("[TEST] flux_files_keyboard_navigation: PASS");
+                    continue;
+                }
+                target = action == FLUX_FILES_KEY_PARENT ? 30U :
+                         action == FLUX_FILES_KEY_OPEN ? 31U : 34U;
             }
-            const flux_files_key_action action = flux_files_keyboard(
-                &event, entry_count, PAGE_SIZE, &page_start, &selected);
-            if (action == FLUX_FILES_KEY_NONE) continue;
-            if (action == FLUX_FILES_KEY_SELECT) {
-                (void)strlcpy(preview, "KEYBOARD / ITEM SELECTED", sizeof(preview));
-                build_scene(&scene, path, query, entries, entry_count,
-                            page_start, selected, preview);
-                (void)kui_scene_present(window, &scene);
-                puts("[TEST] flux_files_keyboard_navigation: PASS");
-                continue;
-            }
-            target = action == FLUX_FILES_KEY_PARENT ? 30U :
-                     action == FLUX_FILES_KEY_OPEN ? 31U : 34U;
         } else if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
@@ -451,7 +504,7 @@ int main(void) {
             selected = (uint32_t)index;
             if (directory_like(entries[index].type)) {
                 (void)activate_selected(
-                    path, query, entries, &entry_count, &page_start, &selected,
+                    path, query, &history, entries, &entry_count, &page_start, &selected,
                     status, sizeof(status), preview, sizeof(preview));
             } else {
                 char target_path[PATH_CAPACITY];
@@ -461,19 +514,30 @@ int main(void) {
             }
         } else if (target == 30U) {
             if (!(path[0] == '/' && path[1] == '\0')) {
-                parent_path(path);
-                query[0] = '\0';
-                page_start = 0U;
-                selected = NO_SELECTION;
-                status[0] = '\0';
-                if (load_directory(path, query, entries, &entry_count, status, sizeof(status))) {
-                    (void)strlcpy(preview, status, sizeof(preview));
+                char parent[PATH_CAPACITY];
+                (void)strlcpy(parent, path, sizeof(parent));
+                parent_path(parent);
+                if (navigate_directory(path, query, parent, "", entries, &entry_count,
+                                       &page_start, &selected, status, sizeof(status),
+                                       preview, sizeof(preview))) {
+                    (void)flux_files_history_visit(&history, parent);
                 }
             }
         } else if (target == 31U) {
             (void)activate_selected(
-                path, query, entries, &entry_count, &page_start, &selected,
+                path, query, &history, entries, &entry_count, &page_start, &selected,
                 status, sizeof(status), preview, sizeof(preview));
+        } else if (target == 35U || target == 36U) {
+            const int direction = target == 35U ? -1 : 1;
+            const flux_files_history_entry* destination =
+                flux_files_history_peek(&history, direction);
+            if (destination != NULL &&
+                navigate_directory(path, query, destination->path, destination->query,
+                                   entries, &entry_count, &page_start, &selected,
+                                   status, sizeof(status), preview, sizeof(preview))) {
+                (void)flux_files_history_move(&history, direction);
+                puts("[TEST] flux_files_history: PASS");
+            }
         } else if (target == 34U) {
             char selected_path[PATH_CAPACITY];
             if (selected == NO_SELECTION || selected >= entry_count ||
@@ -497,7 +561,8 @@ int main(void) {
             continue;
         }
 
-        build_scene(&scene, path, query, entries, entry_count, page_start, selected, preview);
+        build_scene(&scene, path, query, &history,
+                    entries, entry_count, page_start, selected, preview);
         (void)kui_scene_present(window, &scene);
     }
 
