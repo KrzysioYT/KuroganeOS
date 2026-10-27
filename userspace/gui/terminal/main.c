@@ -188,13 +188,17 @@ int main(void) {
                 g_scrollback_offset, g_output_count, TERMINAL_OUTPUT_LINES,
                 event.key == KU_UI_KEY_PAGE_UP ? 7 : -7);
         } else if (gui_key_tab(&event)) {
-            const terminal_completion_result completed = terminal_complete_command(
+            terminal_completion_result completed = terminal_complete_command(
                 input, sizeof(input), &cursor);
+            if (completed == TERMINAL_COMPLETION_NONE) {
+                completed = (terminal_completion_result)ku_shell_complete_path(
+                    &g_shell, input, sizeof(input), &cursor);
+            }
             length = strlen(input);
             if (completed == TERMINAL_COMPLETION_AMBIGUOUS) {
-                g_hint = "TAB / MORE THAN ONE COMMAND MATCHES";
+                g_hint = "TAB / MULTIPLE COMMAND OR PATH MATCHES";
             } else if (completed == TERMINAL_COMPLETION_NONE) {
-                g_hint = "TAB / NO COMMAND MATCH";
+                g_hint = "TAB / NO COMMAND OR PATH MATCH";
             }
         } else if (gui_key_activate(&event)) {
             ku_shell_action action;

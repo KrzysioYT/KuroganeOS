@@ -114,9 +114,14 @@ manager or 12.0 production users/groups, signed update and isolation work.
   directory entries and validate `cd` destinations before changing cwd.
 - Graphical Terminal supports Tab completion for built-in command names and a
   bounded 96-line scrollback navigated with wheel/PageUp/PageDown.
+- Tab now also completes real VFS paths for `cd`, `ls`, `cat`, `read`, `run`,
+  `open`, and `which`, using current-directory or `/apps/` lookup as the
+  actual command requires. Unique directories gain `/` and files gain a space;
+  ambiguous names extend only their common prefix. Quoted/escaped filenames
+  and multi-argument completion remain out of scope for this parser.
 - C11/C++17 host tests cover completion, scroll bounds, and VFS success/error
-  behavior. Guest mouse/keyboard verification remains open; this is **not** an
-  8.0 release qualification claim.
+  behavior, including path completion. Guest mouse/keyboard verification
+  remains open; this is **not** an 8.0 release qualification claim.
 
 ### Files workflow increment (8D, 2026-10-27)
 
