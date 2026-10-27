@@ -1,6 +1,9 @@
 # Flux 8 Modern — Red Flux web-reference parity
 
 Status: **visual parity in progress**, not a release qualification.
+Roadmap placement: **8B — Red Flux design parity** in
+`FLUX8_MODERN_COMPLETION.md`; this work may continue alongside 8C–8E while
+unrelated release qualification remains pending.
 
 Reference: the KuroganeOS Red Flux desktop demo screenshot supplied on
 2026-10-27, backed by the existing Site's `DesktopDemo.tsx` and `.rf-*` CSS.

@@ -17,6 +17,32 @@ Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
+## Feature-led development, qualification-led releases (2026-10-27 decision)
+
+The roadmap must describe **capabilities people can actually use**, not only
+subsystems, fixes and test jobs. Beginning with Flux 8, each milestone has two
+independent tracks:
+
+1. **Product delivery:** visible user/developer journeys, native implementation,
+   interaction tests, usability feedback and incremental integration.
+2. **Release qualification:** exact-SHA build/media, hardware/guest tests,
+   security, regression and recovery gates.
+
+An outstanding VirtualBox run, release-image rebuild or unrelated regression
+does **not** freeze independent feature engineering. Track the affected feature
+as `IMPLEMENTED`, `HOST-TESTED`, `GUEST-VERIFIED` or `QUALIFIED` without
+promoting a label merely because code exists. A confirmed data-loss, security
+bypass, memory-corruption or session-ownership fault blocks dependent work
+until contained. Existing working fallbacks and tests remain protected.
+
+Prioritize the minimum **complete user journey** before expanding diagnostic
+matrices: log in, personalize the desktop, launch and use an application,
+recover from an error, and build/run a documented native sample. Native UI
+quality and developer experience therefore start in 8.0; the full application
+platform is still 11.0, production identity/security 12.0, product-wide
+qualification 14.0, and first stable 15.0. No early release promises follow
+from moving features earlier.
+
 ## Formal versioning model
 
 | Formal milestone | Generation / focus | Current state |
@@ -29,7 +55,7 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 | `5.0.0-dev` | Steel / Hardware | QUALIFIED AFTER AUDIT |
 | `6.0.0-dev` | Core Steel | QUALIFIED |
 | `7.0.0-dev` | Iron Shield | IN PROGRESS |
-| `8.0.0-dev` | Flux Desktop Platform / Flux Modern | ACTIVE — NOT QUALIFIED |
+| `8.0.0-dev` | Flux Modern / usable, personalizable desktop | ACTIVE — NOT QUALIFIED |
 | `9.0.0-dev` | Networking & Services | PENDING |
 | `10.0.0-dev` | Storage & VFS 2.0 | PENDING |
 | `11.0.0-dev` | Application Platform | PENDING |
@@ -324,13 +350,46 @@ Broaden real hardware coverage while preserving the 5.x contracts:
 Adding a driver must not require changes in the network, storage, UI or
 application layers that consume the generic interface.
 
+**User-visible outcome:** the same installed desktop can use more supported
+network, audio, storage and input devices, and names unsupported equipment or
+limited capability instead of failing without explanation.
+
 ## 8.0.0-dev — Flux Desktop Platform
 
-Window Manager 2.0, compositor hardening, damage tracking, dynamic
-resolutions, absolute/relative pointer support, scaling, clipboard, drag/drop,
-desktop shell, dock/task switching, notifications, settings and stable GUI API.
-UEFI GOP remains a valid software-rendered fallback; GPU acceleration is not a
-requirement for desktop availability.
+**Product promise:** an everyday native desktop that looks coherent, adapts
+to the signed-in user's choices and makes essential work understandable. The
+Red Flux Site is the visual reference, not an executable substitute for the OS.
+
+The ordered **feature outcomes** are:
+
+1. **Working session and desktop:** Login -> Home, real Ring-3 application
+   launch, focus/restore, keyboard/pointer, actionable failure messages and
+   recovery; desktop and Classic fallback remain usable.
+2. **Red Flux Modern 1:1 direction:** square steel/red window language,
+   permanent navigation rail and taskbar at supported sizes, coherent Files,
+   Terminal, Browser, Performance and Settings, scalable Unicode text and
+   HiDPI/dynamic-resolution layouts. Screenshot comparison is a *goal*, not
+   a claim of already-proven pixel identity.
+3. **Useful personalization:** six existing themes and Modern/Classic plus
+   wallpaper/background choice, accent/contrast, font/interface scale, Dock
+   ordering/pins and remembered window preferences. Settings persist across
+   restart; user-scoped storage must honor authenticated session ownership.
+   Do not advertise isolated multi-user profiles until enforcement is real.
+4. **User-friendly workflows:** app discovery/search, File Manager navigation,
+   usable Terminal, clipboard and file actions, notifications, drag/drop where
+   actually supported, keyboard navigation and accessible feedback.
+5. **Developer-friendly preview:** SDK GUI quickstart, runnable example,
+   diagnostic logs and documented native app loop. Stable package management,
+   broad API guarantees and third-party distribution stay in 11.0.
+
+Implementation infrastructure remains Window Manager 2.0, compositor damage
+tracking and hardening, real per-client surfaces, absolute/relative pointer
+input, stable-enough GUI contracts and settings/service integration. UEFI GOP
+is a valid software fallback; GPU acceleration is **not** required. These
+outcomes can progress in parallel with guest qualification, but no
+`8.0.0-dev` closeout occurs before its exact-SHA QEMU/VirtualBox, security,
+installer and session/recovery gates pass. See
+`FLUX8_MODERN_COMPLETION.md` for checklists and acceptance.
 
 ## 9.0.0-dev — Networking & Services
 
@@ -339,6 +398,11 @@ configuration, sockets, TLS 1.3, trust store/certificate validation, HTTPS API,
 firewall foundation, reconnect/reconfiguration and clean operation when no
 supported NIC exists.
 
+**User-visible outcome:** discoverable connection status and diagnostics,
+network configuration in Settings, understandable offline/reconnect behavior
+and real HTTPS access. These interfaces must reflect supported drivers rather
+than promise universal Wi-Fi or networking hardware.
+
 ## 10.0.0-dev — Storage & VFS 2.0
 
 VFS 2.0, mount manager, production KuroFS evolution, FAT compatibility,
@@ -346,11 +410,20 @@ permissions, timestamps, symlinks, file locking, caching, journaling/recovery,
 fsck, removable media and safe unmount. Filesystems consume generic block
 devices and must not depend on AHCI/NVMe/USB controller details.
 
+**User-visible outcome:** Files can browse, copy, move, rename and inspect
+supported storage with explicit progress/error reporting, removable-media
+handling and recovery guidance. Data preservation takes priority over a
+visually successful operation.
+
 ## 11.0.0-dev — Application Platform
 
 Stable SDK/libc/libui, application manifests and lifecycle, package format,
 permissions, launcher, file associations, process sandboxing, terminal, file
 manager, settings, system utilities and the package-management client surface.
+
+**User-visible/developer outcome:** discover, install, remove and launch
+verified native app packages; clear permission prompts and errors; public SDK
+examples and documented packaging so an external developer can ship an app.
 
 ## 12.0.0-dev — Security, Updates & Recovery
 
@@ -359,12 +432,20 @@ storage, package/update signatures, atomic system updates, rollback, recovery
 environment, repair mode, boot recovery, watchdog, crash dumps and production
 Safe Mode.
 
+**User-visible outcome:** usable account/profile boundaries, an understandable
+Update Center with verification/progress/rollback, visible recovery options
+and explicit protection against unauthorized access to another user's data.
+
 ## 13.0.0-dev — Performance & Power
 
 Scheduler tuning, multicore scaling, memory pressure/page cache, async I/O,
 interrupt balancing, MSI/MSI-X adoption, reduced polling, ACPI power lifecycle,
 CPU idle/power states where supported, battery/thermal reporting and boot-time
 optimization.
+
+**User-visible outcome:** measured responsiveness improvements, practical
+power choices and truthful battery/temperature/performance information on
+hardware that actually supports these readings.
 
 ## 14.0.0-rc — Compatibility / Release Qualification
 
@@ -378,6 +459,10 @@ Feature freeze and product-level qualification:
 - multiple physical Intel and AMD systems;
 - QEMU, VirtualBox and VMware regression;
 - release-blocker list reduced to zero.
+
+**Product acceptance:** first-run setup, daily desktop tasks, accessibility,
+personalization, application installation, updates and recovery are exercised
+as complete user journeys — not only isolated subsystem PASS markers.
 
 ## 15.0.0 — STABLE
 
@@ -401,11 +486,18 @@ taking down an otherwise usable system.
 
 ## Workflow
 
-For every atomic work item:
+For every atomic product or infrastructure work item:
 
-`AUDIT -> DESIGN -> IMPLEMENT -> BUILD -> TEST -> FIX -> REGRESSION -> DOCUMENT -> COMMIT -> NEXT`
+`USER JOURNEY -> DESIGN -> IMPLEMENT -> BUILD -> TARGETED TEST -> DOCUMENT -> COMMIT`
 
-A real FAIL is fixed before dependent work continues. An unavailable external environment is documented but does not stop independent engineering.
+At integration checkpoints and before version promotion:
+
+`REGRESSION -> CLEAN MEDIA -> QEMU -> VIRTUALBOX/HARDWARE -> FIX -> QUALIFY`
+
+Do not hide a real FAIL. Fix a regression before dependent work proceeds;
+independent features can continue when their own invariants and test baseline
+remain intact. An unavailable external environment is documented as
+`UNVERIFIED`, never `PASS`.
 
 ### 2026-10-24 — Flux 8 personalization integration (development candidate)
 

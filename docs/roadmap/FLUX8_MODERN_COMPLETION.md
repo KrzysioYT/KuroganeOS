@@ -4,6 +4,50 @@ Status: **ACTIVE DEVELOPMENT, NOT QUALIFIED**
 Branch: `codex/road-to-15-stability` (Draft PR #55)
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
+## Updated direction — feature-led Flux 8 (2026-10-27)
+
+**Goal:** KuroganeOS 8 should feel like a usable, recognizable, personal
+native desktop — not merely a set of compositor checks. Stability is a
+mandatory **release property**, not a reason to postpone every independent
+user-facing feature until the whole hardware matrix is green.
+
+The Red Flux website screenshot is the visual target. The native desktop must
+retain real processes, real files, real settings and honest system telemetry.
+Do not use the web simulation or invented status readouts to meet a checklist.
+
+### Feature milestones (deliver user value in this order)
+
+| Slice | Concrete deliverables | Proof before marking a feature done |
+| --- | --- | --- |
+| **8A — Everyday desktop** | Authenticated Home; launch, close, restore, move and switch real applications; visible failures and recovery | Usable Login -> Files and Terminal interaction; owner checks; regression smoke |
+| **8B — Red Flux design parity** | Angular graphite/red shell; fixed side rail, bottom taskbar, consistent native app interiors; responsive layouts | Native screenshots and pointer hitboxes compared at 1024×768, 1280×800 and a HiDPI size |
+| **8C — Personalization** | Existing six palettes and Modern/Classic; wallpaper/background, accent/contrast, text/UI scaling, reordered/pinned Dock and saved window preferences | Set -> restart/login -> restore; invalid-setting fallback; authenticated session ownership |
+| **8D — User workflows** | Discover/search apps, usable Files and Terminal, clipboard/file operations, notification behavior, keyboard-first navigation and accessible errors | Complete real-user tasks without shell-only workarounds or pretend PASS |
+| **8E — Developer preview** | Documented external GUI app example, quickstart, native SDK template and readable diagnostics | Build from public SDK -> install/run in guest -> window responds to input |
+| **8F — Release qualification** | Exact-SHA regression, media, QEMU USB-only, VirtualBox interactive, install/restore and recovery matrix | Recorded SHA, artifact hash, logs, manual evidence; no critical unresolved failure |
+
+Slices **8B–8E may advance while unrelated 8F evidence is pending**. A failure
+that compromises ownership, data integrity or the feature being developed
+must still be fixed first. Feature progress is tracked as `PLANNED`,
+`IMPLEMENTED`, `HOST-TESTED`, `GUEST-VERIFIED`, then `QUALIFIED`; only the last
+is enough to close the milestone. Do not expand 8.0 into the 11.0 package
+manager or 12.0 production users/groups, signed update and isolation work.
+
+### User-friendly / developer-friendly acceptance
+
+- A new user can find Home, Files, Terminal, Browser and Settings, understand
+  a failed launch, change a theme and revert it without reading a manual.
+- The desktop remembers supported appearance choices across a real restart.
+  A theme stored globally is **not** proof of a private per-user profile;
+  never cross account/session trust boundaries to offer personalization.
+- Text remains legible at normal and HiDPI sizes, including Polish characters;
+  all essential controls have visible keyboard focus and sufficient contrast.
+- A developer can compile a tiny native GUI example from public SDK headers,
+  run it in a guest and troubleshoot failure using documented diagnostics.
+- New UI features have unit/host coverage as they land and guest interaction
+  evidence at integration checkpoints. Preserve Classic and the existing
+  keyboard rescue shortcuts during migration.
+
 ## Non-negotiable reliability gate (P0)
 
 - Real authenticated Login -> live `RED FLUX HOME` first frame.
@@ -14,12 +58,15 @@ System identity remains `7.0.0-dev` until exact-SHA acceptance.
 - Exact-SHA release media, QEMU USB-only login and actual Files click, VirtualBox
   interactive smoke, and host optimized/UBSan gates all pass.
 
-## Native compositor and Modern style (P1)
+## Native compositor and Modern style (P1 implementation checklist)
 
 - [x] Own software backbuffer; preserve clipping, damage and non-XOR cursor.
-- [x] Floating compact Dock and Classic fallback.
-- [x] Rounded Modern chrome, cards, switches, notifications, list and progress.
-- [x] Deterministic 4x4 corner anti-aliasing and bounded labels.
+- [x] Compact floating Dock fallback and Classic retained.
+- [x] Square/angular Red Flux Modern chrome, side rail and bottom taskbar
+      for 1024×720+ (host-tested 2026-10-27; not VM-qualified).
+- [x] Rounded-surface/4x4 corner routines retained in the renderer for
+      legacy/optional widgets; bounded label foundation exists. Rounded
+      corners are **not** the Modern reference design.
 - [ ] Explicit per-client surface lifecycle independent of title strings.
 - [ ] Robust focus/capture/z-order and no input event loss under heavy redraw.
 - [ ] HiDPI layout factor 100/125/150/200%, fractional scaling without clipped
@@ -47,9 +94,32 @@ System identity remains `7.0.0-dev` until exact-SHA acceptance.
       dialogs have live integration tests, not just fake labels.
 - [ ] Crash/restart ownership cleanup does not leave stale windows or frozen Dock.
 
+## Personalization and product usability (P1 — added 2026-10-27)
+
+- [x] Shared six-theme palette; Modern/Classic selector; typed persistence
+      foundation (full restart/session qualification remains open).
+- [ ] Wallpaper/background chooser with safe default and user-controlled reset.
+- [ ] Accent/contrast, licensed scalable font and 100/125/150/200% UI scale
+      settings consistently applied by compositor **and** native apps.
+- [ ] Dock pin/order settings, keyboard shortcuts and sensible defaults.
+- [ ] Persist supported window positions/sizes and appearance across restart;
+      bound all preferences to the authenticated session when user-scoped.
+- [ ] Native launcher search, clear empty/error states and first-run guidance.
+- [ ] Real Files/Terminal/Browser/Performance/Settings tasks without simulated
+      content; accessibility and keyboard-only acceptance.
+
+## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
+
+- [x] Public ELF64 SDK headers, GUI/service templates and sample build
+      infrastructure exist; independent guest usability is not yet qualified.
+- [ ] Short "build your first GUI app" path verified in a clean guest image.
+- [ ] Discoverable process/application log and failure diagnostics.
+- [ ] Stable enough documented *8.0 preview* UI usage without promising
+      dynamic loading, packages, third-party driver ABI or POSIX compatibility.
+
 ## Release gate / acceptance
 
-Do not label 8.0.0 stable just because theme switch and wallpaper render.
+Do not label 8.0.0 qualified just because themes, wallpaper or Dock render.
 The checked build must pass: optimized + sanitizer host UI suites, clean media,
 real USB keyboard/tablet QEMU login and Files/Terminal child spawns, VirtualBox
 manual mouse/keyboard test on the same ISO, and failure/recovery tests.
