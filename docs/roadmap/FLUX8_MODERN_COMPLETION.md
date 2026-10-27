@@ -276,3 +276,14 @@ test disk, full app/window/focus/input/clipboard and recovery matrix,
 settings persistence after restart, licensed scalable font rendering,
 HiDPI/responsive layout, and remaining contract checks. The exact-SHA
 successes above do not establish those behaviors or qualify 8.0.
+
+## 2026-10-27 — Dock identity slice (not an 8.0 closeout)
+
+The Dock's running/focus/readiness lookup now binds a window's canonical title
+to the creating Ring-3 process's installed executable path. The result is
+cached per generation-safe window slot, so spoofed titles from other session
+apps cannot satisfy a pinned application's readiness/focus check. This is a
+bounded piece of client identity, **not** the complete per-client surface
+lifecycle, authentication, recovery or compositor acceptance gate above.
+Host regression passed on the working candidate; guest/VirtualBox gates and
+the exact-SHA qualification remain outstanding.

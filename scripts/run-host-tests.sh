@@ -24,7 +24,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
 "$OUT_DIR/test_keyboard_lifecycle"
-"$HOST_PYTHON" tests/test_qmp_pointer_selection.py"
+"$HOST_PYTHON" tests/test_qmp_pointer_selection.py
 
 # GCC must accept the legacy freestanding logger with -Werror, and macOS
 # Clang must not see GCC-only diagnostic names.
@@ -40,6 +40,9 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_app_identity.cpp -o "$OUT_DIR/test_flux_app_identity"
+"$OUT_DIR/test_flux_app_identity"
 "$HOST_PYTHON" tests/test_flux8_application_smoke.py
 
 "$HOST_PYTHON" tests/test_userspace_build_parity.py

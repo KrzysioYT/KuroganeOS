@@ -1,4 +1,5 @@
 #include "window_manager.hpp"
+#include "app_identity.hpp"
 #include "../../sdk/include/kurogane/flux_app_catalog.h"
 
 #ifndef KUROGANE_HOST_TEST
@@ -70,12 +71,14 @@ struct Slot {
     InputCallback input_callback;
     void* context;
     uint16_t generation;
+    uint8_t dock_app;
     bool occupied;
     WindowState state_before_minimize;
 };
 
 struct DockPin {
     const char* title;
+    const char* executable;
     char command;
     ui::DockIcon icon;
     const char* shortcut_label;
@@ -83,14 +86,14 @@ struct DockPin {
 
 // Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {KU_FLUX_TITLE_HOME, 0, ui::DockIcon::Home, "HOME"},
-    {KU_FLUX_TITLE_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
-    {KU_FLUX_TITLE_FILES, 'f', ui::DockIcon::Files, "FILES"},
-    {KU_FLUX_TITLE_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
-    {KU_FLUX_TITLE_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
-    {KU_FLUX_TITLE_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
-    {KU_FLUX_TITLE_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
-    {KU_FLUX_TITLE_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
+    {KU_FLUX_TITLE_HOME, KU_FLUX_EXEC_HOME, 0, ui::DockIcon::Home, "HOME"},
+    {KU_FLUX_TITLE_TERMINAL, KU_FLUX_EXEC_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
+    {KU_FLUX_TITLE_FILES, KU_FLUX_EXEC_FILES, 'f', ui::DockIcon::Files, "FILES"},
+    {KU_FLUX_TITLE_PERFORMANCE, KU_FLUX_EXEC_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
+    {KU_FLUX_TITLE_BROWSER, KU_FLUX_EXEC_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
+    {KU_FLUX_TITLE_MONITOR, KU_FLUX_EXEC_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
+    {KU_FLUX_TITLE_SETTINGS, KU_FLUX_EXEC_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
+    {KU_FLUX_TITLE_ABOUT, KU_FLUX_EXEC_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
@@ -144,6 +147,7 @@ void release_slot(Slot& slot) {
     slot.draw = nullptr;
     slot.input_callback = nullptr;
     slot.context = nullptr;
+    slot.dock_app = static_cast<uint8_t>(DOCK_PIN_COUNT);
     slot.occupied = false;
 }
 
@@ -164,6 +168,27 @@ bool text_equals(const char* left, const char* right) {
     size_t index = 0U;
     while (left[index] != '\0' && left[index] == right[index]) ++index;
     return left[index] == right[index];
+}
+
+uint8_t dock_app_for_window(const char* title, uint64_t owner_pid) {
+#ifdef KUROGANE_HOST_TEST
+    static_cast<void>(owner_pid);
+#endif
+    for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
+        const DockPin& pin = kDockPins[app];
+        if (!text_equals(title, pin.title)) continue;
+#ifndef KUROGANE_HOST_TEST
+        process::Stat owner{};
+        if (owner_pid == 0U ||
+            process::stat(owner_pid, &owner) != process::Status::Ok ||
+            !app_identity::matches(title, pin.title,
+                                   owner.executable, pin.executable)) {
+            return static_cast<uint8_t>(DOCK_PIN_COUNT);
+        }
+#endif
+        return static_cast<uint8_t>(app);
+    }
+    return static_cast<uint8_t>(DOCK_PIN_COUNT);
 }
 
 void copy_title(char* destination, const char* title) {
@@ -211,6 +236,14 @@ Slot* find_by_title(const char* title) {
     for (size_t index = 0U; index < MAX_WINDOWS; ++index) {
         Slot& slot = g_slots[index];
         if (exposed(slot) && text_equals(slot.info.title, title)) return &slot;
+    }
+    return nullptr;
+}
+
+Slot* find_dock_window(size_t app_id) {
+    if (app_id >= DOCK_PIN_COUNT) return nullptr;
+    for (Slot& slot : g_slots) {
+        if (exposed(slot) && slot.dock_app == app_id) return &slot;
     }
     return nullptr;
 }
@@ -668,7 +701,7 @@ Status activate_ribbon_item(size_t position) {
 Status activate_dock_pin(size_t position) {
     if (position >= DOCK_PIN_COUNT) return Status::NotFound;
     const DockPin& pin = kDockPins[position];
-    Slot* existing = find_by_title(pin.title);
+    Slot* existing = find_dock_window(position);
     if (existing != nullptr) {
         if (existing->info.state == WindowState::Minimized) {
             return restore(existing->info.id);
@@ -862,7 +895,7 @@ void render_layers() {
             DOCK_PIN_SIZE,
             DOCK_PIN_SIZE,
         };
-        const Slot* running = find_by_title(kDockPins[app].title);
+        const Slot* running = find_dock_window(app);
         ui::dock_item(
             shortcut_icon,
             kDockPins[app].icon,
@@ -885,7 +918,7 @@ void render_layers() {
     if (g_dock_visible) {
         ui::dock_bar(workspace.pulse_ribbon, tasks);
         for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
-            const Slot* running = find_by_title(kDockPins[index].title);
+            const Slot* running = find_dock_window(index);
             const bool active = running != nullptr && running->info.focused;
             if (index == 0U) {
                 // HOME is the session application broker: APPS always focuses
@@ -1072,6 +1105,9 @@ Status create_window(
     slot.draw = draw;
     slot.input_callback = input_callback;
     slot.context = context;
+    // Resolve the immutable process image once. No process-table walks are
+    // needed in every compositor frame to display the running Dock state.
+    slot.dock_app = dock_app_for_window(title, owner_pid);
     clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
 #ifndef KUROGANE_HOST_TEST
@@ -1367,7 +1403,7 @@ Status desktop_pin(
         return Status::Ok;
     }
     if (action == DESKTOP_PIN_APP_READY) {
-        const Slot* existing = find_by_title(kDockPins[app_id].title);
+        const Slot* existing = find_dock_window(app_id);
         *out_pinned = existing != nullptr && existing->surface.valid;
         return Status::Ok;
     }
@@ -1375,7 +1411,7 @@ Status desktop_pin(
         // The caller's Home-process identity is checked at the syscall
         // boundary. This action never sends a synthetic command back to
         // itself and cannot spawn a process.
-        Slot* existing = find_by_title(kDockPins[app_id].title);
+        Slot* existing = find_dock_window(app_id);
         if (existing == nullptr) return Status::NotFound;
         *out_pinned = g_desktop_pinned[app_id];
         return existing->info.state == WindowState::Minimized

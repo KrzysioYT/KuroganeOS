@@ -204,3 +204,29 @@ remain in place. Exact-SHA CI must revalidate the fix before any qualification.
 Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
 checkpoint was recorded; a prior successful run is not transferable. Native
 macOS/QEMU/VirtualBox profiles require their own acceptance evidence.
+
+## 2026-10-27 — Flux Dock application identity hardening (local candidate)
+
+- Flux now assigns a canonical Dock app ID when its Ring-3 window is created,
+  comparing both the shared application title and the owner's immutable
+  executable path. A different same-session program that copies `FILES` or
+  `RED FLUX TERMINAL` may retain its normal window but cannot impersonate a
+  running Dock app, claim readiness or steal its focus action. The resolved ID
+  is kept with the generation-safe window slot, without per-frame process
+  table queries; closing/reusing the slot releases that identity.
+- `tests/test_flux_app_identity.cpp` covers exact matches, alternate image
+  paths, prefix/suffix spoofing, wrong titles and absent inputs. Existing Flux
+  Dock click/launcher smoke and catalog source-parity checks remain active.
+- Repaired an unmatched quote in `scripts/run-host-tests.sh` that otherwise
+  prevented the active development branch's regression runner from parsing.
+- Local Linux `make test` passed the entire host suite, including freestanding
+  Mbed TLS, SDK, driver, KuroFS, Flux and QMP-protocol tests. The changed
+  `kernel/ui/window_manager.cpp` compiled as a freestanding kernel object in
+  both debug and optimized release configurations; the new identity policy
+  also passed a targeted UBSan run.
+
+This is **host-side evidence for an uncommitted candidate**, not guest proof.
+The exact new source SHA, clean release media, USB-only QEMU login/app usage,
+VirtualBox interactive acceptance and the remaining 8.0 requirements still
+need separate verification. Runtime identity stays `7.0.0-dev`; neither 8.0
+nor 15.0 is promoted by this change.

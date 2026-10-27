@@ -183,7 +183,7 @@ assert "forge_control_audio_surface: PASS" in control_center
 assert "flux_control_center_audio_action: PASS" in control_center
 assert '"FORGE CONTROL"' in launcher
 assert '"system pulse / network / audio"' in launcher
-assert "KU_FLUX_TITLE_PERFORMANCE, 'v'" in window_manager
+assert "KU_FLUX_TITLE_PERFORMANCE, KU_FLUX_EXEC_PERFORMANCE, 'v'" in window_manager
 assert 'text_equals(title, "CONTROL CENTER")' in window_manager
 
 browser = read("userspace/gui/browser/main.c")

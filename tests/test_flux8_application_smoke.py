@@ -53,7 +53,8 @@ assert 'constexpr int32_t DOCK_HEIGHT = 58' in wm
 assert 'constexpr int32_t DOCK_BOTTOM = 12' in wm
 assert 'constexpr int32_t DOCK_PADDING = 12' in wm
 assert 'constexpr int32_t DOCK_PIN_GAP = 8' in wm
-assert "KU_FLUX_TITLE_FILES, 'f'" in wm
+assert "KU_FLUX_TITLE_FILES, KU_FLUX_EXEC_FILES, 'f'" in wm
+assert 'find_dock_window(app_id)' in wm
 assert '"[INPUT] flux_dock_shortcut_received: PASS"' in launcher
 assert '"[INPUT] flux_app_spawn: PASS"' in launcher
 assert '"[INPUT] flux_app_surface_ready: PASS"' in launcher
