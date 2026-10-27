@@ -151,5 +151,20 @@ keyboard focus at both ends of the form. Add `--flux-settings-write` only with
 theme SET/GET and desktop application. An ISO Try package is read-only; its
 settings write failure must not be mistaken for a keyboard transport failure.
 `installer-qemu.py --desktop-lifecycle` enables both checks on the first installed
-boot, then verifies the ordinary second disk-only boot. This does not yet assert
-the selected theme value across reboot.
+boot, then verifies the ordinary second disk-only boot. The installed runner now compares the exact nondefault theme value saved
+by Settings with the value restored and applied by Home after reboot.
+
+## Extended core audit (macOS and Linux)
+
+Run both host entry points: `scripts/run-host-tests.sh` covers the current
+driver/desktop suite; `scripts/test.sh` additionally executes cooperative
+thread/context-switch and process tests. On Apple Silicon invoke them through
+`arch -x86_64 /bin/bash` with an x86-64 host compiler. The assembly host path
+uses Mach-O directives and symbol decoration while retaining the actual switch
+instructions; production ELF remains unchanged.
+
+`bash scripts/test-core-ubsan.sh` checks allocator boundaries, page mappings,
+ELF validation, Scheduler 2.0, ticket-lock contention, IPC, shared memory, stale
+file handles, session ownership, hostile package paths and ABI. These are
+bounded regression tests, not an exhaustive syscall fuzzer or a proof of
+freedom from data races. Real guest SMP and resource churn remain separate.

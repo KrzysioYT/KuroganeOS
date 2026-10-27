@@ -42,6 +42,13 @@ def digest(path):
     return h.hexdigest()
 
 
+def saved_theme(text):
+    values = [int(value) for value in re.findall(r'^\[SETTINGS\] theme_saved=(\d+)\r?$', text, re.M)]
+    if len(values) != 2 or values[0] == values[1] or values[-1] == 0:
+        raise RuntimeError('expected two distinct theme changes ending in a nondefault theme')
+    return values[-1]
+
+
 def wait_marker(serial, marker, process, deadline):
     while time.monotonic() < deadline:
         text = serial.read_text(errors='replace') if serial.exists() else ''
@@ -166,6 +173,7 @@ def main():
                     process.kill()
                     process.wait()
     env = dict(os.environ, OVMF_CODE=code, OVMF_VARS=variables)
+    expected_theme = None
     for phase, marker in (('first-boot', 'installed_first_boot'), ('second-boot', 'installed_persistence')):
         cmd = ['bash', str(ROOT / 'scripts/smoke-uefi-iso-qemu.sh'), str(disk),
             '--disk', '--persistent-disk', '--smp', '4', '--nic', 'none', '--no-ps2',
@@ -177,6 +185,8 @@ def main():
             '--screendump-after-marker', '[SESSION] flux_home_first_frame: PASS', str(output / (phase + '.ppm'))]
         if args.desktop_lifecycle and phase == 'first-boot':
             cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
+        if expected_theme is not None:
+            cmd.extend(['--require-marker', f'[SETTINGS] theme_restored={expected_theme}'])
         with (output / (phase + '-runner.log')).open('wb') as log:
             subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         text = (output / phase / 'serial.log').read_text(errors='replace')
@@ -184,10 +194,17 @@ def main():
             raise RuntimeError(phase + ' reported guest failure')
         if '[TEST] installer_package_preflight: PASS' in text or '[TEST] live_login_profile: PASS' in text:
             raise RuntimeError('booted installer/live media instead of installed disk')
+        if args.desktop_lifecycle and phase == 'first-boot':
+            expected_theme = saved_theme(text)
+        if expected_theme is not None and phase == 'second-boot':
+            restored = re.findall(r'^\[SETTINGS\] theme_restored=(\d+)\r?$', text, re.M)
+            if restored != [str(expected_theme)]:
+                raise RuntimeError('reboot restored a different or ambiguous theme')
+            print('[installer-qemu] exact theme restored after reboot: PASS', flush=True)
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-                'harness_sha256': digest(Path(__file__)), 'result': 'PASS'}
+                'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme, 'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)
 

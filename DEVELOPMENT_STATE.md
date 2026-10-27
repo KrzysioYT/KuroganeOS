@@ -263,3 +263,20 @@ remain in place. Exact-SHA CI must revalidate the fix before any qualification.
 Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
 checkpoint was recorded; a prior successful run is not transferable. Native
 macOS/QEMU/VirtualBox profiles require their own acceptance evidence.
+
+## 2026-10-27 — Repository cleanup and integrated audit
+
+Rechecked 63 remote branches / 11 PRs, backed up all refs, atomically deleted 39
+fully contained branch tips with expected-SHA leases, retained 24 and all PR
+heads/bases. See `docs/audit/2026-10-27-deleted-branches.json` for recovery pairs.
+Integrated current roadmap base `0feb33db` without rewriting either history.
+Resolved host-runner merge syntax, consolidated the HTTP logger fixture, enabled
+real context-switch tests on Mach-O, and separated host/ELF compiler selection
+in the legacy SDK test. Added a reusable 11-case core UBSan runner.
+
+Settings/Home now report only confirmed numeric theme IDs; installer qualification
+compares the saved nondefault theme with Home's exact restored value on the
+second disk-only boot. Final run results and hashes belong to the delivered
+audit matrix, not historical PASS claims. VirtualBox x86 launch on this Apple M4
+returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED`; that gate remains BLOCKED.
+Product KDF and atomic settings replacement under power loss remain unresolved.

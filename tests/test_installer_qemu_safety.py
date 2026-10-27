@@ -13,6 +13,14 @@ spec.loader.exec_module(module)
 
 
 class SafetyTests(unittest.TestCase):
+    def test_theme_evidence_requires_two_real_nondefault_changes(self):
+        self.assertEqual(module.saved_theme('[SETTINGS] theme_saved=5\r\n[SETTINGS] theme_saved=4\r\n'), 4)
+        for text in ('', '[SETTINGS] theme_saved=4\n',
+                     '[SETTINGS] theme_saved=4\n[SETTINGS] theme_saved=4\n',
+                     '[SETTINGS] theme_saved=1\n[SETTINGS] theme_saved=0\n'):
+            with self.assertRaises(RuntimeError):
+                module.saved_theme(text)
+
     def test_existing_directory_and_symlink_are_never_reused(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

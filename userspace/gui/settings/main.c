@@ -431,6 +431,11 @@ int main(void) {
                 continue;
             }
             theme_id = confirmed;
+            {
+                char value[24];
+                gui_u64(value, sizeof(value), theme_id);
+                printf("[SETTINGS] theme_saved=%s\n", value);
+            }
             puts("[TEST] flux_theme_persistence: PASS");
         } else if (target == 32U) {
             const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN

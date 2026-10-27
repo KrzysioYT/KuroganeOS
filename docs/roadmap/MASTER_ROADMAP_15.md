@@ -17,6 +17,26 @@ Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
+## Current execution order — 2026-10-27
+
+1. Integrate the current base and Flux changes through PR #56 -> #55; retain
+   unique historical branches for patch review. Do not merge to main before
+   integration gates pass. See `../audit/2026-10-27-repository-system-audit.md`.
+2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
+   recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
+   persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
+   exact theme reboot verification are concrete increments, not full completion.
+3. Keep native x86 VirtualBox interactive acceptance open until a compatible
+   host is available; Apple Silicon QEMU/TCG is the current automated guest path.
+4. For 9–11, expand qualified networking/storage/application SDK coverage while
+   preserving existing ABI and adding real developer examples and diagnostics.
+5. For 12, replace FNV1A64-DEV passwords with a product KDF, design atomic settings
+   replacement/power-loss recovery, and qualify signed updates plus rollback.
+   Security blockers discovered earlier are not deferred merely to hit a date.
+6. For 13–15, measure latency/memory/power, run long-lived resource and fault
+   stress, qualify physical Intel/AMD hardware, then enforce the complete RC
+   matrix. No version promotion based solely on UI appearance or a host PASS.
+
 ## Formal versioning model
 
 | Formal milestone | Generation / focus | Current state |
