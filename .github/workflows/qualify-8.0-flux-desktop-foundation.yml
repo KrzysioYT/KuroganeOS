@@ -29,6 +29,8 @@ on:
       - 'scripts/build.ps1'
       - 'scripts/build-linux.sh'
       - 'kernel/install/package.cpp'
+      - 'kernel/core/log.hpp'
+      - 'tests/test_kernel_log_header.cpp'
       - 'kernel/install/package_vfs.cpp'
       - 'scripts/build-install-package.py'
       - 'tests/test_package_vfs.cpp'
@@ -103,6 +105,17 @@ jobs:
             $parseErrors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+      - name: Freestanding kernel logger strict GCC and Clang headers
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-gcc
+          build/tests/desktop/log-header-gcc
+          if command -v clang++ >/dev/null 2>&1; then
+            clang++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+              tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-clang
+            build/tests/desktop/log-header-clang
+          fi
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop

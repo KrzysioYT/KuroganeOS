@@ -24,7 +24,13 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
 "$OUT_DIR/test_keyboard_lifecycle"
-"$HOST_PYTHON" tests/test_qmp_pointer_selection.py
+"$HOST_PYTHON" tests/test_qmp_pointer_selection.py"
+
+# GCC must accept the legacy freestanding logger with -Werror, and macOS
+# Clang must not see GCC-only diagnostic names.
+"$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
+"$OUT_DIR/test_kernel_log_header"
 
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
