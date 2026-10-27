@@ -114,6 +114,7 @@ jobs:
       - name: Freestanding kernel logger strict GCC and Clang headers
         run: |
           set -euo pipefail
+          mkdir -p build/tests/desktop
           c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
             tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-gcc
           build/tests/desktop/log-header-gcc
