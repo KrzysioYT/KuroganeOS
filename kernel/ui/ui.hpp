@@ -38,6 +38,8 @@ enum class DockIcon : uint8_t {
     Monitor,
     Settings,
     About,
+    Docs,
+    Tools,
 };
 
 enum class AppIcon : uint8_t {
@@ -63,6 +65,7 @@ bool contains(const Rect& rectangle, int32_t x, int32_t y);
 void boot_splash(const char* stage, uint32_t progress);
 void login_backdrop(const char* status);
 void desktop(const char* title);
+void desktop_session_status(bool ready);
 void panel(const Rect& bounds, bool raised = true);
 void window(const Rect& bounds, const char* title);
 void flux_window(const Rect& bounds, const char* title, bool focused);
@@ -71,6 +74,10 @@ void signal_spine(const Rect& bounds, size_t window_count, size_t focused_positi
 void dock_bar(const Rect& bounds, size_t running_count);
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused);
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized);
+// Flux Modern wide-screen layout: permanently visible navigation rail.
+void side_dock(const Rect& bounds);
+void side_dock_item(const Rect& bounds, DockIcon icon, const char* label,
+                    bool running, bool focused);
 
 // 3.2 keeps these names as ABI/source compatibility wrappers while the visual
 // implementation is now the full Red Flux dock.
