@@ -78,6 +78,8 @@ int main() {
     const Record records[] = {
         {"/APPS/HELLO.ELF", "hello", package::DESTINATION_ROOT},
         {"/APPS/TOOLS/READ.ME", "readme", package::DESTINATION_ROOT},
+        {"/apps/manual.txt", "manual", package::DESTINATION_ROOT},
+        {"/apps/tools/MORE.TXT", "more", package::DESTINATION_ROOT},
         {"/README.TXT", "root", package::DESTINATION_ROOT},
         {"/SYSTEM/INIT.ELF", "init", package::DESTINATION_ROOT},
         {"/EFI/BOOTX64.EFI", "efi", package::DESTINATION_ESP},
@@ -204,9 +206,10 @@ int main() {
         return 1;
     }
 
-    const char* apps_names[] = {"HELLO.ELF", "TOOLS"};
-    const NodeType apps_types[] = {NodeType::Regular, NodeType::Directory};
-    const uint64_t apps_sizes[] = {5U, 0U};
+    const char* apps_names[] = {"HELLO.ELF", "TOOLS", "manual.txt"};
+    const NodeType apps_types[] = {
+        NodeType::Regular, NodeType::Directory, NodeType::Regular};
+    const uint64_t apps_sizes[] = {5U, 0U, 6U};
     if (!list_names(
             "/APPS", apps_names, apps_types, apps_sizes,
             sizeof(apps_names) / sizeof(apps_names[0]))) {
@@ -214,12 +217,30 @@ int main() {
         return 1;
     }
 
-    const char* tool_names[] = {"READ.ME"};
-    const NodeType tool_types[] = {NodeType::Regular};
-    const uint64_t tool_sizes[] = {6U};
+    const char* tool_names[] = {"READ.ME", "MORE.TXT"};
+    const NodeType tool_types[] = {NodeType::Regular, NodeType::Regular};
+    const uint64_t tool_sizes[] = {6U, 4U};
     if (!list_names(
-            "/APPS/TOOLS", tool_names, tool_types, tool_sizes, 1U)) {
+            "/APPS/TOOLS", tool_names, tool_types, tool_sizes, 2U) ||
+        !list_names(
+            "/apps/tools", tool_names, tool_types, tool_sizes, 2U) ||
+        !list_names(
+            "/apps", apps_names, apps_types, apps_sizes, 3U)) {
         std::cerr << "deep package directory listing failed\n";
+        return 1;
+    }
+
+    // A read-only package must expose identical payload through mixed-case
+    // opens, matching the semantics of the eventual installed FAT volume.
+    OpenFileHandle file{};
+    char sample[8]{};
+    size_t received = 0U;
+    if (open(&state, &path_context, "/apps/hello.elf",
+             OpenFlags::Read, &file) != Status::Ok ||
+        read(&state, file, sample, 5U, &received) != Status::Ok ||
+        received != 5U || std::memcmp(sample, "hello", 5U) != 0 ||
+        close(&state, file) != Status::Ok) {
+        std::cerr << "mixed-case live package file open/read failed\n";
         return 1;
     }
 

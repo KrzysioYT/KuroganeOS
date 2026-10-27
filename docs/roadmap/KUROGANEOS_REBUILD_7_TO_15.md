@@ -104,3 +104,12 @@ rule, while correctly allowing the same path on separate ESP/root volumes.
 Tests cover both prefix directions, case differences and noncolliding names.
 This hardens the future 10.0 storage and 12.0 update/rollback foundation,
 but is not evidence of those milestones' completion.
+
+## 2026-10-27 — Live Try package FAT32 name equivalence
+
+The read-only package VFS now resolves paths and deduplicates nested directory
+entries using ASCII case-folded FAT8.3 comparisons, matching the installed
+FAT32 root. Mixed-case package trees no longer yield duplicate `APPS/apps`
+directories or missing child files. Host package VFS tests exercise root and
+nested enumeration, mixed-case lookup/read and read-only operations. This is a
+platform consistency fix, not evidence that the storage milestone is complete.
