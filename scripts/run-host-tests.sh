@@ -509,6 +509,17 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_history_cpp"
 "$OUT_DIR/test_flux_files_history_cpp"
 
+# Only an explicit New Folder confirmation may request a Ring-3 mkdir;
+# reject traversal and unsafe names before building a VFS path.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_files_folder_creation.c \
+  -o "$OUT_DIR/test_flux_files_folder_creation"
+"$OUT_DIR/test_flux_files_folder_creation"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_files_folder_creation.c \
+  -o "$OUT_DIR/test_flux_files_folder_creation_cpp"
+"$OUT_DIR/test_flux_files_folder_creation_cpp"
+
 # Settings can now be traversed without a pointer, including focus reveal
 # for controls outside the native scene viewport.
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \

@@ -154,6 +154,14 @@ manager or 12.0 production users/groups, signed update and isolation work.
   the stale forward branch. A failed VFS open does not advance history or leave
   the user in an invalid folder. Host C/C++ tests cover bounded history,
   search restoration, branch pruning and cursor boundaries.
+- Files supports explicit **New Folder** creation through a focused native
+  name field and Enter/ESC confirmation. Names are bounded ASCII path segments,
+  never interpreted as paths; the operation uses the real Ring-3 mkdir syscall,
+  reports read-only/duplicate errors and refreshes the current folder only
+  after success. An explicit sync is attempted; an unverified sync is reported,
+  not silently declared durable. Host C/C++ tests cover name validation,
+  editing, cancellation, submission and length boundaries. Writable KuroFS
+  guest interaction still needs confirmation.
 
 ## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
 
