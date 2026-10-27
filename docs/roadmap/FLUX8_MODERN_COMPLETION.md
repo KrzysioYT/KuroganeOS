@@ -357,3 +357,15 @@ bounded piece of client identity, **not** the complete per-client surface
 lifecycle, authentication, recovery or compositor acceptance gate above.
 Host regression passed on the working candidate; guest/VirtualBox gates and
 the exact-SHA qualification remain outstanding.
+
+## 2026-10-27 — Home instant app search (8D increment)
+
+Home now offers a real native search field over the installed first-party app
+catalog. Physical typing filters app tiles by title, description and executable
+name; Backspace/Escape edit or clear, arrows/Tab change the matching selection,
+and Enter launches/focuses through the existing session-owned app lifecycle.
+No-match state is explicit, and the Home view accepts wheel scrolling while
+preserving the private Dock app-command transport. The bounded ASCII search
+helper has host coverage, and the Ring-3 launcher builds with the public SDK.
+Full UTF-8 input, accessibility review and QEMU/VirtualBox interaction remain
+open; this is an implemented 8D feature, not a qualified 8.0 milestone.

@@ -5,6 +5,7 @@
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
 #include <kurogane/flux_app_lifecycle.h>
+#include "search.h"
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
@@ -150,8 +151,36 @@ static uint32_t g_child_apps[CHILD_CAPACITY];
 static uint64_t g_child_spawned_at[CHILD_CAPACITY];
 static uint8_t g_child_ready_logged[CHILD_CAPACITY];
 static size_t g_selected = 0U;
+static char g_search_query[FLUX_LAUNCHER_SEARCH_CAPACITY] = "";
+static uint32_t g_scroll_offset = 0U;
 static char g_status[64] = "FLUX DECK / READY";
 static ku_service_connection_t g_notification_connection = 0U;
+
+static int app_matches_search(size_t index) {
+    if (index >= APP_COUNT) return 0;
+    return flux_search_matches(g_apps[index].label, g_apps[index].subtitle,
+                               g_apps[index].path, g_search_query);
+}
+
+static size_t next_matching_app(size_t start, int direction) {
+    size_t attempt;
+    if (direction == 0) direction = 1;
+    for (attempt = 0U; attempt < APP_COUNT; ++attempt) {
+        const size_t index = direction > 0
+            ? (start + attempt + 1U) % APP_COUNT
+            : (start + APP_COUNT - (attempt + 1U) % APP_COUNT) % APP_COUNT;
+        if (app_matches_search(index)) return index;
+    }
+    return APP_COUNT;
+}
+
+static void search_changed(void) {
+    g_scroll_offset = 0U;
+    // Prefer an exact/current result if still visible; otherwise select the
+    // first real matching application. Never launch a stale hidden tile.
+    if (app_matches_search(g_selected)) return;
+    g_selected = next_matching_app(APP_COUNT - 1U, 1);
+}
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -494,6 +523,10 @@ static int load_pin_state(void) {
 
 static void toggle_selected_pin(void) {
     ku_desktop_pin_request request;
+    if (g_selected >= APP_COUNT || !app_matches_search(g_selected)) {
+        (void)strlcpy(g_status, "SELECT AN APP FIRST", sizeof(g_status));
+        return;
+    }
     const launcher_app* app = &g_apps[g_selected];
     if (!app->pinnable) {
         (void)strlcpy(g_status, "SYSTEM APP / NOT PINNABLE", sizeof(g_status));
@@ -533,6 +566,7 @@ static void build_scene(kui_scene* scene) {
     char sound[64] = "AUDIO\n";
     uint32_t net_value = 0U;
     uint32_t audio_value = 0U;
+    size_t shown = 0U;
     size_t index;
 
     if (system_valid) {
@@ -576,6 +610,12 @@ static void build_scene(kui_scene* scene) {
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX HOME / SYSTEM PULSE");
+    {
+        char search_label[64] = "SEARCH APPS / ";
+        append_text(search_label, sizeof(search_label),
+                    g_search_query[0] == '\0' ? "TYPE TO FILTER" : g_search_query);
+        (void)kui_flow_input(&root, 8U, search_label);
+    }
     (void)kui_flow_metric(&root, 2U, cpu,
                           system_valid ? system.cpu_percent : 0U, 100U);
     (void)kui_flow_metric(&root, 3U, ram,
@@ -589,6 +629,8 @@ static void build_scene(kui_scene* scene) {
     for (index = 0U; index < APP_COUNT; ++index) {
         char label[64] = "";
         uint32_t flags = 0U;
+        if (!app_matches_search(index)) continue;
+        ++shown;
         append_text(label, sizeof(label), g_apps[index].label);
         append_text(label, sizeof(label), "\n");
         append_text(label, sizeof(label), g_apps[index].subtitle);
@@ -602,9 +644,16 @@ static void build_scene(kui_scene* scene) {
             flags |= KUI_VIEW_RUNNING;
         (void)kui_scene_set_flags(scene, 10U + (uint32_t)index, flags);
     }
+    if (shown == 0U) {
+        (void)kui_flow_label(&root, 9U, "NO MATCH / BACKSPACE OR ESC TO CLEAR");
+    }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
-    (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
+    if (g_selected < APP_COUNT && app_matches_search(g_selected))
+        (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
+    scene->scroll_offset = g_scroll_offset;
+    (void)kui_scene_scroll(scene, 0);
+    g_scroll_offset = scene->scroll_offset;
 }
 
 int main(void) {
@@ -698,6 +747,18 @@ int main(void) {
         }
         if (event.type == KU_UI_EVENT_CLOSE) break;
 
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            if (event.wheel_y != 0) {
+                const uint32_t previous = scene.scroll_offset;
+                (void)kui_scene_scroll(&scene, event.wheel_y > 0 ? -1 : 1);
+                if (scene.scroll_offset != previous) {
+                    g_scroll_offset = scene.scroll_offset;
+                    (void)kui_scene_present(window, &scene);
+                }
+            }
+            continue;
+        }
+
         if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             const int primary_pressed =
@@ -720,6 +781,44 @@ int main(void) {
             }
             build_scene(&scene);
             (void)kui_scene_present(window, &scene);
+            continue;
+        }
+
+        // Home owns a real, keyboard-driven app search. The core's private
+        // UNKNOWN-key messages still use the existing Dock command broker
+        // below, so physical typing cannot spoof an app-launch shortcut.
+        if (event.type == KU_UI_EVENT_KEY && event.key != KU_UI_KEY_UNKNOWN) {
+            const int modified = (event.modifiers &
+                (KU_UI_MOD_CONTROL | KU_UI_MOD_ALT)) != 0U;
+            int changed = 0;
+            if (modified) continue;
+            if (event.key == KU_UI_KEY_ENTER) {
+                if (g_selected < APP_COUNT && app_matches_search(g_selected)) {
+                    launch_selected();
+                    changed = 1;
+                }
+            } else if (event.key == KU_UI_KEY_ARROW_DOWN ||
+                       event.key == KU_UI_KEY_ARROW_UP ||
+                       event.key == KU_UI_KEY_TAB) {
+                const int direction = event.key == KU_UI_KEY_ARROW_UP ? -1 : 1;
+                const size_t start = g_selected < APP_COUNT
+                    ? g_selected : (direction > 0 ? APP_COUNT - 1U : 0U);
+                const size_t next = next_matching_app(start, direction);
+                if (next < APP_COUNT) {
+                    g_selected = next;
+                    changed = 1;
+                }
+            } else if (flux_search_edit(
+                    g_search_query, sizeof(g_search_query), event.character,
+                    event.key == KU_UI_KEY_BACKSPACE,
+                    event.key == KU_UI_KEY_ESCAPE, 0)) {
+                search_changed();
+                changed = 1;
+            }
+            if (changed) {
+                build_scene(&scene);
+                if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+            }
             continue;
         }
 

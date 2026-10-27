@@ -40,6 +40,9 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_launcher_search.c -o "$OUT_DIR/test_flux_launcher_search"
+"$OUT_DIR/test_flux_launcher_search"
 "$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_identity.cpp -o "$OUT_DIR/test_flux_app_identity"
 "$OUT_DIR/test_flux_app_identity"
