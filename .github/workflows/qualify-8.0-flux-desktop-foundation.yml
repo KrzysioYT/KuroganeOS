@@ -28,6 +28,11 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/build.ps1'
       - 'scripts/build-linux.sh'
+      - 'kernel/install/package.cpp'
+      - 'kernel/install/package_vfs.cpp'
+      - 'scripts/build-install-package.py'
+      - 'tests/test_package_vfs.cpp'
+      - 'tests/test_install_package_path_collisions.py'
       - 'scripts/build-macos.sh'
       - 'scripts/build-installer-macos.sh'
       - 'scripts/verify-userspace-overlay.py'
@@ -183,6 +188,16 @@ jobs:
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Isdk/include \
             tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-ubsan
           build/tests/desktop/app-lifecycle-ubsan
+      - name: FAT32 installer collisions and read-only package VFS UBSan
+        run: |
+          set -euo pipefail
+          python3 tests/test_install_package_path_collisions.py
+          c++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_package_vfs.cpp kernel/install/package_vfs.cpp \
+            kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp \
+            -o build/tests/desktop/package-vfs-ubsan
+          build/tests/desktop/package-vfs-ubsan
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

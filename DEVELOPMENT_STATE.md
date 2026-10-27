@@ -153,3 +153,28 @@ restart, full window/input/clipboard lifecycle, crash and service recovery
 matrix, licensed scalable typography, HiDPI, and the complete application
 suite remain unverified or incomplete. Version remains `7.0.0-dev`; 8.0 is
 **ACTIVE / NOT QUALIFIED** and 15.0.0 stable remains the product goal.
+
+## 2026-10-27 — Road to 15: kernel-host portability and FAT32 packaging
+
+On `58c98d62`, the exact-SHA GitHub checks returned 10 successes and 24
+failures. Many failed independently at the same `kernel/core/log.hpp`
+hosted-GCC `-Werror=builtin-declaration-mismatch` warning. The TLS HTTP
+harness separately failed to link the kernel diagnostic functions. These
+were test/toolchain integration defects; this result is **not** evidence of
+24 separate defective hardware drivers.
+
+New candidate commits:
+- `b76577cf`: narrowly scope the hosted compiler warning to the legacy
+  kernel logging namespace, supply a real host TLS diagnostic sink and tighten
+  the VirtualBox documentation assertion.
+- `facb1593`: reject case-insensitive FAT32 file aliases and file-as-directory
+  collisions in both installer packager and kernel package parser.
+- Current CI additionally tests package reading under UBSan, with a hostile
+  path matrix in Python and C++.
+
+Observed during candidate runs: `http-lifecycle`, `host-regression` and
+multiple service checks passed on `b76577cf`; most hardware/QEMU jobs were
+still in progress when recorded. These earlier successes **do not qualify
+the new head**, which requires its own checks. No clean-boot evidence for the
+new head was collected here. Compiler, parser and unit tests are necessary,
+but not sufficient for product-level 15.0.0. The version remains `7.0.0-dev`.
