@@ -91,6 +91,46 @@ int main() {
         return 1;
     }
 
+    // Kernel package parser must reject casefold aliases and filesystem
+    // shape conflicts before exposing directory entries to the VFS.
+    const auto rejects = [&](const Record* input, size_t count) {
+        const std::vector<uint8_t> malformed = make_package(input, count);
+        package::View rejected{};
+        return package::parse(
+            malformed.data(), malformed.size(), &rejected) ==
+            package::Status::InvalidPath;
+    };
+    const Record duplicate_case[] = {
+        {"/APPS/HELLO.ELF", "one", package::DESTINATION_ROOT},
+        {"/apps/hello.elf", "two", package::DESTINATION_ROOT},
+    };
+    const Record shadowed_dir[] = {
+        {"/APPS", "one", package::DESTINATION_ROOT},
+        {"/APPS/HELLO.ELF", "two", package::DESTINATION_ROOT},
+    };
+    const Record shadowed_file[] = {
+        {"/APPS/TOOLS/README", "one", package::DESTINATION_ROOT},
+        {"/APPS/TOOLS", "two", package::DESTINATION_ROOT},
+    };
+    const Record distinct_disks[] = {
+        {"/EFI/BOOT", "root", package::DESTINATION_ROOT},
+        {"/EFI/BOOT", "esp", package::DESTINATION_ESP},
+    };
+    if (!rejects(duplicate_case, 2U) ||
+        !rejects(shadowed_dir, 2U) ||
+        !rejects(shadowed_file, 2U)) {
+        std::cerr << "installer accepted a colliding FAT8.3 path\n";
+        return 1;
+    }
+    const std::vector<uint8_t> separate_media =
+        make_package(distinct_disks, 2U);
+    package::View separate_view{};
+    if (package::parse(separate_media.data(), separate_media.size(),
+                       &separate_view) != package::Status::Ok) {
+        std::cerr << "installer rejected equivalent paths on separate volumes\n";
+        return 1;
+    }
+
     package_vfs::Adapter adapter{};
     FileSystem filesystem{};
     State state{};

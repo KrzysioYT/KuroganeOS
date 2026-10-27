@@ -92,3 +92,15 @@ compiler math builtin under `-Werror`. A scoped diagnostic suppression in
 harness now supplies its missing kernel diagnostic sink and checks that an
 error path actually uses it. Both changes require new CI confirmation;
 none proves hardware qualification or finished 15.0.0.
+
+## 2026-10-27 — installer FAT32 collision safety (active)
+
+Package validation now treats two paths on the same destination volume as
+colliding when they are case-insensitive aliases or one path is the parent
+of another file. Formerly, only byte-identical paths were rejected, which
+could create ambiguous or unreachable files in the FAT32 installed root.
+The Python producer and freestanding C++ package parser enforce the same
+rule, while correctly allowing the same path on separate ESP/root volumes.
+Tests cover both prefix directions, case differences and noncolliding names.
+This hardens the future 10.0 storage and 12.0 update/rollback foundation,
+but is not evidence of those milestones' completion.

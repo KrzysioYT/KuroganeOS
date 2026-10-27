@@ -38,6 +38,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_PYTHON" tests/test_userspace_build_parity.py
 "$HOST_PYTHON" tests/test_userspace_overlay.py
+"$HOST_PYTHON" tests/test_install_package_path_collisions.py
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"
