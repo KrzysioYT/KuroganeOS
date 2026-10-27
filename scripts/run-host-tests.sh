@@ -439,6 +439,26 @@ python3 tests/test_flux8_virtualbox_runner.py
   tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
 "$OUT_DIR/test_files_wheel_paging"
 
+# The native Terminal must complete real shell words and keep wheel/PageUp
+# scrollback within its bounded history window (including extreme deltas).
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_terminal_command_completion.c \
+  -o "$OUT_DIR/test_terminal_command_completion"
+"$OUT_DIR/test_terminal_command_completion"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -x c++ tests/test_terminal_command_completion.c \
+  -o "$OUT_DIR/test_terminal_command_completion_cpp"
+"$OUT_DIR/test_terminal_command_completion_cpp"
+
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_terminal_vfs_commands.c \
+  -o "$OUT_DIR/test_terminal_vfs_commands"
+"$OUT_DIR/test_terminal_vfs_commands"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_terminal_vfs_commands.c \
+  -o "$OUT_DIR/test_terminal_vfs_commands_cpp"
+"$OUT_DIR/test_terminal_vfs_commands_cpp"
+
 # Exercise production Flux 8 palette contracts in hosted C and C++.
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_theme_palette.c \

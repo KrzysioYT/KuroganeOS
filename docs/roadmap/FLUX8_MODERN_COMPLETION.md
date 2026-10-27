@@ -108,6 +108,16 @@ manager or 12.0 production users/groups, signed update and isolation work.
 - [ ] Real Files/Terminal/Browser/Performance/Settings tasks without simulated
       content; accessibility and keyboard-only acceptance.
 
+### Terminal workflow increment (8D, 2026-10-27)
+
+- Native Terminal and console shell now expose Ring-3 VFS `ls` to list real
+  directory entries and validate `cd` destinations before changing cwd.
+- Graphical Terminal supports Tab completion for built-in command names and a
+  bounded 96-line scrollback navigated with wheel/PageUp/PageDown.
+- C11/C++17 host tests cover completion, scroll bounds, and VFS success/error
+  behavior. Guest mouse/keyboard verification remains open; this is **not** an
+  8.0 release qualification claim.
+
 ## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
 
 - [x] Public ELF64 SDK headers, GUI/service templates and sample build
