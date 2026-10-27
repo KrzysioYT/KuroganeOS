@@ -2,7 +2,17 @@
 
 #include <stdint.h>
 
+// Hosted GCC recognizes the C math builtin log even without <cmath>. The
+// kernel's logger deliberately uses this namespace. Limit the diagnostic
+// exception to its declaration; keep all warnings in callers enabled.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
+#endif
 namespace log {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 enum class Level : uint8_t {
     Trace = 0,

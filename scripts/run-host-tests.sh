@@ -722,17 +722,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 bash ./scripts/probe-mbedtls-freestanding.sh
 
 # Exercise production HTTPS request construction/read loop with scripted TLS I/O.
-tls_flags=(-std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  -ffunction-sections -fdata-sections)
-if ! "$HOST_CXX" --version 2>&1 | grep -qi clang; then
-  tls_flags+=(-Wno-builtin-declaration-mismatch)
-fi
-"$HOST_CXX" "${tls_flags[@]}" \
-  -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
-  -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
-  tests/test_tls_http_io.cpp tests/host_log_stub.cpp \
-  "${gc_sections_flag[@]}" -o "$OUT_DIR/test_tls_http_io"
-"$OUT_DIR/test_tls_http_io"
+HOST_CXX="$HOST_CXX" HOST_TEST_DIR="$OUT_DIR" bash scripts/test-tls-http.sh
 
 
 # The project-generator integration test consumes the real SDK sysroot rather

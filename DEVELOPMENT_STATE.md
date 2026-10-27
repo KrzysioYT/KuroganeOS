@@ -153,3 +153,25 @@ restart, full window/input/clipboard lifecycle, crash and service recovery
 matrix, licensed scalable typography, HiDPI, and the complete application
 suite remain unverified or incomplete. Version remains `7.0.0-dev`; 8.0 is
 **ACTIVE / NOT QUALIFIED** and 15.0.0 stable remains the product goal.
+
+## 2026-10-27 — Restore hosted regression gates
+
+The latest roadmap source `58c98d62` passed the scoped Flux workflow
+`40432993532`, but other gates failed before exercising their runtime cases:
+the full Linux host suite stopped at `test_xhci_ports` because GCC treated the
+kernel `log` namespace as a conflicting math builtin, and standalone HTTPS
+workflow `40433000556` omitted the logger fixture required by the client.
+
+The logger header now scopes the GCC diagnostic exception to the namespace
+declaration, retaining caller warnings and `-Werror`. The complete host suite
+and standalone HTTPS workflow share `scripts/test-tls-http.sh`, including
+`host_log_stub.cpp`; `--ubsan` retains the sanitizer gate. Workflow path filters
+also cover the shared runner, logger header and fixture.
+
+Local validation on Apple Silicon: optimized host suite under Rosetta PASS;
+standalone HTTPS optimized and UBSan PASS; hosted-mode GCC 16 header probe
+reproduced the diagnostic before the change and passed afterward. This is not
+a claim that the complete Linux CI matrix has been rerun. The unmodified
+`58c98d62` release ISO also passed USB-only QEMU/TCG Try -> authenticated Home
+-> Files wheel -> Terminal, with two child spawns and two presented surfaces.
+Full 8.0 acceptance, including VirtualBox, remains open.
