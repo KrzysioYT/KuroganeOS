@@ -28,6 +28,12 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_PYTHON" tests/test_flux_lifecycle_qmp.py
 "$HOST_PYTHON" tests/test_installer_qemu_safety.py
 
+# Keep the strict compiler probe alongside the lifecycle evidence tests.
+"$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
+"$OUT_DIR/test_kernel_log_header"
+
+
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
   "${gc_sections_flag[@]}" -o "$OUT_DIR/test_clipboard_service"
@@ -40,6 +46,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 
 "$HOST_PYTHON" tests/test_userspace_build_parity.py
 "$HOST_PYTHON" tests/test_userspace_overlay.py
+"$HOST_PYTHON" tests/test_install_package_path_collisions.py
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"

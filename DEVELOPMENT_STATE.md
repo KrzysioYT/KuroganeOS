@@ -212,3 +212,54 @@ The initial ISO Try test correctly rejected theme persistence on its read-only
 root. Write acceptance is explicitly reserved for a writable installed disk.
 Exact candidate media and final runtime results are recorded with the delivery
 artifacts; this does not promote the system version or qualify all of 8.0.
+
+## 2026-10-27 — Road to 15: kernel-host portability and FAT32 packaging
+
+On `58c98d62`, the exact-SHA GitHub checks returned 10 successes and 24
+failures. Many failed independently at the same `kernel/core/log.hpp`
+hosted-GCC `-Werror=builtin-declaration-mismatch` warning. The TLS HTTP
+harness separately failed to link the kernel diagnostic functions. These
+were test/toolchain integration defects; this result is **not** evidence of
+24 separate defective hardware drivers.
+
+New candidate commits:
+- `b76577cf`: narrowly scope the hosted compiler warning to the legacy
+  kernel logging namespace, supply a real host TLS diagnostic sink and tighten
+  the VirtualBox documentation assertion.
+- `facb1593`: reject case-insensitive FAT32 file aliases and file-as-directory
+  collisions in both installer packager and kernel package parser.
+- Current CI additionally tests package reading under UBSan, with a hostile
+  path matrix in Python and C++.
+
+Observed during candidate runs: `http-lifecycle`, `host-regression` and
+multiple service checks passed on `b76577cf`; most hardware/QEMU jobs were
+still in progress when recorded. These earlier successes **do not qualify
+the new head**, which requires its own checks. No clean-boot evidence for the
+new head was collected here. Compiler, parser and unit tests are necessary,
+but not sufficient for product-level 15.0.0. The version remains `7.0.0-dev`.
+
+### 2026-10-27 — HTTP host logger dual-linkage repair
+
+After the prior hosted compiler fix, standalone `http-lifecycle` passed, but
+17 broader CI jobs converged on a **new** link failure in
+`tests/test_tls_http_io.cpp`: its local `log::write/write_hex` definitions
+collided with `tests/host_log_stub.cpp` supplied by the complete host suite.
+The test-only logger functions are now weak where supported so the shared
+host fixture overrides them; the test's HTTP response/result assertions
+remain in place. Exact-SHA CI must revalidate the fix before any qualification.
+
+## 2026-10-27 — FAT32 installed/live parity and HTTP harness recovery
+
+- `90156e9e`: removed a duplicate strong host logging definition introduced
+  by the earlier TLS HTTP regression fix. The isolated HTTP workflow and the
+  complete host runner must both link against the same test without conflict.
+  Its test-local definitions are weak, overridden by the host suite's existing
+  `host_log_stub.cpp` where available; this is test-only, not guest code.
+- `44cc2bce`: completed the case-insensitive ASCII path equivalence across
+  live installation-package VFS lookup, opening and directory enumeration.
+  The host fixture covers mixed-case direct reads and deduplicated folder
+  listing while retaining read-only semantics and separate ESP/root contents.
+
+Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
+checkpoint was recorded; a prior successful run is not transferable. Native
+macOS/QEMU/VirtualBox profiles require their own acceptance evidence.

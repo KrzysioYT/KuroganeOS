@@ -28,6 +28,13 @@ on:
       - 'scripts/run-host-tests.sh'
       - 'scripts/build.ps1'
       - 'scripts/build-linux.sh'
+      - 'kernel/install/package.cpp'
+      - 'kernel/core/log.hpp'
+      - 'tests/test_kernel_log_header.cpp'
+      - 'kernel/install/package_vfs.cpp'
+      - 'scripts/build-install-package.py'
+      - 'tests/test_package_vfs.cpp'
+      - 'tests/test_install_package_path_collisions.py'
       - 'scripts/build-macos.sh'
       - 'scripts/build-installer-macos.sh'
       - 'scripts/verify-userspace-overlay.py'
@@ -102,6 +109,17 @@ jobs:
             $parseErrors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+      - name: Freestanding kernel logger strict GCC and Clang headers
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-gcc
+          build/tests/desktop/log-header-gcc
+          if command -v clang++ >/dev/null 2>&1; then
+            clang++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+              tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-clang
+            build/tests/desktop/log-header-clang
+          fi
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop
@@ -187,6 +205,16 @@ jobs:
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Isdk/include \
             tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-ubsan
           build/tests/desktop/app-lifecycle-ubsan
+      - name: FAT32 installer collisions and read-only package VFS UBSan
+        run: |
+          set -euo pipefail
+          python3 tests/test_install_package_path_collisions.py
+          c++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_package_vfs.cpp kernel/install/package_vfs.cpp \
+            kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp \
+            -o build/tests/desktop/package-vfs-ubsan
+          build/tests/desktop/package-vfs-ubsan
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

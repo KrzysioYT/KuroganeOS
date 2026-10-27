@@ -15,11 +15,21 @@ constexpr uintptr_t kDirectoryBit =
     static_cast<uintptr_t>(1) << (sizeof(uintptr_t) * 8U - 1U);
 constexpr uintptr_t kDirectoryIndexMask = ~kDirectoryBit;
 
+// Package manifests contain bounded 7-bit FAT 8.3 paths. Treat path
+// components with the same case-folding rule as the installed FAT root,
+// so live Try mode and installed mode do not resolve files differently.
+constexpr char fold_ascii(char c) {
+    return c >= 'a' && c <= 'z'
+        ? static_cast<char>(c - ('a' - 'A')) : c;
+}
+
 bool path_equal(const char* left, const char* right) {
     if (left == nullptr || right == nullptr) return false;
     size_t index = 0U;
-    while (left[index] != '\0' && left[index] == right[index]) ++index;
-    return left[index] == right[index];
+    while (left[index] != '\0' &&
+           fold_ascii(left[index]) == fold_ascii(right[index]))
+        ++index;
+    return fold_ascii(left[index]) == fold_ascii(right[index]);
 }
 
 size_t path_length(const char* path) {
@@ -39,7 +49,9 @@ bool is_directory_path(const Adapter& adapter, const char* path) {
             continue;
         }
         size_t cursor = 0U;
-        while (cursor < length && file.path[cursor] == path[cursor]) ++cursor;
+        while (cursor < length &&
+               fold_ascii(file.path[cursor]) == fold_ascii(path[cursor]))
+            ++cursor;
         if (cursor == length && file.path[cursor] == '/') return true;
     }
     return false;
@@ -109,7 +121,9 @@ Status open_file(
                 const package::File& file = adapter.files[index];
                 if (file.destination != package::DESTINATION_ROOT) continue;
                 size_t cursor = 0U;
-                while (cursor < length && file.path[cursor] == path[cursor]) {
+                while (cursor < length &&
+                       fold_ascii(file.path[cursor]) ==
+                           fold_ascii(path[cursor])) {
                     ++cursor;
                 }
                 if (cursor == length && file.path[cursor] == '/') {
@@ -215,7 +229,8 @@ bool immediate_child(
         suffix = file.path + 1U;
     } else {
         for (size_t index = 0U; index < directory_length; ++index) {
-            if (file.path[index] != directory_path[index]) return false;
+            if (fold_ascii(file.path[index]) !=
+                fold_ascii(directory_path[index])) return false;
         }
         if (file.path[directory_length] != '/' ||
             file.path[directory_length + 1U] == '\0') {
@@ -306,7 +321,8 @@ Status read_directory(
                 candidate_length == earlier_length) {
                 size_t character = 0U;
                 while (character < candidate_length &&
-                       candidate_name[character] == earlier_name[character]) {
+                       fold_ascii(candidate_name[character]) ==
+                           fold_ascii(earlier_name[character])) {
                     ++character;
                 }
                 duplicate = character == candidate_length;

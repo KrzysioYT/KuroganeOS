@@ -78,6 +78,8 @@ int main() {
     const Record records[] = {
         {"/APPS/HELLO.ELF", "hello", package::DESTINATION_ROOT},
         {"/APPS/TOOLS/READ.ME", "readme", package::DESTINATION_ROOT},
+        {"/apps/manual.txt", "manual", package::DESTINATION_ROOT},
+        {"/apps/tools/MORE.TXT", "more", package::DESTINATION_ROOT},
         {"/README.TXT", "root", package::DESTINATION_ROOT},
         {"/SYSTEM/INIT.ELF", "init", package::DESTINATION_ROOT},
         {"/EFI/BOOTX64.EFI", "efi", package::DESTINATION_ESP},
@@ -88,6 +90,46 @@ int main() {
     if (package::parse(bytes.data(), bytes.size(), &package_view) !=
         package::Status::Ok) {
         std::cerr << "live package fixture failed to parse\n";
+        return 1;
+    }
+
+    // Kernel package parser must reject casefold aliases and filesystem
+    // shape conflicts before exposing directory entries to the VFS.
+    const auto rejects = [&](const Record* input, size_t count) {
+        const std::vector<uint8_t> malformed = make_package(input, count);
+        package::View rejected{};
+        return package::parse(
+            malformed.data(), malformed.size(), &rejected) ==
+            package::Status::InvalidPath;
+    };
+    const Record duplicate_case[] = {
+        {"/APPS/HELLO.ELF", "one", package::DESTINATION_ROOT},
+        {"/apps/hello.elf", "two", package::DESTINATION_ROOT},
+    };
+    const Record shadowed_dir[] = {
+        {"/APPS", "one", package::DESTINATION_ROOT},
+        {"/APPS/HELLO.ELF", "two", package::DESTINATION_ROOT},
+    };
+    const Record shadowed_file[] = {
+        {"/APPS/TOOLS/README", "one", package::DESTINATION_ROOT},
+        {"/APPS/TOOLS", "two", package::DESTINATION_ROOT},
+    };
+    const Record distinct_disks[] = {
+        {"/EFI/BOOT", "root", package::DESTINATION_ROOT},
+        {"/EFI/BOOT", "esp", package::DESTINATION_ESP},
+    };
+    if (!rejects(duplicate_case, 2U) ||
+        !rejects(shadowed_dir, 2U) ||
+        !rejects(shadowed_file, 2U)) {
+        std::cerr << "installer accepted a colliding FAT8.3 path\n";
+        return 1;
+    }
+    const std::vector<uint8_t> separate_media =
+        make_package(distinct_disks, 2U);
+    package::View separate_view{};
+    if (package::parse(separate_media.data(), separate_media.size(),
+                       &separate_view) != package::Status::Ok) {
+        std::cerr << "installer rejected equivalent paths on separate volumes\n";
         return 1;
     }
 
@@ -164,9 +206,10 @@ int main() {
         return 1;
     }
 
-    const char* apps_names[] = {"HELLO.ELF", "TOOLS"};
-    const NodeType apps_types[] = {NodeType::Regular, NodeType::Directory};
-    const uint64_t apps_sizes[] = {5U, 0U};
+    const char* apps_names[] = {"HELLO.ELF", "TOOLS", "manual.txt"};
+    const NodeType apps_types[] = {
+        NodeType::Regular, NodeType::Directory, NodeType::Regular};
+    const uint64_t apps_sizes[] = {5U, 0U, 6U};
     if (!list_names(
             "/APPS", apps_names, apps_types, apps_sizes,
             sizeof(apps_names) / sizeof(apps_names[0]))) {
@@ -174,12 +217,30 @@ int main() {
         return 1;
     }
 
-    const char* tool_names[] = {"READ.ME"};
-    const NodeType tool_types[] = {NodeType::Regular};
-    const uint64_t tool_sizes[] = {6U};
+    const char* tool_names[] = {"READ.ME", "MORE.TXT"};
+    const NodeType tool_types[] = {NodeType::Regular, NodeType::Regular};
+    const uint64_t tool_sizes[] = {6U, 4U};
     if (!list_names(
-            "/APPS/TOOLS", tool_names, tool_types, tool_sizes, 1U)) {
+            "/APPS/TOOLS", tool_names, tool_types, tool_sizes, 2U) ||
+        !list_names(
+            "/apps/tools", tool_names, tool_types, tool_sizes, 2U) ||
+        !list_names(
+            "/apps", apps_names, apps_types, apps_sizes, 3U)) {
         std::cerr << "deep package directory listing failed\n";
+        return 1;
+    }
+
+    // A read-only package must expose identical payload through mixed-case
+    // opens, matching the semantics of the eventual installed FAT volume.
+    OpenFileHandle file{};
+    char sample[8]{};
+    size_t received = 0U;
+    if (open(&state, &path_context, "/apps/hello.elf",
+             OpenFlags::Read, &file) != Status::Ok ||
+        read(&state, file, sample, 5U, &received) != Status::Ok ||
+        received != 5U || std::memcmp(sample, "hello", 5U) != 0 ||
+        close(&state, file) != Status::Ok) {
+        std::cerr << "mixed-case live package file open/read failed\n";
         return 1;
     }
 

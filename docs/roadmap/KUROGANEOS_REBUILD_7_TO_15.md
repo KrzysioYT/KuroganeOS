@@ -81,3 +81,35 @@ new source. Do not merge the Draft PR on the strength of appearance alone.
 - Shared kernel/Home/Ring-3 application title/path catalog.
 - Added host/CI tests for Unicode fitting and application identity.
 - This implementation is **in development** pending CI and guest evidence.
+
+## 2026-10-27 — host toolchain portability regressions (active)
+
+The exact-SHA CI at `58c98d62` had 24 failed checks but not 24 distinct
+subsystem regressions. Multiple hosted C++ driver builds stopped at the
+legacy freestanding kernel `namespace log` spelling colliding with the
+compiler math builtin under `-Werror`. A scoped diagnostic suppression in
+`kernel/core/log.hpp` keeps all other warnings enabled. A TLS HTTP host
+harness now supplies its missing kernel diagnostic sink and checks that an
+error path actually uses it. Both changes require new CI confirmation;
+none proves hardware qualification or finished 15.0.0.
+
+## 2026-10-27 — installer FAT32 collision safety (active)
+
+Package validation now treats two paths on the same destination volume as
+colliding when they are case-insensitive aliases or one path is the parent
+of another file. Formerly, only byte-identical paths were rejected, which
+could create ambiguous or unreachable files in the FAT32 installed root.
+The Python producer and freestanding C++ package parser enforce the same
+rule, while correctly allowing the same path on separate ESP/root volumes.
+Tests cover both prefix directions, case differences and noncolliding names.
+This hardens the future 10.0 storage and 12.0 update/rollback foundation,
+but is not evidence of those milestones' completion.
+
+## 2026-10-27 — Live Try package FAT32 name equivalence
+
+The read-only package VFS now resolves paths and deduplicates nested directory
+entries using ASCII case-folded FAT8.3 comparisons, matching the installed
+FAT32 root. Mixed-case package trees no longer yield duplicate `APPS/apps`
+directories or missing child files. Host package VFS tests exercise root and
+nested enumeration, mixed-case lookup/read and read-only operations. This is a
+platform consistency fix, not evidence that the storage milestone is complete.

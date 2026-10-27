@@ -2,9 +2,13 @@
 
 #include <stdint.h>
 
-// Hosted GCC recognizes the C math builtin log even without <cmath>. The
-// kernel's logger deliberately uses this namespace. Limit the diagnostic
-// exception to its declaration; keep all warnings in callers enabled.
+// The kernel's historical "log" namespace is also the hosted C runtime's
+// builtin math function name. Host-only GCC builds with -Werror diagnose
+// that spelling even when no libm declarations are used. Keep suppression
+// strictly scoped to this existing declaration; do not disable unrelated
+// warnings across driver/security tests. Migrate to a distinct namespace in
+// a future coordinated kernel ABI refactor.
+
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wbuiltin-declaration-mismatch"
@@ -40,3 +44,6 @@ void write_hex(
     uint64_t value);
 
 } // namespace log
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif

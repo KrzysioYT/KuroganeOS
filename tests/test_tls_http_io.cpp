@@ -3,6 +3,21 @@
 #include <string>
 #include "../kernel/net/tls/client.cpp"
 
+namespace log {
+// The isolated HTTP lifecycle workflow compiles this fixture without the
+// shared host logger. The full host suite links host_log_stub.cpp instead.
+// Weak test-only symbols let the real host fixture override them without
+// causing duplicate-definition errors. Never built into guest images.
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+void write(Level, const char*, const char*) {}
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((weak))
+#endif
+void write_hex(Level, const char*, const char*, uint64_t) {}
+}
+
 namespace fixture {
 const char* payload = nullptr;
 size_t offset = 0;
