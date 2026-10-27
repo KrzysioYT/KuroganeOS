@@ -390,6 +390,12 @@ python3 tests/test_flux8_virtualbox_runner.py
   tests/test_flux_label_fitting.cpp -o "$OUT_DIR/test_flux_label_fitting"
 "$OUT_DIR/test_flux_label_fitting"
 
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_package_vfs.cpp kernel/install/package_vfs.cpp \
+  kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp \
+  -o "$OUT_DIR/test_package_vfs"
+"$OUT_DIR/test_package_vfs"
+
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_c"
 "$OUT_DIR/test_flux_app_catalog_c"

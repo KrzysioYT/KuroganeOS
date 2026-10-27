@@ -84,6 +84,13 @@ class UserspaceBuildParity(unittest.TestCase):
         mac_builder = (ROOT / 'scripts/build-foundation-image-macos.sh').read_text()
         self.assertIn('validate-foundation-root-image.sh', mac_builder)
 
+    def test_live_package_vfs_supports_directory_enumeration(self):
+        source = (ROOT / 'kernel/install/package_vfs.cpp').read_text()
+        self.assertIn('filesystem->operations.readdir = read_directory', source)
+        self.assertNotIn('unsupported_readdir', source)
+        self.assertIn('tests/test_package_vfs.cpp', (
+            ROOT / 'scripts/run-host-tests.sh').read_text())
+
     def test_macos_headless_runner_selects_try_not_install(self):
         runner = (ROOT / 'scripts/run-qemu-macos.sh').read_text()
         self.assertIn('installer: select setup mode:', runner)
