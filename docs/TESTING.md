@@ -78,3 +78,35 @@ For stability observation use a long unique-log QEMU run, exercise processes,
 filesystem, network and several GUI apps, and inspect for faults, FAIL markers,
 deadlock/starvation and cleanup failures. External DNS/HTTP/ICMP probes can
 depend on host connectivity; E1000/DHCP/UDP/gateway are required.
+
+## Flux window lifecycle through QMP
+
+The Flux foundation workflow also boots a fresh guest for a stateful lifecycle
+scenario. It sends real USB keyboard/tablet events; `[WM]` serial observations
+come from completed compositor operations, with generation-safe window IDs,
+owner PIDs, bounds, focus and retained-surface counters. Titles and application
+contents are not logged. Metadata never grants session/window permissions.
+
+```bash
+bash scripts/smoke-uefi-iso-qemu.sh \
+  build/images/KuroganeOS-linux.img --disk --smp 4 \
+  --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle \
+  --log-dir build/tests/flux-8-lifecycle --timeout 240 \
+  --send-key-after-marker '[TEST] live_login_profile: PASS' ret
+```
+
+For a setup ISO, omit `--disk`, use its path, send `ret` after
+`installer: select setup mode:`, and use `--send-key-after-marker-count
+'[TEST] live_login_profile: PASS' 1 ret` for Login. Use a fresh log directory.
+
+The scenario verifies normal/maximized minimize-and-restore, drag, resize,
+Files/Terminal focus switching, close and generation/PID-changing relaunch.
+Three additional close/relaunch cycles must return retained window, surface
+and payload-byte counts to the same baseline. It records `lifecycle.json` and
+PPM screenshots; any missing fresh transition, guest FAIL or assertion failure
+returns nonzero. It does not inject expected markers into guest logs or count
+old transitions as evidence for a new input. Parser/evidence regressions run
+with `python3 tests/test_flux_lifecycle_qmp.py`.
+
+This covers Terminal and Files in a fresh live session, not the complete app,
+crash/recovery, installed persistence, Classic, or VirtualBox acceptance matrix.

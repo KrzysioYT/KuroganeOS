@@ -6,6 +6,8 @@
 #include "../task/process.hpp"
 #include "cursor_sprite.hpp"
 #include "session_owner_policy.hpp"
+#include "../drivers/serial.hpp"
+#include "../libk/format.hpp"
 #endif
 
 namespace windowing {
@@ -164,6 +166,38 @@ bool text_equals(const char* left, const char* right) {
     size_t index = 0U;
     while (left[index] != '\0' && left[index] == right[index]) ++index;
     return left[index] == right[index];
+}
+
+// Observe completed lifecycle changes, never fabricate input-test success.
+// This runs in the serialized compositor context and does not expose titles,
+// application contents or credentials. app is diagnostic metadata only.
+void trace_transition(const char* action, const WindowInfo& info) {
+#ifndef KUROGANE_HOST_TEST
+    if (info.owner_pid == 0U) return;
+    unsigned app = static_cast<unsigned>(DOCK_PIN_COUNT);
+    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+        if (text_equals(info.title, kDockPins[index].title)) {
+            app = static_cast<unsigned>(index);
+            break;
+        }
+    }
+    ResourceSnapshot resources{};
+    if (resource_snapshot(&resources) != Status::Ok) return;
+    char line[384];
+    const int length = k_snprintf(line, sizeof(line),
+        "[WM] action=%s id=%u pid=%llu app=%u state=%u x=%d y=%d w=%d h=%d "
+        "focus=%u windows=%zu surfaces=%zu bytes=%zu sw=%d sh=%d\n",
+        action, static_cast<unsigned>(info.id),
+        static_cast<unsigned long long>(info.owner_pid), app,
+        static_cast<unsigned>(info.state), info.bounds.x, info.bounds.y,
+        info.bounds.width, info.bounds.height, static_cast<unsigned>(g_focused),
+        resources.windows, resources.retained_surfaces, resources.retained_bytes,
+        g_screen_width, g_screen_height);
+    if (length > 0 && static_cast<size_t>(length) < sizeof(line)) serial::write(line);
+#else
+    (void)action;
+    (void)info;
+#endif
 }
 
 void copy_title(char* destination, const char* title) {
@@ -1091,6 +1125,7 @@ Status close(WindowId id) {
     Slot* slot = find(id, &slot_index);
     if (slot == nullptr) return Status::NotFound;
 
+    const WindowInfo closed_info = slot->info;
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     for (size_t index = position + 1U; index < g_count; ++index) {
@@ -1102,6 +1137,7 @@ Status close(WindowId id) {
     cancel_capture(id);
     choose_top_focus();
     mark_full_dirty();
+    trace_transition("close", closed_info);
     return Status::Ok;
 }
 
@@ -1166,12 +1202,14 @@ Status present_surface(
     for (size_t index = required; index < slot->surface.size; ++index) {
         slot->surface.payload[index] = 0U;
     }
+    const bool first_frame = !slot->surface.valid;
     slot->surface.width = width;
     slot->surface.height = height;
     slot->surface.stride = stride;
     slot->surface.size = required;
     slot->surface.valid = true;
     invalidate_window(id);
+    if (first_frame) trace_transition("present", slot->info);
     return Status::Ok;
 }
 
@@ -1211,6 +1249,7 @@ Status focus(WindowId id) {
     g_focused = id;
     update_z_order();
     mark_full_dirty();
+    trace_transition("focus", slot->info);
     return Status::Ok;
 }
 
@@ -1248,6 +1287,7 @@ Status minimize(WindowId id) {
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
+    trace_transition("minimize", slot->info);
     return Status::Ok;
 }
 
@@ -1265,6 +1305,7 @@ Status maximize(WindowId id) {
     slot->info.bounds = workspace.work_area;
     static_cast<void>(focus(id));
     mark_full_dirty();
+    trace_transition("maximize", slot->info);
     return Status::Ok;
 }
 
@@ -1283,6 +1324,7 @@ Status restore(WindowId id) {
         ? calculate_workspace().work_area : slot->info.restore_bounds;
     static_cast<void>(focus(id));
     mark_full_dirty();
+    trace_transition("restore", slot->info);
     return Status::Ok;
 }
 
@@ -1543,6 +1585,10 @@ Status dispatch(const input::Event& event) {
         }
     } else if (event.type == input::EventType::MouseButtonUp &&
                event.button == drivers::mouse::Left) {
+        const Slot* changed = find(g_dragged != INVALID_WINDOW ? g_dragged : g_resized);
+        if (changed != nullptr) {
+            trace_transition(g_dragged != INVALID_WINDOW ? "move" : "resize", changed->info);
+        }
         g_dragged = INVALID_WINDOW;
         g_resized = INVALID_WINDOW;
     }
