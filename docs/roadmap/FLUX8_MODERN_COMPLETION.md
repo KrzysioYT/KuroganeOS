@@ -118,6 +118,17 @@ manager or 12.0 production users/groups, signed update and isolation work.
   behavior. Guest mouse/keyboard verification remains open; this is **not** an
   8.0 release qualification claim.
 
+### Files workflow increment (8D, 2026-10-27)
+
+- Files has keyboard-first live filename filtering in the current VFS directory;
+  typing narrows the results, Backspace edits and Escape clears the filter.
+- The catalog keeps up to 512 matching entries (up from 24) in global BSS,
+  not on the 32-KiB Ring-3 stack, and reports an explicit truncation limit.
+- Native sorting, folder activation, keyboard paging, wheel paging, path copy
+  and non-ELF previews remain available on filtered results. Host C/C++ tests
+  cover search editing, ASCII-case-insensitive matching and empty states;
+  guest usability qualification remains open.
+
 ## Native developer experience (P2 — 8.0 preview, not 11.0 completion)
 
 - [x] Public ELF64 SDK headers, GUI/service templates and sample build

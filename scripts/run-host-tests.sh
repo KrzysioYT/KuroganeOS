@@ -489,6 +489,15 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_keyboard_cpp"
 "$OUT_DIR/test_flux_files_keyboard_cpp"
 
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_files_filter.c \
+  -o "$OUT_DIR/test_flux_files_filter"
+"$OUT_DIR/test_flux_files_filter"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_files_filter.c \
+  -o "$OUT_DIR/test_flux_files_filter_cpp"
+"$OUT_DIR/test_flux_files_filter_cpp"
+
 # Flux 8 responsive geometry: compile the actual SDK placement contract
 # in both freestanding-compatible C and C++ and test overflow and small GOP.
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
