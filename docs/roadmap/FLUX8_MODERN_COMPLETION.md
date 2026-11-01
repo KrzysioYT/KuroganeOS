@@ -25,7 +25,8 @@ The setting does not scale whole-UI geometry or isolate preferences per user.
 | QEMU/OVMF install and two disk-only boots | PASS — read-only recovery and nondestructive cancellation included |
 | QEMU Settings scale write and second-boot restore | PASS — `125%` |
 | ISO SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
-| VirtualBox on this exact runtime SHA | NOT RUN |
+| VirtualBox 7.2.20 Try/Login/Desktop, headless PS/2, exact ISO | PASS |
+| VirtualBox EFI/AHCI install, ISO detach, disk-only boot, FAT32/PID 1 and PCnet NAT/DHCP/gateway/DNS | PASS — fresh temporary VDI |
 | Visible/manual VirtualBox mouse and keyboard | UNVERIFIED |
 
 The QEMU manifest records source SHA `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`,
@@ -354,9 +355,9 @@ block promotion. Windows support, PS/2 fallback, and Classic are retained.
 - [x] Scoped exact-SHA host/UBSan, kernel Debug/Release and QEMU/OVMF checks
       passed at `ac0d1220046d`; see the evidence table above.
 - [ ] Full 8.0 acceptance and interactive VirtualBox first-frame test remain
-      open. VirtualBox availability was BLOCKED at that historical checkpoint;
-      automated tests later passed on prior PR SHA `0c708fea`, while current-head
-      VirtualBox and visible/manual interaction remain UNVERIFIED.
+      open. Automated VirtualBox 7.2.20 Try and install/disk-boot tests passed
+      on exact runtime SHA `7287fe1`; visible/manual mouse and keyboard
+      interaction remains UNVERIFIED.
 
 ## Application registry refactor — 2026-10-24
 

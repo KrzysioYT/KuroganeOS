@@ -21,9 +21,10 @@
 - Exact-head Actions passed: `reliable-file` `41337504861`,
   `iso-qualification` `41337504951`, and CLA `41337504885`.
 - ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
-- VirtualBox automated Try/install evidence is from prior SHA `0c708fea`;
-  current-head VirtualBox and visible/manual input remain UNVERIFIED. Runtime
-  remains `7.0.0-dev`; Flux 8.0 is not complete.
+- Automated VirtualBox 7.2.20 Try-to-desktop and EFI/AHCI install with disk-only
+  reboot passed on runtime SHA `7287fe1`; the visible/manual mouse and keyboard
+  interaction remains UNVERIFIED. Runtime stays `7.0.0-dev`; Flux 8.0 is not
+  complete.
 - Started native typography: added licensed DejaVu Sans normal/bold source,
   a reproducible 4-bit antialiased atlas for ASCII/Latin-1/Polish and U+FFFD,
   plus freestanding proportional text rendering at 100/125/150/200% text
@@ -55,10 +56,11 @@
   persistence all PASS. The QEMU run restored 125% text scale and theme 2;
   ISO SHA-256 is `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80`.
   Actions `reliable-file` (`41348763286`), CLA (`41349152187`), and
-  `iso-qualification` (`41348763424`) all PASS on this runtime SHA. ISO
+  `iso-qualification` (`41348763424`) all PASS on this runtime SHA. Automated
+  VirtualBox 7.2.20 Try-to-desktop and EFI/AHCI install/disk-only reboot also
+  PASS on the exact ISO; visible/manual interaction remains UNVERIFIED. ISO
   qualification covered host ABI/SDK and regression, IMG/ISO, FAT32/VFS,
-  20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT. Exact-SHA
-  VirtualBox and visible manual input remain NOT RUN / UNVERIFIED.
+  20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT.
 
 ### 3.3.3-dev completion status
 

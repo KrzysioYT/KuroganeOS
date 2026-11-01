@@ -33,9 +33,10 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    Flux Settings now exposes global persistent 100/125/150/200% text rendering;
    QEMU verifies persistence across reboot, but visual fit across all native
    surfaces remains unverified. It is not whole-UI HiDPI or per-user isolation.
-3. Automated VirtualBox 7.2.20 Try/install evidence exists for prior PR SHA
-   `0c708fea`; visible mouse/keyboard acceptance is still UNVERIFIED and must
-   be repeated on the release candidate. QEMU does not replace this gate.
+3. Automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI install with
+   disk-only boot, FAT32/PID 1 and PCnet NAT passed on exact runtime SHA
+   `7287fe1`. Visible mouse/keyboard acceptance remains UNVERIFIED; QEMU and
+   headless input do not replace this gate.
 4. For 9–11, expand qualified networking/storage/application SDK coverage while
    preserving existing ABI and adding real developer examples and diagnostics.
 5. For 12, replace FNV1A64-DEV passwords with a product KDF, design atomic settings
@@ -46,10 +47,10 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    matrix. No version promotion based solely on UI appearance or a host PASS.
 
 The exact-SHA host/UBSan, Debug/Release builds, Release media, QEMU
-read-only-recovery/install/two-boot/text-scale persistence and Actions results
-for `7287fe1` are recorded in
-[`docs/TESTING.md`](../TESTING.md). Debug qualification is NOT RUN on this head;
-manual VirtualBox interaction remains UNVERIFIED.
+read-only-recovery/install/two-boot/text-scale persistence, automated
+VirtualBox and Actions results for `7287fe1` are recorded in
+[`docs/TESTING.md`](../TESTING.md). Manual VirtualBox interaction remains
+UNVERIFIED.
 `main` now requires a PR, one approval and the `iso-qualification`,
 `reliable-file` and CLA checks; force-push and branch deletion are disabled,
 including for administrators.

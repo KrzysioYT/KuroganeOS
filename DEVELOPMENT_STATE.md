@@ -35,18 +35,21 @@ zakwalifikowany.
 | GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
 | GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
 | GitHub Actions `iso-qualification`, run [41348763424](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763424) | PASS — host/SDK, regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF i trzy profile NAT |
-| VirtualBox na tym runtime SHA | NOT RUN |
+| VirtualBox 7.2.20: Try/Login/Desktop na dokładnym ISO, headless PS/2 | PASS |
+| VirtualBox 7.2.20: AHCI install, odłączone ISO, disk-only boot, FAT32/PID 1 i PCnet DHCP/gateway/DNS | PASS |
 | Ręczny test myszy/klawiatury w widocznym VirtualBox | UNVERIFIED |
 
 QEMU manifest `/tmp/kuro-text-scale-qemu-7287fe1d/result.json` zawiera
 `source_sha`, hash ISO, przywrócony motyw `2` i skalę tekstu `125`.
-Automatyczny VirtualBox 7.2.20 przeszedł Try i EFI/AHCI install na wcześniejszym
-obrazie PR `0c708fea`; nie przenosimy tego wyniku na obecny obraz. Testy
-logowania hasłem, fizycznego sprzętu, starej instalacji z `flux_account_lookup`
-oraz pełnej macierzy 8.0 pozostają niezweryfikowane.
+Automatyczne testy VirtualBox 7.2.20 na tym samym ISO przeszły Try/Login/Desktop
+oraz instalację AHCI i boot z VDI bez ISO, z FAT32, PID 1 i PCnet NAT.
+Skrypty użyły wyłącznie losowo nazwanych tymczasowych VM/VDI; ręczna widoczna
+obsługa myszy/klawiatury pozostaje UNVERIFIED. Testy logowania hasłem,
+fizycznego sprzętu, starej instalacji z `flux_account_lookup` oraz pełnej
+macierzy 8.0 pozostają niezweryfikowane.
 
-Opis PR #58 nie został zaktualizowany: dostępne GitHub narzędzia edycji są
-tylko do odczytu, a `gh` CLI nie jest zainstalowane. PR pozostaje Draft.
+Opis PR #58 został zaktualizowany i nadal wskazuje status Draft; rozdziela
+runtime checkpoint `7287fe1` od późniejszych commitów dokumentacyjnych.
 
 Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
 ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał

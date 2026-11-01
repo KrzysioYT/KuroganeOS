@@ -40,14 +40,18 @@ existing repository images and VM disks were not overwritten.
 | GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
 | GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
 | GitHub Actions `iso-qualification`, run [41348763424](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763424) | PASS — ABI/SDK, host regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and E1000/PCnet/VirtIO NAT |
-| VirtualBox on exact runtime SHA; visible/manual interaction | NOT RUN / UNVERIFIED |
+| `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-virtualbox-try.ps1 -Iso <ISO-with-hash-above> -TimeoutSeconds 180` | PASS — Try/Login/Desktop, headless PS/2 |
+| `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-virtualbox-iso.ps1 -Iso <ISO-with-hash-above> -TimeoutSeconds 180` | PASS — EFI/AHCI install, ISO detach, disk-only boot, FAT32/PID 1 and PCnet NAT/DHCP/gateway/DNS |
+| Visible/manual VirtualBox mouse and keyboard interaction | UNVERIFIED — automated headless input is not a substitute |
 
 The QEMU result manifest records exact source SHA
 `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`, ISO hash above, restored theme
 `2`, restored text scale `125`, and `result: PASS`. Text size is a global
-rendering preference, not whole-UI HiDPI or per-user isolation. Password
-authentication, physical hardware and complete Flux 8 acceptance remain
-unverified. PR #58 remains Draft and needs one approval.
+rendering preference, not whole-UI HiDPI or per-user isolation. Automated
+VirtualBox 7.2.20 Try and EFI/AHCI install/disk-only reboot passed on this exact
+ISO; the scripts used a new temporary VM and VDI. Visible/manual mouse and
+keyboard interaction, password authentication, physical hardware and complete
+Flux 8 acceptance remain unverified. PR #58 remains Draft and needs one approval.
 
 ## Historical exact-SHA evidence — `5c319946` (2026-11-01)
 
