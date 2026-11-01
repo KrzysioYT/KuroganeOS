@@ -22,6 +22,7 @@ The setting does not scale whole-UI geometry or isolate preferences per user.
 | GitHub Actions `reliable-file` run `41348763286` | PASS |
 | GitHub Actions `iso-qualification` run `41348763424` | PASS — host/SDK, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three NAT profiles |
 | GitHub Actions CLA run `41349152187` | PASS |
+| QEMU/OVMF USB-only setup ISO Try, no PS/2/disk, USB keyboard/tablet | PASS — zero block devices, live Login and Home |
 | QEMU/OVMF install and two disk-only boots | PASS — read-only recovery and nondestructive cancellation included |
 | QEMU Settings scale write and second-boot restore | PASS — `125%` |
 | ISO SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
@@ -31,7 +32,9 @@ The setting does not scale whole-UI geometry or isolate preferences per user.
 
 The QEMU manifest records source SHA `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`,
 the ISO hash above, restored theme ID `2`, restored text scale `125`, and
-result `PASS`. The older
+result `PASS`. A separate QEMU USB-only Try boot of the same ISO attached no
+system disk, reported zero installer block devices, accepted USB keyboard and
+report-pointer input, and reached Home. The older
 `ac0d122` and `7c2171a1` evidence below is historical and does not transfer
 to this head. PR #58 remains Draft and needs one approval; Flux 8 is not
 qualified.

@@ -14,9 +14,10 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Kwalifikacja bieżącego head PR #58
+## Kwalifikacja bieżącego runtime checkpoint
 
-Runtime SHA: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; wersja pozostaje
+Runtime SHA: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; późniejsze commity
+gałęzi są dokumentacyjne i nie zmieniają payloadu. Wersja pozostaje
 `7.0.0-dev`. Zmiany dodają globalną skalę renderowanego tekstu 100/125/150/200%,
 persistencję w Settings i odtwarzanie przez Home podczas startu sesji. To nie
 jest skalowanie geometrii całego UI ani prywatny profil per-user.
@@ -31,6 +32,7 @@ zakwalifikowany.
 | Izolowany Release build, SDK, installer i ISO | PASS |
 | QEMU/OVMF: read-only target, bezpieczne anulowanie, instalacja i dwa bootowania z dysku | PASS |
 | QEMU/OVMF: zmiana tekstu na 125% i odtworzenie po restarcie | PASS — manifest wiąże wynik z runtime SHA |
+| QEMU/OVMF: ISO Try bez dysku, bez PS/2, USB keyboard/tablet, logowanie i Home | PASS — 0 block devices, USB HID input, Home frame |
 | ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
 | GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
 | GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
@@ -43,13 +45,15 @@ QEMU manifest `/tmp/kuro-text-scale-qemu-7287fe1d/result.json` zawiera
 `source_sha`, hash ISO, przywrócony motyw `2` i skalę tekstu `125`.
 Automatyczne testy VirtualBox 7.2.20 na tym samym ISO przeszły Try/Login/Desktop
 oraz instalację AHCI i boot z VDI bez ISO, z FAT32, PID 1 i PCnet NAT.
+QEMU USB-only Try użył tego ISO bez `--disk`, wykrył zero block devices,
+ominął PS/2 i zaliczył report-pointer click, USB keyboard login oraz Home.
 Skrypty użyły wyłącznie losowo nazwanych tymczasowych VM/VDI; ręczna widoczna
 obsługa myszy/klawiatury pozostaje UNVERIFIED. Testy logowania hasłem,
 fizycznego sprzętu, starej instalacji z `flux_account_lookup` oraz pełnej
 macierzy 8.0 pozostają niezweryfikowane.
 
 Opis PR #58 został zaktualizowany i nadal wskazuje status Draft; rozdziela
-runtime checkpoint `7287fe1` od późniejszych commitów dokumentacyjnych.
+runtime checkpoint `7287fe1` od bieżącego headu dokumentacyjnego.
 
 Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
 ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał

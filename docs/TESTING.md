@@ -36,6 +36,7 @@ existing repository images and VM disks were not overwritten.
 | `bash scripts/build-installer-linux.sh --configuration release --rebuild` | PASS — Release installer and ISO |
 | `python3 scripts/qualification/installer-qemu.py --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso --output /tmp/kuro-text-scale-qemu-7287fe1d --timeout 240 --desktop-lifecycle` | PASS — read-only recovery, safe cancellation, install and two disk boots |
 | QEMU Settings interaction and persistent text scale | PASS — changed to `125%`, restored as `125%` after reboot |
+| QEMU/OVMF setup ISO Try, no system disk, no PS/2, USB keyboard/tablet, login and Home | PASS — 0 block devices, USB HID keyboard/pointer and Home frame |
 | ISO SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
 | GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
 | GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
@@ -43,6 +44,31 @@ existing repository images and VM disks were not overwritten.
 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-virtualbox-try.ps1 -Iso <ISO-with-hash-above> -TimeoutSeconds 180` | PASS — Try/Login/Desktop, headless PS/2 |
 | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-virtualbox-iso.ps1 -Iso <ISO-with-hash-above> -TimeoutSeconds 180` | PASS — EFI/AHCI install, ISO detach, disk-only boot, FAT32/PID 1 and PCnet NAT/DHCP/gateway/DNS |
 | Visible/manual VirtualBox mouse and keyboard interaction | UNVERIFIED — automated headless input is not a substitute |
+
+The separate USB-only setup-media run used this command against the ISO hash
+above; there was no `--disk` or PS/2 device:
+
+```bash
+bash scripts/smoke-uefi-iso-qemu.sh <ISO-with-hash-above> \
+  --smp 4 --nic none --no-ps2 --usb-keyboard --usb-tablet --timeout 240 \
+  --log-dir /tmp/kuro-text-scale-usb-only-qual-7287fe1 \
+  --send-key-after-marker-count 'installer: select setup mode:' 1 ret \
+  --send-key-after-marker-count '[TEST] red_flux_login_surface: PASS' 1 f12 \
+  --click-after-marker '[TEST] red_flux_login_surface: PASS' 320 240 \
+  --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
+  --require-marker '[TEST] hardware_boot_policy: PASS' \
+  --require-marker '[TEST] ps2_keyboard: SKIP (optional backend unavailable)' \
+  --require-marker '[TEST] ps2_mouse: SKIP (optional backend unavailable)' \
+  --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+  --require-marker '[TEST] xhci_report_pointer_enumeration: PASS' \
+  --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+  --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+  --require-marker '[TEST] usb_hid_report_pointer_input: PASS' \
+  --require-marker '[TEST] red_flux_login_to_desktop: PASS' \
+  --require-marker '[SESSION] flux_home_first_frame: PASS' \
+  --screendump-after-marker '[SESSION] flux_home_first_frame: PASS' \
+  /tmp/kuro-text-scale-usb-only-qual-7287fe1/home.ppm
+```
 
 The QEMU result manifest records exact source SHA
 `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`, ISO hash above, restored theme
@@ -52,6 +78,11 @@ VirtualBox 7.2.20 Try and EFI/AHCI install/disk-only reboot passed on this exact
 ISO; the scripts used a new temporary VM and VDI. Visible/manual mouse and
 keyboard interaction, password authentication, physical hardware and complete
 Flux 8 acceptance remain unverified. PR #58 remains Draft and needs one approval.
+
+The USB-only Try run used the same ISO hash above, attached no system disk and
+disabled PS/2. QEMU reported `installer block devices: 0`; xHCI keyboard and
+report-pointer input reached the live login and Home first frame. The Home
+screenshot SHA-256 is `72cafda508f85bdc1a772a81d976f190e0c20c2f9f5d74736b91916bcca8afc8`.
 
 ## Historical exact-SHA evidence — `5c319946` (2026-11-01)
 

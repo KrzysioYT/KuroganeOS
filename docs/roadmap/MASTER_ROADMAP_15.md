@@ -33,6 +33,8 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    Flux Settings now exposes global persistent 100/125/150/200% text rendering;
    QEMU verifies persistence across reboot, but visual fit across all native
    surfaces remains unverified. It is not whole-UI HiDPI or per-user isolation.
+   The exact runtime ISO also passed QEMU setup-media Try with no system disk,
+   no PS/2 devices, USB HID keyboard/report-pointer input and Home startup.
 3. Automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI install with
    disk-only boot, FAT32/PID 1 and PCnet NAT passed on exact runtime SHA
    `7287fe1`. Visible mouse/keyboard acceptance remains UNVERIFIED; QEMU and

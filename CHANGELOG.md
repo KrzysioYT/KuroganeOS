@@ -61,6 +61,8 @@
   PASS on the exact ISO; visible/manual interaction remains UNVERIFIED. ISO
   qualification covered host ABI/SDK and regression, IMG/ISO, FAT32/VFS,
   20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT.
+  QEMU USB-only setup Try also reached Home with zero block devices, no PS/2,
+  USB keyboard and report-pointer input; all required markers passed.
 
 ### 3.3.3-dev completion status
 
