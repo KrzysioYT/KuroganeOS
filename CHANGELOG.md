@@ -50,8 +50,9 @@
   for globally persisted 100/125/150/200% text rendering. Reset restores 100%;
   Home reapplies valid preferences on session startup; failed selections
   attempt and verify rollback. Text buttons, task labels and metrics use
-  bounded ellipsis. This does not scale whole-UI geometry or provide per-user
-  isolation. On runtime SHA `7287fe1`, full host regression and 11 UBSan groups,
+  bounded ellipsis. The initial text-scale increment did not scale whole-UI
+  geometry or provide per-user isolation. On runtime SHA `7287fe1`, full host
+  regression and 11 UBSan groups,
   isolated Debug/Release builds, Release ISO and QEMU install/two-boot
   persistence all PASS. The QEMU run restored 125% text scale and theme 2;
   ISO SHA-256 is `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80`.
@@ -63,6 +64,18 @@
   20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT.
   QEMU USB-only setup Try also reached Home with zero block devices, no PS/2,
   USB keyboard and report-pointer input; all required markers passed.
+- Native Ring-3 surface bounds now scale with the persisted 100/125/150/200%
+  preference, and pointer/scroll coordinates are inverse-mapped into app
+  logical pixels so hit testing retains the SDK coordinate system. The 100%
+  path remains unchanged. This is partial HiDPI: icon internals, desktop/window
+  chrome and display-mode changes are still open. On exact runtime SHA
+  `6457745962fde73c81a7004bce13cea6992a85c1`, host regression, 11 UBSan
+  groups, isolated Debug/Release builds, 20 ISO checks, QEMU install/two-boot
+  persistence, USB-only Try, and automated VirtualBox Try/install all PASS.
+  ISO SHA-256: `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531`.
+  Actions `reliable-file` (`41352989065`), CLA (`41352989090`) and
+  `iso-qualification` (`41352989006`) all PASS on this exact SHA. Manual visible
+  VirtualBox input and scaled-widget interaction remain UNVERIFIED.
 
 ### 3.3.3-dev completion status
 

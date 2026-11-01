@@ -2,7 +2,30 @@
 
 Per the Road to 15 development policy adopted on 2026-08-30, implementation proceeds with compile/build gates while runtime and regression verification is collected here for a later single qualification pass.
 
-## Current exact-SHA qualification checkpoint — `5c319946` (2026-11-01)
+## Current exact-SHA qualification checkpoint — `64577459`
+
+Source commit `6457745962fde73c81a7004bce13cea6992a85c1`; runtime
+`7.0.0-dev`; published in Draft PR #58.
+
+- PASS: full optimized host regression and all 11 core UBSan groups.
+- PASS: exact-SHA Debug and Release kernel/userspace/SDK/installer builds,
+  Release ISO and 20 structure validations.
+- PASS: QEMU/OVMF read-only-disk recovery, nondestructive cancellation,
+  installation, two installed-disk boots, and persistence of theme `2` and
+  125% scale.
+- PASS: QEMU USB-only Try without disk or PS/2, USB HID keyboard/tablet,
+  Login and Home.
+- PASS: automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI
+  installation/disk-only boot.
+- PASS: Actions `reliable-file` `41352989065`, `iso-qualification`
+  `41352989006` and CLA `41352989090` on this exact SHA.
+- ISO SHA-256:
+  `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531`.
+- UNVERIFIED: visible/manual VirtualBox mouse/keyboard and scaled-control
+  hit-testing. Password authentication, physical hardware, crash/recovery and
+  the remaining Flux 8 matrix remain open.
+
+## Historical exact-SHA qualification checkpoint — `5c319946` (2026-11-01)
 
 Source commit `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime
 `7.0.0-dev`; included in published PR #58.

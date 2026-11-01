@@ -14,7 +14,36 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Kwalifikacja bieżącego runtime checkpoint
+## Kwalifikacja bieżącego runtime checkpoint — `64577459`
+
+Runtime SHA: `6457745962fde73c81a7004bce13cea6992a85c1`; system nadal ma
+tożsamość `7.0.0-dev`. Ustawienie 100/125/150/200% skaluje tekst oraz geometrię
+komend natywnych powierzchni Ring-3; wskaźnik i scroll są mapowane z powrotem
+do logicznej przestrzeni aplikacji. Skala 100% zachowuje dotychczasowe
+zachowanie. Nie jest to jeszcze pełne skalowanie chrome/ikon, geometrii pulpitu,
+rozdzielczości ani profil per-user. PR #58 pozostaje Draft, wymaga jednej
+akceptacji i Flux 8.0 nie jest zakwalifikowany.
+
+| Kontrola | Wynik dla runtime SHA `64577459` |
+| --- | --- |
+| Pełna regresja hosta i 11 grup UBSan | PASS |
+| Izolowane kernel/userspace Debug oraz Release installer/ISO | PASS — 20 walidacji struktury ISO |
+| QEMU/OVMF: read-only recovery, bezpieczne anulowanie, instalacja, dwa bootowania i trwałość 125% | PASS |
+| QEMU USB-only Try bez dysku/PS/2, USB HID keyboard/tablet, login i Home | PASS — zero urządzeń blokowych |
+| VirtualBox 7.2.20 Try/Login/Desktop i instalacja z disk-only boot | PASS — headless |
+| GitHub Actions `reliable-file` [41352989065](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989065), CLA [41352989090](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989090), ISO [41352989006](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989006) | PASS |
+| ISO SHA-256 | `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531` |
+| Ręczne widoczne testy VirtualBox i skalowane hit-testy | UNVERIFIED |
+
+QEMU manifest `/tmp/kuro-ui-scale-exact-qemu-64577459/result.json` wiąże
+pełny SHA runtime, ISO oraz disk hash `b66ecaa018784d93042d82c33061f6a421ffe5233e29486e1f17b68f27744e9b`;
+przywrócone ustawienia to theme `2` i text scale `125`. USB-only screenshot
+SHA-256: `72cafda508f85bdc1a772a81d976f190e0c20c2f9f5d74736b91916bcca8afc8`.
+Guest potwierdza boot, instalację i trwałość ustawienia, ale nie wizualne
+hit-testy natywnych kontrolek przy 125–200%. Logowanie hasłem, fizyczny sprzęt
+i pełna macierz Flux 8 pozostają otwarte.
+
+## Historyczna kwalifikacja runtime checkpoint — `7287fe1`
 
 Runtime SHA: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; późniejsze commity
 gałęzi są dokumentacyjne i nie zmieniają payloadu. Wersja pozostaje

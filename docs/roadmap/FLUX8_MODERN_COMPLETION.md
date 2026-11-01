@@ -5,7 +5,35 @@ Integration branch: `integration/flux8-reconciliation`
 PR ancestry: #55 -> #56 -> #57
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
-## Current runtime qualification — `7287fe1`
+## Current runtime qualification — `64577459`
+
+Runtime source commit:
+`6457745962fde73c81a7004bce13cea6992a85c1`; PR #58 remains Draft and the
+runtime stays `7.0.0-dev`. Persisted 100/125/150/200% scale now applies to
+native Ring-3 command geometry as well as text; pointer and scroll coordinates
+are inverse-mapped so app hit testing continues to use logical coordinates.
+This is partial HiDPI only: app-icon internals, desktop/window chrome and
+display-mode changes are not scaled.
+
+| Evidence | Result |
+| --- | --- |
+| Full optimized host regression | PASS |
+| Core UBSan | PASS — 11 groups |
+| Exact-SHA Debug and Release kernel/userspace/SDK/ISO builds | PASS |
+| Release ISO structural validation | PASS — 20 checks |
+| QEMU/OVMF install, read-only recovery, nondestructive cancel, two disk boots and persisted settings | PASS |
+| QEMU USB-only Try, no disk/PS/2, USB HID keyboard/tablet and Home | PASS |
+| VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI install/disk boot | PASS — automated/headless |
+| Actions `reliable-file` [41352989065](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989065), CLA [41352989090](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989090), ISO [41352989006](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989006) | PASS |
+| Exact ISO SHA-256 | `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531` |
+| Manual visible VirtualBox and scaled-control hit-testing | UNVERIFIED |
+
+QEMU manifest `/tmp/kuro-ui-scale-exact-qemu-64577459/result.json` records the
+exact source SHA, ISO/disk hashes, restored theme `2`, text scale `125` and
+`PASS`. Guest coverage has not yet asserted the native-widget hit target at a
+non-100% scale. Flux 8 remains open.
+
+## Historical runtime qualification — `7287fe1`
 
 Draft PR #58 currently points to runtime SHA
 `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`. It includes the read-only disk
@@ -190,12 +218,13 @@ manager or 12.0 production users/groups, signed update and isolation work.
   kernel builds and deterministic atlas regeneration also passed. These
   results are not GitHub Actions evidence for a published commit.
 - User-selectable, globally persisted text scale is now implemented through
-  the Settings service and an append-only desktop syscall. This does not scale
-  window geometry, icons, pointer coordinates or display resolution, and it
-  is not an isolated per-user profile. Home reapplies a valid value at session
-  startup. Host coverage verifies all four scale values in the renderer; the
-  Settings persistence flow has not yet been guest-verified on the current
-  source revision.
+  the Settings service and an append-only desktop syscall. Native Ring-3
+  command bounds use this scale, and pointer/scroll events are inverse-mapped
+  to the apps' logical coordinates. Home reapplies a valid value at session
+  startup. This does not yet scale app-icon internals, desktop/window chrome or
+  display resolution, and it is not an isolated per-user profile. Host tests
+  cover the 100/125/150/200% coordinate transforms; a guest assertion for
+  scaled native-widget hit targets is still open.
 - This still does not provide text shaping, general Unicode coverage,
   paragraph wrapping/general ellipsis in every proportional-text surface, or
   complete visible desktop qualification. ISO/media packaging and guest visual

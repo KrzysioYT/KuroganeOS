@@ -17,15 +17,16 @@ Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
-## Current execution order — 2026-11-01
+## Current execution order — runtime SHA `64577459`
 
-1. Mainline reconciliation is published as Draft PR #58 from
-   `integration/flux8-reconciliation`; its latest runtime change is
-   `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`. It preserves the #55 -> #56
-   -> #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
-   unchanged. `reliable-file` (run `41348763286`), CLA (run `41349152187`),
-   and `iso-qualification` (run `41348763424`) pass on runtime SHA `7287fe1`.
-   One approval and the remaining 8.0 gates are outstanding. Do not merge.
+1. Mainline reconciliation remains Draft PR #58 from
+   `integration/flux8-reconciliation`; the latest tested runtime checkpoint is
+   `6457745962fde73c81a7004bce13cea6992a85c1` (`7.0.0-dev`). It preserves
+   the #55 -> #56 -> #57 ancestry; #55 already contains #51-54. Existing
+   PRs/bases remain unchanged. Actions `reliable-file` (`41352989065`), CLA
+   (`41352989090`) and `iso-qualification` (`41352989006`) pass on this exact
+   runtime SHA. One approval and the remaining Flux 8 gates are outstanding.
+   Do not mark ready or merge.
 2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
@@ -37,7 +38,7 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    no PS/2 devices, USB HID keyboard/report-pointer input and Home startup.
 3. Automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI install with
    disk-only boot, FAT32/PID 1 and PCnet NAT passed on exact runtime SHA
-   `7287fe1`. Visible mouse/keyboard acceptance remains UNVERIFIED; QEMU and
+   `64577459`. Visible mouse/keyboard acceptance remains UNVERIFIED; QEMU and
    headless input do not replace this gate.
 4. For 9–11, expand qualified networking/storage/application SDK coverage while
    preserving existing ABI and adding real developer examples and diagnostics.
@@ -49,8 +50,8 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    matrix. No version promotion based solely on UI appearance or a host PASS.
 
 The exact-SHA host/UBSan, Debug/Release builds, Release media, QEMU
-read-only-recovery/install/two-boot/text-scale persistence, automated
-VirtualBox and Actions results for `7287fe1` are recorded in
+read-only-recovery/install/two-boot/125% scale persistence, automated
+VirtualBox and Actions results for `64577459` are recorded in
 [`docs/TESTING.md`](../TESTING.md). Manual VirtualBox interaction remains
 UNVERIFIED.
 `main` now requires a PR, one approval and the `iso-qualification`,

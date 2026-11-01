@@ -22,7 +22,44 @@ runtime code.
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
 
-## Current exact-runtime evidence — `7287fe1`
+## Current exact-runtime evidence — `64577459`
+
+Runtime source: `6457745962fde73c81a7004bce13cea6992a85c1`; system identity
+remains `7.0.0-dev`. At 100/125/150/200%, native Ring-3 command geometry follows
+the persisted scale and pointer/scroll input is mapped back to app logical
+coordinates. The 100% path is unchanged. This does not yet scale app-icon
+internals, desktop/window chrome, display resolution or per-user preferences.
+All builds and VM disks below were isolated from existing repository media.
+
+| Check | Result |
+| --- | --- |
+| `HOST_TEST_DIR=/tmp/kuro-ui-scale-host-final bash scripts/run-host-tests.sh` | PASS — full optimized host regression |
+| `HOST_TEST_DIR=/tmp/kuro-ui-scale-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 core UBSan groups |
+| `bash scripts/build-linux.sh --configuration debug --rebuild --no-image` | PASS — exact-SHA Debug kernel/userspace and SDK |
+| `bash scripts/build-installer-linux.sh --configuration release --rebuild` | PASS — exact-SHA Release installer/ISO and 20 structure checks |
+| `python3 scripts/qualification/installer-qemu.py --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso --output /tmp/kuro-ui-scale-exact-qemu-64577459 --timeout 240 --desktop-lifecycle` | PASS — read-only recovery, safe cancellation, install/two disk boots and persisted settings |
+| QEMU Settings scale persistence | PASS — `125%` restored after reboot |
+| QEMU USB-only Try (no disk/PS/2; USB HID keyboard/tablet) | PASS — zero block devices, report-pointer click, Login and Home |
+| VirtualBox 7.2.20 Try/Login/Desktop, exact ISO | PASS — automated/headless |
+| VirtualBox 7.2.20 EFI/AHCI install, disk-only boot, FAT32/PID 1 and PCnet NAT | PASS — fresh temporary VDI |
+| GitHub Actions `reliable-file` [41352989065](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989065) | PASS |
+| GitHub Actions CLA [41352989090](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989090) | PASS |
+| GitHub Actions `iso-qualification` [41352989006](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989006) | PASS — ABI/SDK, regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three NAT profiles |
+| Visible/manual VirtualBox mouse/keyboard and scaled-control hit-testing | UNVERIFIED |
+
+Exact ISO SHA-256:
+`0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531`.
+QEMU manifest `/tmp/kuro-ui-scale-exact-qemu-64577459/result.json` binds that
+ISO to runtime SHA `6457745962fde73c81a7004bce13cea6992a85c1`, disk SHA-256
+`b66ecaa018784d93042d82c33061f6a421ffe5233e29486e1f17b68f27744e9b`, restored
+theme `2` and text scale `125`. The USB-only Home screenshot SHA-256 is
+`72cafda508f85bdc1a772a81d976f190e0c20c2f9f5d74736b91916bcca8afc8`.
+
+The visible/manual VirtualBox test, guest interaction specifically against
+scaled native controls, password authentication, physical hardware and complete
+Flux 8 acceptance remain open. PR #58 is still Draft and needs one approval.
+
+## Historical exact-runtime evidence — `7287fe1`
 
 Runtime source: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; identity remains
 `7.0.0-dev`. Builds and VM media were created in an isolated worktree so
