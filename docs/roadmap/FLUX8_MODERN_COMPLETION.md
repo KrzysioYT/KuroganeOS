@@ -5,10 +5,11 @@ Integration branch: `integration/flux8-reconciliation`
 PR ancestry: #55 -> #56 -> #57
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
-## Current integration head — `5c319946` (2026-11-01)
+## Current runtime qualification — `5c319946` (2026-11-01)
 
-The published Draft PR #58 head is
-`5c3199467b0a1cf726761dadd1ad66c782fa99ae`. The fix makes block-device
+The published Draft PR #58 contains runtime commit
+`5c3199467b0a1cf726761dadd1ad66c782fa99ae` and documentation-only follow-ups.
+The fix makes block-device
 read-only capability explicit, propagates it to partitions, prevents writes,
 and sends the installer to live recovery if there is no writable target.
 

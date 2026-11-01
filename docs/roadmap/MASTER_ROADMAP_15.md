@@ -20,11 +20,13 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 ## Current execution order — 2026-11-01
 
 1. Mainline reconciliation is published as Draft PR #58 from
-   `integration/flux8-reconciliation` at head
-   `5c3199467b0a1cf726761dadd1ad66c782fa99ae`. It preserves the #55 -> #56 ->
+   `integration/flux8-reconciliation`; its latest runtime change is
+   `5c3199467b0a1cf726761dadd1ad66c782fa99ae`, with later documentation-only
+   updates. It preserves the #55 -> #56 ->
    #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
-   unchanged. `reliable-file`, `iso-qualification` and CLA pass on this head;
-   one approval and the remaining 8.0 gates are still outstanding. Do not merge.
+   unchanged. `reliable-file`, `iso-qualification` and CLA pass on runtime
+   SHA `5c319946`; one approval and the remaining 8.0 gates are still
+   outstanding. Do not merge.
 2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and

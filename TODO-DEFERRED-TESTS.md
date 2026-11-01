@@ -5,7 +5,7 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 ## Current exact-SHA qualification checkpoint — `5c319946` (2026-11-01)
 
 Source commit `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime
-`7.0.0-dev`; published PR #58 head.
+`7.0.0-dev`; included in published PR #58.
 
 - PASS: full host regression and all 11 core UBSan groups.
 - PASS: Release build, SDK build, and 20 ISO structure validations.

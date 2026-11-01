@@ -25,7 +25,8 @@ is not the complete release gate for 8.0 or 15.0.
 ## Exact-SHA evidence — `5c319946` (2026-11-01)
 
 Source: `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime identity:
-`7.0.0-dev`. This is the current published PR #58 head.
+`7.0.0-dev`. This is the runtime fix commit in published PR #58; later
+documentation-only commits do not change the tested system payload.
 
 | Check | Result |
 | --- | --- |

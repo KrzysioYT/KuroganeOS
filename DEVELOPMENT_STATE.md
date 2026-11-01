@@ -16,8 +16,9 @@ są odrębnymi informacjami.
 
 ## Kwalifikacja bieżącego head PR #58 — 2026-11-01
 
-Gałąź `integration/flux8-reconciliation` jest opublikowana na SHA
-`5c3199467b0a1cf726761dadd1ad66c782fa99ae`; Draft PR #58 nadal wymaga jednej
+Poprawka runtime została opublikowana w SHA
+`5c3199467b0a1cf726761dadd1ad66c782fa99ae`; późniejsze zmiany w tej gałęzi
+aktualizują wyłącznie dokumentację. Draft PR #58 nadal wymaga jednej
 akceptacji. Wersja runtime pozostaje `7.0.0-dev`; Flux 8.0 nie jest
 zakwalifikowany.
 
