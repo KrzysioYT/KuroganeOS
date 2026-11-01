@@ -602,6 +602,15 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_framebuffer_text"
 
+# Verify native app-tile icon geometry scales with the persisted UI scale.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
+  -Werror=undef -Werror=return-type -Isdk/include \
+  tests/test_ui_hidpi.cpp kernel/drivers/framebuffer.cpp kernel/ui/ui.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_ui_hidpi"
+
+"$OUT_DIR/test_ui_hidpi"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \

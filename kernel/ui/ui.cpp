@@ -35,13 +35,22 @@ constexpr graphics::Color kHeaderBand = graphics::rgb(12, 13, 16);
 constexpr graphics::Color kDockSurface = graphics::rgb(14, 15, 18);
 constexpr graphics::Color kDockRaised = graphics::rgb(27, 28, 33);
 
+int32_t scaled_ui_metric(int32_t value, uint32_t scale_percent) {
+    const int64_t scaled =
+        static_cast<int64_t>(value) * scale_percent + 50;
+    return static_cast<int32_t>(scaled / 100);
+}
+
 // The web reference uses machined, square steel frames. Keep all Modern
 // widgets on the same one-pixel grid; Classic keeps its original decoration.
 void modern_surface(const Rect& bounds, graphics::Color surface,
-                    graphics::Color border, uint32_t /*radius*/ = 9U) {
+                    graphics::Color border, uint32_t /*radius*/ = 9U,
+                    uint32_t scale_percent = 100U) {
     if (bounds.width <= 2 || bounds.height <= 2) return;
-    graphics::fill_rect(bounds.x + 3, bounds.y + 4,
-                        bounds.width, bounds.height, kSurfaceShadow);
+    graphics::fill_rect(
+        bounds.x + scaled_ui_metric(3, scale_percent),
+        bounds.y + scaled_ui_metric(4, scale_percent),
+        bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y,
                         bounds.width, bounds.height, surface);
     graphics::draw_rect(bounds.x, bounds.y,
@@ -251,72 +260,108 @@ void dock_icon(const Rect& bounds, DockIcon icon,
 }
 void app_icon_glyph(
     const Rect& bounds, AppIcon icon,
-    graphics::Color foreground, graphics::Color accent) {
-    const int32_t x = bounds.x + 10;
-    const int32_t y = bounds.y + 12;
+    graphics::Color foreground, graphics::Color accent,
+    uint32_t scale_percent) {
+    const int32_t x = bounds.x + scaled_ui_metric(10, scale_percent);
+    const int32_t y = bounds.y + scaled_ui_metric(12, scale_percent);
+    const auto metric = [scale_percent](int32_t value) {
+        return scaled_ui_metric(value, scale_percent);
+    };
     switch (icon) {
         case AppIcon::Terminal:
-            graphics::draw_rect(x, y, 28, 24, foreground);
-            graphics::draw_text(x + 5, y + 8, ">_", accent, kTheme.panel_alt, 1U, true);
+            graphics::draw_rect(x, y, metric(28), metric(24), foreground);
+            graphics::draw_text(
+                x + metric(5), y + metric(8), ">_", accent, kTheme.panel_alt, 1U, true);
             break;
         case AppIcon::Files:
-            graphics::fill_rect(x, y + 5, 30, 22, foreground);
-            graphics::fill_rect(x + 3, y, 12, 7, foreground);
-            graphics::fill_rect(x + 3, y + 10, 24, 14, kGraphite);
+            graphics::fill_rect(x, y + metric(5), metric(30), metric(22), foreground);
+            graphics::fill_rect(x + metric(3), y, metric(12), metric(7), foreground);
+            graphics::fill_rect(
+                x + metric(3), y + metric(10), metric(24), metric(14), kGraphite);
             break;
         case AppIcon::Performance:
-            graphics::draw_rect(x, y, 30, 26, foreground);
-            graphics::fill_rect(x + 5, y + 15, 4, 7, accent);
-            graphics::fill_rect(x + 13, y + 10, 4, 12, accent);
-            graphics::fill_rect(x + 21, y + 5, 4, 17, accent);
+            graphics::draw_rect(x, y, metric(30), metric(26), foreground);
+            graphics::fill_rect(
+                x + metric(5), y + metric(15), metric(4), metric(7), accent);
+            graphics::fill_rect(
+                x + metric(13), y + metric(10), metric(4), metric(12), accent);
+            graphics::fill_rect(
+                x + metric(21), y + metric(5), metric(4), metric(17), accent);
             break;
         case AppIcon::Browser:
-            graphics::draw_rect(x, y, 30, 26, foreground);
-            graphics::fill_rect(x, y + 6, 30, 1, accent);
-            graphics::draw_rect(x + 8, y + 10, 14, 11, accent);
+            graphics::draw_rect(x, y, metric(30), metric(26), foreground);
+            graphics::fill_rect(x, y + metric(6), metric(30), metric(1), accent);
+            graphics::draw_rect(
+                x + metric(8), y + metric(10), metric(14), metric(11), accent);
             break;
         case AppIcon::Monitor:
-            graphics::draw_rect(x, y, 30, 22, foreground);
-            line(x + 4, y + 13, x + 9, y + 13, accent);
-            line(x + 9, y + 13, x + 13, y + 7, accent);
-            line(x + 13, y + 7, x + 18, y + 17, accent);
-            line(x + 18, y + 17, x + 25, y + 10, accent);
-            graphics::fill_rect(x + 12, y + 24, 7, 2, foreground);
+            graphics::draw_rect(x, y, metric(30), metric(22), foreground);
+            line(x + metric(4), y + metric(13),
+                 x + metric(9), y + metric(13), accent);
+            line(x + metric(9), y + metric(13),
+                 x + metric(13), y + metric(7), accent);
+            line(x + metric(13), y + metric(7),
+                 x + metric(18), y + metric(17), accent);
+            line(x + metric(18), y + metric(17),
+                 x + metric(25), y + metric(10), accent);
+            graphics::fill_rect(
+                x + metric(12), y + metric(24), metric(7), metric(2), foreground);
             break;
         case AppIcon::Settings:
-            graphics::draw_rect(x + 6, y + 4, 18, 18, foreground);
-            graphics::fill_rect(x + 13, y, 4, 26, accent);
-            graphics::fill_rect(x + 2, y + 11, 26, 4, accent);
-            graphics::fill_rect(x + 11, y + 9, 8, 8, kGraphite);
+            graphics::draw_rect(
+                x + metric(6), y + metric(4), metric(18), metric(18), foreground);
+            graphics::fill_rect(
+                x + metric(13), y, metric(4), metric(26), accent);
+            graphics::fill_rect(
+                x + metric(2), y + metric(11), metric(26), metric(4), accent);
+            graphics::fill_rect(
+                x + metric(11), y + metric(9), metric(8), metric(8), kGraphite);
             break;
         case AppIcon::About:
-            graphics::draw_rect(x + 6, y, 18, 26, foreground);
-            graphics::fill_rect(x + 13, y + 5, 4, 4, accent);
-            graphics::fill_rect(x + 13, y + 12, 4, 9, accent);
+            graphics::draw_rect(
+                x + metric(6), y, metric(18), metric(26), foreground);
+            graphics::fill_rect(
+                x + metric(13), y + metric(5), metric(4), metric(4), accent);
+            graphics::fill_rect(
+                x + metric(13), y + metric(12), metric(4), metric(9), accent);
             break;
         case AppIcon::Folder:
-            graphics::fill_rect(x, y + 6, 30, 21, foreground);
-            graphics::fill_rect(x + 3, y + 1, 13, 7, foreground);
-            graphics::fill_rect(x + 4, y + 11, 22, 12, kGraphite);
-            graphics::fill_rect(x + 6, y + 14, 18, 2, accent);
+            graphics::fill_rect(x, y + metric(6), metric(30), metric(21), foreground);
+            graphics::fill_rect(
+                x + metric(3), y + metric(1), metric(13), metric(7), foreground);
+            graphics::fill_rect(
+                x + metric(4), y + metric(11), metric(22), metric(12), kGraphite);
+            graphics::fill_rect(
+                x + metric(6), y + metric(14), metric(18), metric(2), accent);
             break;
         case AppIcon::Document:
-            graphics::draw_rect(x + 4, y, 22, 27, foreground);
-            graphics::fill_rect(x + 9, y + 7, 12, 2, accent);
-            graphics::fill_rect(x + 9, y + 13, 12, 2, foreground);
-            graphics::fill_rect(x + 9, y + 19, 9, 2, foreground);
+            graphics::draw_rect(
+                x + metric(4), y, metric(22), metric(27), foreground);
+            graphics::fill_rect(
+                x + metric(9), y + metric(7), metric(12), metric(2), accent);
+            graphics::fill_rect(
+                x + metric(9), y + metric(13), metric(12), metric(2), foreground);
+            graphics::fill_rect(
+                x + metric(9), y + metric(19), metric(9), metric(2), foreground);
             break;
         case AppIcon::Notification:
-            graphics::draw_rect(x + 8, y + 5, 15, 17, foreground);
-            graphics::fill_rect(x + 11, y + 2, 9, 4, foreground);
-            graphics::fill_rect(x + 5, y + 20, 21, 3, accent);
-            graphics::fill_rect(x + 13, y + 25, 5, 2, foreground);
+            graphics::draw_rect(
+                x + metric(8), y + metric(5), metric(15), metric(17), foreground);
+            graphics::fill_rect(
+                x + metric(11), y + metric(2), metric(9), metric(4), foreground);
+            graphics::fill_rect(
+                x + metric(5), y + metric(20), metric(21), metric(3), accent);
+            graphics::fill_rect(
+                x + metric(13), y + metric(25), metric(5), metric(2), foreground);
             break;
         case AppIcon::Home:
         default:
-            graphics::fill_rect(x + 5, y + 10, 21, 16, foreground);
-            line(x + 4, y + 11, x + 15, y, accent);
-            line(x + 15, y, x + 27, y + 11, accent);
+            graphics::fill_rect(
+                x + metric(5), y + metric(10), metric(21), metric(16), foreground);
+            line(x + metric(4), y + metric(11),
+                 x + metric(15), y, accent);
+            line(x + metric(15), y,
+                 x + metric(27), y + metric(11), accent);
             break;
     }
 }
@@ -1100,30 +1145,41 @@ void app_tile(
     const Rect& bounds, const char* title, const char* subtitle, AppIcon icon,
     bool selected, bool pinned, bool running, bool hovered, bool pressed) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const uint32_t scale_percent = graphics::text_scale_percent();
+    int32_t scale_probe = 0;
+    if (!graphics::scale_layout_coordinate(0, scale_percent, &scale_probe)) return;
+    const auto metric = [scale_percent](int32_t value) {
+        return scaled_ui_metric(value, scale_percent);
+    };
+    const int32_t text_offset_x = metric(50);
+    const int32_t text_inset_x = metric(62);
+    const int32_t text_column_width = metric(6);
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
         const graphics::Color background = pressed || selected ? kTheme.panel
             : (hovered ? kGraphiteRaised : kGraphite);
         modern_surface(bounds, background,
             selected || pressed ? kTheme.accent
-                : (hovered ? kRedMuted : kTheme.border), 9U);
+                : (hovered ? kRedMuted : kTheme.border), 9U, scale_percent);
         app_icon_glyph(bounds, icon, kTheme.text,
-            selected || hovered || pressed ? kTheme.accent : kRedMuted);
+            selected || hovered || pressed ? kTheme.accent : kRedMuted,
+            scale_percent);
         char fitted_title[64]{};
         char fitted_subtitle[64]{};
-        const size_t available = bounds.width > 62
-            ? static_cast<size_t>((bounds.width - 62) / 6) : 0U;
+        const size_t available = bounds.width > text_inset_x
+            ? static_cast<size_t>((bounds.width - text_inset_x) / text_column_width)
+            : 0U;
         text_fit::fit_utf8(title ? title : "APP",
                             fitted_title, sizeof(fitted_title), available);
         text_fit::fit_utf8(subtitle ? subtitle : "",
                             fitted_subtitle, sizeof(fitted_subtitle), available);
-        graphics::draw_text(bounds.x + 50, bounds.y + 13,
+        graphics::draw_text(bounds.x + text_offset_x, bounds.y + metric(13),
             fitted_title, kTheme.text, background, 1U, true);
-        graphics::draw_text(bounds.x + 50, bounds.y + 31,
+        graphics::draw_text(bounds.x + text_offset_x, bounds.y + metric(31),
             fitted_subtitle, kTheme.text_muted, background, 1U, true);
-        if (pinned) graphics::fill_rect(bounds.x + bounds.width - 12,
-            bounds.y + 10, 4, 4, kTheme.accent);
-        if (running) graphics::fill_rect(bounds.x + 12,
-            bounds.y + bounds.height - 6, 22, 2, kTheme.accent);
+        if (pinned) graphics::fill_rect(bounds.x + bounds.width - metric(12),
+            bounds.y + metric(10), metric(4), metric(4), kTheme.accent);
+        if (running) graphics::fill_rect(bounds.x + metric(12),
+            bounds.y + bounds.height - metric(6), metric(22), metric(2), kTheme.accent);
         return;
     }
     const graphics::Color background = gStyleId == KU_FLUX_STYLE_MODERN
@@ -1134,33 +1190,43 @@ void app_tile(
                                           : (running ? graphics::rgb(24, 22, 26) : kGraphite))));
     const graphics::Color border = pressed || selected
         ? kRedBright : (hovered ? kRedMuted : (running ? kSteel : kTheme.border));
-    graphics::fill_rect(bounds.x + 4, bounds.y + 5,
+    graphics::fill_rect(bounds.x + metric(4), bounds.y + metric(5),
                         bounds.width, bounds.height, kSurfaceShadow);
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, border);
-    graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
+    graphics::fill_rect(bounds.x, bounds.y, metric(4), bounds.height,
                         pressed || selected ? kRedBright
                                             : (hovered || running ? kRedMuted : kRedDeep));
     if (selected || hovered) {
-        graphics::fill_rect(bounds.x + 12, bounds.y, 48, 2, kRedBright);
+        graphics::fill_rect(
+            bounds.x + metric(12), bounds.y, metric(48), metric(2), kRedBright);
     }
-    app_icon_glyph(bounds, icon, kTheme.text,
-                   pressed || selected || hovered ? kRedBright : kRedMuted);
-    graphics::draw_text(bounds.x + 50, bounds.y + 13,
+    app_icon_glyph(
+        bounds, icon, kTheme.text,
+        pressed || selected || hovered ? kRedBright : kRedMuted,
+        scale_percent);
+    graphics::draw_text(bounds.x + text_offset_x, bounds.y + metric(13),
                         title ? title : "APP", kTheme.text, background, 1U, true);
-    graphics::draw_text(bounds.x + 50, bounds.y + 31,
+    graphics::draw_text(bounds.x + text_offset_x, bounds.y + metric(31),
                         subtitle ? subtitle : "", kTheme.text_muted, background, 1U, true);
     if (pinned) {
-        graphics::fill_rect(bounds.x + bounds.width - 13, bounds.y + 9, 5, 5, kRedBright);
-        graphics::fill_rect(bounds.x + bounds.width - 11, bounds.y + 14, 1, 7, kRedMuted);
+        graphics::fill_rect(
+            bounds.x + bounds.width - metric(13), bounds.y + metric(9),
+            metric(5), metric(5), kRedBright);
+        graphics::fill_rect(
+            bounds.x + bounds.width - metric(11), bounds.y + metric(14),
+            metric(1), metric(7), kRedMuted);
     }
     if (running) {
-        graphics::fill_rect(bounds.x + 12, bounds.y + bounds.height - 7, 28, 2,
-                            selected || hovered ? kRedBright : kRedMuted);
+        graphics::fill_rect(
+            bounds.x + metric(12), bounds.y + bounds.height - metric(7),
+            metric(28), metric(2),
+            selected || hovered ? kRedBright : kRedMuted);
     }
-    if (pressed && bounds.width > 28) {
-        graphics::fill_rect(bounds.x + 52, bounds.y + bounds.height - 5,
-                            bounds.width - 64, 2, kRedBright);
+    if (pressed && bounds.width > metric(28)) {
+        graphics::fill_rect(
+            bounds.x + metric(52), bounds.y + bounds.height - metric(5),
+            bounds.width - metric(64), metric(2), kRedBright);
     }
 }
 
