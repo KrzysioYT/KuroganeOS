@@ -17,8 +17,9 @@ struct IconExtent {
     int32_t max_y;
 };
 
-IconExtent draw_home_icon(uint32_t scale_percent) {
+IconExtent draw_home_icon(uint32_t scale_percent, uint32_t style) {
     assert(graphics::set_text_scale_percent(scale_percent));
+    assert(ui::set_desktop_style(style));
     graphics::clear(0U);
     const int32_t tile_width = static_cast<int32_t>(
         (static_cast<uint64_t>(KU_FLUX_TILE_WIDTH) * scale_percent + 50U) / 100U);
@@ -61,13 +62,23 @@ int main() {
     assert(ui::set_desktop_theme(KU_FLUX_THEME_RED));
     assert(ui::set_desktop_style(KU_FLUX_STYLE_MODERN));
 
-    const IconExtent standard = draw_home_icon(100U);
-    const IconExtent doubled = draw_home_icon(200U);
-    assert(standard.max_x > 0 && standard.max_y > 0);
-    assert(doubled.max_x >= standard.max_x * 2);
-    assert(doubled.max_x <= standard.max_x * 2 + 1);
-    assert(doubled.max_y >= standard.max_y * 2);
-    assert(doubled.max_y <= standard.max_y * 2 + 1);
+    constexpr uint32_t scales[] = {100U, 125U, 150U, 200U};
+    constexpr uint32_t styles[] = {KU_FLUX_STYLE_MODERN, KU_FLUX_STYLE_CLASSIC};
+    for (const uint32_t style : styles) {
+        const IconExtent standard = draw_home_icon(100U, style);
+        assert(standard.max_x > 0 && standard.max_y > 0);
+        for (const uint32_t scale : scales) {
+            const IconExtent extent = draw_home_icon(scale, style);
+            const int32_t expected_x = static_cast<int32_t>(
+                (static_cast<int64_t>(standard.max_x) * scale + 50) / 100);
+            const int32_t expected_y = static_cast<int32_t>(
+                (static_cast<int64_t>(standard.max_y) * scale + 50) / 100);
+            assert(extent.max_x >= expected_x - 1);
+            assert(extent.max_x <= expected_x + 1);
+            assert(extent.max_y >= expected_y - 1);
+            assert(extent.max_y <= expected_y + 1);
+        }
+    }
     assert(graphics::set_text_scale_percent(100U));
     std::puts("Flux native application icon HiDPI rendering: PASS");
     return 0;
