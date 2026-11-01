@@ -1,6 +1,6 @@
 # KuroganeOS — stan rozwoju
 
-Aktualizacja: 2026-10-27. Gałąź robocza: `integration/flux8-reconciliation`,
+Aktualizacja: 2026-11-01. Gałąź robocza: `integration/flux8-reconciliation`,
 oparta na `origin/main` (`ace922e4`) i integrująca historię #55 → #56 → #57.
 To kandydat integracyjny; nie jest scalony do `main` ani zakwalifikowany jako
 wydanie 8.0.0.
@@ -13,6 +13,32 @@ kernela, sterowników i Classic. **15.0.0 jest docelowym pierwszym wydaniem
 produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
+
+## Kwalifikacja kandydata integracyjnego — 2026-11-01
+
+Źródłowy commit kwalifikacji: `ac0d1220046d35b194e2a6a38de8135258232522`.
+Gałąź została opublikowana, a Draft PR #58 pozostaje otwarty. Wersja runtime
+to nadal `7.0.0-dev`; nie promowano jej do 8.0.
+
+| Kontrola | Wynik dla SHA `ac0d1220046d` |
+| --- | --- |
+| `bash scripts/run-host-tests.sh` | PASS |
+| `HOST_TEST_DIR=build/tests/flux8-ubsan-exact bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
+| Build kernela Debug i Release | PASS |
+| QEMU/OVMF: Try bez dysku USB, anulowanie instalacji, świeży install i dwa bootowania dysku | PASS |
+| QEMU/OVMF: Login profilu bez hasła, Home, Files/Terminal jako procesy, cykl okien i zapis/odczyt motywu po restarcie | PASS |
+| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6` |
+| GitHub Actions run `41324279554` | PASS — host, IMG/ISO, FAT32/VFS, 20 walidacji ISO, OVMF, E1000/PCnet/VirtIO |
+| Interaktywna kwalifikacja VirtualBox | BLOCKED — VirtualBox nie jest dostępny |
+
+Test dotyczy domyślnego profilu bez hasła; logowania hasłem, awarii/recovery
+aplikacji, sprzętu fizycznego ani pełnej macierzy 8.0 nie oznacza jako PASS.
+Oryginalny problem starej instalacji `flux_account_lookup` nie wystąpił w
+świeżym obrazie w tym profilu; starego obrazu nie uruchamiano ponownie.
+
+Ochrona `main` została włączona: wymagany Pull Request, jedna akceptacja,
+aktualne wymagane kontrole `iso-qualification`, `reliable-file` i CLA, brak
+force-push i usuwania gałęzi; reguły dotyczą również administratorów.
 
 ## Zasady projektu
 
@@ -50,16 +76,16 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
   schedulera Ring-3 z kompilacji bez osi x86_64, zapobiegając błędowi
   `-Werror` podczas testu `test_process` i utrzymując poprawny model hostowy.
 
-1. VirtualBox: zgłoszone restarty usług i `flux_account_lookup: FAIL` na starym
-   zainstalowanym obrazie. Brak 22 programów w buildzie Windows został naprawiony,
-   ale związek z całym incydentem wymaga świeżego logu. Nowe ISO nie aktualizuje
-   automatycznie plików starego zainstalowanego rootfs.
-2. Pełna akceptacja Flux: wszystkie aplikacje, lifecycle, focus/capture,
-   restart/recovery, clipboard, interakcje i trwałość ustawień na tym samym SHA.
-3. Skalowalne fonty, HiDPI i zmiany trybu wyświetlania, dostępność, drag/drop
-   oraz pozostałe otwarte pozycje kontraktu 8.0.
-4. Produktowe security/KDF, aktualizacje/rollback, szersza zgodność sprzętowa
-   i długotrwałe testy pozostają pracą do 15.0, nie ukończonymi funkcjami.
+1. VirtualBox interactive acceptance is BLOCKED on this host. The historical
+   `flux_account_lookup: FAIL` was not reproduced in the fresh no-password
+   QEMU install profile; the old installed image and password-login path remain
+   unverified.
+2. Full Flux acceptance remains open: every app and file workflow, clipboard,
+   crash/recovery, complete accessibility and the full settings matrix.
+3. Licensed scalable typography, HiDPI and live display-mode changes, drag/drop
+   and other open 8.0 contract items remain incomplete.
+4. Product security/KDF, signed updates/rollback, wider physical hardware
+   coverage and long-duration tests remain work toward 15.0.
 
 ## Dokumenty nadrzędne
 

@@ -17,15 +17,13 @@ Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
-## Current execution order — 2026-10-27
+## Current execution order — 2026-11-01
 
-1. Reconcile the PR ancestry in order: #55 -> #56 -> #57. PR #55 is based on
-   `gpt/road-to-15-consolidation`, which is 278 commits behind `main`; compare
-   the merge base and retain unique history rather than blindly merging or
-   rebasing. PR #55 already contains the histories of #51-54, so do not merge
-   those stacks again. Keep the existing PRs and their bases unchanged. Do not
-   merge to `main` before integration gates pass. See
-   `../audit/2026-10-27-repository-system-audit.md`.
+1. Mainline reconciliation is published as Draft PR #58 from
+   `integration/flux8-reconciliation` at runtime-qualified SHA
+   `ac0d1220046d35b194e2a6a38de8135258232522`. It preserves the #55 -> #56 ->
+   #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
+   unchanged. Do not merge until the remaining 8.0 gates pass.
 2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
@@ -40,6 +38,13 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 6. For 13–15, measure latency/memory/power, run long-lived resource and fault
    stress, qualify physical Intel/AMD hardware, then enforce the complete RC
    matrix. No version promotion based solely on UI appearance or a host PASS.
+
+The exact-SHA host/UBSan, kernel Debug/Release build, QEMU/OVMF install/lifecycle
+and Actions results for `ac0d1220046d` are recorded in
+[`docs/TESTING.md`](../TESTING.md). VirtualBox remains BLOCKED, not PASS.
+`main` now requires a PR, one approval and the `iso-qualification`,
+`reliable-file` and CLA checks; force-push and branch deletion are disabled,
+including for administrators.
 
 ## Feature-led development, qualification-led releases (2026-10-27 decision)
 

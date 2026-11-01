@@ -2,6 +2,25 @@
 
 Per the Road to 15 development policy adopted on 2026-08-30, implementation proceeds with compile/build gates while runtime and regression verification is collected here for a later single qualification pass.
 
+## Exact-SHA qualification checkpoint — 2026-11-01
+
+Source commit `ac0d1220046d35b194e2a6a38de8135258232522`; runtime
+`7.0.0-dev`.
+
+- PASS: optimized full host regression and all 11 core UBSan groups.
+- PASS: Debug and Release kernel builds.
+- PASS: QEMU/OVMF Try without a target disk, install cancellation without
+  changing the blank target, installation, two installed boots, default
+  no-password account/Home, Terminal/Files window lifecycle, and theme
+  restoration after reboot.
+- PASS: GitHub Actions run `41324279554` (host, IMG/ISO, FAT32/VFS, ISO x20,
+  OVMF, E1000/PCnet/VirtIO NAT).
+- BLOCKED: interactive VirtualBox acceptance; this host has no `VBoxManage`.
+- UNVERIFIED: host regression in separate Debug and Release test configurations,
+  password authentication, old installed-image recovery, physical hardware,
+  complete crash/recovery and the full Flux 8 acceptance matrix.
+- ISO SHA-256: `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
+
 ## 3.5 Connected Userspace
 - UDP socket host regressions: ownership, stale handles, bind collisions, generation reuse, bounded receive queue, BufferTooSmall, ephemeral bind, process cleanup.
 - UDP loopback regressions: self-loopback, cross-process loopback, queue saturation, unused loopback destination, no 127/8 physical-NIC leakage.
@@ -47,10 +66,10 @@ run with echo, close, refused, timeout and reset endpoint services.
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 
 ## Existing deferred qualification
-- Full host regression suite.
-- QEMU/OVMF runtime smoke and integration qualification.
-- Filesystem/network/service regression sweeps.
-- Fatal diagnostic regression sweep.
+- Full host regression under separate Debug and Release host-test profiles.
+- Remaining filesystem/network/service and fatal-diagnostic regression sweeps.
+- Full Flux app, clipboard, accessibility, HiDPI, settings, crash and recovery
+  matrix; the exact-SHA QEMU evidence above is scoped to the listed scenarios.
 - The 3.3.3-dev notes that treated VirtualBox as optional are historical and do
   not apply to Flux 8.0. Flux 8 requires interactive acceptance in x86-64
   VirtualBox on a compatible host; QEMU is not a substitute. Missing VirtualBox

@@ -5,6 +5,27 @@ Integration branch: `integration/flux8-reconciliation`
 PR ancestry: #55 -> #56 -> #57
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
+## Exact-SHA checkpoint — 2026-11-01
+
+Runtime commit `ac0d1220046d35b194e2a6a38de8135258232522` is a tested
+integration checkpoint, not a release candidate or 8.0 closeout.
+
+| Evidence | Result |
+| --- | --- |
+| Host regression and core UBSan (11 groups) | PASS |
+| Kernel Debug and Release builds | PASS |
+| QEMU/OVMF Try, install cancellation, fresh install and two installed boots | PASS |
+| Default account/Home, real Files/Terminal processes, USB window lifecycle and theme reboot persistence | PASS |
+| GitHub Actions run `41324279554` | PASS — host, image/FAT32/VFS, ISO x20, OVMF and three NAT NIC profiles |
+| Interactive VirtualBox | BLOCKED — unavailable on this host |
+
+The generated ISO is `KuroganeOS-7.0.0-dev-x86_64.iso` with SHA-256
+`13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
+QEMU used a fresh scratch disk and the default account without a password.
+Password authentication, VirtualBox, physical devices, the old installed-image
+incident, complete app/error recovery, HiDPI, licensed scalable typography and
+the complete 8.0 acceptance matrix remain open.
+
 ## Updated direction — feature-led Flux 8 (2026-10-27)
 
 **Goal:** KuroganeOS 8 should feel like a usable, recognizable, personal

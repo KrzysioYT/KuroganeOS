@@ -11,8 +11,12 @@
   harnesses.
 - Repaired the shared host-test runner syntax regression that caused the
   nineteen reported #55 check failures; no checks were disabled.
-- This checkpoint remains `7.0.0-dev`; exact-SHA guest qualification and the
-  remaining Flux 8 acceptance gates are still required.
+- Exact-SHA `ac0d1220046d` host, 11-group UBSan, Debug/Release kernel builds,
+  QEMU/OVMF installer-cancel/install/two-boot desktop lifecycle, and GitHub
+  Actions run `41324279554` passed. The QEMU install used the default
+  no-password account and restored the selected theme after reboot.
+- VirtualBox interactive acceptance is BLOCKED because it is unavailable.
+  The checkpoint remains `7.0.0-dev`; Flux 8.0 is not complete.
 
 ### 3.3.3-dev completion status
 

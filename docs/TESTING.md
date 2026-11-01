@@ -20,6 +20,52 @@ change does not requalify changed runtime code.
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
 
+## Exact-SHA evidence — `ac0d1220046d` (2026-11-01)
+
+Source: `ac0d1220046d35b194e2a6a38de8135258232522`; runtime identity:
+`7.0.0-dev`.
+
+| Check | Result |
+| --- | --- |
+| `bash scripts/run-host-tests.sh` | PASS |
+| `HOST_TEST_DIR=build/tests/flux8-ubsan-exact bash scripts/test-core-ubsan.sh` | PASS — 11 groups |
+| Debug and Release kernel builds | PASS |
+| QEMU/OVMF setup-media Try, no disk, USB keyboard/tablet | PASS |
+| QEMU/OVMF blank-disk cancellation hash and installation | PASS |
+| Installed disk-only boots, account profile, Home and theme persistence | PASS — two boots; theme value 2 restored |
+| QEMU USB window lifecycle | PASS — real Terminal/Files PIDs, focus, minimize/restore, maximize, move, resize, close/relaunch |
+| GitHub Actions run [41324279554](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41324279554) | PASS — host/ABI/SDK, Linux IMG/ISO, FAT32/VFS, ISO structure x20, OVMF and E1000/PCnet/VirtIO NAT |
+| VirtualBox interactive acceptance | BLOCKED — unavailable; QEMU is not a substitute |
+
+ISO SHA-256: `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
+The installed profile had no password. This does not qualify password
+authentication, an old installed image, physical hardware, crash recovery or
+the complete 8.0 matrix. Logs, screenshots and the installed scratch disk are
+retained in the exact-SHA qualification worktree.
+
+The release image and runtime checks ran in a fresh exact-SHA scratch worktree;
+do not run the builder over existing `dist` or `kurogane.iso` media.
+
+```bash
+bash scripts/build-installer-linux.sh --configuration release
+python3 scripts/qualification/installer-qemu.py \
+  --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso \
+  --output build/tests/ac0d1220-installer-qemu --timeout 240 \
+  --desktop-lifecycle
+bash scripts/smoke-uefi-iso-qemu.sh \
+  dist/KuroganeOS-7.0.0-dev-x86_64.iso --smp 4 --nic none --no-ps2 \
+  --usb-keyboard --usb-tablet --timeout 180 \
+  --log-dir build/tests/ac0d1220-live-try \
+  --send-key-after-marker 'installer: select setup mode:' ret \
+  --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
+  --require-marker '[TEST] live_login_profile: PASS' \
+  --require-marker '[SESSION] flux_home_first_frame: PASS'
+```
+
+All three commands completed with PASS at the source SHA above. The host suite
+uses optimized host tests; separate Debug/Release host-test profiles remain
+UNVERIFIED (the kernel itself built in both configurations).
+
 ## Hosted tests
 
 ```powershell
