@@ -63,6 +63,7 @@ assert "apply_text_scale_choice" in settings
 assert "flux_8_text_scale_selector: READY" in settings
 assert "flux_text_scale_persistence: PASS" in settings
 assert "write_text_scale_setting" in settings and "read_text_scale_setting" in settings
+assert "text_scale_saved=%s" in settings
 for preset in ("FORGED STEEL", "GRAPHITE GRID", "MINIMAL DARK"):
     assert preset in settings, f"settings: missing wallpaper choice {preset}"
 assert 'kui_flow_toggle(&root, 40U' in settings
@@ -75,6 +76,7 @@ assert "select_desktop_background" in settings
 assert "restore_desktop_background()" in read("userspace/gui/launcher/main.c")
 assert "restore_desktop_text_scale()" in read("userspace/gui/launcher/main.c")
 assert "DESKTOP_TEXT_SCALE_STATE_KEY" in read("userspace/gui/launcher/main.c")
+assert "flux_text_scale_restore: PASS" in read("userspace/gui/launcher/main.c")
 assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < \
     read("userspace/gui/launcher/main.c").index("if (restore_desktop_text_scale())")
 assert "KU_SYS_DESKTOP_TEXT_SCALE" in read("kernel/user/runtime_base.inc")

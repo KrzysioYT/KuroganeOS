@@ -49,6 +49,14 @@ def saved_theme(text):
     return values[-1]
 
 
+def saved_text_scale(text):
+    values = [int(value) for value in re.findall(
+        r'^\[SETTINGS\] text_scale_saved=(\d+)\r?$', text, re.M)]
+    if len(values) != 1 or values[0] not in (125, 150, 200):
+        raise RuntimeError('expected one persisted nondefault text scale')
+    return values[0]
+
+
 def wait_marker(serial, marker, process, deadline):
     while time.monotonic() < deadline:
         text = serial.read_text(errors='replace') if serial.exists() else ''
@@ -238,6 +246,7 @@ def main():
                     process.wait()
     env = dict(os.environ, OVMF_CODE=code, OVMF_VARS=variables)
     expected_theme = None
+    expected_text_scale = None
     for phase, marker in (('first-boot', 'installed_first_boot'), ('second-boot', 'installed_persistence')):
         cmd = ['bash', str(ROOT / 'scripts/smoke-uefi-iso-qemu.sh'), str(disk),
             '--disk', '--persistent-disk', '--smp', '4', '--nic', 'none', '--no-ps2',
@@ -251,6 +260,12 @@ def main():
             cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
         if expected_theme is not None:
             cmd.extend(['--require-marker', f'[SETTINGS] theme_restored={expected_theme}'])
+        if expected_text_scale is not None:
+            cmd.extend([
+                '--require-marker',
+                f'[SETTINGS] text_scale_restored={expected_text_scale}',
+                '--require-marker',
+                '[TEST] flux_text_scale_restore: PASS'])
         with (output / (phase + '-runner.log')).open('wb') as log:
             subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         text = (output / phase / 'serial.log').read_text(errors='replace')
@@ -260,15 +275,24 @@ def main():
             raise RuntimeError('booted installer/live media instead of installed disk')
         if args.desktop_lifecycle and phase == 'first-boot':
             expected_theme = saved_theme(text)
+            expected_text_scale = saved_text_scale(text)
         if expected_theme is not None and phase == 'second-boot':
             restored = re.findall(r'^\[SETTINGS\] theme_restored=(\d+)\r?$', text, re.M)
             if restored != [str(expected_theme)]:
                 raise RuntimeError('reboot restored a different or ambiguous theme')
             print('[installer-qemu] exact theme restored after reboot: PASS', flush=True)
+            restored_scale = re.findall(
+                r'^\[SETTINGS\] text_scale_restored=(\d+)\r?$', text, re.M)
+            if restored_scale != [str(expected_text_scale)]:
+                raise RuntimeError(
+                    'reboot restored a different or ambiguous text scale')
+            print('[installer-qemu] exact text scale restored after reboot: PASS',
+                  flush=True)
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-                'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme, 'result': 'PASS'}
+                'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme,
+                'restored_text_scale': expected_text_scale, 'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)
 

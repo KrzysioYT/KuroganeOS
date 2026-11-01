@@ -843,6 +843,9 @@ int main(void) {
                     text_scale_percent = requested;
                     feedback = "TEXT SIZE / SAVED";
                     puts("[TEST] flux_text_scale_persistence: PASS");
+                    char value[24];
+                    gui_u64(value, sizeof(value), text_scale_percent);
+                    printf("[SETTINGS] text_scale_saved=%s\n", value);
                 }
             }
         } else if (target >= 40U && target <= 42U) {

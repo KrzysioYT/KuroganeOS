@@ -212,14 +212,26 @@ class Harness:
         if self.settings_write:
             self.key('ret')
             self.wait_marker('[TEST] flux_theme_persistence: PASS')
-        # Focus survives the theme rebuild. Reverse Tab wraps to the final
-        # profile control and scrolls it into view. Space then exercises
-        # activation on the first control after forward wrap (writable root).
+            self.key('tab')
+            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 1)
+            self.key('tab')
+            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
+            self.key('ret')
+            self.wait_marker('[TEST] flux_text_scale_persistence: PASS')
+            self.key('shift', 'tab')
+            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 3)
+            self.key('shift', 'tab')
+            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 4)
+        # Return to the color controls after exercising text-scale persistence.
         self.key('shift', 'tab')
-        self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 1)
+        self.wait_marker(
+            '[INPUT] flux_settings_keyboard_focus: PASS',
+            4 if self.settings_write else 1)
         self.screenshot('06-settings-keyboard-scroll')
         self.key('tab')
-        self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
+        self.wait_marker(
+            '[INPUT] flux_settings_keyboard_focus: PASS',
+            5 if self.settings_write else 2)
         self.screenshot('07-settings-keyboard-wrap')
         if self.settings_write:
             self.key('spc')

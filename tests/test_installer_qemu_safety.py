@@ -21,6 +21,16 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 module.saved_theme(text)
 
+    def test_text_scale_evidence_requires_one_supported_nondefault_value(self):
+        self.assertEqual(
+            module.saved_text_scale('[SETTINGS] text_scale_saved=125\r\n'), 125)
+        for text in ('', '[SETTINGS] text_scale_saved=100\n',
+                     '[SETTINGS] text_scale_saved=125\n'
+                     '[SETTINGS] text_scale_saved=150\n',
+                     '[SETTINGS] text_scale_saved=175\n'):
+            with self.assertRaises(RuntimeError):
+                module.saved_text_scale(text)
+
     def test_existing_directory_and_symlink_are_never_reused(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
