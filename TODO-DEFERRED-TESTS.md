@@ -2,7 +2,26 @@
 
 Per the Road to 15 development policy adopted on 2026-08-30, implementation proceeds with compile/build gates while runtime and regression verification is collected here for a later single qualification pass.
 
-## Exact-SHA qualification checkpoint — 2026-11-01
+## Current exact-SHA qualification checkpoint — `5c319946` (2026-11-01)
+
+Source commit `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime
+`7.0.0-dev`; published PR #58 head.
+
+- PASS: full host regression and all 11 core UBSan groups.
+- PASS: Release build, SDK build, and 20 ISO structure validations.
+- PASS: QEMU/OVMF read-only-disk recovery, nondestructive install cancellation,
+  fresh installation, two installed-disk boots, authenticated Home and theme
+  restoration (`2`).
+- PASS: Actions `reliable-file` `41337504861`, `iso-qualification` `41337504951`
+  and CLA `41337504885`, all on this exact head.
+- ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
+- NOT RUN: Debug host/kernel profile on this exact head.
+- UNVERIFIED: VirtualBox on this exact image and visible/manual mouse/keyboard;
+  automated VirtualBox evidence is from prior SHA `0c708fea`. Password
+  authentication, physical hardware, old-image recovery, crash/recovery and
+  the remaining Flux 8 matrix are also unverified.
+
+## Historical exact-SHA qualification checkpoint — `ac0d122` (2026-11-01)
 
 Source commit `ac0d1220046d35b194e2a6a38de8135258232522`; runtime
 `7.0.0-dev`.

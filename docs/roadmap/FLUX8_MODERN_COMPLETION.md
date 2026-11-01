@@ -5,6 +5,32 @@ Integration branch: `integration/flux8-reconciliation`
 PR ancestry: #55 -> #56 -> #57
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
+## Current integration head — `5c319946` (2026-11-01)
+
+The published Draft PR #58 head is
+`5c3199467b0a1cf726761dadd1ad66c782fa99ae`. The fix makes block-device
+read-only capability explicit, propagates it to partitions, prevents writes,
+and sends the installer to live recovery if there is no writable target.
+
+| Evidence | Result |
+| --- | --- |
+| Full host regression | PASS |
+| Core UBSan | PASS — 11 groups |
+| Release build, SDK and ISO structure validation x20 | PASS |
+| GitHub Actions `reliable-file` run `41337504861` | PASS |
+| GitHub Actions `iso-qualification` run `41337504951` | PASS |
+| GitHub Actions CLA run `41337504885` | PASS |
+| QEMU/OVMF exact-SHA install qualification | PASS — read-only recovery, nondestructive cancellation, installation and two disk-only boots |
+| ISO SHA-256 | `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015` |
+| Debug profile and VirtualBox run on this exact head | NOT RUN |
+| Visible/manual VirtualBox mouse and keyboard | UNVERIFIED |
+
+The QEMU manifest records source SHA `5c3199467b0a1cf726761dadd1ad66c782fa99ae`,
+the ISO hash above, restored theme ID `2`, and result `PASS`. The older
+`ac0d122` and `7c2171a1` evidence below is historical and does not transfer
+to this head. PR #58 remains Draft and needs one approval; Flux 8 is not
+qualified.
+
 ## Exact-SHA checkpoint — 2026-11-01
 
 Runtime commit `ac0d1220046d35b194e2a6a38de8135258232522` is a tested
@@ -263,7 +289,9 @@ block promotion. Windows support, PS/2 fallback, and Classic are retained.
 - [x] Scoped exact-SHA host/UBSan, kernel Debug/Release and QEMU/OVMF checks
       passed at `ac0d1220046d`; see the evidence table above.
 - [ ] Full 8.0 acceptance and interactive VirtualBox first-frame test remain
-      open; VirtualBox is BLOCKED on the current host.
+      open. VirtualBox availability was BLOCKED at that historical checkpoint;
+      automated tests later passed on prior PR SHA `0c708fea`, while current-head
+      VirtualBox and visible/manual interaction remain UNVERIFIED.
 
 ## Application registry refactor — 2026-10-24
 

@@ -11,12 +11,19 @@
   harnesses.
 - Repaired the shared host-test runner syntax regression that caused the
   nineteen reported #55 check failures; no checks were disabled.
-- Exact-SHA `ac0d1220046d` host, 11-group UBSan, Debug/Release kernel builds,
-  QEMU/OVMF installer-cancel/install/two-boot desktop lifecycle, and GitHub
-  Actions run `41324279554` passed. The QEMU install used the default
-  no-password account and restored the selected theme after reboot.
-- VirtualBox interactive acceptance is BLOCKED because it is unavailable.
-  The checkpoint remains `7.0.0-dev`; Flux 8.0 is not complete.
+- Fixed installer target selection for read-only block devices: the capability
+  now propagates through partitions, writes are rejected centrally, and setup
+  returns to live recovery when no writable disk exists.
+- Reproduced the unsafe path on the previous ISO, then verified the fix on
+  exact SHA `5c3199467b0a1cf726761dadd1ad66c782fa99ae`: host regression, 11
+  UBSan groups, Release media, read-only recovery, nondestructive cancellation,
+  install, two disk-only boots and persisted theme all passed.
+- Exact-head Actions passed: `reliable-file` `41337504861`,
+  `iso-qualification` `41337504951`, and CLA `41337504885`.
+- ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
+- VirtualBox automated Try/install evidence is from prior SHA `0c708fea`;
+  current-head VirtualBox and visible/manual input remain UNVERIFIED. Runtime
+  remains `7.0.0-dev`; Flux 8.0 is not complete.
 
 ### 3.3.3-dev completion status
 

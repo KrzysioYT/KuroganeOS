@@ -20,16 +20,18 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 ## Current execution order — 2026-11-01
 
 1. Mainline reconciliation is published as Draft PR #58 from
-   `integration/flux8-reconciliation` at runtime-qualified SHA
-   `ac0d1220046d35b194e2a6a38de8135258232522`. It preserves the #55 -> #56 ->
+   `integration/flux8-reconciliation` at head
+   `5c3199467b0a1cf726761dadd1ad66c782fa99ae`. It preserves the #55 -> #56 ->
    #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
-   unchanged. Do not merge until the remaining 8.0 gates pass.
+   unchanged. `reliable-file`, `iso-qualification` and CLA pass on this head;
+   one approval and the remaining 8.0 gates are still outstanding. Do not merge.
 2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
    exact theme reboot verification are concrete increments, not full completion.
-3. Keep native x86 VirtualBox interactive acceptance open until a compatible
-   host is available; Apple Silicon QEMU/TCG is the current automated guest path.
+3. Automated VirtualBox 7.2.20 Try/install evidence exists for prior PR SHA
+   `0c708fea`; visible mouse/keyboard acceptance is still UNVERIFIED and must
+   be repeated on the release candidate. QEMU does not replace this gate.
 4. For 9–11, expand qualified networking/storage/application SDK coverage while
    preserving existing ABI and adding real developer examples and diagnostics.
 5. For 12, replace FNV1A64-DEV passwords with a product KDF, design atomic settings
@@ -39,9 +41,10 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    stress, qualify physical Intel/AMD hardware, then enforce the complete RC
    matrix. No version promotion based solely on UI appearance or a host PASS.
 
-The exact-SHA host/UBSan, kernel Debug/Release build, QEMU/OVMF install/lifecycle
-and Actions results for `ac0d1220046d` are recorded in
-[`docs/TESTING.md`](../TESTING.md). VirtualBox remains BLOCKED, not PASS.
+The exact-SHA host/UBSan, Release media, QEMU read-only-recovery/install/two-boot
+and Actions results for `5c319946` are recorded in
+[`docs/TESTING.md`](../TESTING.md). Debug qualification is NOT RUN on this head;
+manual VirtualBox interaction remains UNVERIFIED.
 `main` now requires a PR, one approval and the `iso-qualification`,
 `reliable-file` and CLA checks; force-push and branch deletion are disabled,
 including for administrators.

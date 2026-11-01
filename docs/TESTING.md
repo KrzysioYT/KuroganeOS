@@ -22,7 +22,36 @@ runtime code.
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
 
-## Exact-SHA evidence — `ac0d1220046d` (2026-11-01)
+## Exact-SHA evidence — `5c319946` (2026-11-01)
+
+Source: `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime identity:
+`7.0.0-dev`. This is the current published PR #58 head.
+
+| Check | Result |
+| --- | --- |
+| `bash scripts/run-host-tests.sh` | PASS — full host regression |
+| `HOST_TEST_DIR=build/tests/readonly-fix-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 groups |
+| `bash scripts/build-installer-linux.sh --configuration release` | PASS — SDK and release media build |
+| ISO structure validation | PASS — 20 checks |
+| QEMU/OVMF `installer-qemu.py --desktop-lifecycle` | PASS — read-only recovery; cancellation preserved blank disk; install; first and second installed boots; authenticated Home; theme `2` restored |
+| GitHub Actions `reliable-file`, run [41337504861](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504861) | PASS |
+| GitHub Actions `iso-qualification`, run [41337504951](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504951) | PASS |
+| GitHub Actions CLA, run `41337504885` | PASS |
+| Debug host/kernel profile | NOT RUN on this SHA |
+| VirtualBox on this exact SHA; visible/manual mouse and keyboard | UNVERIFIED |
+
+ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
+QEMU result manifest records this hash, exact source SHA
+`5c3199467b0a1cf726761dadd1ad66c782fa99ae`, and `result: PASS`.
+VirtualBox 7.2.20 automated Try and EFI/AHCI installation were previously
+verified on PR SHA `0c708fea`, not this image; those results are not transferred.
+Password authentication, physical hardware, old-image recovery and full Flux 8
+acceptance remain unverified. PR #58 remains Draft and needs one approval.
+
+The following checkpoint is historical; its results apply only to its listed
+SHAs and artifacts.
+
+## Historical exact-SHA evidence — `ac0d1220046d` (2026-11-01)
 
 Source: `ac0d1220046d35b194e2a6a38de8135258232522`; runtime identity:
 `7.0.0-dev`.

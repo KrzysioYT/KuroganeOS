@@ -14,32 +14,34 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Kwalifikacja kandydata integracyjnego — 2026-11-01
+## Kwalifikacja bieżącego head PR #58 — 2026-11-01
 
-Commit runtime: `ac0d1220046d35b194e2a6a38de8135258232522`. Uzupełniające
-testy hostowe i poprawki harnessów wykonano na `7c2171a1ca5e985334276a955e3ceaf879748d92`;
-nie zmieniają one payloadu systemu. Gałąź została opublikowana, a Draft PR #58
-pozostaje otwarty. Wersja runtime to nadal `7.0.0-dev`; nie promowano jej do 8.0.
+Gałąź `integration/flux8-reconciliation` jest opublikowana na SHA
+`5c3199467b0a1cf726761dadd1ad66c782fa99ae`; Draft PR #58 nadal wymaga jednej
+akceptacji. Wersja runtime pozostaje `7.0.0-dev`; Flux 8.0 nie jest
+zakwalifikowany.
 
-| Kontrola | Wynik dla SHA `ac0d1220046d` |
+| Kontrola | Wynik dla SHA `5c319946` |
 | --- | --- |
-| Host regression Release, `HOST_TEST_DIR=build/tests/acceptance-host-release bash scripts/run-host-tests.sh` | PASS — `-O2`, commit testów `7c2171a1` |
-| Host regression Debug, pełny `scripts/run-host-tests.sh` | PASS — `-O0 -g3`, commit testów `7c2171a1` |
-| `HOST_TEST_DIR=build/tests/acceptance-ubsan-final bash scripts/test-core-ubsan.sh` | PASS — 11 grup, commit testów `7c2171a1` |
-| Build kernela Debug i Release | PASS |
-| QEMU/OVMF: Try bez dysku USB, anulowanie instalacji, świeży install i dwa bootowania dysku | PASS |
-| QEMU/OVMF: Login profilu bez hasła, Home, Files/Terminal jako procesy, cykl okien i zapis/odczyt motywu po restarcie | PASS |
-| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6` |
-| GitHub Actions run `41324279554` | PASS — host, IMG/ISO, FAT32/VFS, 20 walidacji ISO, OVMF, E1000/PCnet/VirtIO |
-| GitHub Actions run [41331938452](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41331938452) | PASS — test/harness commit `7c2171a1`; host/ABI/SDK, regresja, IMG/ISO, FAT32/VFS, ISO x20, OVMF, E1000/PCnet/VirtIO |
-| VirtualBox 7.2.20: Try → Login → Desktop oraz supervised userspace | PASS — automatyczny test, dokładne ISO poniżej |
-| VirtualBox 7.2.20: instalacja EFI/AHCI, boot z dysku, FAT32, init, DHCP/DNS/gateway | PASS — świeży tymczasowy VDI, dokładne ISO poniżej |
-| Ręczny test obrazu oraz myszy/klawiatury w oknie VirtualBox | UNVERIFIED — test automatyczny używał headless i skan-kodów PS/2 |
+| `bash scripts/run-host-tests.sh` | PASS — pełna regresja hosta |
+| `HOST_TEST_DIR=build/tests/readonly-fix-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
+| Release build, SDK i walidacja ISO x20 | PASS |
+| GitHub Actions [41337504861](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504861) — `reliable-file` | PASS |
+| GitHub Actions [41337504951](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504951) — `iso-qualification` | PASS |
+| GitHub Actions `41337504885` — CLA | PASS |
+| QEMU/OVMF: read-only target → live recovery, anulowanie bez zmian pustego dysku, instalacja oraz dwa bootowania z dysku | PASS |
+| QEMU/OVMF: uwierzytelniony Home i przywrócenie motywu po restarcie | PASS — wartość motywu `2` |
+| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015` |
+| Debug build/testy na tym SHA | NOT RUN |
+| VirtualBox interaktywnie na tym SHA | UNVERIFIED |
+| Ręczny test myszy/klawiatury w widocznym oknie VirtualBox | UNVERIFIED |
 
-Test dotyczy domyślnego profilu bez hasła; logowania hasłem, awarii/recovery
-aplikacji, sprzętu fizycznego ani pełnej macierzy 8.0 nie oznacza jako PASS.
-Oryginalny problem starej instalacji `flux_account_lookup` nie wystąpił w
-świeżym obrazie w tym profilu; starego obrazu nie uruchamiano ponownie.
+QEMU manifest wiąże wynik PASS z dokładnym SHA `5c319946` i powyższym hashem
+ISO. Automatyczny VirtualBox 7.2.20 przeszedł Try i EFI/AHCI install na
+wcześniejszym obrazie PR `0c708fea`; nie przenosimy tego wyniku na obecny
+obraz ani nie traktujemy testu headless jako ręcznej akceptacji. Testy
+logowania hasłem, fizycznego sprzętu, starej instalacji z `flux_account_lookup`
+oraz pełnej macierzy 8.0 pozostają niezweryfikowane.
 
 Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
 ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał
@@ -320,7 +322,9 @@ Settings/Home now report only confirmed numeric theme IDs; installer qualificati
 compares the saved nondefault theme with Home's exact restored value on the
 second disk-only boot. Final run results and hashes belong to the delivered
 audit matrix, not historical PASS claims. VirtualBox x86 launch on this Apple M4
-returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED`; that gate remains BLOCKED.
+returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED` at that historical checkpoint.
+Automated VirtualBox tests later ran on prior PR SHA `0c708fea`; current-head
+interactive acceptance remains UNVERIFIED.
 Product KDF and atomic settings replacement under power loss remain unresolved.
 
 ## 2026-10-27 — Flux Dock application identity hardening
