@@ -62,6 +62,13 @@ int main() {
     assert(width_100 < width_125);
     assert(width_125 < width_150);
     assert(width_150 < width_200);
+    char kerned_pairs[201]{};
+    for (size_t pair = 0U; pair < 100U; ++pair) {
+        kerned_pairs[pair * 2U] = 'A';
+        kerned_pairs[pair * 2U + 1U] = 'V';
+    }
+    assert(graphics::measure_text_width(kerned_pairs, 2U) <
+           graphics::measure_text_width("AV", 2U) * 100U);
 
     assert(graphics::set_text_scale_percent(100U));
     assert(graphics::measure_text_width("iiii") <

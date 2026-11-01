@@ -150,14 +150,17 @@ manager or 12.0 production users/groups, signed update and isolation work.
       fallback in the native software renderer.
 - [x] Antialiased regular/bold atlas at 8, 10, 12, 16, 20, 24 and 32 px;
       text scale selection supports 100/125/150/200% without changing app ABI.
+- [x] Fractional 26.6 glyph advances and bounded, generated pair kerning for
+      glyphs in the bundled atlas.
 - [x] Modern and Classic window titles fit available width using ellipsis at
       UTF-8 code-point boundaries; no title glyph is split.
 - [x] Native scene labels word-wrap to their supplied width and height,
       falling back to code-point-safe breaks for long words.
 - [ ] General text fit and ellipsis preserve code-point boundaries at every
       scale and in every native app layout.
-- [ ] Full Unicode shaping/kerning, word wrapping and ellipsis in proportional
-      layout; current UI truncation helpers still use their legacy cell model.
+- [ ] Full Unicode shaping and general app-level ellipsis in proportional
+      layout; the current font covers only its documented glyph set and
+      provides pair kerning rather than script shaping.
 - [ ] Keyboard focus visibility, logical tab order, input edit/caret, mouse wheel.
 - [ ] Contrast validated in all six themes. Reduced-motion fallback.
 
@@ -169,10 +172,10 @@ manager or 12.0 production users/groups, signed update and isolation work.
 - The host-side Pillow generator produces a compact 4-bit antialiased atlas
   for ASCII, Latin-1, Polish Latin Extended-A and U+FFFD at seven sizes. The
   kernel decodes the 260,894-byte atlas once into static memory guarded by a
-  512 KiB compile-time ceiling; rendering itself is freestanding, integer-only,
-  allocation-free and preserves the existing syscall/UI ABI. Modern and
-  Classic window titles use the bold face. `draw_char` remains as the 5x7
-  console primitive.
+  512 KiB compile-time ceiling. Glyph advances and generated pair adjustments
+  use 26.6 fixed point; the current 5,232 kerning pairs have an 8,192-entry
+  compile-time ceiling. Rendering is allocation-free and preserves the
+  existing syscall/UI ABI. `draw_char` remains the 5x7 console primitive.
 - Host tests exercise proportional advances, Polish and replacement glyphs,
   grayscale coverage, regular/bold differences, clipping and the four text
   scale selections. On the working tree based on `05e67146`, the full host
@@ -180,7 +183,7 @@ manager or 12.0 production users/groups, signed update and isolation work.
   kernel builds and deterministic atlas regeneration also passed. These
   results are not GitHub Actions evidence for a published commit.
 - This does not yet provide user-selectable/persistent UI scale in Settings,
-  text shaping/kerning, general Unicode coverage, paragraph wrapping/general
+  text shaping, general Unicode coverage, paragraph wrapping/general
   ellipsis for native proportional text, or complete visible desktop
   qualification. ISO/media packaging and guest visual validation for this
   increment are NOT RUN.
@@ -192,11 +195,15 @@ manager or 12.0 production users/groups, signed update and isolation work.
   complete UTF-8 code points and does not split a multibyte character.
 - Native scene labels now wrap at spaces, hard-wrap long words only between
   decoded UTF-8 code points, and stop at the allocated line height.
+- The atlas generator also records fractional glyph advances and pair
+  kerning, which the renderer applies consistently to drawing, measurement,
+  title fitting and wrapping.
 - Host regression coverage verifies the pixel bound, an ellipsis at a valid
   Polish-text boundary, too-narrow widths, word wrapping and bounded lines.
-  Full host regression, core UBSan and isolated Debug/Release kernel builds
-  passed on the working tree based on `41490e42`; ISO and guest visual
-  validation are NOT RUN.
+  The repeated-pair regression verifies accumulated kerning. Full host
+  regression, core UBSan, deterministic atlas generation and isolated
+  Debug/Release kernel builds passed on the working tree based on `561d0a89`;
+  ISO and guest visual validation are NOT RUN.
 
 ## Desktop application integration (P1)
 

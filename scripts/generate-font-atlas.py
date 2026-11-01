@@ -42,6 +42,8 @@ def main() -> None:
     metrics: list[str] = []
     ascents: list[str] = []
     line_heights: list[str] = []
+    kerning_offsets = [0]
+    kerning_pairs: list[str] = []
 
     for font_path in fonts:
         for size in FONT_SIZES:
@@ -50,15 +52,17 @@ def main() -> None:
             ascents.append(str(ascent))
             line_heights.append(str(ascent + descent))
 
+            advances_26_6: list[int] = []
             for codepoint in CODEPOINTS:
                 character = chr(codepoint)
                 mask, (bearing_x, bearing_y) = font.getmask2(
                     character, mode="L", anchor="ls"
                 )
                 width, height = mask.size
-                advance = int(round(font.getlength(character)))
-                if width > 255 or height > 255 or advance > 255:
+                advance_26_6 = int(round(font.getlength(character) * 64))
+                if width > 255 or height > 255 or advance_26_6 > 65535:
                     raise ValueError(f"glyph U+{codepoint:04X} exceeds atlas limits")
+                advances_26_6.append(advance_26_6)
 
                 pixel_offset = len(coverage)
                 pixels = list(mask)
@@ -67,8 +71,28 @@ def main() -> None:
                     coverage.append(0)
                 metrics.append(
                     "    {%d, %d, %d, %d, %d, %d},"
-                    % (width, height, bearing_x, bearing_y, advance, pixel_offset)
+                    % (
+                        width, height, bearing_x, bearing_y,
+                        advance_26_6, pixel_offset,
+                    )
                 )
+
+            for left_index, left in enumerate(CODEPOINTS):
+                for right_index, right in enumerate(CODEPOINTS):
+                    pair_advance = int(round(font.getlength(chr(left) + chr(right)) * 64))
+                    adjustment = (
+                        pair_advance
+                        - advances_26_6[left_index]
+                        - advances_26_6[right_index]
+                    )
+                    if adjustment:
+                        if adjustment < -32768 or adjustment > 32767:
+                            raise ValueError("kerning adjustment exceeds atlas limits")
+                        pair_key = left_index * len(CODEPOINTS) + right_index
+                        kerning_pairs.append(
+                            "    {%dU, %d}," % (pair_key, adjustment)
+                        )
+            kerning_offsets.append(len(kerning_pairs))
 
     packed = bytes(
         (coverage[offset] << 4) | coverage[offset + 1]
@@ -98,7 +122,7 @@ struct Metrics {{
     uint16_t height;
     int16_t bearing_x;
     int16_t bearing_y;
-    uint16_t advance;
+    uint16_t advance_26_6;
     uint32_t pixel_offset;
 }};
 constexpr uint8_t kAscents[2U * kSizeCount] = {{
@@ -109,6 +133,18 @@ constexpr uint8_t kLineHeights[2U * kSizeCount] = {{
 }};
 constexpr Metrics kMetrics[2U * kSizeCount * kGlyphCount] = {{
 {chr(10).join(metrics)}
+}};
+struct KerningPair{{
+    uint32_t key;
+    int16_t adjustment_26_6;
+}};
+constexpr size_t kKerningStyleCount = 2U * kSizeCount;
+constexpr size_t kKerningPairCount = {len(kerning_pairs)}U;
+constexpr uint32_t kKerningOffsets[kKerningStyleCount + 1U] = {{
+{format_array([str(offset) + "U" for offset in kerning_offsets])}
+}};
+constexpr KerningPair kKerningPairs[kKerningPairCount] = {{
+{chr(10).join(kerning_pairs)}
 }};
 constexpr size_t kCoverage4DecodedSize = {len(packed)}U;
 constexpr char kCoverage4Base64[] =

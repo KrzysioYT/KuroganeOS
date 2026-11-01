@@ -9,6 +9,7 @@ namespace graphics {
 
 namespace {
 static_assert(font_atlas::kCoverage4DecodedSize <= 512U * 1024U);
+static_assert(font_atlas::kKerningPairCount <= 8192U);
 
 KuroganeFramebuffer g_framebuffer{};
 bool g_available = false;
@@ -220,6 +221,65 @@ size_t metrics_index(size_t size_index, size_t glyph, TextWeight weight) {
         ? font_atlas::kSizeCount * font_atlas::kGlyphCount
         : 0U;
     return weight_offset + size_index * font_atlas::kGlyphCount + glyph;
+}
+
+int16_t kerning_adjustment_26_6(
+    size_t size_index, size_t left_glyph, size_t right_glyph,
+    TextWeight weight) {
+    const size_t style_index =
+        (weight == TextWeight::Bold ? font_atlas::kSizeCount : 0U) +
+        size_index;
+    const uint32_t key = static_cast<uint32_t>(
+        left_glyph * font_atlas::kGlyphCount + right_glyph);
+    uint32_t first = font_atlas::kKerningOffsets[style_index];
+    uint32_t last = font_atlas::kKerningOffsets[style_index + 1U];
+    while (first < last) {
+        const uint32_t middle = first + (last - first) / 2U;
+        const font_atlas::KerningPair& pair =
+            font_atlas::kKerningPairs[middle];
+        if (pair.key < key) first = middle + 1U;
+        else last = middle;
+    }
+    return first < font_atlas::kKerningOffsets[style_index + 1U] &&
+            font_atlas::kKerningPairs[first].key == key
+        ? font_atlas::kKerningPairs[first].adjustment_26_6
+        : 0;
+}
+
+uint64_t adjust_fixed_width(uint64_t width, int16_t adjustment) {
+    if (adjustment < 0) {
+        const uint64_t reduction =
+            static_cast<uint64_t>(-static_cast<int32_t>(adjustment));
+        return width > reduction ? width - reduction : 0U;
+    }
+    const uint64_t increase = static_cast<uint64_t>(adjustment);
+    return width > UINT64_MAX - increase ? UINT64_MAX : width + increase;
+}
+
+uint64_t add_fixed_advance(uint64_t width, uint16_t advance_26_6) {
+    return width > UINT64_MAX - advance_26_6
+        ? UINT64_MAX : width + advance_26_6;
+}
+
+uint32_t fixed_width_ceil_pixels(uint64_t width_26_6) {
+    if (width_26_6 > UINT64_MAX - 63U) return UINT32_MAX;
+    const uint64_t pixels = (width_26_6 + 63U) / 64U;
+    return pixels > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(pixels);
+}
+
+int64_t saturating_add_i64(int64_t left, int64_t right) {
+    if (right > 0 && left > INT64_MAX - right) return INT64_MAX;
+    if (right < 0 && left < INT64_MIN - right) return INT64_MIN;
+    return left + right;
+}
+
+int64_t fixed_coordinate_round_pixels(int64_t coordinate_26_6) {
+    if (coordinate_26_6 >= 0) {
+        if (coordinate_26_6 > INT64_MAX - 32) return INT64_MAX;
+        return (coordinate_26_6 + 32) / 64;
+    }
+    if (coordinate_26_6 < INT64_MIN + 32) return INT64_MIN;
+    return (coordinate_26_6 - 32) / 64;
 }
 
 uint8_t* draw_base() {
@@ -639,26 +699,38 @@ void draw_text_range(int32_t x, int32_t y, const char* text,
     const size_t font_style_index = weight_offset + size_index;
     const uint32_t ascent = font_atlas::kAscents[font_style_index];
     const uint32_t line_height = font_atlas::kLineHeights[font_style_index];
-    int64_t cursor_x = x;
+    int64_t cursor_x_26_6 = static_cast<int64_t>(x) * 64;
     int64_t cursor_y = y;
+    size_t previous_glyph = font_atlas::kGlyphCount;
     while ((end == nullptr || text < end) && *text != '\0') {
         const ku_text::Scalar decoded = ku_text::next_z(text);
         if (decoded.bytes == 0U || (end != nullptr &&
                                     text + decoded.bytes > end)) break;
         if (decoded.value == '\n') {
-            cursor_x = x;
+            cursor_x_26_6 = static_cast<int64_t>(x) * 64;
             cursor_y = cursor_y > INT64_MAX - line_height
                 ? INT64_MAX : cursor_y + line_height;
+            previous_glyph = font_atlas::kGlyphCount;
         } else if (decoded.value != '\r') {
             const size_t character_index = glyph_index(decoded.value);
+            if (previous_glyph < font_atlas::kGlyphCount) {
+                cursor_x_26_6 = saturating_add_i64(
+                    cursor_x_26_6,
+                    kerning_adjustment_26_6(
+                        size_index, previous_glyph, character_index, weight));
+            }
             const font_atlas::Metrics& metrics =
                 font_atlas::kMetrics[metrics_index(
                     size_index, character_index, weight)];
-            if (!transparent && metrics.advance != 0U) {
+            const int64_t glyph_x =
+                fixed_coordinate_round_pixels(cursor_x_26_6);
+            const int64_t next_x = fixed_coordinate_round_pixels(
+                saturating_add_i64(cursor_x_26_6, metrics.advance_26_6));
+            if (!transparent && next_x > glyph_x) {
                 fill_rect(
-                    saturate_i32(cursor_x),
+                    saturate_i32(glyph_x),
                     saturate_i32(cursor_y),
-                    metrics.advance,
+                    saturate_i32(next_x - glyph_x),
                     static_cast<int32_t>(line_height),
                     background);
             }
@@ -674,13 +746,14 @@ void draw_text_range(int32_t x, int32_t y, const char* text,
                     if (coverage == 0U) continue;
                     const uint32_t coverage16 = (coverage * 16U + 7U) / 15U;
                     blend_corner_pixel(
-                        saturate_i32(cursor_x + metrics.bearing_x + column),
+                        saturate_i32(glyph_x + metrics.bearing_x + column),
                         saturate_i32(baseline + metrics.bearing_y + row),
                         foreground, static_cast<uint8_t>(coverage16));
                 }
             }
-            cursor_x = cursor_x > INT64_MAX - metrics.advance
-                ? INT64_MAX : cursor_x + metrics.advance;
+            cursor_x_26_6 = saturating_add_i64(
+                cursor_x_26_6, metrics.advance_26_6);
+            previous_glyph = character_index;
         }
         text += decoded.bytes;
     }
@@ -706,24 +779,32 @@ uint32_t draw_text_ellipsized(
     if (scale == 0U) return 0U;
     const size_t size_index = font_size_index(scale);
     const char* line_end = text;
-    uint64_t full_width = 0U;
+    uint64_t full_width_26_6 = 0U;
+    size_t previous_glyph = font_atlas::kGlyphCount;
     while (*line_end != '\0') {
         const ku_text::Scalar decoded = ku_text::next_z(line_end);
         if (decoded.bytes == 0U || decoded.value == '\n') break;
         if (decoded.value != '\r') {
+            const size_t character_index = glyph_index(decoded.value);
+            if (previous_glyph < font_atlas::kGlyphCount) {
+                full_width_26_6 = adjust_fixed_width(
+                    full_width_26_6,
+                    kerning_adjustment_26_6(
+                        size_index, previous_glyph, character_index, weight));
+            }
             const font_atlas::Metrics& metrics =
                 font_atlas::kMetrics[metrics_index(
-                    size_index, glyph_index(decoded.value), weight)];
-            full_width = full_width > UINT32_MAX - metrics.advance
-                ? UINT32_MAX
-                : full_width + metrics.advance;
+                    size_index, character_index, weight)];
+            full_width_26_6 = add_fixed_advance(
+                full_width_26_6, metrics.advance_26_6);
+            previous_glyph = character_index;
         }
         line_end += decoded.bytes;
     }
-    if (full_width <= max_width) {
+    if (full_width_26_6 <= static_cast<uint64_t>(max_width) * 64U) {
         draw_text_range(x, y, text, line_end, foreground, background,
                         size_index, transparent, weight);
-        return static_cast<uint32_t>(full_width);
+        return fixed_width_ceil_pixels(full_width_26_6);
     }
 
     constexpr char kEllipsis[] = "...";
@@ -731,21 +812,38 @@ uint32_t draw_text_ellipsized(
         measure_text_width(kEllipsis, scale, weight);
     if (max_width < ellipsis_width) return 0U;
 
-    const uint32_t prefix_limit = max_width - ellipsis_width;
-    uint32_t prefix_width = 0U;
+    const uint64_t prefix_limit_26_6 =
+        static_cast<uint64_t>(max_width - ellipsis_width) * 64U;
+    uint64_t prefix_width_26_6 = 0U;
+    size_t previous_prefix_glyph = font_atlas::kGlyphCount;
     const char* prefix_end = text;
     while (prefix_end < line_end) {
         const ku_text::Scalar decoded = ku_text::next_z(prefix_end);
         if (decoded.bytes == 0U || prefix_end + decoded.bytes > line_end) break;
         if (decoded.value != '\r') {
+            const size_t character_index = glyph_index(decoded.value);
+            uint64_t next_width_26_6 = prefix_width_26_6;
+            if (previous_prefix_glyph < font_atlas::kGlyphCount) {
+                next_width_26_6 = adjust_fixed_width(
+                    next_width_26_6,
+                    kerning_adjustment_26_6(
+                        size_index, previous_prefix_glyph,
+                        character_index, weight));
+            }
             const font_atlas::Metrics& metrics =
                 font_atlas::kMetrics[metrics_index(
-                    size_index, glyph_index(decoded.value), weight)];
-            if (metrics.advance > prefix_limit - prefix_width) break;
-            prefix_width += metrics.advance;
+                    size_index, character_index, weight)];
+            if (next_width_26_6 > prefix_limit_26_6 ||
+                metrics.advance_26_6 >
+                    prefix_limit_26_6 - next_width_26_6) break;
+            prefix_width_26_6 = add_fixed_advance(
+                next_width_26_6, metrics.advance_26_6);
+            previous_prefix_glyph = character_index;
         }
         prefix_end += decoded.bytes;
     }
+    const uint32_t prefix_width =
+        fixed_width_ceil_pixels(prefix_width_26_6);
     draw_text_range(x, y, text, prefix_end, foreground, background,
                     size_index, transparent, weight);
     draw_text_range(saturate_i32(static_cast<int64_t>(x) + prefix_width), y,
@@ -771,6 +869,7 @@ uint32_t draw_text_wrapped(
     if (maximum_lines == 0U) return 0U;
 
     uint32_t line_count = 0U;
+    const uint64_t max_width_26_6 = static_cast<uint64_t>(max_width) * 64U;
     const char* cursor = text;
     int64_t cursor_y = y;
     while (*cursor != '\0' && line_count < maximum_lines) {
@@ -779,7 +878,8 @@ uint32_t draw_text_wrapped(
         const char* line_end = cursor;
         const char* break_start = nullptr;
         const char* break_after = nullptr;
-        uint32_t line_width = 0U;
+        uint64_t line_width_26_6 = 0U;
+        size_t previous_glyph = font_atlas::kGlyphCount;
         bool line_complete = false;
 
         while (*scan != '\0') {
@@ -791,22 +891,34 @@ uint32_t draw_text_wrapped(
                 line_complete = true;
                 break;
             }
-            if (decoded.value == ' ' && line_width == 0U) {
+            if (decoded.value == ' ' && line_width_26_6 == 0U) {
                 scan += decoded.bytes;
                 cursor = scan;
                 line_start = scan;
                 line_end = scan;
+                previous_glyph = font_atlas::kGlyphCount;
                 continue;
             }
 
-            uint32_t advance = 0U;
+            size_t character_index = font_atlas::kGlyphCount;
+            uint16_t advance_26_6 = 0U;
             if (decoded.value != '\r') {
+                character_index = glyph_index(decoded.value);
                 const font_atlas::Metrics& metrics =
                     font_atlas::kMetrics[metrics_index(
-                        size_index, glyph_index(decoded.value), weight)];
-                advance = metrics.advance;
+                        size_index, character_index, weight)];
+                advance_26_6 = metrics.advance_26_6;
             }
-            if (advance > max_width - line_width) {
+            uint64_t next_width_26_6 = line_width_26_6;
+            if (previous_glyph < font_atlas::kGlyphCount &&
+                character_index < font_atlas::kGlyphCount) {
+                next_width_26_6 = adjust_fixed_width(
+                    next_width_26_6,
+                    kerning_adjustment_26_6(
+                        size_index, previous_glyph, character_index, weight));
+            }
+            if (next_width_26_6 > max_width_26_6 ||
+                advance_26_6 > max_width_26_6 - next_width_26_6) {
                 if (break_start != nullptr) {
                     line_end = break_start;
                     cursor = break_after;
@@ -824,7 +936,11 @@ uint32_t draw_text_wrapped(
                 break_start = scan;
                 break_after = scan + decoded.bytes;
             }
-            line_width += advance;
+            line_width_26_6 = add_fixed_advance(
+                next_width_26_6, advance_26_6);
+            if (character_index < font_atlas::kGlyphCount) {
+                previous_glyph = character_index;
+            }
             scan += decoded.bytes;
             line_end = scan;
         }
@@ -849,26 +965,35 @@ uint32_t measure_text_width(const char* text, uint32_t scale, TextWeight weight)
     scale = effective_scale(scale);
     if (scale == 0U) return 0U;
     const size_t size_index = font_size_index(scale);
-    uint64_t cursor = 0U;
-    uint64_t maximum = 0U;
+    uint64_t cursor_26_6 = 0U;
+    uint64_t maximum_26_6 = 0U;
+    size_t previous_glyph = font_atlas::kGlyphCount;
     while (*text != '\0') {
         const ku_text::Scalar decoded = ku_text::next_z(text);
         if (decoded.bytes == 0U) break;
         if (decoded.value == '\n') {
-            if (cursor > maximum) maximum = cursor;
-            cursor = 0U;
+            if (cursor_26_6 > maximum_26_6) maximum_26_6 = cursor_26_6;
+            cursor_26_6 = 0U;
+            previous_glyph = font_atlas::kGlyphCount;
         } else if (decoded.value != '\r') {
+            const size_t character_index = glyph_index(decoded.value);
+            if (previous_glyph < font_atlas::kGlyphCount) {
+                cursor_26_6 = adjust_fixed_width(
+                    cursor_26_6,
+                    kerning_adjustment_26_6(
+                        size_index, previous_glyph, character_index, weight));
+            }
             const font_atlas::Metrics& metrics =
                 font_atlas::kMetrics[metrics_index(
-                    size_index, glyph_index(decoded.value), weight)];
-            cursor = cursor > UINT32_MAX - metrics.advance
-                ? UINT32_MAX
-                : cursor + metrics.advance;
+                    size_index, character_index, weight)];
+            cursor_26_6 = add_fixed_advance(
+                cursor_26_6, metrics.advance_26_6);
+            previous_glyph = character_index;
         }
         text += decoded.bytes;
     }
-    if (cursor > maximum) maximum = cursor;
-    return static_cast<uint32_t>(maximum);
+    if (cursor_26_6 > maximum_26_6) maximum_26_6 = cursor_26_6;
+    return fixed_width_ceil_pixels(maximum_26_6);
 }
 
 void scroll_up(uint32_t pixels, Color fill) {

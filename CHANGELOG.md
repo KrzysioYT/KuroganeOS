@@ -39,6 +39,11 @@
   including hard breaks only at complete UTF-8 code points. Full host
   regression, core UBSan and isolated Debug/Release kernel builds passed on
   the working tree based on `41490e42`; media and guest testing remain NOT RUN.
+- Added fixed-point glyph advances and generated, bounded pair kerning to the
+  native renderer; drawing, measurement, title fitting and wrapping share the
+  same metrics. The latest full host regression, core UBSan, deterministic
+  atlas generation and isolated Debug/Release kernel builds passed on the
+  working tree based on `561d0a89`; media and guest testing remain NOT RUN.
 
 ### 3.3.3-dev completion status
 
