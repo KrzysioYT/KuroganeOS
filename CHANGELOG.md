@@ -34,6 +34,10 @@
   core UBSan, isolated Debug/Release kernel builds and deterministic atlas
   regeneration passed on the unpublished working tree based on `05e67146`;
   media and guest testing remain NOT RUN.
+- Modern and Classic window titles now use bold text and UTF-8-safe ellipsis
+  within available width. Focused renderer tests and isolated Debug/Release
+  kernel builds passed on the working tree based on `094da786`; media and guest
+  testing remain NOT RUN.
 
 ### 3.3.3-dev completion status
 

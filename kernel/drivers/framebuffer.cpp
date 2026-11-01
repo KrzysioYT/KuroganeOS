@@ -629,13 +629,10 @@ void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
                      TextWeight::Normal);
 }
 
-void draw_text_styled(int32_t x, int32_t y, const char* text,
-                      Color foreground, Color background, uint32_t scale,
-                      bool transparent, TextWeight weight) {
-    if (text == nullptr) return;
-    scale = effective_scale(scale);
-    if (scale == 0U) return;
-    const size_t size_index = font_size_index(scale);
+namespace {
+void draw_text_range(int32_t x, int32_t y, const char* text,
+                     const char* end, Color foreground, Color background,
+                     size_t size_index, bool transparent, TextWeight weight) {
     const size_t weight_offset = weight == TextWeight::Bold
         ? font_atlas::kSizeCount
         : 0U;
@@ -644,9 +641,10 @@ void draw_text_styled(int32_t x, int32_t y, const char* text,
     const uint32_t line_height = font_atlas::kLineHeights[font_style_index];
     int64_t cursor_x = x;
     int64_t cursor_y = y;
-    while (*text != '\0') {
+    while ((end == nullptr || text < end) && *text != '\0') {
         const ku_text::Scalar decoded = ku_text::next_z(text);
-        if (decoded.bytes == 0U) break;
+        if (decoded.bytes == 0U || (end != nullptr &&
+                                    text + decoded.bytes > end)) break;
         if (decoded.value == '\n') {
             cursor_x = x;
             cursor_y = cursor_y > INT64_MAX - line_height
@@ -686,6 +684,74 @@ void draw_text_styled(int32_t x, int32_t y, const char* text,
         }
         text += decoded.bytes;
     }
+}
+}
+
+void draw_text_styled(int32_t x, int32_t y, const char* text,
+                      Color foreground, Color background, uint32_t scale,
+                      bool transparent, TextWeight weight) {
+    if (text == nullptr) return;
+    scale = effective_scale(scale);
+    if (scale == 0U) return;
+    draw_text_range(x, y, text, nullptr, foreground, background,
+                    font_size_index(scale), transparent, weight);
+}
+
+uint32_t draw_text_ellipsized(
+    int32_t x, int32_t y, const char* text, uint32_t max_width,
+    Color foreground, Color background, uint32_t scale, bool transparent,
+    TextWeight weight) {
+    if (text == nullptr) return 0U;
+    scale = effective_scale(scale);
+    if (scale == 0U) return 0U;
+    const size_t size_index = font_size_index(scale);
+    const char* line_end = text;
+    uint64_t full_width = 0U;
+    while (*line_end != '\0') {
+        const ku_text::Scalar decoded = ku_text::next_z(line_end);
+        if (decoded.bytes == 0U || decoded.value == '\n') break;
+        if (decoded.value != '\r') {
+            const font_atlas::Metrics& metrics =
+                font_atlas::kMetrics[metrics_index(
+                    size_index, glyph_index(decoded.value), weight)];
+            full_width = full_width > UINT32_MAX - metrics.advance
+                ? UINT32_MAX
+                : full_width + metrics.advance;
+        }
+        line_end += decoded.bytes;
+    }
+    if (full_width <= max_width) {
+        draw_text_range(x, y, text, line_end, foreground, background,
+                        size_index, transparent, weight);
+        return static_cast<uint32_t>(full_width);
+    }
+
+    constexpr char kEllipsis[] = "...";
+    const uint32_t ellipsis_width =
+        measure_text_width(kEllipsis, scale, weight);
+    if (max_width < ellipsis_width) return 0U;
+
+    const uint32_t prefix_limit = max_width - ellipsis_width;
+    uint32_t prefix_width = 0U;
+    const char* prefix_end = text;
+    while (prefix_end < line_end) {
+        const ku_text::Scalar decoded = ku_text::next_z(prefix_end);
+        if (decoded.bytes == 0U || prefix_end + decoded.bytes > line_end) break;
+        if (decoded.value != '\r') {
+            const font_atlas::Metrics& metrics =
+                font_atlas::kMetrics[metrics_index(
+                    size_index, glyph_index(decoded.value), weight)];
+            if (metrics.advance > prefix_limit - prefix_width) break;
+            prefix_width += metrics.advance;
+        }
+        prefix_end += decoded.bytes;
+    }
+    draw_text_range(x, y, text, prefix_end, foreground, background,
+                    size_index, transparent, weight);
+    draw_text_range(saturate_i32(static_cast<int64_t>(x) + prefix_width), y,
+                    kEllipsis, kEllipsis + sizeof(kEllipsis) - 1U,
+                    foreground, background, size_index, transparent, weight);
+    return prefix_width + ellipsis_width;
 }
 
 uint32_t measure_text_width(const char* text, uint32_t scale, TextWeight weight) {

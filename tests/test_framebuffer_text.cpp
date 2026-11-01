@@ -107,6 +107,43 @@ int main() {
     assert(weight_differs);
 
     graphics::clear(0U);
+    const char* title = "ZAŻÓŁĆ";
+    constexpr uint32_t title_limit = 20U;
+    const uint32_t rendered_title_width = graphics::draw_text_ellipsized(
+        4, 4, title, title_limit, UINT32_C(0x00ffffff), 0U, 1U, true,
+        graphics::TextWeight::Bold);
+    assert(graphics::measure_text_width(title, 1U, graphics::TextWeight::Bold) >
+           title_limit);
+    assert(rendered_title_width <= title_limit);
+    const uint32_t ellipsis_width = graphics::measure_text_width(
+        "...", 1U, graphics::TextWeight::Bold);
+    const char* complete_prefixes[] = {
+        "", "Z", "ZA", "ZAŻ", "ZAŻÓ", "ZAŻÓŁ", "ZAŻÓŁĆ",
+    };
+    bool ends_at_codepoint_boundary = false;
+    for (const char* prefix : complete_prefixes) {
+        if (rendered_title_width ==
+            graphics::measure_text_width(prefix, 1U, graphics::TextWeight::Bold) +
+                ellipsis_width) {
+            ends_at_codepoint_boundary = true;
+        }
+    }
+    assert(ends_at_codepoint_boundary);
+    for (uint32_t row = 0U; row < HEIGHT; ++row) {
+        for (uint32_t column = 0U; column < WIDTH; ++column) {
+            if (column >= 4U &&
+                column < 4U + rendered_title_width &&
+                row >= 4U && row < 20U) {
+                continue;
+            }
+            assert(at(column, row) == 0U);
+        }
+    }
+    assert(graphics::draw_text_ellipsized(
+        4, 4, title, 1U, UINT32_C(0x00ffffff), 0U, 1U, true,
+        graphics::TextWeight::Bold) == 0U);
+
+    graphics::clear(0U);
     graphics::set_clip(24, 10, 32, 18);
     graphics::draw_text(18, 8, "Text", UINT32_C(0x00ffffff), 0U, 1U, true);
     graphics::reset_clip();

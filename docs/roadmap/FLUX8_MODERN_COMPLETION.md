@@ -150,7 +150,10 @@ manager or 12.0 production users/groups, signed update and isolation work.
       fallback in the native software renderer.
 - [x] Antialiased regular/bold atlas at 8, 10, 12, 16, 20, 24 and 32 px;
       text scale selection supports 100/125/150/200% without changing app ABI.
-- [ ] Text fit and ellipsis preserve code-point boundaries at every scale.
+- [x] Modern and Classic window titles fit available width using ellipsis at
+      UTF-8 code-point boundaries; no title glyph is split.
+- [ ] General text fit and ellipsis preserve code-point boundaries at every
+      scale and in every native app layout.
 - [ ] Full Unicode shaping/kerning, word wrapping and ellipsis in proportional
       layout; current UI truncation helpers still use their legacy cell model.
 - [ ] Keyboard focus visibility, logical tab order, input edit/caret, mouse wheel.
@@ -175,9 +178,20 @@ manager or 12.0 production users/groups, signed update and isolation work.
   kernel builds and deterministic atlas regeneration also passed. These
   results are not GitHub Actions evidence for a published commit.
 - This does not yet provide user-selectable/persistent UI scale in Settings,
-  text shaping/kerning, general Unicode coverage, wrapping/ellipsis for native
-  proportional text, or complete visible desktop qualification. ISO/media
-  packaging and guest visual validation for this increment are NOT RUN.
+  text shaping/kerning, general Unicode coverage, paragraph wrapping/general
+  ellipsis for native proportional text, or complete visible desktop
+  qualification. ISO/media packaging and guest visual validation for this
+  increment are NOT RUN.
+
+### Native window-title fitting increment (2026-11-01)
+
+- Modern and Classic window titles now use the proportional bold font and
+  ellipsize within the available title-bar width. The renderer measures only
+  complete UTF-8 code points and does not split a multibyte character.
+- Host regression coverage verifies the pixel bound, an ellipsis at a valid
+  Polish-text boundary, and too-narrow widths. Focused renderer tests and
+  isolated Debug/Release kernel builds passed on the working tree based on
+  `094da786`; ISO and guest visual validation are NOT RUN.
 
 ## Desktop application integration (P1)
 
