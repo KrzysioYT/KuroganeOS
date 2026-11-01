@@ -85,6 +85,10 @@ uint32_t draw_text_ellipsized(
     int32_t x, int32_t y, const char* text, uint32_t max_width,
     Color foreground, Color background, uint32_t scale, bool transparent,
     TextWeight weight);
+uint32_t draw_text_wrapped(
+    int32_t x, int32_t y, const char* text, uint32_t max_width,
+    uint32_t max_height, Color foreground, Color background, uint32_t scale,
+    bool transparent, TextWeight weight);
 uint32_t measure_text_width(const char* text, uint32_t scale = 1,
                             TextWeight weight = TextWeight::Normal);
 void scroll_up(uint32_t pixels, Color fill);

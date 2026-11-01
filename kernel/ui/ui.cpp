@@ -834,9 +834,13 @@ void pulse_item(const Rect& bounds, const char* title, bool focused, bool minimi
 
 void label(const Rect& bounds, const char* text,
            graphics::Color color, uint32_t scale) {
-    graphics::draw_text(bounds.x, bounds.y, text,
-                        color == 0 ? kTheme.text : color,
-                        kTheme.panel, scale, true);
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    (void)graphics::draw_text_wrapped(
+        bounds.x, bounds.y, text,
+        static_cast<uint32_t>(bounds.width),
+        static_cast<uint32_t>(bounds.height),
+        color == 0 ? kTheme.text : color, kTheme.panel,
+        scale, true, graphics::TextWeight::Normal);
 }
 
 void button(

@@ -754,6 +754,96 @@ uint32_t draw_text_ellipsized(
     return prefix_width + ellipsis_width;
 }
 
+uint32_t draw_text_wrapped(
+    int32_t x, int32_t y, const char* text, uint32_t max_width,
+    uint32_t max_height, Color foreground, Color background, uint32_t scale,
+    bool transparent, TextWeight weight) {
+    if (text == nullptr || max_width == 0U || max_height == 0U) return 0U;
+    scale = effective_scale(scale);
+    if (scale == 0U) return 0U;
+    const size_t size_index = font_size_index(scale);
+    const size_t style_index =
+        (weight == TextWeight::Bold ? font_atlas::kSizeCount : 0U) +
+        size_index;
+    const uint32_t line_height = font_atlas::kLineHeights[style_index];
+    if (line_height == 0U) return 0U;
+    const uint32_t maximum_lines = max_height / line_height;
+    if (maximum_lines == 0U) return 0U;
+
+    uint32_t line_count = 0U;
+    const char* cursor = text;
+    int64_t cursor_y = y;
+    while (*cursor != '\0' && line_count < maximum_lines) {
+        const char* line_start = cursor;
+        const char* scan = cursor;
+        const char* line_end = cursor;
+        const char* break_start = nullptr;
+        const char* break_after = nullptr;
+        uint32_t line_width = 0U;
+        bool line_complete = false;
+
+        while (*scan != '\0') {
+            const ku_text::Scalar decoded = ku_text::next_z(scan);
+            if (decoded.bytes == 0U) break;
+            if (decoded.value == '\n') {
+                line_end = scan;
+                cursor = scan + decoded.bytes;
+                line_complete = true;
+                break;
+            }
+            if (decoded.value == ' ' && line_width == 0U) {
+                scan += decoded.bytes;
+                cursor = scan;
+                line_start = scan;
+                line_end = scan;
+                continue;
+            }
+
+            uint32_t advance = 0U;
+            if (decoded.value != '\r') {
+                const font_atlas::Metrics& metrics =
+                    font_atlas::kMetrics[metrics_index(
+                        size_index, glyph_index(decoded.value), weight)];
+                advance = metrics.advance;
+            }
+            if (advance > max_width - line_width) {
+                if (break_start != nullptr) {
+                    line_end = break_start;
+                    cursor = break_after;
+                    while (*cursor == ' ') ++cursor;
+                } else if (line_end > line_start) {
+                    cursor = line_end;
+                } else {
+                    cursor = scan + decoded.bytes;
+                }
+                line_complete = true;
+                break;
+            }
+
+            if (decoded.value == ' ') {
+                break_start = scan;
+                break_after = scan + decoded.bytes;
+            }
+            line_width += advance;
+            scan += decoded.bytes;
+            line_end = scan;
+        }
+
+        if (!line_complete) {
+            cursor = scan;
+            line_end = scan;
+        }
+        draw_text_range(
+            x, saturate_i32(cursor_y), line_start, line_end,
+            foreground, background, size_index, transparent, weight);
+        ++line_count;
+        cursor_y = cursor_y > INT64_MAX - line_height
+            ? INT64_MAX
+            : cursor_y + line_height;
+    }
+    return line_count;
+}
+
 uint32_t measure_text_width(const char* text, uint32_t scale, TextWeight weight) {
     if (text == nullptr) return 0U;
     scale = effective_scale(scale);

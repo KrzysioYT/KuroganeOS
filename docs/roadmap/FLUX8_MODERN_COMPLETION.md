@@ -152,6 +152,8 @@ manager or 12.0 production users/groups, signed update and isolation work.
       text scale selection supports 100/125/150/200% without changing app ABI.
 - [x] Modern and Classic window titles fit available width using ellipsis at
       UTF-8 code-point boundaries; no title glyph is split.
+- [x] Native scene labels word-wrap to their supplied width and height,
+      falling back to code-point-safe breaks for long words.
 - [ ] General text fit and ellipsis preserve code-point boundaries at every
       scale and in every native app layout.
 - [ ] Full Unicode shaping/kerning, word wrapping and ellipsis in proportional
@@ -188,10 +190,13 @@ manager or 12.0 production users/groups, signed update and isolation work.
 - Modern and Classic window titles now use the proportional bold font and
   ellipsize within the available title-bar width. The renderer measures only
   complete UTF-8 code points and does not split a multibyte character.
+- Native scene labels now wrap at spaces, hard-wrap long words only between
+  decoded UTF-8 code points, and stop at the allocated line height.
 - Host regression coverage verifies the pixel bound, an ellipsis at a valid
-  Polish-text boundary, and too-narrow widths. Focused renderer tests and
-  isolated Debug/Release kernel builds passed on the working tree based on
-  `094da786`; ISO and guest visual validation are NOT RUN.
+  Polish-text boundary, too-narrow widths, word wrapping and bounded lines.
+  Full host regression, core UBSan and isolated Debug/Release kernel builds
+  passed on the working tree based on `41490e42`; ISO and guest visual
+  validation are NOT RUN.
 
 ## Desktop application integration (P1)
 

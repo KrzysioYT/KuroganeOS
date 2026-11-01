@@ -144,6 +144,25 @@ int main() {
         graphics::TextWeight::Bold) == 0U);
 
     graphics::clear(0U);
+    const uint32_t wrapped_lines = graphics::draw_text_wrapped(
+        4, 4, "alpha beta gamma delta", 35U, 40U,
+        UINT32_C(0x00ffffff), 0U, 1U, true, graphics::TextWeight::Normal);
+    assert(wrapped_lines >= 3U);
+    for (uint32_t row = 0U; row < HEIGHT; ++row) {
+        for (uint32_t column = 0U; column < WIDTH; ++column) {
+            if (column >= 4U && column < 39U &&
+                row >= 4U && row < 44U) {
+                continue;
+            }
+            assert(at(column, row) == 0U);
+        }
+    }
+    graphics::clear(0U);
+    assert(graphics::draw_text_wrapped(
+        4, 4, "alpha beta gamma delta", 35U, 10U,
+        UINT32_C(0x00ffffff), 0U, 1U, true, graphics::TextWeight::Normal) == 1U);
+
+    graphics::clear(0U);
     graphics::set_clip(24, 10, 32, 18);
     graphics::draw_text(18, 8, "Text", UINT32_C(0x00ffffff), 0U, 1U, true);
     graphics::reset_clip();
