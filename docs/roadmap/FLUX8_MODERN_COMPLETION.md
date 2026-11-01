@@ -253,7 +253,10 @@ block promotion. Windows support, PS/2 fallback, and Classic are retained.
       software bitmap text; unsupported glyphs render '?' as one cell.
 - [ ] Replace transitional 5x7 raster with licensed, scalable anti-aliased
       fonts, shaped text, full Unicode and proportional layout.
-- [ ] Host/QEMU exact SHA green gates and VirtualBox first-frame acceptance.
+- [x] Scoped exact-SHA host/UBSan, kernel Debug/Release and QEMU/OVMF checks
+      passed at `ac0d1220046d`; see the evidence table above.
+- [ ] Full 8.0 acceptance and interactive VirtualBox first-frame test remain
+      open; VirtualBox is BLOCKED on the current host.
 
 ## Application registry refactor — 2026-10-24
 
@@ -508,6 +511,7 @@ and QMP markers from the lifecycle gate, plus arrow/Page navigation and the
 profile reset behavior. The saved-theme serial value is emitted only after a
 verified successful SET/GET and live theme application.
 
-The combined source passed `make test` and `make kernel` on Linux x86. Media
-packaging is currently **BLOCKED** by unavailable `sgdisk`; combined-QEMU,
+At the 2026-10-27 checkpoint, the combined source passed `make test` and
+`make kernel` on Linux x86, while media packaging was **BLOCKED** by unavailable
+`sgdisk`. The later exact-SHA checkpoint above built and booted release media.
 VirtualBox, font and HiDPI gates remain open. The runtime stays `7.0.0-dev`.

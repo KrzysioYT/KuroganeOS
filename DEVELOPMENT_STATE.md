@@ -36,6 +36,11 @@ aplikacji, sprzętu fizycznego ani pełnej macierzy 8.0 nie oznacza jako PASS.
 Oryginalny problem starej instalacji `flux_account_lookup` nie wystąpił w
 świeżym obrazie w tym profilu; starego obrazu nie uruchamiano ponownie.
 
+Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
+ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał
+licencjonowanego, skalowalnego fontu ani kompletnego rasteryzatora; jej API i
+zmiany UTF-8 nie zastępują otwartej pracy nad typografią 8.0.
+
 Ochrona `main` została włączona: wymagany Pull Request, jedna akceptacja,
 aktualne wymagane kontrole `iso-qualification`, `reliable-file` i CLA, brak
 force-push i usuwania gałęzi; reguły dotyczą również administratorów.
