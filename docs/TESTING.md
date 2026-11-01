@@ -11,11 +11,13 @@ host/UBSan and USB-only QEMU gate. It verifies authenticated Home and real
 Files/Terminal child processes plus presented surfaces. Windows/Linux userspace
 inventory parity and PowerShell parsing are separate build checks.
 
-Run `bash scripts/run-host-tests.sh` for host regression. A skipped test must be
-reported, never silently counted as PASS. VirtualBox interactive acceptance
-is required separately; see [VIRTUALBOX.md](VIRTUALBOX.md). Record source SHA,
-media SHA256, VM/device profile, log and runner result. A documentation-only
-change does not requalify changed runtime code.
+Run `bash scripts/run-host-tests.sh` for optimized host regression. A skipped
+test must be reported, never silently counted as PASS. VirtualBox qualification
+is required separately; see [VIRTUALBOX.md](VIRTUALBOX.md). Scripted
+VirtualBox boot/install evidence does not replace the required visible
+mouse/keyboard acceptance. Record source SHA, media SHA256, VM/device profile,
+log and runner result. A documentation-only change does not requalify changed
+runtime code.
 
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
@@ -29,19 +31,25 @@ Source: `ac0d1220046d35b194e2a6a38de8135258232522`; runtime identity:
 | --- | --- |
 | `bash scripts/run-host-tests.sh` | PASS |
 | `HOST_TEST_DIR=build/tests/flux8-ubsan-exact bash scripts/test-core-ubsan.sh` | PASS — 11 groups |
+| Full host suite with `-O0 -g3` compiler wrappers | PASS — Debug profile on test commit `7c2171a1` |
+| Full host suite (`-O2`) | PASS — Release profile on test commit `7c2171a1` |
+| Core UBSan suite | PASS — 11 groups on test commit `7c2171a1` |
 | Debug and Release kernel builds | PASS |
 | QEMU/OVMF setup-media Try, no disk, USB keyboard/tablet | PASS |
 | QEMU/OVMF blank-disk cancellation hash and installation | PASS |
 | Installed disk-only boots, account profile, Home and theme persistence | PASS — two boots; theme value 2 restored |
 | QEMU USB window lifecycle | PASS — real Terminal/Files PIDs, focus, minimize/restore, maximize, move, resize, close/relaunch |
 | GitHub Actions run [41324279554](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41324279554) | PASS — host/ABI/SDK, Linux IMG/ISO, FAT32/VFS, ISO structure x20, OVMF and E1000/PCnet/VirtIO NAT |
-| VirtualBox interactive acceptance | BLOCKED — unavailable; QEMU is not a substitute |
+| GitHub Actions run [41331938452](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41331938452) | PASS — test/harness commit `7c2171a1`; host/ABI/SDK, full regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three NAT profiles |
+| VirtualBox 7.2.20 Try → Login → Desktop (`smoke-virtualbox-try.ps1`) | PASS — headless scripted PS/2 input |
+| VirtualBox EFI/AHCI install and disk-only boot (`smoke-virtualbox-iso.ps1`) | PASS — fresh temporary VDI, FAT32 root, PID 1 and PCnet NAT/DHCP/gateway/DNS |
+| Manual visible VirtualBox mouse/keyboard interaction | UNVERIFIED — still required; headless scripted checks are not a substitute |
 
 ISO SHA-256: `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
 The installed profile had no password. This does not qualify password
 authentication, an old installed image, physical hardware, crash recovery or
-the complete 8.0 matrix. Logs, screenshots and the installed scratch disk are
-retained in the exact-SHA qualification worktree.
+the complete 8.0 matrix. The VirtualBox smoke scripts remove their temporary
+VMs/disks and logs after completion; their command output recorded PASS.
 
 The release image and runtime checks ran in a fresh exact-SHA scratch worktree;
 do not run the builder over existing `dist` or `kurogane.iso` media.
@@ -62,9 +70,10 @@ bash scripts/smoke-uefi-iso-qemu.sh \
   --require-marker '[SESSION] flux_home_first_frame: PASS'
 ```
 
-All three commands completed with PASS at the source SHA above. The host suite
-uses optimized host tests; separate Debug/Release host-test profiles remain
-UNVERIFIED (the kernel itself built in both configurations).
+All three commands completed with PASS at the source SHA above. The additional
+Debug host suite used `-O0 -g3` compiler wrappers; the Release suite used the
+runner's `-O2` defaults. Both passed on test commit
+`7c2171a1ca5e985334276a955e3ceaf879748d92`.
 
 ## Hosted tests
 

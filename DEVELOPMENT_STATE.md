@@ -16,20 +16,25 @@ są odrębnymi informacjami.
 
 ## Kwalifikacja kandydata integracyjnego — 2026-11-01
 
-Źródłowy commit kwalifikacji: `ac0d1220046d35b194e2a6a38de8135258232522`.
-Gałąź została opublikowana, a Draft PR #58 pozostaje otwarty. Wersja runtime
-to nadal `7.0.0-dev`; nie promowano jej do 8.0.
+Commit runtime: `ac0d1220046d35b194e2a6a38de8135258232522`. Uzupełniające
+testy hostowe i poprawki harnessów wykonano na `7c2171a1ca5e985334276a955e3ceaf879748d92`;
+nie zmieniają one payloadu systemu. Gałąź została opublikowana, a Draft PR #58
+pozostaje otwarty. Wersja runtime to nadal `7.0.0-dev`; nie promowano jej do 8.0.
 
 | Kontrola | Wynik dla SHA `ac0d1220046d` |
 | --- | --- |
-| `bash scripts/run-host-tests.sh` | PASS |
-| `HOST_TEST_DIR=build/tests/flux8-ubsan-exact bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
+| Host regression Release, `HOST_TEST_DIR=build/tests/acceptance-host-release bash scripts/run-host-tests.sh` | PASS — `-O2`, commit testów `7c2171a1` |
+| Host regression Debug, pełny `scripts/run-host-tests.sh` | PASS — `-O0 -g3`, commit testów `7c2171a1` |
+| `HOST_TEST_DIR=build/tests/acceptance-ubsan-final bash scripts/test-core-ubsan.sh` | PASS — 11 grup, commit testów `7c2171a1` |
 | Build kernela Debug i Release | PASS |
 | QEMU/OVMF: Try bez dysku USB, anulowanie instalacji, świeży install i dwa bootowania dysku | PASS |
 | QEMU/OVMF: Login profilu bez hasła, Home, Files/Terminal jako procesy, cykl okien i zapis/odczyt motywu po restarcie | PASS |
 | ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6` |
 | GitHub Actions run `41324279554` | PASS — host, IMG/ISO, FAT32/VFS, 20 walidacji ISO, OVMF, E1000/PCnet/VirtIO |
-| Interaktywna kwalifikacja VirtualBox | BLOCKED — VirtualBox nie jest dostępny |
+| GitHub Actions run [41331938452](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41331938452) | PASS — test/harness commit `7c2171a1`; host/ABI/SDK, regresja, IMG/ISO, FAT32/VFS, ISO x20, OVMF, E1000/PCnet/VirtIO |
+| VirtualBox 7.2.20: Try → Login → Desktop oraz supervised userspace | PASS — automatyczny test, dokładne ISO poniżej |
+| VirtualBox 7.2.20: instalacja EFI/AHCI, boot z dysku, FAT32, init, DHCP/DNS/gateway | PASS — świeży tymczasowy VDI, dokładne ISO poniżej |
+| Ręczny test obrazu oraz myszy/klawiatury w oknie VirtualBox | UNVERIFIED — test automatyczny używał headless i skan-kodów PS/2 |
 
 Test dotyczy domyślnego profilu bez hasła; logowania hasłem, awarii/recovery
 aplikacji, sprzętu fizycznego ani pełnej macierzy 8.0 nie oznacza jako PASS.
@@ -81,10 +86,11 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
   schedulera Ring-3 z kompilacji bez osi x86_64, zapobiegając błędowi
   `-Werror` podczas testu `test_process` i utrzymując poprawny model hostowy.
 
-1. VirtualBox interactive acceptance is BLOCKED on this host. The historical
-   `flux_account_lookup: FAIL` was not reproduced in the fresh no-password
-   QEMU install profile; the old installed image and password-login path remain
-   unverified.
+1. Ręczna, widoczna kwalifikacja myszy/klawiatury w VirtualBox pozostaje
+   UNVERIFIED. Dostępny VirtualBox 7.2.20 przeszedł automatyczne testy Try,
+   instalacji i bootu dyskowego. Historyczny `flux_account_lookup: FAIL` nie
+   wystąpił w świeżym profilu bez hasła; stary obraz i logowanie hasłem
+   pozostają niezweryfikowane.
 2. Full Flux acceptance remains open: every app and file workflow, clipboard,
    crash/recovery, complete accessibility and the full settings matrix.
 3. Licensed scalable typography, HiDPI and live display-mode changes, drag/drop

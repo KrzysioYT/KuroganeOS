@@ -9,22 +9,29 @@ System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
 Runtime commit `ac0d1220046d35b194e2a6a38de8135258232522` is a tested
 integration checkpoint, not a release candidate or 8.0 closeout.
+Host regression/harness follow-up: `7c2171a1ca5e985334276a955e3ceaf879748d92`
+(test and runner changes only; system payload/ISO unchanged).
 
 | Evidence | Result |
 | --- | --- |
 | Host regression and core UBSan (11 groups) | PASS |
+| Host regression Release (`-O2`) and Debug (`-O0 -g3`) | PASS on test commit `7c2171a1` |
 | Kernel Debug and Release builds | PASS |
 | QEMU/OVMF Try, install cancellation, fresh install and two installed boots | PASS |
 | Default account/Home, real Files/Terminal processes, USB window lifecycle and theme reboot persistence | PASS |
 | GitHub Actions run `41324279554` | PASS — host, image/FAT32/VFS, ISO x20, OVMF and three NAT NIC profiles |
-| Interactive VirtualBox | BLOCKED — unavailable on this host |
+| GitHub Actions run [41331938452](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41331938452) | PASS — test/harness commit `7c2171a1`; host/ABI/SDK, full regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three NAT profiles |
+| VirtualBox 7.2.20 Try/Login/Desktop, automated PS/2 input | PASS — headless scripted test |
+| VirtualBox EFI/AHCI install, disk boot, FAT32, init and PCnet NAT/DHCP/DNS | PASS — fresh temporary VDI |
+| Visible/manual VirtualBox mouse and keyboard | UNVERIFIED — required for acceptance |
 
 The generated ISO is `KuroganeOS-7.0.0-dev-x86_64.iso` with SHA-256
 `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
-QEMU used a fresh scratch disk and the default account without a password.
-Password authentication, VirtualBox, physical devices, the old installed-image
-incident, complete app/error recovery, HiDPI, licensed scalable typography and
-the complete 8.0 acceptance matrix remain open.
+QEMU and VirtualBox used fresh scratch disks and the default account without a
+password. Password authentication, manual VirtualBox mouse/keyboard use,
+physical devices, the old installed-image incident, complete app/error
+recovery, HiDPI, licensed scalable typography and the complete 8.0 acceptance
+matrix remain open.
 
 ## Updated direction — feature-led Flux 8 (2026-10-27)
 

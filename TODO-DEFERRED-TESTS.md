@@ -7,7 +7,11 @@ Per the Road to 15 development policy adopted on 2026-08-30, implementation proc
 Source commit `ac0d1220046d35b194e2a6a38de8135258232522`; runtime
 `7.0.0-dev`.
 
-- PASS: optimized full host regression and all 11 core UBSan groups.
+The test-runner-only follow-up is `7c2171a1ca5e985334276a955e3ceaf879748d92`;
+the installed system payload and ISO are unchanged.
+
+- PASS: full host regression in Release (`-O2`) and Debug (`-O0 -g3`), plus
+  all 11 core UBSan groups, on the follow-up test commit.
 - PASS: Debug and Release kernel builds.
 - PASS: QEMU/OVMF Try without a target disk, install cancellation without
   changing the blank target, installation, two installed boots, default
@@ -15,10 +19,14 @@ Source commit `ac0d1220046d35b194e2a6a38de8135258232522`; runtime
   restoration after reboot.
 - PASS: GitHub Actions run `41324279554` (host, IMG/ISO, FAT32/VFS, ISO x20,
   OVMF, E1000/PCnet/VirtIO NAT).
-- BLOCKED: interactive VirtualBox acceptance; this host has no `VBoxManage`.
-- UNVERIFIED: host regression in separate Debug and Release test configurations,
-  password authentication, old installed-image recovery, physical hardware,
-  complete crash/recovery and the full Flux 8 acceptance matrix.
+- PASS: GitHub Actions run `41331938452` on test/harness commit `7c2171a1`
+  (host/ABI/SDK, full regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three
+  NAT profiles).
+- PASS: VirtualBox 7.2.20 automated Try/Login/Desktop and EFI/AHCI installation,
+  installed-disk boot, FAT32, init, PCnet NAT/DHCP/gateway/DNS on the exact ISO.
+- UNVERIFIED: manual visible VirtualBox mouse/keyboard interaction, password
+  authentication, old installed-image recovery, physical hardware, complete
+  crash/recovery and the full Flux 8 acceptance matrix.
 - ISO SHA-256: `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
 
 ## 3.5 Connected Userspace
@@ -71,9 +79,10 @@ run with echo, close, refused, timeout and reset endpoint services.
 - Full Flux app, clipboard, accessibility, HiDPI, settings, crash and recovery
   matrix; the exact-SHA QEMU evidence above is scoped to the listed scenarios.
 - The 3.3.3-dev notes that treated VirtualBox as optional are historical and do
-  not apply to Flux 8.0. Flux 8 requires interactive acceptance in x86-64
-  VirtualBox on a compatible host; QEMU is not a substitute. Missing VirtualBox
-  is BLOCKED, not PASS or an optional gate.
+  not apply to Flux 8.0. Flux 8 requires visible mouse/keyboard acceptance in
+  x86-64 VirtualBox on a compatible host; QEMU and headless scripted VBox runs
+  are not substitutes. Missing VirtualBox is BLOCKED; the present manual test
+  is UNVERIFIED.
 
 ## Final pre-15.0 qualification pass
 - Execute every deferred item above together with milestone-specific tests accumulated here.
