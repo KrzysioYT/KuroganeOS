@@ -383,7 +383,7 @@ timeout 10 "$OUT_DIR/test_xhci_cleanup"
 for test in test_pci_word_write test_virtio_net_cleanup; do
   source_files=("tests/$test.cpp")
   if [[ "$test" == test_virtio_net_cleanup ]]; then
-    source_files+=(kernel/drivers/virtio/pci_transport.cpp)
+    source_files+=(kernel/drivers/virtio/pci_transport.cpp kernel/net/network.cpp)
   fi
   "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
     -ffunction-sections -fdata-sections "${source_files[@]}" \
