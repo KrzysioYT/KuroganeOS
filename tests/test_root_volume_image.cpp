@@ -9,9 +9,83 @@
 
 namespace {
 
+constexpr const char* kRequiredRuntimePaths[] = {
+    "/apps/hello",
+    "/apps/bad",
+    "/apps/spin",
+    "/apps/probe",
+    "/apps/shell",
+    "/apps/files",
+    "/apps/monitor",
+    "/apps/about",
+    "/apps/external",
+    "/system/init",
+    "/system/devprobe",
+    "/system/stprobe",
+    "/system/eventd",
+    "/system/evprobe",
+    "/system/setd",
+    "/system/setprobe",
+    "/system/notifd",
+    "/system/ntfprobe",
+    "/system/accountd",
+    "/system/acctprb",
+    "/system/sessiond",
+    "/system/sesprobe",
+    "/system/setchprb",
+    "/system/clipd",
+    "/system/netevtd",
+    "/system/dnsd",
+    "/system/appregd",
+    "/system/audiod",
+    "/system/clipprb",
+    "/system/kfsprb",
+    "/system/sockprb",
+    "/system/sockwake",
+    "/system/sockexit",
+    "/system/tcpexit",
+    "/gui/login",
+    "/gui/launcher",
+    "/gui/terminal",
+    "/gui/files",
+    "/gui/sysmon",
+    "/gui/perf",
+    "/gui/browser",
+    "/gui/about",
+    "/gui/settings",
+    "/gui/notify",
+};
+
 struct FileDisk {
     std::FILE* file;
 };
+
+bool is_x86_64_elf(const char* path) {
+    fs::vfs::FileStat info{};
+    if (fs::root_volume::stat(path, &info) != fs::vfs::Status::Ok ||
+        info.type != fs::vfs::NodeType::Regular || info.size < 64U) {
+        return false;
+    }
+
+    fs::vfs::OpenFileHandle handle{};
+    if (fs::root_volume::open(path, fs::vfs::OpenFlags::Read, &handle) !=
+        fs::vfs::Status::Ok) {
+        return false;
+    }
+    uint8_t header[64]{};
+    size_t bytes_read = 0U;
+    const fs::vfs::Status read_status =
+        fs::root_volume::read(handle, header, sizeof(header), &bytes_read);
+    const fs::vfs::Status close_status = fs::root_volume::close(handle);
+    return read_status == fs::vfs::Status::Ok &&
+        close_status == fs::vfs::Status::Ok &&
+        bytes_read == sizeof(header) &&
+        header[0] == 0x7FU && header[1] == 'E' &&
+        header[2] == 'L' && header[3] == 'F' &&
+        header[4] == 2U && header[5] == 1U &&
+        header[16] == 2U && header[17] == 0U &&
+        header[18] == 62U && header[19] == 0U;
+}
 
 storage::block::Status read_blocks(
     void* context,
@@ -158,7 +232,18 @@ int main(int argc, char** argv) {
         std::fclose(file);
         return 1;
     }
-    std::cout << "Foundation root PartitionDevice/FAT32/VFS read: PASS\n";
+    for (const char* path : kRequiredRuntimePaths) {
+        if (!is_x86_64_elf(path)) {
+            std::cerr << "required rootfs ELF is missing or invalid: "
+                      << path << '\n';
+            std::fclose(file);
+            return 1;
+        }
+    }
+    std::cout << "Foundation root FAT32/VFS runtime payload ("
+              << (sizeof(kRequiredRuntimePaths) /
+                  sizeof(kRequiredRuntimePaths[0]))
+              << " ELF64 programs): PASS\n";
     std::fclose(file);
     return 0;
 }

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Flux 8 integration checkpoint — not a release
+
+- Integrated the required #55 → #56 → #57 history on a clean `origin/main`
+  based branch, retaining the existing PRs and their bases.
+- Expanded native Files, Launcher, Terminal and Settings workflows, and added
+  installer package-VFS validation plus QMP lifecycle/install qualification
+  harnesses.
+- Repaired the shared host-test runner syntax regression that caused the
+  nineteen reported #55 check failures; no checks were disabled.
+- This checkpoint remains `7.0.0-dev`; exact-SHA guest qualification and the
+  remaining Flux 8 acceptance gates are still required.
+
 ### 3.3.3-dev completion status
 
 - Changed the 3.3.3-dev completion state to **OPEN / NOT COMPLETE**.

@@ -1,0 +1,757 @@
+{
+  "repository": "KrzysioYT/KuroganeOS",
+  "before": 63,
+  "after": 24,
+  "deleted": [
+    {
+      "name": "chatgpt/3.4-event-broker-sleep",
+      "protected": false,
+      "sha": "5cc4bd7a5d0363cb4d9657c8e7705cb36881c531",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/3.4-syscall-frame-scheduling",
+      "protected": false,
+      "sha": "a76226076cc99f2769030bb84550462dd31020e2",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/3.4-syscall-scheduler-integration",
+      "protected": false,
+      "sha": "a2e4eef378a64917298048e0042e7b5b870db90a",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-acpi-table-lookup",
+      "protected": false,
+      "sha": "c6c5f7cdfdd079f827006dd9fab431855b42b137",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-audit-fixes",
+      "protected": false,
+      "sha": "e6ca26e75798736e837ea606533d8754d34e9912",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-clean-stale-media-on-rebuild",
+      "protected": false,
+      "sha": "5e165312ba6401edef1ed69327818555cc75720f",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-closeout",
+      "protected": false,
+      "sha": "90d5ffc80f91236e10118324c8e3b5d6f4a1c781",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-fix-smp-trampoline-linkage",
+      "protected": false,
+      "sha": "280db9126d960fab12fcad96421954c69461e1a1",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-hda-pcm-runtime",
+      "protected": false,
+      "sha": "edd30c120f75194ea0b00f9ce0930a1b432fd419",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-hda-protocol",
+      "protected": false,
+      "sha": "59eab36fe67fe2ada8e820a38a5225da2df4fb2f",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-hpet-runtime",
+      "protected": false,
+      "sha": "1d4a1d6e2f4f36f9a9c9f3e853d207f161a384c4",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-hpet-table",
+      "protected": false,
+      "sha": "dbca0a4ea79ac1c37f6ee19e5d2e81300e5aca8d",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-nvme-admin-runtime-rebased",
+      "protected": false,
+      "sha": "1a34298e662570ec99bf71e731592257db5ac187",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-nvme-block-runtime",
+      "protected": false,
+      "sha": "c96f0daad717458297e1a804d3c8b8eb84a9541d",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-nvme-io-protocol",
+      "protected": false,
+      "sha": "e06f4bbe556acf3f45f94c9e081d1c7d5cdcd80f",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-nvme-protocol",
+      "protected": false,
+      "sha": "c6637280ab5566290986ab4d10b45b8c1c0df132",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-qualified",
+      "protected": false,
+      "sha": "d1357a1a29641220313a0631afd486596a914d74",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-smp-runtime",
+      "protected": false,
+      "sha": "8e69b4c7bf60767a6df87355bdbce19b3fadc0aa",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-storage-registry",
+      "protected": false,
+      "sha": "f38022362f31a9a078d091fb054a490ad099b829",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-mass-storage-protocol",
+      "protected": false,
+      "sha": "455e89abe66723d7141b00ed1f982738cad3b31f",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-mouse-evidence",
+      "protected": false,
+      "sha": "1c8603c15761eb93d3249c046d5e305b192266b6",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-mouse-runtime",
+      "protected": false,
+      "sha": "a2b97c5cf7779a664ae6eee6cdccfbe78c71186f",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-qualifier-hotfix",
+      "protected": false,
+      "sha": "1b3b5dd66811747beea9c2c4846288d871caede3",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-readonly-block",
+      "protected": false,
+      "sha": "130a45ac96f65ebe845ef16797213824b4dd2a03",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-storage-enumeration",
+      "protected": false,
+      "sha": "dc8fbaaed40534cb7346d4e3959f7472057881a1",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-storage-geometry",
+      "protected": false,
+      "sha": "29dfb0a5e6a62f84da0f97b14200465aa5aca4c7",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-usb-write-sync",
+      "protected": false,
+      "sha": "29bfef1f1a4f80ff062e2cc2250d33ef951744fc",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-virtualbox-ps2-input-fix",
+      "protected": false,
+      "sha": "938084981b0a2fa4374854a4e1a910e8fe981b56",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-xhci-bulk-completion",
+      "protected": false,
+      "sha": "239002d23c45fb99968ab776a82cf35e398bdfef",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-xhci-bulk-context",
+      "protected": false,
+      "sha": "81558180218b649eeec008fe44a91da0793c9653",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-xhci-bulk-foundation",
+      "protected": false,
+      "sha": "2d550f19e43dbe591daaee25135f8abfc661168e",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "chatgpt/5.0-xhci-bulk-runtime",
+      "protected": false,
+      "sha": "cd55574b3bb246941f20298194aae44582549873",
+      "contained_in": [
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "ci/5.0-final-recheck",
+      "protected": false,
+      "sha": "90d5ffc80f91236e10118324c8e3b5d6f4a1c781",
+      "contained_in": [
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "dev/3.3.7-tls-foundation",
+      "protected": false,
+      "sha": "b71b454587eb84b1279fce33159765dd1c117278",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "dev/3.3.9-red-flux-closeout",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "dev/3.3.8-userspace-io",
+      "protected": false,
+      "sha": "b9e050167c0f4d4aff6d2bde0167db4975d66b22",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "dev/3.3.9-red-flux-closeout",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "dev/3.4.0-service-architecture",
+      "protected": false,
+      "sha": "1558c4f23a5ce18615eb18ada60442a6b3e0038a",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "dev/3.4.1-event-broker",
+      "protected": false,
+      "sha": "739bb43f347108955e7a7b527083499a836cf1ff",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "dev/3.4.2-settings-service",
+      "protected": false,
+      "sha": "10852fdb6b04abcf25382a0eac1896c226b59515",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    },
+    {
+      "name": "tmp/invalid",
+      "protected": false,
+      "sha": "25c0eab257916d6900d5f20fdbcc700d931e85e7",
+      "contained_in": [
+        "chatgpt/5.0-generic-hid-endpoint",
+        "chatgpt/5.0-hda-runtime",
+        "chatgpt/5.0-nvme-admin-runtime",
+        "chatgpt/5.0-unify-hid-boot-parser",
+        "chatgpt/5.0-usb-mouse-protocol",
+        "chatgpt/5.0-usb-mouse-protocol-evidence",
+        "chatgpt/5.1-hardware-portability-foundation",
+        "chatgpt/5.2-absolute-pointer-foundation",
+        "chatgpt/6.0-core-steel",
+        "chatgpt/6.0-core-steel-foundation",
+        "chatgpt/7.0-driver-device-expansion",
+        "chatgpt/7.0-iron-shield",
+        "codex/flux8-roadmap-20261027",
+        "codex/road-to-15-stability",
+        "gpt/road-to-15-consolidation",
+        "main"
+      ]
+    }
+  ]
+}

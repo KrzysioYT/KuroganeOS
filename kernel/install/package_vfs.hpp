@@ -7,6 +7,7 @@ namespace install::package_vfs {
 
 struct Adapter {
     package::View package;
+    package::File files[package::MAXIMUM_FILES]{};
 };
 
 fs::vfs::Status initialize(

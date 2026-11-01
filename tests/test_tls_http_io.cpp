@@ -3,6 +3,8 @@
 #include <string>
 #include "../kernel/net/tls/client.cpp"
 
+// Both runners link tests/host_log_stub.cpp through test-tls-http.sh.
+
 namespace fixture {
 const char* payload = nullptr;
 size_t offset = 0;
@@ -21,7 +23,8 @@ extern "C" int mbedtls_ssl_read(mbedtls_ssl_context*, unsigned char* output, siz
     fixture::offset += count;
     return static_cast<int>(count);
 }
-int main() {    using namespace net::tls;
+int main() {
+    using namespace net::tls;
     uint8_t request[768];
     std::memset(request, 0xA5, sizeof(request));
     size_t length = 99;

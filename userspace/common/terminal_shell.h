@@ -2,6 +2,7 @@
 #define KUROGANE_TERMINAL_SHELL_H
 
 #include "shell_core.h"
+#include "shell_path_completion.h"
 
 /*
  * Stable, desktop-neutral frontend API for KuroganeOS terminal applications.

@@ -51,7 +51,10 @@ run with echo, close, refused, timeout and reset endpoint services.
 - QEMU/OVMF runtime smoke and integration qualification.
 - Filesystem/network/service regression sweeps.
 - Fatal diagnostic regression sweep.
-- VirtualBox remains an optional external target and is not a release gate.
+- The 3.3.3-dev notes that treated VirtualBox as optional are historical and do
+  not apply to Flux 8.0. Flux 8 requires interactive acceptance in x86-64
+  VirtualBox on a compatible host; QEMU is not a substitute. Missing VirtualBox
+  is BLOCKED, not PASS or an optional gate.
 
 ## Final pre-15.0 qualification pass
 - Execute every deferred item above together with milestone-specific tests accumulated here.
