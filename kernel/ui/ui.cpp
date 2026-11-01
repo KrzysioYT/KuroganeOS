@@ -584,10 +584,10 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
         if (max_chars > 32) max_chars = 32;
         copy_short_label(short_title, static_cast<size_t>(max_chars + 1),
                          title ? title : "SURFACE");
-        graphics::draw_text(bounds.x + 14, bounds.y + 14,
-                            short_title,
-                            focused ? kTheme.text : kTheme.text_muted,
-                            header, 1U, true);
+        graphics::draw_text_styled(
+            bounds.x + 14, bounds.y + 14, short_title,
+            focused ? kTheme.text : kTheme.text_muted,
+            header, 1U, true, graphics::TextWeight::Bold);
         graphics::fill_rect(bounds.x + bounds.width - 12,
                             bounds.y + bounds.height - 2, 11, 2, kRedHot);
         graphics::fill_rect(bounds.x + bounds.width - 2,
@@ -610,10 +610,10 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
                         bounds.width > 162 ? 146 : bounds.width - 24, 1,
                         focused ? kTheme.accent : kTheme.border);
     signal_node(bounds.x + 13, bounds.y + 13, signal);
-    graphics::draw_text(bounds.x + 32, bounds.y + 11,
-                        title ? title : "SURFACE",
-                        focused ? kTheme.text : kTheme.text_muted,
-                        background, 2U, true);
+    graphics::draw_text_styled(
+        bounds.x + 32, bounds.y + 11, title ? title : "SURFACE",
+        focused ? kTheme.text : kTheme.text_muted,
+        background, 2U, true, graphics::TextWeight::Bold);
 
     const graphics::Color grip = focused ? kTheme.accent : kTheme.border;
     line(bounds.x + bounds.width - 16, bounds.y + bounds.height - 3,

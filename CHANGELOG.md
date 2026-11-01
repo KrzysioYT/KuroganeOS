@@ -24,6 +24,16 @@
 - VirtualBox automated Try/install evidence is from prior SHA `0c708fea`;
   current-head VirtualBox and visible/manual input remain UNVERIFIED. Runtime
   remains `7.0.0-dev`; Flux 8.0 is not complete.
+- Started native typography: added licensed DejaVu Sans normal/bold source,
+  a reproducible 4-bit antialiased atlas for ASCII/Latin-1/Polish and U+FFFD,
+  plus freestanding proportional text rendering at 100/125/150/200% text
+  scales. Host coverage verifies glyph fallback, metrics, weights and clipping;
+  modern and Classic window titles use the bold face. The atlas is guarded by
+  a 512 KiB compile-time memory ceiling. Wrapping, shaping, persistent
+  Settings integration and whole-UI HiDPI remain open. Full host regression,
+  core UBSan, isolated Debug/Release kernel builds and deterministic atlas
+  regeneration passed on the unpublished working tree based on `05e67146`;
+  media and guest testing remain NOT RUN.
 
 ### 3.3.3-dev completion status
 

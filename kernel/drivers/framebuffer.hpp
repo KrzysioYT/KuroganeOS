@@ -9,6 +9,11 @@ namespace graphics {
 
 using Color = uint32_t;
 
+enum class TextWeight : uint8_t {
+    Normal,
+    Bold,
+};
+
 struct DamageRect {
     int32_t x;
     int32_t y;
@@ -54,6 +59,8 @@ void reset_clip();
 // a temporary upper bound for compact content areas without affecting chrome.
 void set_text_scale_limit(uint32_t maximum_scale);
 void reset_text_scale_limit();
+bool set_text_scale_percent(uint32_t percent);
+uint32_t text_scale_percent();
 
 void put_pixel(int32_t x, int32_t y, Color color);
 void clear(Color color);
@@ -71,6 +78,11 @@ void draw_char(int32_t x, int32_t y, char character, Color foreground,
 void draw_text(int32_t x, int32_t y, const char* text, Color foreground,
                Color background, uint32_t scale = 1,
                bool transparent = false);
+void draw_text_styled(int32_t x, int32_t y, const char* text,
+                      Color foreground, Color background, uint32_t scale,
+                      bool transparent, TextWeight weight);
+uint32_t measure_text_width(const char* text, uint32_t scale = 1,
+                            TextWeight weight = TextWeight::Normal);
 void scroll_up(uint32_t pixels, Color fill);
 
 } // namespace graphics

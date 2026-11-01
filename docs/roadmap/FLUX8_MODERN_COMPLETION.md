@@ -143,12 +143,41 @@ manager or 12.0 production users/groups, signed update and isolation work.
 
 ## Typography, accessibility and usability (P1)
 
-- [ ] Licensed, bundled scalable sans font rasterizer (not the 5x7 console font).
-- [ ] UTF-8 decoding, Latin/Polish diacritics, replacement glyph and text layout.
-- [ ] Anti-aliased normal/bold weights with a bounded cache and CPU budget.
+- [ ] Complete licensed scalable sans text system with shaping, layout and
+      bounded runtime raster/cache budget; the current pre-rasterized atlas is
+      an implementation increment, not a complete font service.
+- [x] UTF-8 decoding, ASCII/Latin-1, Polish Latin Extended-A glyphs and U+FFFD
+      fallback in the native software renderer.
+- [x] Antialiased regular/bold atlas at 8, 10, 12, 16, 20, 24 and 32 px;
+      text scale selection supports 100/125/150/200% without changing app ABI.
 - [ ] Text fit and ellipsis preserve code-point boundaries at every scale.
+- [ ] Full Unicode shaping/kerning, word wrapping and ellipsis in proportional
+      layout; current UI truncation helpers still use their legacy cell model.
 - [ ] Keyboard focus visibility, logical tab order, input edit/caret, mouse wheel.
 - [ ] Contrast validated in all six themes. Reduced-motion fallback.
+
+### Native font atlas increment (2026-11-01)
+
+- Added DejaVu Sans regular/bold source fonts under their Bitstream Vera
+  license. Provenance, hashes, generator command and the same license notice
+  in the root filesystem are recorded in `third_party/fonts/dejavu/README.md`.
+- The host-side Pillow generator produces a compact 4-bit antialiased atlas
+  for ASCII, Latin-1, Polish Latin Extended-A and U+FFFD at seven sizes. The
+  kernel decodes the 260,894-byte atlas once into static memory guarded by a
+  512 KiB compile-time ceiling; rendering itself is freestanding, integer-only,
+  allocation-free and preserves the existing syscall/UI ABI. Modern and
+  Classic window titles use the bold face. `draw_char` remains as the 5x7
+  console primitive.
+- Host tests exercise proportional advances, Polish and replacement glyphs,
+  grayscale coverage, regular/bold differences, clipping and the four text
+  scale selections. On the working tree based on `05e67146`, the full host
+  regression and core UBSan suite passed; fresh isolated Debug and Release
+  kernel builds and deterministic atlas regeneration also passed. These
+  results are not GitHub Actions evidence for a published commit.
+- This does not yet provide user-selectable/persistent UI scale in Settings,
+  text shaping/kerning, general Unicode coverage, wrapping/ellipsis for native
+  proportional text, or complete visible desktop qualification. ISO/media
+  packaging and guest visual validation for this increment are NOT RUN.
 
 ## Desktop application integration (P1)
 

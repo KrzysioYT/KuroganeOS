@@ -591,6 +591,17 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 "$OUT_DIR/test_framebuffer_damage"
 
+# Exercise the licensed grayscale text atlas, UTF-8 glyph lookup and supported
+# text scale/weight paths through the production framebuffer renderer.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
+  -Werror=undef -Werror=return-type \
+  tests/test_framebuffer_text.cpp \
+  kernel/drivers/framebuffer.cpp \
+  -o "$OUT_DIR/test_framebuffer_text"
+
+"$OUT_DIR/test_framebuffer_text"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
   tests/test_vfs_process_paths.cpp \
