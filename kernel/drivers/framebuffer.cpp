@@ -137,6 +137,26 @@ int32_t saturate_i32(int64_t value) {
     return static_cast<int32_t>(value);
 }
 
+bool supported_text_scale_percent(uint32_t percent) {
+    return percent == 100U || percent == 125U ||
+           percent == 150U || percent == 200U;
+}
+
+bool transform_layout_coordinate(
+    int32_t coordinate,
+    uint32_t numerator,
+    uint32_t denominator,
+    int32_t* result) {
+    if (result == nullptr || denominator == 0U) return false;
+    const int64_t product = static_cast<int64_t>(coordinate) * numerator;
+    const int64_t half = static_cast<int64_t>(denominator / 2U);
+    const int64_t rounded = product > 0
+        ? product + half
+        : (product < 0 ? product - half : 0);
+    *result = saturate_i32(rounded / denominator);
+    return true;
+}
+
 int base64_value(char character) {
     if (character >= 'A' && character <= 'Z') return character - 'A';
     if (character >= 'a' && character <= 'z') return character - 'a' + 26;
@@ -514,16 +534,25 @@ void set_text_scale_limit(uint32_t maximum_scale) {
 void reset_text_scale_limit() { g_text_scale_limit = UINT32_MAX; }
 
 bool set_text_scale_percent(uint32_t percent) {
-    if (percent != 100U && percent != 125U &&
-        percent != 150U && percent != 200U) {
-        return false;
-    }
+    if (!supported_text_scale_percent(percent)) return false;
     __atomic_store_n(&g_text_scale_percent, percent, __ATOMIC_RELEASE);
     return true;
 }
 
 uint32_t text_scale_percent() {
     return __atomic_load_n(&g_text_scale_percent, __ATOMIC_ACQUIRE);
+}
+
+bool scale_layout_coordinate(
+    int32_t coordinate, uint32_t percent, int32_t* scaled) {
+    if (!supported_text_scale_percent(percent)) return false;
+    return transform_layout_coordinate(coordinate, percent, 100U, scaled);
+}
+
+bool unscale_layout_coordinate(
+    int32_t coordinate, uint32_t percent, int32_t* unscaled) {
+    if (!supported_text_scale_percent(percent)) return false;
+    return transform_layout_coordinate(coordinate, 100U, percent, unscaled);
 }
 
 void put_pixel(int32_t x, int32_t y, Color color) {

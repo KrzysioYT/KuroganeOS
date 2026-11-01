@@ -82,6 +82,7 @@ struct UiState {
     ui_event_queue::Queue events;
     windowing::WindowId window;
     bool active;
+    bool native;
 };
 
 struct Context {
@@ -165,16 +166,34 @@ bool native_frame_valid(const ku_ui_native_frame& frame) {
 ui::Rect native_bounds(
     const ui::Rect& content,
     const ku_ui_native_command& command) {
-    int32_t width = command.width;
-    if (width == 0) width = content.width - command.x - 16;
+    const uint32_t scale_percent = ui::desktop_text_scale_percent();
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t inset = 0;
+    if (!graphics::scale_layout_coordinate(command.x, scale_percent, &x) ||
+        !graphics::scale_layout_coordinate(command.y, scale_percent, &y) ||
+        !graphics::scale_layout_coordinate(16, scale_percent, &inset)) {
+        return {content.x, content.y, 0, 0};
+    }
+    if (command.width == 0) {
+        width = content.width - x - inset;
+    } else if (!graphics::scale_layout_coordinate(
+                   command.width, scale_percent, &width)) {
+        return {content.x, content.y, 0, 0};
+    }
     if (width < 1) width = 1;
-    const int32_t available_width = content.width - command.x;
+    const int32_t available_width = content.width - x;
     if (available_width > 0 && width > available_width) width = available_width;
-    int32_t height = command.height;
-    const int32_t available_height = content.height - command.y;
+    if (!graphics::scale_layout_coordinate(
+            command.height, scale_percent, &height)) {
+        return {content.x, content.y, 0, 0};
+    }
+    const int32_t available_height = content.height - y;
     if (available_height > 0 && height > available_height) height = available_height;
     if (height < 1) height = 1;
-    return {content.x + command.x, content.y + command.y, width, height};
+    return {content.x + x, content.y + y, width, height};
 }
 
 void split_native_tile_text(
@@ -405,8 +424,20 @@ void input_user_window(
         }
         event.type = input_event.type == input::EventType::MouseWheel
             ? KU_UI_EVENT_SCROLL : KU_UI_EVENT_POINTER;
-        event.x = input_event.x - content.x;
-        event.y = input_event.y - content.y;
+        const int32_t physical_x = input_event.x - content.x;
+        const int32_t physical_y = input_event.y - content.y;
+        if (context->ui.native) {
+            const uint32_t scale_percent = ui::desktop_text_scale_percent();
+            if (!graphics::unscale_layout_coordinate(
+                    physical_x, scale_percent, &event.x) ||
+                !graphics::unscale_layout_coordinate(
+                    physical_y, scale_percent, &event.y)) {
+                return;
+            }
+        } else {
+            event.x = physical_x;
+            event.y = physical_y;
+        }
         event.buttons = input_event.buttons;
         if (input_event.type == input::EventType::MouseWheel) {
             event.wheel_y = static_cast<int32_t>(input_event.wheel);
@@ -1543,6 +1574,7 @@ void syscall_handler(
                     frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                     return;
                 }
+                context->ui.native = true;
                 system_metrics::record_graphics_work(
                     UINT64_C(1) + static_cast<uint64_t>(user_native->command_count));
                 frame.rax = KU_STATUS_OK;
@@ -1576,6 +1608,7 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+            context->ui.native = false;
             context->ui.frame = *user_frame;
             system_metrics::record_graphics_work(
                 UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));

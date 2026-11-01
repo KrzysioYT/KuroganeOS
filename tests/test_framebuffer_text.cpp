@@ -62,6 +62,36 @@ int main() {
     assert(width_100 < width_125);
     assert(width_125 < width_150);
     assert(width_150 < width_200);
+    int32_t scaled_coordinate = 0;
+    int32_t logical_coordinate = 0;
+    assert(graphics::scale_layout_coordinate(
+        80, 100U, &scaled_coordinate) && scaled_coordinate == 80);
+    assert(graphics::unscale_layout_coordinate(
+        scaled_coordinate, 100U, &logical_coordinate) &&
+        logical_coordinate == 80);
+    assert(graphics::scale_layout_coordinate(
+        80, 125U, &scaled_coordinate) && scaled_coordinate == 100);
+    assert(graphics::unscale_layout_coordinate(
+        scaled_coordinate, 125U, &logical_coordinate) &&
+        logical_coordinate == 80);
+    assert(graphics::scale_layout_coordinate(
+        -80, 150U, &scaled_coordinate) && scaled_coordinate == -120);
+    assert(graphics::unscale_layout_coordinate(
+        scaled_coordinate, 150U, &logical_coordinate) &&
+        logical_coordinate == -80);
+    assert(graphics::scale_layout_coordinate(
+        80, 200U, &scaled_coordinate) && scaled_coordinate == 160);
+    assert(graphics::unscale_layout_coordinate(
+        scaled_coordinate, 200U, &logical_coordinate) &&
+        logical_coordinate == 80);
+    assert(!graphics::scale_layout_coordinate(
+        80, 110U, &scaled_coordinate));
+    assert(!graphics::unscale_layout_coordinate(
+        80, 110U, &logical_coordinate));
+    assert(!graphics::scale_layout_coordinate(80, 100U, nullptr));
+    assert(graphics::scale_layout_coordinate(
+        INT32_MAX, 200U, &scaled_coordinate) &&
+        scaled_coordinate == INT32_MAX);
     char kerned_pairs[201]{};
     for (size_t pair = 0U; pair < 100U; ++pair) {
         kerned_pairs[pair * 2U] = 'A';
