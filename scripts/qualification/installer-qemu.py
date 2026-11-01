@@ -62,6 +62,68 @@ def wait_marker(serial, marker, process, deadline):
     raise TimeoutError('waiting for ' + marker)
 
 
+def verify_read_only_target_recovery(iso, output, code, variables, timeout):
+    disk = output / 'readonly-target.img'
+    with disk.open('xb') as stream:
+        stream.truncate(64 * 1024 * 1024)
+    original_hash = digest(disk)
+    vars_copy = output / 'readonly-vars.fd'
+    shutil.copyfile(variables, vars_copy)
+    serial = output / 'readonly-serial.log'
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix='ku-readonly-') as sockets:
+        qmp_path = Path(sockets) / 'qmp.sock'
+        command = ['qemu-system-x86_64', '-machine', 'q35,accel=tcg,i8042=off',
+            '-cpu', 'max', '-smp', '4', '-m', '1024',
+            '-drive', f'if=pflash,format=raw,unit=0,readonly=on,file={code}',
+            '-drive', f'if=pflash,format=raw,unit=1,file={vars_copy}',
+            '-drive', f'if=none,id=target,format=raw,file={disk},readonly=on',
+            '-device', 'virtio-blk-pci,drive=target',
+            '-drive', f'if=none,id=cd,media=cdrom,readonly=on,file={iso}',
+            '-device', 'ide-cd,drive=cd,bus=ide.1,bootindex=1',
+            '-device', 'qemu-xhci,id=xhci', '-device', 'usb-kbd,bus=xhci.0',
+            '-device', 'usb-tablet,bus=xhci.0', '-net', 'none', '-display', 'none',
+            '-serial', f'file:{serial}', '-qmp', f'unix:{qmp_path},server=on,wait=off',
+            '-no-reboot', '-no-shutdown']
+        with (output / 'readonly-qemu.log').open('wb') as log:
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+            qmp = None
+            try:
+                deadline = time.monotonic() + timeout
+                wait_marker(serial, 'installer: select setup mode:', process, deadline)
+                qmp = QMP(qmp_path)
+                qmp.key('down')
+                qmp.key('ret')
+                while time.monotonic() < deadline:
+                    text = serial.read_text(errors='replace') if serial.exists() else ''
+                    if 'installer: select language:' in text:
+                        raise RuntimeError(
+                            'read-only target entered destructive installation setup')
+                    if '[TEST] installer_target_disk_unavailable: PASS' in text:
+                        break
+                    if process.poll() is not None:
+                        raise RuntimeError(
+                            'QEMU exited before read-only target recovery')
+                    time.sleep(.1)
+                else:
+                    raise TimeoutError('waiting for read-only target fallback')
+                if '[TEST] live_package_root: PASS' not in text:
+                    raise RuntimeError('read-only target did not enter the live session')
+                if digest(disk) != original_hash:
+                    raise RuntimeError('read-only target changed during recovery')
+                print('[installer-qemu] read-only target -> live recovery: PASS',
+                      flush=True)
+            finally:
+                if qmp:
+                    qmp.close()
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+
 class QMP:
     def __init__(self, path):
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -118,6 +180,8 @@ def main():
     blank_hash = digest(disk)
     vars_copy = output / 'install-vars.fd'
     shutil.copyfile(variables, vars_copy)
+    verify_read_only_target_recovery(
+        iso, output, code, variables, args.timeout)
     serial = output / 'install-serial.log'
     # macOS UNIX socket paths have a short limit; use a separate disposable dir.
     import tempfile

@@ -117,7 +117,8 @@ block::Status initialize(
             sector_count,
             read_partition,
             write_partition,
-            flush_partition
+            flush_partition,
+            parent->read_only
         },
         parent,
         first_lba,

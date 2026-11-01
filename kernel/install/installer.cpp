@@ -359,13 +359,13 @@ void show_install_unavailable() {
     const int32_t x = width / 2 - 280;
     graphics::fill_rect(x, 210, 560, 150, kPanel);
     graphics::draw_rect(x, 210, 560, 150, kDanger, 2U);
-    graphics::draw_text(x + 28, 240, "NO TARGET DISK DETECTED",
+    graphics::draw_text(x + 28, 240, "NO WRITABLE TARGET DISK",
                         kDanger, kPanel, 2U, true);
-    graphics::draw_text(x + 28, 290, "CONNECT A DISK TO INSTALL",
+    graphics::draw_text(x + 28, 290, "CONNECT A WRITABLE DISK",
                         kText, kPanel, 1U, true);
     draw_footer("ENTER: CONTINUE TO THE LIVE TRY SESSION");
     terminal::println(
-        "installer: no target disk; continue to the non-destructive live session");
+        "installer: no writable target disk; continue to the non-destructive live session");
     terminal::println("[TEST] installer_target_disk_unavailable: PASS");
     static_cast<void>(wait_key());
 }
@@ -681,8 +681,8 @@ void draw_progress(size_t stage, const char* label) {
     graphics::draw_text(x + 30, 365, step, kAccentBright, kPanel, 1U, true);
 }
 
-size_t choose_disk() {
-    const size_t count = storage::device_registry::device_count();
+const storage::block::Device* choose_disk() {
+    const size_t count = storage::device_registry::writable_device_count();
     if (count == 0U) fail("NO WRITABLE BLOCK DEVICE DETECTED");
     size_t selected = 0U;
     for (;;) {
@@ -692,7 +692,7 @@ size_t choose_disk() {
         const int32_t x = width / 2 - 250;
         storage::device_registry::Entry entry{};
         const bool available =
-            storage::device_registry::entry_at(selected, &entry) &&
+            storage::device_registry::writable_entry_at(selected, &entry) &&
             entry.device != nullptr;
         graphics::fill_rect(x, 220, 500, 120, kPanelRaised);
         graphics::draw_rect(x, 220, 500, 120, kAccent, 2U);
@@ -740,7 +740,7 @@ size_t choose_disk() {
             selected = (selected + 1U) % count;
         } else if (event.key == drivers::keyboard::KeyCode::Enter ||
                    event.key == drivers::keyboard::KeyCode::KeypadEnter) {
-            return selected;
+            return available ? entry.device : nullptr;
         }
     }
 }
@@ -828,7 +828,7 @@ void run_interactive(
 
     const bool try_selected = mode == 0U;
     const bool target_disk_unavailable =
-        storage::device_registry::device_count() == 0U;
+        storage::device_registry::writable_device_count() == 0U;
     if (try_selected || target_disk_unavailable) {
         const fs::root_volume::Status live_status =
             fs::root_volume::initialize_live_package(package_bytes, package_size);
@@ -889,8 +889,7 @@ void run_interactive(
     const storage::block::Device* target = nullptr;
     for (;;) {
         terminal::println("installer: select target disk index:");
-        const size_t target_index = choose_disk();
-        target = storage::device_registry::device_at(target_index);
+        target = choose_disk();
         if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
         if (confirm_erase()) {
             terminal::println("[TEST] installer_confirmation: PASS");

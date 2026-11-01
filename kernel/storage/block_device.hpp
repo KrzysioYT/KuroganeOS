@@ -53,6 +53,7 @@ struct Device {
     ReadBlocksCallback read;
     WriteBlocksCallback write;
     FlushCallback flush;
+    bool read_only = false;
 };
 
 constexpr bool is_known_status(Status status) {
@@ -173,6 +174,9 @@ inline Status write_blocks(
         source_size);
     if (status != Status::Ok) {
         return status;
+    }
+    if (device->read_only) {
+        return Status::ReadOnly;
     }
 
     const Status result = normalize_backend_status(

@@ -141,6 +141,39 @@ bool test_errors_and_transactionality() {
         storage::partition::initialize(&partition, &parent, 4U, 8U) ==
             BlockStatus::Ok,
         "baseline partition initializes");
+
+    MemoryDisk read_only_disk{};
+    storage::block::Device read_only_parent{
+        &read_only_disk,
+        512U,
+        32U,
+        memory_read,
+        memory_write,
+        memory_flush,
+        true};
+    storage::partition::Device read_only_partition{};
+    ok &= expect(
+        storage::partition::initialize(
+            &read_only_partition, &read_only_parent, 4U, 8U) ==
+            BlockStatus::Ok,
+        "read-only parent partition initializes");
+    const storage::block::Device* const read_only_view =
+        storage::partition::as_block_device(&read_only_partition);
+    ok &= expect(
+        read_only_view != nullptr && read_only_view->read_only,
+        "partition inherits parent read-only capability");
+    std::array<uint8_t, 512U> read_only_buffer{};
+    ok &= expect(
+        storage::block::write_blocks(
+            read_only_view,
+            0U,
+            1U,
+            read_only_buffer.data(),
+            read_only_buffer.size()) == BlockStatus::ReadOnly,
+        "read-only parent rejects writes through partition view");
+    ok &= expect(
+            read_only_disk.writes == 0U,
+        "read-only partition write never reaches parent");
     const uint64_t old_first_lba = partition.first_lba;
     const uint64_t old_count = partition.block_device.sector_count;
 
