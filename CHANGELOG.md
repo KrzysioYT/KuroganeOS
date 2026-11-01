@@ -50,8 +50,15 @@
   Home reapplies valid preferences on session startup; failed selections
   attempt and verify rollback. Text buttons, task labels and metrics use
   bounded ellipsis. This does not scale whole-UI geometry or provide per-user
-  isolation. Host regression and core UBSan pass on this working tree;
-  Debug/Release media and guest verification remain NOT RUN.
+  isolation. On runtime SHA `7287fe1`, full host regression and 11 UBSan groups,
+  isolated Debug/Release builds, Release ISO and QEMU install/two-boot
+  persistence all PASS. The QEMU run restored 125% text scale and theme 2;
+  ISO SHA-256 is `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80`.
+  Actions `reliable-file` (`41348763286`), CLA (`41349152187`), and
+  `iso-qualification` (`41348763424`) all PASS on this runtime SHA. ISO
+  qualification covered host ABI/SDK and regression, IMG/ISO, FAT32/VFS,
+  20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT. Exact-SHA
+  VirtualBox and visible manual input remain NOT RUN / UNVERIFIED.
 
 ### 3.3.3-dev completion status
 

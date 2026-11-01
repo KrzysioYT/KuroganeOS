@@ -22,7 +22,34 @@ runtime code.
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
 
-## Exact-SHA evidence — `5c319946` (2026-11-01)
+## Current exact-runtime evidence — `7287fe1`
+
+Runtime source: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; identity remains
+`7.0.0-dev`. Builds and VM media were created in an isolated worktree so
+existing repository images and VM disks were not overwritten.
+
+| Check | Result |
+| --- | --- |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-host bash scripts/run-host-tests.sh` | PASS — full host regression |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 groups |
+| `bash scripts/build-linux.sh --configuration debug --rebuild --no-image` | PASS — kernel and userspace Debug |
+| `bash scripts/build-installer-linux.sh --configuration release --rebuild` | PASS — Release installer and ISO |
+| `python3 scripts/qualification/installer-qemu.py --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso --output /tmp/kuro-text-scale-qemu-7287fe1d --timeout 240 --desktop-lifecycle` | PASS — read-only recovery, safe cancellation, install and two disk boots |
+| QEMU Settings interaction and persistent text scale | PASS — changed to `125%`, restored as `125%` after reboot |
+| ISO SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
+| GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
+| GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
+| GitHub Actions `iso-qualification`, run [41348763424](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763424) | PASS — ABI/SDK, host regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and E1000/PCnet/VirtIO NAT |
+| VirtualBox on exact runtime SHA; visible/manual interaction | NOT RUN / UNVERIFIED |
+
+The QEMU result manifest records exact source SHA
+`7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`, ISO hash above, restored theme
+`2`, restored text scale `125`, and `result: PASS`. Text size is a global
+rendering preference, not whole-UI HiDPI or per-user isolation. Password
+authentication, physical hardware and complete Flux 8 acceptance remain
+unverified. PR #58 remains Draft and needs one approval.
+
+## Historical exact-SHA evidence — `5c319946` (2026-11-01)
 
 Source: `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime identity:
 `7.0.0-dev`. This is the runtime fix commit in published PR #58; later

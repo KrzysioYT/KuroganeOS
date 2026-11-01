@@ -14,35 +14,39 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Kwalifikacja bieżącego head PR #58 — 2026-11-01
+## Kwalifikacja bieżącego head PR #58
 
-Poprawka runtime została opublikowana w SHA
-`5c3199467b0a1cf726761dadd1ad66c782fa99ae`; późniejsze zmiany w tej gałęzi
-aktualizują wyłącznie dokumentację. Draft PR #58 nadal wymaga jednej
-akceptacji. Wersja runtime pozostaje `7.0.0-dev`; Flux 8.0 nie jest
+Runtime SHA: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; wersja pozostaje
+`7.0.0-dev`. Zmiany dodają globalną skalę renderowanego tekstu 100/125/150/200%,
+persistencję w Settings i odtwarzanie przez Home podczas startu sesji. To nie
+jest skalowanie geometrii całego UI ani prywatny profil per-user.
+PR #58 pozostaje Draft i wymaga jednej akceptacji. Flux 8.0 nie jest
 zakwalifikowany.
 
-| Kontrola | Wynik dla SHA `5c319946` |
+| Kontrola | Wynik dla runtime SHA `7287fe1` |
 | --- | --- |
-| `bash scripts/run-host-tests.sh` | PASS — pełna regresja hosta |
-| `HOST_TEST_DIR=build/tests/readonly-fix-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
-| Release build, SDK i walidacja ISO x20 | PASS |
-| GitHub Actions [41337504861](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504861) — `reliable-file` | PASS |
-| GitHub Actions [41337504951](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41337504951) — `iso-qualification` | PASS |
-| GitHub Actions `41337504885` — CLA | PASS |
-| QEMU/OVMF: read-only target → live recovery, anulowanie bez zmian pustego dysku, instalacja oraz dwa bootowania z dysku | PASS |
-| QEMU/OVMF: uwierzytelniony Home i przywrócenie motywu po restarcie | PASS — wartość motywu `2` |
-| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015` |
-| Debug build/testy na tym SHA | NOT RUN |
-| VirtualBox interaktywnie na tym SHA | UNVERIFIED |
-| Ręczny test myszy/klawiatury w widocznym oknie VirtualBox | UNVERIFIED |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-host bash scripts/run-host-tests.sh` | PASS — pełna regresja hosta |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
+| Izolowany kernel/userspace Debug build | PASS |
+| Izolowany Release build, SDK, installer i ISO | PASS |
+| QEMU/OVMF: read-only target, bezpieczne anulowanie, instalacja i dwa bootowania z dysku | PASS |
+| QEMU/OVMF: zmiana tekstu na 125% i odtworzenie po restarcie | PASS — manifest wiąże wynik z runtime SHA |
+| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
+| GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
+| GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
+| GitHub Actions `iso-qualification`, run [41348763424](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763424) | PASS — host/SDK, regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF i trzy profile NAT |
+| VirtualBox na tym runtime SHA | NOT RUN |
+| Ręczny test myszy/klawiatury w widocznym VirtualBox | UNVERIFIED |
 
-QEMU manifest wiąże wynik PASS z dokładnym SHA `5c319946` i powyższym hashem
-ISO. Automatyczny VirtualBox 7.2.20 przeszedł Try i EFI/AHCI install na
-wcześniejszym obrazie PR `0c708fea`; nie przenosimy tego wyniku na obecny
-obraz ani nie traktujemy testu headless jako ręcznej akceptacji. Testy
+QEMU manifest `/tmp/kuro-text-scale-qemu-7287fe1d/result.json` zawiera
+`source_sha`, hash ISO, przywrócony motyw `2` i skalę tekstu `125`.
+Automatyczny VirtualBox 7.2.20 przeszedł Try i EFI/AHCI install na wcześniejszym
+obrazie PR `0c708fea`; nie przenosimy tego wyniku na obecny obraz. Testy
 logowania hasłem, fizycznego sprzętu, starej instalacji z `flux_account_lookup`
 oraz pełnej macierzy 8.0 pozostają niezweryfikowane.
+
+Opis PR #58 nie został zaktualizowany: dostępne GitHub narzędzia edycji są
+tylko do odczytu, a `gh` CLI nie jest zainstalowane. PR pozostaje Draft.
 
 Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
 ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał

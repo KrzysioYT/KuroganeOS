@@ -21,19 +21,18 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
 
 1. Mainline reconciliation is published as Draft PR #58 from
    `integration/flux8-reconciliation`; its latest runtime change is
-   `5c3199467b0a1cf726761dadd1ad66c782fa99ae`, with later documentation-only
-   updates. It preserves the #55 -> #56 ->
-   #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
-   unchanged. `reliable-file`, `iso-qualification` and CLA pass on runtime
-   SHA `5c319946`; one approval and the remaining 8.0 gates are still
-   outstanding. Do not merge.
+   `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`. It preserves the #55 -> #56
+   -> #57 ancestry; #55 already contains #51-54. Existing PRs/bases remain
+   unchanged. `reliable-file` (run `41348763286`), CLA (run `41349152187`),
+   and `iso-qualification` (run `41348763424`) pass on runtime SHA `7287fe1`.
+   One approval and the remaining 8.0 gates are outstanding. Do not merge.
 2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
    exact theme reboot verification are concrete increments, not full completion.
    Flux Settings now exposes global persistent 100/125/150/200% text rendering;
-   this is not whole-UI HiDPI or per-user profile isolation and still needs guest
-   persistence/visual verification.
+   QEMU verifies persistence across reboot, but visual fit across all native
+   surfaces remains unverified. It is not whole-UI HiDPI or per-user isolation.
 3. Automated VirtualBox 7.2.20 Try/install evidence exists for prior PR SHA
    `0c708fea`; visible mouse/keyboard acceptance is still UNVERIFIED and must
    be repeated on the release candidate. QEMU does not replace this gate.
@@ -46,8 +45,9 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    stress, qualify physical Intel/AMD hardware, then enforce the complete RC
    matrix. No version promotion based solely on UI appearance or a host PASS.
 
-The exact-SHA host/UBSan, Release media, QEMU read-only-recovery/install/two-boot
-and Actions results for `5c319946` are recorded in
+The exact-SHA host/UBSan, Debug/Release builds, Release media, QEMU
+read-only-recovery/install/two-boot/text-scale persistence and Actions results
+for `7287fe1` are recorded in
 [`docs/TESTING.md`](../TESTING.md). Debug qualification is NOT RUN on this head;
 manual VirtualBox interaction remains UNVERIFIED.
 `main` now requires a PR, one approval and the `iso-qualification`,

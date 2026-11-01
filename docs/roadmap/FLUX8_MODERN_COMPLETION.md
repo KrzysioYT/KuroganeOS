@@ -5,29 +5,32 @@ Integration branch: `integration/flux8-reconciliation`
 PR ancestry: #55 -> #56 -> #57
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
-## Current runtime qualification — `5c319946` (2026-11-01)
+## Current runtime qualification — `7287fe1`
 
-The published Draft PR #58 contains runtime commit
-`5c3199467b0a1cf726761dadd1ad66c782fa99ae` and documentation-only follow-ups.
-The fix makes block-device
-read-only capability explicit, propagates it to partitions, prevents writes,
-and sends the installer to live recovery if there is no writable target.
+Draft PR #58 currently points to runtime SHA
+`7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`. It includes the read-only disk
+recovery fix and a global, persistent 100/125/150/200% text-rendering scale.
+Settings changes and verifies the value; Home reapplies it at session startup.
+The setting does not scale whole-UI geometry or isolate preferences per user.
 
 | Evidence | Result |
 | --- | --- |
-| Full host regression | PASS |
+| Full host regression | PASS — exact source tree |
 | Core UBSan | PASS — 11 groups |
-| Release build, SDK and ISO structure validation x20 | PASS |
-| GitHub Actions `reliable-file` run `41337504861` | PASS |
-| GitHub Actions `iso-qualification` run `41337504951` | PASS |
-| GitHub Actions CLA run `41337504885` | PASS |
-| QEMU/OVMF exact-SHA install qualification | PASS — read-only recovery, nondestructive cancellation, installation and two disk-only boots |
-| ISO SHA-256 | `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015` |
-| Debug profile and VirtualBox run on this exact head | NOT RUN |
+| Debug kernel/userspace build | PASS |
+| Release installer, SDK and ISO | PASS |
+| GitHub Actions `reliable-file` run `41348763286` | PASS |
+| GitHub Actions `iso-qualification` run `41348763424` | PASS — host/SDK, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three NAT profiles |
+| GitHub Actions CLA run `41349152187` | PASS |
+| QEMU/OVMF install and two disk-only boots | PASS — read-only recovery and nondestructive cancellation included |
+| QEMU Settings scale write and second-boot restore | PASS — `125%` |
+| ISO SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
+| VirtualBox on this exact runtime SHA | NOT RUN |
 | Visible/manual VirtualBox mouse and keyboard | UNVERIFIED |
 
-The QEMU manifest records source SHA `5c3199467b0a1cf726761dadd1ad66c782fa99ae`,
-the ISO hash above, restored theme ID `2`, and result `PASS`. The older
+The QEMU manifest records source SHA `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`,
+the ISO hash above, restored theme ID `2`, restored text scale `125`, and
+result `PASS`. The older
 `ac0d122` and `7c2171a1` evidence below is historical and does not transfer
 to this head. PR #58 remains Draft and needs one approval; Flux 8 is not
 qualified.
