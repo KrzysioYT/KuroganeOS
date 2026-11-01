@@ -9,6 +9,7 @@
 #define UI_THEME_KEY "ui.theme"
 #define UI_STYLE_KEY "ui.style"
 #define UI_BACKGROUND_KEY "ui.background"
+#define UI_TEXT_SCALE_KEY "ui.text_scale"
 
 typedef struct settings_client {
     ku_service_connection_t connection;
@@ -23,7 +24,7 @@ static void append_text(char* destination, size_t capacity, const char* source) 
 
 static void append_percent(char* destination, size_t capacity, uint32_t value) {
     char number[24];
-    gui_u64(number, sizeof(number), value > 100U ? 100U : value);
+    gui_u64(number, sizeof(number), value);
     append_text(destination, capacity, number);
     append_text(destination, capacity, "%");
 }
@@ -236,6 +237,51 @@ static ku_status_t write_background_setting(
     return settings_transact(client->connection, &request, &response);
 }
 
+static ku_status_t read_text_scale_setting(
+    settings_client* client, uint32_t* percent) {
+    ku_settings_request request;
+    ku_settings_response response;
+    uint64_t value = 0U;
+    ku_status_t status;
+    if (client == NULL || !client->connected || percent == NULL) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    copy_key(request.key, UI_TEXT_SCALE_KEY);
+    status = settings_transact(client->connection, &request, &response);
+    if (status != KU_STATUS_OK) return status;
+    if (response.type != KU_SETTINGS_TYPE_U64 ||
+        response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
+    memcpy(&value, response.value, sizeof(value));
+    if (value != 100U && value != 125U && value != 150U && value != 200U) {
+        return KU_STATUS_CORRUPT_DATA;
+    }
+    *percent = (uint32_t)value;
+    return KU_STATUS_OK;
+}
+
+static ku_status_t write_text_scale_setting(
+    settings_client* client, uint32_t percent) {
+    ku_settings_request request;
+    ku_settings_response response;
+    const uint64_t value = (uint64_t)percent;
+    if (client == NULL || !client->connected ||
+        (percent != 100U && percent != 125U &&
+         percent != 150U && percent != 200U)) {
+        return KU_STATUS_INVALID_ARGUMENT;
+    }
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_SET;
+    request.type = KU_SETTINGS_TYPE_U64;
+    request.value_size = sizeof(value);
+    copy_key(request.key, UI_TEXT_SCALE_KEY);
+    memcpy(request.value, &value, sizeof(value));
+    return settings_transact(client->connection, &request, &response);
+}
+
 static int select_desktop_theme(uint32_t theme_id) {
     ku_desktop_theme_request request;
     if (theme_id >= KU_FLUX_THEME_COUNT) return 0;
@@ -269,6 +315,18 @@ static int select_desktop_background(uint32_t background_id) {
         request.background_id == background_id;
 }
 
+static int select_desktop_text_scale(uint32_t percent) {
+    ku_desktop_text_scale_request request;
+    if (percent != 100U && percent != 125U &&
+        percent != 150U && percent != 200U) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_TEXT_SCALE_SET;
+    request.percent = percent;
+    return ku_desktop_text_scale(&request) == KU_STATUS_OK &&
+        request.percent == percent;
+}
+
 static int active_desktop_theme(uint32_t* theme_id) {
     ku_desktop_theme_request request;
     if (theme_id == NULL) return 0;
@@ -291,6 +349,44 @@ static int active_desktop_background(uint32_t* background_id) {
         request.background_id >= KU_FLUX_BACKGROUND_COUNT) return 0;
     *background_id = request.background_id;
     return 1;
+}
+
+static int active_desktop_text_scale(uint32_t* percent) {
+    ku_desktop_text_scale_request request;
+    if (percent == NULL) return 0;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.action = KU_DESKTOP_TEXT_SCALE_QUERY;
+    if (ku_desktop_text_scale(&request) != KU_STATUS_OK ||
+        (request.percent != 100U && request.percent != 125U &&
+         request.percent != 150U && request.percent != 200U)) return 0;
+    *percent = request.percent;
+    return 1;
+}
+
+/* Keep the persisted value and compositor in agreement, and verify rollback
+ * before claiming that a failed selection left the previous choice intact. */
+static int apply_text_scale_choice(
+    settings_client* client, uint32_t requested, uint32_t previous) {
+    uint32_t confirmed = 0U;
+    if (client == NULL || !client->connected ||
+        (requested != 100U && requested != 125U &&
+         requested != 150U && requested != 200U) ||
+        (previous != 100U && previous != 125U &&
+         previous != 150U && previous != 200U)) return 0;
+    if (requested == previous) return 1;
+    if (write_text_scale_setting(client, requested) == KU_STATUS_OK &&
+        read_text_scale_setting(client, &confirmed) == KU_STATUS_OK &&
+        confirmed == requested && select_desktop_text_scale(requested)) return 1;
+
+    confirmed = 0U;
+    const int wrote_previous =
+        write_text_scale_setting(client, previous) == KU_STATUS_OK;
+    const int restored_live = select_desktop_text_scale(previous);
+    const int verified_previous =
+        read_text_scale_setting(client, &confirmed) == KU_STATUS_OK &&
+        confirmed == previous;
+    return wrote_previous && restored_live && verified_previous ? 0 : -1;
 }
 
 /* Apply a wallpaper only when both persistent and live states agree. Failed
@@ -316,40 +412,49 @@ static int apply_background_choice(
     return wrote_previous && restored_live && verified_previous ? 0 : -1;
 }
 
-/* A profile reset is not a cosmetic toggle: persist all four defaults,
+/* A profile reset is not a cosmetic toggle: persist all five defaults,
  * confirm each stored value and update the compositor. On failure, attempt
  * to restore the previously confirmed profile and report partial rollback. */
 static int reset_interface_profile(
     settings_client* client, int* low_contrast,
-    uint32_t* theme_id, uint32_t* style_id, uint32_t* background_id) {
+    uint32_t* theme_id, uint32_t* style_id, uint32_t* background_id,
+    uint32_t* text_scale_percent) {
     if (client == NULL || !client->connected || low_contrast == NULL ||
-        theme_id == NULL || style_id == NULL || background_id == NULL) return 0;
+        theme_id == NULL || style_id == NULL || background_id == NULL ||
+        text_scale_percent == NULL) return 0;
     const int original_contrast = *low_contrast;
     const uint32_t original_theme = *theme_id;
     const uint32_t original_style = *style_id;
     const uint32_t original_background = *background_id;
+    const uint32_t original_text_scale = *text_scale_percent;
     int confirmed_contrast = 1;
     uint32_t confirmed_theme = KU_FLUX_THEME_COUNT;
     uint32_t confirmed_style = KU_FLUX_STYLE_COUNT;
     uint32_t confirmed_background = KU_FLUX_BACKGROUND_COUNT;
+    uint32_t confirmed_text_scale = 0U;
     if (write_bool_setting(client, UI_LOW_CONTRAST_KEY, 0) != KU_STATUS_OK ||
         write_theme_setting(client, KU_FLUX_THEME_RED) != KU_STATUS_OK ||
         write_style_setting(client, KU_FLUX_STYLE_MODERN) != KU_STATUS_OK ||
         write_background_setting(client, KU_FLUX_BACKGROUND_FORGED) != KU_STATUS_OK ||
+        write_text_scale_setting(client, 100U) != KU_STATUS_OK ||
         read_bool_setting(client, UI_LOW_CONTRAST_KEY, &confirmed_contrast) != KU_STATUS_OK ||
         read_theme_setting(client, &confirmed_theme) != KU_STATUS_OK ||
         read_style_setting(client, &confirmed_style) != KU_STATUS_OK ||
         read_background_setting(client, &confirmed_background) != KU_STATUS_OK ||
+        read_text_scale_setting(client, &confirmed_text_scale) != KU_STATUS_OK ||
         confirmed_contrast != 0 || confirmed_theme != KU_FLUX_THEME_RED ||
         confirmed_style != KU_FLUX_STYLE_MODERN ||
         confirmed_background != KU_FLUX_BACKGROUND_FORGED ||
+        confirmed_text_scale != 100U ||
         !select_desktop_theme(KU_FLUX_THEME_RED) ||
         !select_desktop_style(KU_FLUX_STYLE_MODERN) ||
-        !select_desktop_background(KU_FLUX_BACKGROUND_FORGED)) {
+        !select_desktop_background(KU_FLUX_BACKGROUND_FORGED) ||
+        !select_desktop_text_scale(100U)) {
         int restored_contrast = 0;
         uint32_t restored_theme = KU_FLUX_THEME_COUNT;
         uint32_t restored_style = KU_FLUX_STYLE_COUNT;
         uint32_t restored_background = KU_FLUX_BACKGROUND_COUNT;
+        uint32_t restored_text_scale = 0U;
         /* Always attempt every rollback step; do not short-circuit writes. */
         const int wrote_contrast =
             write_bool_setting(client, UI_LOW_CONTRAST_KEY, original_contrast) == KU_STATUS_OK;
@@ -359,26 +464,34 @@ static int reset_interface_profile(
             write_style_setting(client, original_style) == KU_STATUS_OK;
         const int wrote_background =
             write_background_setting(client, original_background) == KU_STATUS_OK;
+        const int wrote_text_scale =
+            write_text_scale_setting(client, original_text_scale) == KU_STATUS_OK;
         const int live_theme = select_desktop_theme(original_theme);
         const int live_style = select_desktop_style(original_style);
         const int live_background = select_desktop_background(original_background);
+        const int live_text_scale =
+            select_desktop_text_scale(original_text_scale);
         const int rolled_back =
             wrote_contrast && wrote_theme && wrote_style && wrote_background &&
+            wrote_text_scale &&
             read_bool_setting(client, UI_LOW_CONTRAST_KEY, &restored_contrast) == KU_STATUS_OK &&
             read_theme_setting(client, &restored_theme) == KU_STATUS_OK &&
             read_style_setting(client, &restored_style) == KU_STATUS_OK &&
             read_background_setting(client, &restored_background) == KU_STATUS_OK &&
+            read_text_scale_setting(client, &restored_text_scale) == KU_STATUS_OK &&
             restored_contrast == original_contrast &&
             restored_theme == original_theme &&
             restored_style == original_style &&
             restored_background == original_background &&
-            live_theme && live_style && live_background;
+            restored_text_scale == original_text_scale &&
+            live_theme && live_style && live_background && live_text_scale;
         return rolled_back ? 0 : -1;
     }
     *low_contrast = 0;
     *theme_id = KU_FLUX_THEME_RED;
     *style_id = KU_FLUX_STYLE_MODERN;
     *background_id = KU_FLUX_BACKGROUND_FORGED;
+    *text_scale_percent = 100U;
     return 1;
 }
 
@@ -422,6 +535,7 @@ static void build_scene(
     uint32_t theme_id,
     uint32_t style_id,
     uint32_t background_id,
+    uint32_t text_scale_percent,
     const ku_audio_state* audio,
     int settings_online,
     const char* feedback) {
@@ -430,6 +544,7 @@ static void build_scene(
     char service[64] = "SETTINGS SERVICE\n";
     char palette_label[64] = "ACTIVE COLOR / ";
     char background_label[64] = "WALLPAPER / ";
+    char text_scale_label[64] = "TEXT SIZE / ";
     uint32_t volume_value = 0U;
     int muted = 0;
 
@@ -454,6 +569,7 @@ static void build_scene(
     append_text(palette_label, sizeof(palette_label), ku_flux_theme_name(theme_id));
     append_text(background_label, sizeof(background_label),
                 ku_flux_background_name(background_id));
+    append_percent(text_scale_label, sizeof(text_scale_label), text_scale_percent);
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX SETTINGS / PERSONALIZATION");
     (void)kui_flow_label(&root, 4U, feedback);
@@ -463,6 +579,9 @@ static void build_scene(
     (void)kui_flow_label(&root, 29U, palette_label);
     (void)kui_flow_button(&root, 30U, "PREVIOUS COLOR");
     (void)kui_flow_button(&root, 31U, "NEXT COLOR");
+    (void)kui_flow_label(&root, 46U, text_scale_label);
+    (void)kui_flow_button(&root, 33U, "TEXT SIZE -");
+    (void)kui_flow_button(&root, 34U, "TEXT SIZE +");
     (void)kui_flow_label(&root, 45U, background_label);
     (void)kui_flow_toggle(&root, 40U, "FORGED STEEL\nANGULAR RED FLUX",
         background_id == KU_FLUX_BACKGROUND_FORGED);
@@ -487,6 +606,8 @@ static void build_scene(
         (void)kui_scene_set_flags(scene, 10U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 31U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 33U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 32U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 40U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 41U, KUI_VIEW_DISABLED);
@@ -510,12 +631,14 @@ int main(void) {
     uint32_t theme_id = KU_FLUX_THEME_RED;
     uint32_t style_id = KU_FLUX_STYLE_MODERN;
     uint32_t background_id = KU_FLUX_BACKGROUND_FORGED;
+    uint32_t text_scale_percent = 100U;
     const char* feedback = "TAB / ARROWS FOCUS  ENTER / SPACE APPLY";
     int restored = 0;
     if (window == KU_INVALID_WINDOW) return 1;
 
     (void)active_desktop_theme(&theme_id);
     (void)active_desktop_background(&background_id);
+    (void)active_desktop_text_scale(&text_scale_percent);
     if (connect_settings(&settings)) {
         const ku_status_t status = read_bool_setting(
             &settings, UI_LOW_CONTRAST_KEY, &low_contrast);
@@ -535,10 +658,25 @@ int main(void) {
                 if (read_background_setting(&settings, &stored_background) == KU_STATUS_OK &&
                     select_desktop_background(stored_background)) background_id = stored_background;
             }
+            {
+                uint32_t stored_text_scale = 100U;
+                const ku_status_t scale_status =
+                    read_text_scale_setting(&settings, &stored_text_scale);
+                if (scale_status == KU_STATUS_OK) {
+                    if (select_desktop_text_scale(stored_text_scale)) {
+                        text_scale_percent = stored_text_scale;
+                    } else {
+                        feedback = "TEXT SIZE / APPLY FAILED";
+                    }
+                } else if (scale_status != KU_STATUS_NOT_FOUND) {
+                    feedback = "TEXT SIZE / INVALID PROFILE";
+                }
+            }
         }
     }
     (void)read_audio(&audio);
     build_scene(&scene, low_contrast, theme_id, style_id, background_id,
+                text_scale_percent,
                 &audio, settings.connected, feedback);
     (void)kui_scene_select(&scene, 30U);
     flux_settings_reveal_selection(&scene);
@@ -556,6 +694,7 @@ int main(void) {
     puts("[TEST] flux_settings_toggle_cards: PASS");
     puts("[TEST] flux_8_theme_selector: PASS");
     puts("[TEST] flux_8_style_selector: PASS");
+    puts("[TEST] flux_8_text_scale_selector: READY");
     puts("[TEST] flux_8_wallpaper_selector: READY");
     puts("[TEST] flux_settings_keyboard_access: READY");
     puts("[TEST] flux_settings_profile_reset: READY");
@@ -678,6 +817,34 @@ int main(void) {
                 feedback = "STYLE / SAVED";
                 puts("[TEST] flux_style_persistence: PASS");
             }
+        } else if (target == 33U || target == 34U) {
+            static const uint32_t scales[] = {100U, 125U, 150U, 200U};
+            uint32_t scale_index = 0U;
+            while (scale_index < sizeof(scales) / sizeof(scales[0]) &&
+                   scales[scale_index] != text_scale_percent) {
+                ++scale_index;
+            }
+            if (scale_index >= sizeof(scales) / sizeof(scales[0])) {
+                feedback = "TEXT SIZE / INVALID CURRENT VALUE";
+                puts("[TEST] flux_text_scale_persistence: FAIL");
+            } else {
+                const uint32_t next_index = target == 33U
+                    ? (scale_index + 3U) % 4U
+                    : (scale_index + 1U) % 4U;
+                const uint32_t requested = scales[next_index];
+                const int applied = apply_text_scale_choice(
+                    &settings, requested, text_scale_percent);
+                if (applied <= 0) {
+                    feedback = applied == 0
+                        ? "TEXT SIZE / SAVE FAILED; PREVIOUS KEPT"
+                        : "TEXT SIZE / PARTIAL FAILURE; CHECK SETTINGS";
+                    puts("[TEST] flux_text_scale_persistence: FAIL");
+                } else {
+                    text_scale_percent = requested;
+                    feedback = "TEXT SIZE / SAVED";
+                    puts("[TEST] flux_text_scale_persistence: PASS");
+                }
+            }
         } else if (target >= 40U && target <= 42U) {
             const uint32_t requested = target - 40U;
             const int applied = apply_background_choice(
@@ -702,7 +869,8 @@ int main(void) {
                 ? "AUDIO / VOLUME UPDATED" : "AUDIO / UNAVAILABLE";
         } else if (target == 22U) {
             const int reset = reset_interface_profile(
-                &settings, &low_contrast, &theme_id, &style_id, &background_id);
+                &settings, &low_contrast, &theme_id, &style_id, &background_id,
+                &text_scale_percent);
             feedback = reset > 0 ? "PROFILE / DEFAULTS RESTORED" : reset == 0
                 ? "PROFILE / RESET FAILED; PREVIOUS VALUES KEPT"
                 : "PROFILE / PARTIAL FAILURE; CHECK SETTINGS";
@@ -715,6 +883,7 @@ int main(void) {
             const uint32_t old_offset = scene.scroll_offset;
             const uint32_t old_selected = kui_scene_selected(&scene);
             build_scene(&scene, low_contrast, theme_id, style_id, background_id,
+                        text_scale_percent,
                         &audio, settings.connected, feedback);
             if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
             scene.scroll_offset = old_offset;

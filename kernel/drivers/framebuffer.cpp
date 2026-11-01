@@ -200,7 +200,9 @@ size_t glyph_index(uint32_t codepoint) {
 
 size_t font_size_index(uint32_t scale) {
     const uint64_t requested =
-        (static_cast<uint64_t>(scale) * 8U * g_text_scale_percent + 50U) / 100U;
+        (static_cast<uint64_t>(scale) * 8U *
+             __atomic_load_n(&g_text_scale_percent, __ATOMIC_RELAXED) + 50U) /
+        100U;
     size_t best = 0U;
     uint64_t best_distance = UINT64_MAX;
     for (size_t index = 0U; index < font_atlas::kSizeCount; ++index) {
@@ -356,7 +358,7 @@ bool init(const KuroganeFramebuffer& framebuffer) {
     g_damage_count = 0U;
     g_damage_active = false;
     g_text_scale_limit = UINT32_MAX;
-    g_text_scale_percent = 100U;
+    __atomic_store_n(&g_text_scale_percent, 100U, __ATOMIC_RELAXED);
     if (!framebuffer.base || framebuffer.width == 0 ||
         framebuffer.height == 0 ||
         framebuffer.width > static_cast<uint32_t>(INT32_MAX) ||
@@ -516,11 +518,13 @@ bool set_text_scale_percent(uint32_t percent) {
         percent != 150U && percent != 200U) {
         return false;
     }
-    g_text_scale_percent = percent;
+    __atomic_store_n(&g_text_scale_percent, percent, __ATOMIC_RELEASE);
     return true;
 }
 
-uint32_t text_scale_percent() { return g_text_scale_percent; }
+uint32_t text_scale_percent() {
+    return __atomic_load_n(&g_text_scale_percent, __ATOMIC_ACQUIRE);
+}
 
 void put_pixel(int32_t x, int32_t y, Color color) {
     if (!g_available || x < 0 || y < 0 ||

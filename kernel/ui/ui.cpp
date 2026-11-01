@@ -70,18 +70,6 @@ bool text_starts_with(const char* text, const char* prefix) {
     return true;
 }
 
-void copy_short_label(char* destination, size_t capacity, const char* source) {
-    if (destination == nullptr || capacity == 0U) return;
-    size_t index = 0U;
-    if (source != nullptr) {
-        while (index + 1U < capacity && source[index] != '\0') {
-            destination[index] = source[index];
-            ++index;
-        }
-    }
-    destination[index] = '\0';
-}
-
 int32_t iabs(int32_t value) {
     return value < 0 ? -value : value;
 }
@@ -350,6 +338,12 @@ bool set_desktop_background(uint32_t id) {
     if (id >= KU_FLUX_BACKGROUND_COUNT) return false;
     gBackgroundId = id;
     return true;
+}
+uint32_t desktop_text_scale_percent() {
+    return graphics::text_scale_percent();
+}
+bool set_desktop_text_scale_percent(uint32_t percent) {
+    return graphics::set_text_scale_percent(percent);
 }
 bool set_desktop_theme(uint32_t id) {
     if (id >= KU_FLUX_THEME_COUNT) return false;
@@ -754,13 +748,15 @@ void dock_task(const Rect& bounds, const char* title, bool focused, bool minimiz
         if (focused)
             graphics::fill_rect(bounds.x, bounds.y + 2, 2,
                                 bounds.height - 4, kRedHot);
-        char task_label[19];
-        copy_short_label(task_label, sizeof(task_label), title ? title : "APP");
-        graphics::draw_text(bounds.x + 13, bounds.y + (bounds.height - 8) / 2,
-                            task_label,
-                            minimized ? kTheme.text_muted :
-                                (focused ? kTheme.text : kSteel),
-                            background, 1U, true);
+        const uint32_t line_height =
+            (8U * graphics::text_scale_percent() + 99U) / 100U;
+        (void)graphics::draw_text_ellipsized(
+            bounds.x + 13,
+            bounds.y + (bounds.height - static_cast<int32_t>(line_height)) / 2,
+            title ? title : "APP",
+            bounds.width > 17 ? static_cast<uint32_t>(bounds.width - 17) : 0U,
+            minimized ? kTheme.text_muted : (focused ? kTheme.text : kSteel),
+            background, 1U, true, graphics::TextWeight::Normal);
         return;
     }
     const graphics::Color background = focused
@@ -774,11 +770,15 @@ void dock_task(const Rect& bounds, const char* title, bool focused, bool minimiz
                         focused ? kRedMuted : kTheme.border);
     graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
 
-    char task_label[15];
-    copy_short_label(task_label, sizeof(task_label), title ? title : "APP");
-    graphics::draw_text(bounds.x + 8, bounds.y + 9, task_label,
-                        minimized ? kTheme.text_muted : kTheme.text,
-                        background, 1U, true);
+    const uint32_t line_height =
+        (8U * graphics::text_scale_percent() + 99U) / 100U;
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 8,
+        bounds.y + (bounds.height - static_cast<int32_t>(line_height)) / 2,
+        title ? title : "APP",
+        bounds.width > 12 ? static_cast<uint32_t>(bounds.width - 12) : 0U,
+        minimized ? kTheme.text_muted : kTheme.text,
+        background, 1U, true, graphics::TextWeight::Normal);
 }
 
 void side_dock(const Rect& bounds) {
@@ -812,16 +812,11 @@ void side_dock_item(const Rect& bounds, DockIcon icon, const char* label,
     dock_icon({bounds.x + (bounds.width - 26) / 2, bounds.y + 14, 26, 26},
               icon, focused ? kTheme.text : kTheme.text_muted,
               focused ? kRedHot : kRedMuted);
-    // The native bitmap font is 8px wide; center labels without truncating
-    // pixels into adjacent rail tiles.
-    char short_label[9];
-    copy_short_label(short_label, sizeof(short_label), label ? label : "APP");
-    int32_t chars = 0;
-    while (chars < 8 && short_label[chars] != '\0') ++chars;
-    graphics::draw_text(bounds.x + (bounds.width - chars * 8) / 2,
-                        bounds.y + 48, short_label,
-                        focused ? kTheme.text : kTheme.text_muted,
-                        background, 1U, true);
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 4, bounds.y + 48, label ? label : "APP",
+        bounds.width > 8 ? static_cast<uint32_t>(bounds.width - 8) : 0U,
+        focused ? kTheme.text : kTheme.text_muted,
+        background, 1U, true, graphics::TextWeight::Normal);
 }
 
 void pulse_ribbon(const Rect& bounds, size_t window_count) {
@@ -847,6 +842,22 @@ void button(
     const Rect& bounds, const char* text, bool selected, bool hovered, bool pressed,
     bool destructive) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const bool compact_glyph = text_equals(text, "[]") ||
+        text_equals(text, "-") || text_equals(text, "X");
+    const char* shown = text;
+    if (text_equals(text, "[]")) shown = "<>";
+    else if (text_equals(text, "-")) shown = "_";
+    else if (text_equals(text, "X")) shown = "x";
+    uint32_t text_scale = compact_glyph ? 1U : 2U;
+    const uint32_t scale_percent = graphics::text_scale_percent();
+    if (static_cast<uint64_t>(8U) * text_scale * scale_percent >
+        static_cast<uint64_t>(bounds.height > 4 ? bounds.height - 4 : 0) * 100U) {
+        text_scale = 1U;
+    }
+    const uint32_t line_height =
+        (8U * text_scale * scale_percent + 99U) / 100U;
+    const int32_t text_y = bounds.y +
+        (bounds.height - static_cast<int32_t>(line_height)) / 2;
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
         const graphics::Color surface = pressed ? kTheme.panel
             : (selected || hovered ? kGraphiteRaised : kTheme.panel_alt);
@@ -854,13 +865,11 @@ void button(
             : (pressed || selected ? kTheme.accent
                 : (hovered ? kRedMuted : kTheme.border));
         modern_surface(bounds, surface, outline, 7U);
-        const char* shown = text;
-        if (text_equals(text, "[]")) shown = "<>";
-        else if (text_equals(text, "-")) shown = "_";
-        else if (text_equals(text, "X")) shown = "x";
-        graphics::draw_text(bounds.x + 10,
-            bounds.y + (bounds.height - 14) / 2, shown ? shown : "",
-            kTheme.text, surface, 2U, true);
+        (void)graphics::draw_text_ellipsized(
+            bounds.x + 10, text_y, shown ? shown : "",
+            bounds.width > 18 ? static_cast<uint32_t>(bounds.width - 18) : 0U,
+            kTheme.text, surface, text_scale, true,
+            graphics::TextWeight::Normal);
         return;
     }
 
@@ -884,15 +893,11 @@ void button(
                             bounds.width - 16, 2, signal);
     }
 
-    const char* rendered = text;
-    if (text_equals(text, "[]")) rendered = "<>";
-    else if (text_equals(text, "-")) rendered = "_";
-    else if (text_equals(text, "X")) rendered = "x";
-
-    graphics::draw_text(bounds.x + 8,
-                        bounds.y + (bounds.height - 14) / 2,
-                        rendered ? rendered : "",
-                        kTheme.text, background, 2U, true);
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 8, text_y, shown ? shown : "",
+        bounds.width > 16 ? static_cast<uint32_t>(bounds.width - 16) : 0U,
+        kTheme.text, background, text_scale, true,
+        graphics::TextWeight::Normal);
 }
 
 void input_field(
@@ -903,9 +908,14 @@ void input_field(
         modern_surface(bounds, surface,
             focused || pressed ? kTheme.accent
                 : (hovered ? kRedMuted : kTheme.border), 7U);
-        graphics::draw_text(bounds.x + 12,
-            bounds.y + (bounds.height - 8) / 2, text ? text : "",
-            kTheme.text, surface, 1U, true);
+        const uint32_t line_height =
+            (8U * graphics::text_scale_percent() + 99U) / 100U;
+        (void)graphics::draw_text_ellipsized(
+            bounds.x + 12,
+            bounds.y + (bounds.height - static_cast<int32_t>(line_height)) / 2,
+            text ? text : "",
+            bounds.width > 24 ? static_cast<uint32_t>(bounds.width - 24) : 0U,
+            kTheme.text, surface, 1U, true, graphics::TextWeight::Normal);
         return;
     }
     const graphics::Color background = pressed
@@ -921,8 +931,14 @@ void input_field(
     graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height,
                         focused || pressed ? kRedBright
                                            : (hovered ? kRedMuted : kRedDeep));
-    graphics::draw_text(bounds.x + 12, bounds.y + (bounds.height - 8) / 2,
-                        text ? text : "", kTheme.text, background, 1U, true);
+    const uint32_t line_height =
+        (8U * graphics::text_scale_percent() + 99U) / 100U;
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 12,
+        bounds.y + (bounds.height - static_cast<int32_t>(line_height)) / 2,
+        text ? text : "",
+        bounds.width > 24 ? static_cast<uint32_t>(bounds.width - 24) : 0U,
+        kTheme.text, background, 1U, true, graphics::TextWeight::Normal);
 }
 
 void metric_card(
@@ -936,10 +952,16 @@ void metric_card(
         const graphics::Color highlight = value == 0U ? kSteel
             : (percent >= 80U ? kTheme.accent : kRedMuted);
         modern_surface(bounds, kGraphite, kTheme.border, 8U);
-        graphics::draw_text(bounds.x + 12, bounds.y + 9,
-            title ? title : "METRIC", kTheme.text, kGraphite, 1U, true);
-        graphics::draw_text(bounds.x + 12, bounds.y + 25,
-            detail ? detail : "", kTheme.text_muted, kGraphite, 1U, true);
+        const uint32_t text_width = bounds.width > 24
+            ? static_cast<uint32_t>(bounds.width - 24) : 0U;
+        (void)graphics::draw_text_ellipsized(
+            bounds.x + 12, bounds.y + 9, title ? title : "METRIC",
+            text_width, kTheme.text, kGraphite, 1U, true,
+            graphics::TextWeight::Normal);
+        (void)graphics::draw_text_ellipsized(
+            bounds.x + 12, bounds.y + 25, detail ? detail : "",
+            text_width, kTheme.text_muted, kGraphite, 1U, true,
+            graphics::TextWeight::Normal);
         if (bounds.width > 28 && bounds.height > 18) {
             const int32_t track_width = bounds.width - 24;
             const int32_t filled = static_cast<int32_t>(
@@ -963,10 +985,16 @@ void metric_card(
     graphics::fill_rect(bounds.x, bounds.y, bounds.width, bounds.height, background);
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height, kTheme.border);
     graphics::fill_rect(bounds.x, bounds.y, 3, bounds.height, signal);
-    graphics::draw_text(bounds.x + 10, bounds.y + 9,
-                        title ? title : "METRIC", kTheme.text, background, 1U, true);
-    graphics::draw_text(bounds.x + 10, bounds.y + 25,
-                        detail ? detail : "", kTheme.text_muted, background, 1U, true);
+    const uint32_t text_width = bounds.width > 20
+        ? static_cast<uint32_t>(bounds.width - 20) : 0U;
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 10, bounds.y + 9, title ? title : "METRIC",
+        text_width, kTheme.text, background, 1U, true,
+        graphics::TextWeight::Normal);
+    (void)graphics::draw_text_ellipsized(
+        bounds.x + 10, bounds.y + 25, detail ? detail : "",
+        text_width, kTheme.text_muted, background, 1U, true,
+        graphics::TextWeight::Normal);
     if (bounds.width > 24 && bounds.height > 16) {
         const int32_t bar_x = bounds.x + 10;
         const int32_t bar_y = bounds.y + bounds.height - 10;

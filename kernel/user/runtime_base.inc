@@ -1817,6 +1817,36 @@ void syscall_handler(
             frame.rax = KU_STATUS_OK;
             return;
         }
+        case KU_SYS_DESKTOP_TEXT_SCALE: {
+            if (frame.rsi != sizeof(ku_desktop_text_scale_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_text_scale_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_text_scale_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_TEXT_SCALE_SET ||
+                (request->action == KU_DESKTOP_TEXT_SCALE_SET &&
+                 request->percent != 100U && request->percent != 125U &&
+                 request->percent != 150U && request->percent != 200U)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_TEXT_SCALE_SET &&
+                !ui::set_desktop_text_scale_percent(request->percent)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_TEXT_SCALE_SET) {
+                windowing::invalidate();
+            }
+            request->percent = ui::desktop_text_scale_percent();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
         case KU_SYS_NET_STATUS: {
             if (frame.rsi != sizeof(ku_network_status) ||
                 !validate_user_buffer(

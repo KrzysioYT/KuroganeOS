@@ -31,6 +31,9 @@ The compiled runtime identity follows explicit milestone closeout. Roadmap quali
    recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
    persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
    exact theme reboot verification are concrete increments, not full completion.
+   Flux Settings now exposes global persistent 100/125/150/200% text rendering;
+   this is not whole-UI HiDPI or per-user profile isolation and still needs guest
+   persistence/visual verification.
 3. Automated VirtualBox 7.2.20 Try/install evidence exists for prior PR SHA
    `0c708fea`; visible mouse/keyboard acceptance is still UNVERIFIED and must
    be repeated on the release candidate. QEMU does not replace this gate.

@@ -29,8 +29,9 @@
   plus freestanding proportional text rendering at 100/125/150/200% text
   scales. Host coverage verifies glyph fallback, metrics, weights and clipping;
   modern and Classic window titles use the bold face. The atlas is guarded by
-  a 512 KiB compile-time memory ceiling. Wrapping, shaping, persistent
-  Settings integration and whole-UI HiDPI remain open. Full host regression,
+  a 512 KiB compile-time memory ceiling. Wrapping and shaping remain open;
+  Settings currently persists global text size only, not whole-UI HiDPI.
+  Full host regression,
   core UBSan, isolated Debug/Release kernel builds and deterministic atlas
   regeneration passed on the unpublished working tree based on `05e67146`;
   media and guest testing remain NOT RUN.
@@ -44,6 +45,13 @@
   same metrics. The latest full host regression, core UBSan, deterministic
   atlas generation and isolated Debug/Release kernel builds passed on the
   working tree based on `561d0a89`; media and guest testing remain NOT RUN.
+- Added an append-only desktop text-scale syscall and Flux Settings controls
+  for globally persisted 100/125/150/200% text rendering. Reset restores 100%;
+  Home reapplies valid preferences on session startup; failed selections
+  attempt and verify rollback. Text buttons, task labels and metrics use
+  bounded ellipsis. This does not scale whole-UI geometry or provide per-user
+  isolation. Host regression and core UBSan pass on this working tree;
+  Debug/Release media and guest verification remain NOT RUN.
 
 ### 3.3.3-dev completion status
 

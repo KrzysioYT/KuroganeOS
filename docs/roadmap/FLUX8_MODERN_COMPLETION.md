@@ -182,11 +182,17 @@ manager or 12.0 production users/groups, signed update and isolation work.
   regression and core UBSan suite passed; fresh isolated Debug and Release
   kernel builds and deterministic atlas regeneration also passed. These
   results are not GitHub Actions evidence for a published commit.
-- This does not yet provide user-selectable/persistent UI scale in Settings,
-  text shaping, general Unicode coverage, paragraph wrapping/general
-  ellipsis for native proportional text, or complete visible desktop
-  qualification. ISO/media packaging and guest visual validation for this
-  increment are NOT RUN.
+- User-selectable, globally persisted text scale is now implemented through
+  the Settings service and an append-only desktop syscall. This does not scale
+  window geometry, icons, pointer coordinates or display resolution, and it
+  is not an isolated per-user profile. Home reapplies a valid value at session
+  startup. Host coverage verifies all four scale values in the renderer; the
+  Settings persistence flow has not yet been guest-verified on the current
+  source revision.
+- This still does not provide text shaping, general Unicode coverage,
+  paragraph wrapping/general ellipsis in every proportional-text surface, or
+  complete visible desktop qualification. ISO/media packaging and guest visual
+  validation for this increment are NOT RUN.
 
 ### Native window-title fitting increment (2026-11-01)
 

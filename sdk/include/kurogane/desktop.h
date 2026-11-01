@@ -103,6 +103,25 @@ static inline ku_status_t ku_desktop_background(
         (uint64_t)sizeof(*request), 0U);
 }
 
+enum ku_desktop_text_scale_action {
+    KU_DESKTOP_TEXT_SCALE_QUERY = 0,
+    KU_DESKTOP_TEXT_SCALE_SET = 1
+};
+typedef struct ku_desktop_text_scale_request {
+    uint32_t structure_size;
+    uint32_t action;
+    uint32_t percent;
+    uint32_t reserved;
+} ku_desktop_text_scale_request;
+
+static inline ku_status_t ku_desktop_text_scale(
+    ku_desktop_text_scale_request* request) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_DESKTOP_TEXT_SCALE,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(*request), 0U);
+}
+
 #ifdef __cplusplus
 }
 #endif

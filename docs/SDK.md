@@ -59,3 +59,18 @@ and public structure contracts; callers must initialize sizes/reserved fields.
 
 There is no dynamic loader, shared-library ABI, C++ standard library,
 exceptions/RTTI, socket API, threads API, PE or `.kex` support in 2.0.
+
+## Desktop text scale
+
+`<kurogane/desktop.h>` exposes `ku_desktop_text_scale()` to query or set the
+global native text-rendering scale. Initialize `structure_size`, choose
+`KU_DESKTOP_TEXT_SCALE_QUERY` or `KU_DESKTOP_TEXT_SCALE_SET`, and use one of
+100, 125, 150 or 200 for `percent`; `reserved` must be zero. The syscall is
+append-only (`KU_SYS_DESKTOP_TEXT_SCALE`, number 74).
+
+This setting scales rendered text, not window geometry, icons, pointer
+coordinates or display resolution. The value is global rather than isolated
+per user. Flux Settings persists it through the system settings service; that
+does not make the underlying settings store atomic against power loss. Home
+reapplies a valid saved value during session startup; a missing or invalid
+setting leaves the current kernel default unchanged.

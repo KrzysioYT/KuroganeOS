@@ -14,6 +14,7 @@
 #define DESKTOP_THEME_STATE_KEY "ui.theme"
 #define DESKTOP_STYLE_STATE_KEY "ui.style"
 #define DESKTOP_BACKGROUND_STATE_KEY "ui.background"
+#define DESKTOP_TEXT_SCALE_STATE_KEY "ui.text_scale"
 
 typedef struct launcher_app {
     const char* label;
@@ -202,6 +203,67 @@ static int restore_desktop_background(void) {
         apply.action = KU_DESKTOP_BACKGROUND_SET;
         apply.background_id = (uint32_t)saved_background;
         const int success = ku_desktop_background(&apply) == KU_STATUS_OK;
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
+
+static int restore_desktop_text_scale(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_percent = 100U;
+    ku_desktop_text_scale_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_TEXT_SCALE_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_percent)) break;
+        memcpy(&saved_percent, response.value, sizeof(saved_percent));
+        if (saved_percent != 100U && saved_percent != 125U &&
+            saved_percent != 150U && saved_percent != 200U) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_TEXT_SCALE_SET;
+        apply.percent = (uint32_t)saved_percent;
+        const int success = ku_desktop_text_scale(&apply) == KU_STATUS_OK &&
+            apply.percent == (uint32_t)saved_percent;
+        if (success) {
+            char value[24];
+            gui_u64(value, sizeof(value), apply.percent);
+            printf("[SETTINGS] text_scale_restored=%s\n", value);
+        }
         (void)ku_service_close(connection);
         return success;
     }
@@ -767,6 +829,11 @@ int main(void) {
         puts("[TEST] flux_background_restore: PASS");
     } else {
         puts("[TEST] flux_background_restore: DEFAULT");
+    }
+    if (restore_desktop_text_scale()) {
+        puts("[TEST] flux_text_scale_restore: PASS");
+    } else {
+        puts("[TEST] flux_text_scale_restore: DEFAULT");
     }
     if (load_pin_state()) {
         (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));

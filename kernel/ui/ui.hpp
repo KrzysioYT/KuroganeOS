@@ -63,6 +63,8 @@ uint32_t desktop_style_id();
 bool set_desktop_style(uint32_t style_id);
 uint32_t desktop_background_id();
 bool set_desktop_background(uint32_t background_id);
+uint32_t desktop_text_scale_percent();
+bool set_desktop_text_scale_percent(uint32_t percent);
 bool contains(const Rect& rectangle, int32_t x, int32_t y);
 void boot_splash(const char* stage, uint32_t progress);
 void login_backdrop(const char* status);
