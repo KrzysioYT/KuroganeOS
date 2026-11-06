@@ -4,6 +4,10 @@ Status: **ACTIVE CANDIDATE / NO PRODUCT STABLE RELEASE**
 Source of truth: `DEVELOPMENT_STATE.md`; work branch
 `codex/road-to-15-stability`; PR #55 kept Draft until qualified.
 
+Companion product strategy: [PRODUCT_ADOPTION_ROADMAP.md](PRODUCT_ADOPTION_ROADMAP.md).
+This file describes engineering workstreams; the product adoption roadmap
+defines the user/developer outcomes and public product-readiness gates.
+
 ## Non-negotiable principles
 
 1. Keep KuroganeOS's own x86-64 UEFI kernel, not Linux, Wine or a superficial
