@@ -13,7 +13,10 @@ for path in ("userspace/gui/files/main.c", "userspace/gui/settings/main.c"):
     assert "KU_UI_EVENT_POINTER" in text, f"{path}: pointer path missing"
     assert "kui_scene_hit_test" in text, f"{path}: libui hit test missing"
     if path.endswith("/settings/main.c"):
-        assert "KU_UI_EVENT_KEY" not in text, f"{path}: keyboard menu path returned"
+        # Settings now accepts focus/activation keys through a bounded local
+        # policy. The desktop-global app launcher shortcuts remain detached.
+        assert "KU_UI_EVENT_KEY" in text and "flux_settings_keyboard(" in text
+        assert "flux_settings_keyboard_access: PASS" in text
     for helper in (
         "gui_key_down(", "gui_key_up(", "gui_key_left(", "gui_key_right(",
         "gui_key_tab(", "gui_key_activate(", "gui_key_cancel(",
@@ -38,6 +41,12 @@ assert "desktop_files_keyboard_navigation: READY" in files
 assert "flux_files_keyboard_navigation: PASS" in files
 assert "KU_UI_EVENT_KEY" in files and "flux_files_keyboard(" in files
 assert '#include "navigation.h"' in files
+assert "RENAME SELECTED" in files and "CANCEL RENAME" in files
+assert "flux_files_rename_check(" in files and "ku_file_rename(" in files
+assert "ku_file_stat_path(" in files, "files: rename needs a collision preflight"
+assert "secondary_pressed" in files, "files: rename needs pointer folder selection"
+assert "scene->visible_rows = 17U" in files, "files: rename control may be hidden"
+assert "gui_open(KU_FLUX_TITLE_FILES, 250, 75, 650, 630)" in files
 
 settings = read("userspace/gui/settings/main.c")
 assert "kui_flow_toggle" in settings, "settings: native toggle cards missing"
@@ -48,6 +57,30 @@ assert "desktop_settings_profile_restore: PASS" in settings
 for control in ("LOW CONTRAST ACCENT", "MUTE AUDIO", "VOLUME -10", "VOLUME +10", "RESET INTERFACE PROFILE", "NEXT COLOR", "PREVIOUS COLOR", "FLUX MODERN"):
     assert control in settings, f"settings: missing modern control {control}"
 assert "UI_THEME_KEY" in settings and "UI_STYLE_KEY" in settings
+assert "UI_BACKGROUND_KEY" in settings
+assert "UI_TEXT_SCALE_KEY" in settings
+assert "apply_text_scale_choice" in settings
+assert "flux_8_text_scale_selector: READY" in settings
+assert "flux_text_scale_persistence: PASS" in settings
+assert "write_text_scale_setting" in settings and "read_text_scale_setting" in settings
+assert "text_scale_saved=%s" in settings
+for preset in ("FORGED STEEL", "GRAPHITE GRID", "MINIMAL DARK"):
+    assert preset in settings, f"settings: missing wallpaper choice {preset}"
+assert 'kui_flow_toggle(&root, 40U' in settings
+assert 'kui_flow_toggle(&root, 41U' in settings
+assert 'kui_flow_toggle(&root, 42U' in settings
+assert "write_background_setting" in settings and "read_background_setting" in settings
+assert "apply_background_choice" in settings
+assert "WALLPAPER / PARTIAL FAILURE" in settings
+assert "select_desktop_background" in settings
+assert "restore_desktop_background()" in read("userspace/gui/launcher/main.c")
+assert "restore_desktop_text_scale()" in read("userspace/gui/launcher/main.c")
+assert "DESKTOP_TEXT_SCALE_STATE_KEY" in read("userspace/gui/launcher/main.c")
+assert "flux_text_scale_restore: PASS" in read("userspace/gui/launcher/main.c")
+assert read("userspace/gui/launcher/main.c").index("flux_home_ui_present: PASS") < \
+    read("userspace/gui/launcher/main.c").index("if (restore_desktop_text_scale())")
+assert "KU_SYS_DESKTOP_TEXT_SCALE" in read("kernel/user/runtime_base.inc")
+assert "KU_SYS_DESKTOP_BACKGROUND" in read("kernel/user/runtime_base.inc")
 assert "read_theme_setting" in settings and "write_theme_setting" in settings
 assert "read_style_setting" in settings and "write_style_setting" in settings
 assert "flux_theme_persistence: PASS" in settings
@@ -63,7 +96,7 @@ assert "write_bool_setting" in settings and "read_bool_setting" in settings
 assert "desktop_settings_profile_persist: PASS" in settings
 assert "desktop_settings_profile_restore: PASS" in settings
 assert "desktop_settings_mouse_navigation: PASS" in settings
-assert "desktop_settings_keyboard_shortcuts_detached: PASS" in settings
+assert "flux_settings_keyboard_ready: PASS" in settings
 
 terminal = read("userspace/gui/terminal/main.c")
 assert "KU_UI_EVENT_KEY" in terminal, "terminal: required keyboard input was removed"
@@ -183,7 +216,7 @@ assert "forge_control_audio_surface: PASS" in control_center
 assert "flux_control_center_audio_action: PASS" in control_center
 assert '"FORGE CONTROL"' in launcher
 assert '"system pulse / network / audio"' in launcher
-assert "KU_FLUX_TITLE_PERFORMANCE, 'v'" in window_manager
+assert "KU_FLUX_TITLE_PERFORMANCE, KU_FLUX_EXEC_PERFORMANCE, 'v'" in window_manager
 assert 'text_equals(title, "CONTROL CENTER")' in window_manager
 
 browser = read("userspace/gui/browser/main.c")

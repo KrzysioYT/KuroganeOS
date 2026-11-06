@@ -1,8 +1,8 @@
 #include "driver_manager.hpp"
 
-extern "C" __attribute__((weak)) KStatus kurogane_register_builtin_drivers() {
-    return KStatus::Ok;
-}
+#if !defined(KUROGANE_HOST_TEST)
+extern "C" KStatus kurogane_register_builtin_drivers() __attribute__((weak));
+#endif
 
 namespace drivers::driver {
 namespace {
@@ -63,6 +63,7 @@ KStatus initialize() {
     // register themselves here.  The hook runs before PCI Device records are
     // published, which is intentional: bind_all() happens only after the
     // complete device enumeration in kernel/main.cpp.
+#if !defined(KUROGANE_HOST_TEST)
     if (kurogane_register_builtin_drivers != nullptr) {
         const KStatus status = kurogane_register_builtin_drivers();
         if (status != KStatus::Ok && status != KStatus::AlreadyExists) {
@@ -71,6 +72,7 @@ KStatus initialize() {
             return status;
         }
     }
+#endif
     return KStatus::Ok;
 }
 

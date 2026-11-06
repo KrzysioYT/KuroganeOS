@@ -82,6 +82,7 @@ struct UiState {
     ui_event_queue::Queue events;
     windowing::WindowId window;
     bool active;
+    bool native;
 };
 
 struct Context {
@@ -165,16 +166,34 @@ bool native_frame_valid(const ku_ui_native_frame& frame) {
 ui::Rect native_bounds(
     const ui::Rect& content,
     const ku_ui_native_command& command) {
-    int32_t width = command.width;
-    if (width == 0) width = content.width - command.x - 16;
+    const uint32_t scale_percent = ui::desktop_text_scale_percent();
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t inset = 0;
+    if (!graphics::scale_layout_coordinate(command.x, scale_percent, &x) ||
+        !graphics::scale_layout_coordinate(command.y, scale_percent, &y) ||
+        !graphics::scale_layout_coordinate(16, scale_percent, &inset)) {
+        return {content.x, content.y, 0, 0};
+    }
+    if (command.width == 0) {
+        width = content.width - x - inset;
+    } else if (!graphics::scale_layout_coordinate(
+                   command.width, scale_percent, &width)) {
+        return {content.x, content.y, 0, 0};
+    }
     if (width < 1) width = 1;
-    const int32_t available_width = content.width - command.x;
+    const int32_t available_width = content.width - x;
     if (available_width > 0 && width > available_width) width = available_width;
-    int32_t height = command.height;
-    const int32_t available_height = content.height - command.y;
+    if (!graphics::scale_layout_coordinate(
+            command.height, scale_percent, &height)) {
+        return {content.x, content.y, 0, 0};
+    }
+    const int32_t available_height = content.height - y;
     if (available_height > 0 && height > available_height) height = available_height;
     if (height < 1) height = 1;
-    return {content.x + command.x, content.y + command.y, width, height};
+    return {content.x + x, content.y + y, width, height};
 }
 
 void split_native_tile_text(
@@ -392,9 +411,9 @@ void input_user_window(
         event.key = static_cast<uint32_t>(input_event.key);
         event.character = static_cast<uint8_t>(input_event.character);
         event.modifiers =
-            (input_event.shift ? KU_UI_MOD_SHIFT : 0U) |
-            (input_event.control ? KU_UI_MOD_CONTROL : 0U) |
-            (input_event.alt ? KU_UI_MOD_ALT : 0U);
+            (input_event.shift ? static_cast<uint32_t>(KU_UI_MOD_SHIFT) : 0U) |
+            (input_event.control ? static_cast<uint32_t>(KU_UI_MOD_CONTROL) : 0U) |
+            (input_event.alt ? static_cast<uint32_t>(KU_UI_MOD_ALT) : 0U);
     } else if (input_event.type == input::EventType::MouseMove ||
                input_event.type == input::EventType::MouseButtonDown ||
                input_event.type == input::EventType::MouseButtonUp ||
@@ -405,8 +424,20 @@ void input_user_window(
         }
         event.type = input_event.type == input::EventType::MouseWheel
             ? KU_UI_EVENT_SCROLL : KU_UI_EVENT_POINTER;
-        event.x = input_event.x - content.x;
-        event.y = input_event.y - content.y;
+        const int32_t physical_x = input_event.x - content.x;
+        const int32_t physical_y = input_event.y - content.y;
+        if (context->ui.native) {
+            const uint32_t scale_percent = ui::desktop_text_scale_percent();
+            if (!graphics::unscale_layout_coordinate(
+                    physical_x, scale_percent, &event.x) ||
+                !graphics::unscale_layout_coordinate(
+                    physical_y, scale_percent, &event.y)) {
+                return;
+            }
+        } else {
+            event.x = physical_x;
+            event.y = physical_y;
+        }
         event.buttons = input_event.buttons;
         if (input_event.type == input::EventType::MouseWheel) {
             event.wheel_y = static_cast<int32_t>(input_event.wheel);
@@ -1543,6 +1574,7 @@ void syscall_handler(
                     frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                     return;
                 }
+                context->ui.native = true;
                 system_metrics::record_graphics_work(
                     UINT64_C(1) + static_cast<uint64_t>(user_native->command_count));
                 frame.rax = KU_STATUS_OK;
@@ -1576,6 +1608,7 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+            context->ui.native = false;
             context->ui.frame = *user_frame;
             system_metrics::record_graphics_work(
                 UINT64_C(1) + static_cast<uint64_t>(user_frame->line_count));
@@ -1786,6 +1819,64 @@ void syscall_handler(
                 windowing::invalidate();
             }
             request->theme_id = ui::desktop_theme_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_BACKGROUND: {
+            if (frame.rsi != sizeof(ku_desktop_background_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_background_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_background_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_BACKGROUND_SET ||
+                (request->action == KU_DESKTOP_BACKGROUND_SET &&
+                 request->background_id >= KU_FLUX_BACKGROUND_COUNT)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_BACKGROUND_SET) {
+                if (!ui::set_desktop_background(request->background_id)) {
+                    frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                    return;
+                }
+                windowing::invalidate();
+            }
+            request->background_id = ui::desktop_background_id();
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
+        case KU_SYS_DESKTOP_TEXT_SCALE: {
+            if (frame.rsi != sizeof(ku_desktop_text_scale_request) ||
+                !validate_user_buffer(
+                    *context, frame.rdi, sizeof(ku_desktop_text_scale_request), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* request = reinterpret_cast<ku_desktop_text_scale_request*>(
+                static_cast<uintptr_t>(frame.rdi));
+            if (request->structure_size != sizeof(*request) ||
+                request->reserved != 0U ||
+                request->action > KU_DESKTOP_TEXT_SCALE_SET ||
+                (request->action == KU_DESKTOP_TEXT_SCALE_SET &&
+                 request->percent != 100U && request->percent != 125U &&
+                 request->percent != 150U && request->percent != 200U)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_TEXT_SCALE_SET &&
+                !ui::set_desktop_text_scale_percent(request->percent)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            if (request->action == KU_DESKTOP_TEXT_SCALE_SET) {
+                windowing::invalidate();
+            }
+            request->percent = ui::desktop_text_scale_percent();
             frame.rax = KU_STATUS_OK;
             return;
         }

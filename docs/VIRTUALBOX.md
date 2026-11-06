@@ -21,6 +21,9 @@ Profil generuje `scripts/create-virtualbox-vm.ps1`; ten skrypt jest źródłem
 ustawień EFI, dysku, NIC, grafiki i input. Nie instaluj Guest Additions.
 Do testu instalacji używaj osobnego, pustego VDI. Potwierdzenie `INSTALL`
 kasuje wybrany dysk; nie stosuj reinstalacji jako automatycznej naprawy danych.
+Profil VirtualBox używa klawiatury i myszy PS/2; test QEMU USB-only używa
+klawiatury HID i **USB Tablet**. PS/2 Mouse pozostaje ścieżką zgodności,
+nie zastępuje wymaganego testu USB.
 
 ## Diagnostyka i akceptacja
 

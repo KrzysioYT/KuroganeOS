@@ -164,6 +164,7 @@ Stare plany i audyty pozostają zapisami historii, a nie listą bieżących brak
 - [testing/STEEL_5_0_MANUAL.md](testing/STEEL_5_0_MANUAL.md)
 
 ### Plany i kwalifikacja
+- [roadmap/PRODUCT_ADOPTION_ROADMAP.md](roadmap/PRODUCT_ADOPTION_ROADMAP.md)
 
 - [roadmap/CURRENT_RELEASE.md](roadmap/CURRENT_RELEASE.md)
 - [roadmap/DESKTOP_ROADMAP.md](roadmap/DESKTOP_ROADMAP.md)

@@ -35,7 +35,7 @@ run_test libk "$root/tests/test_libk.cpp" \
     "$root/kernel/libk/hash.cpp" \
     "$root/kernel/libk/crc.cpp" \
     "$root/kernel/libk/utf8.cpp"
-run_test driver-core "$root/tests/test_driver_core.cpp" \
+run_test driver-core -DKUROGANE_HOST_TEST "$root/tests/test_driver_core.cpp" \
     "$root/kernel/drivers/core/device_manager.cpp" \
     "$root/kernel/drivers/core/driver_manager.cpp" \
     "$root/kernel/drivers/core/runtime_qualification.cpp"
@@ -193,10 +193,15 @@ run_test sdk-test -I"$root/sdk/include" \
     "$root/tests/test_sdk_test.cpp"
 
 echo "[build] sdk-sysroot"
-CXX="$cxx" "$root/scripts/build-sdk.sh"
+"$root/scripts/build-sdk.sh"
+sdk_cxx="${KUROGANE_CXX:-}"
+if [[ -z "$sdk_cxx" ]]; then
+    if command -v x86_64-elf-g++ >/dev/null 2>&1; then sdk_cxx=x86_64-elf-g++
+    else sdk_cxx="$cxx"; fi
+fi
 echo "[run] sdk-project-generator"
 "${PYTHON:-python3}" "$root/tests/test_sdk_project_generator.py" \
-    --root "$root" --cxx "$cxx" --make "${MAKE:-make}"
+    --root "$root" --cxx "$sdk_cxx" --make "${MAKE:-make}"
 echo "[pass] sdk-project-generator"
 
 echo "[pass] all host tests"

@@ -5,6 +5,12 @@ root = Path(__file__).resolve().parents[1]
 kernel = (root / "kernel/ui/window_manager.cpp").read_text()
 launcher = (root / "userspace/gui/launcher/main.c").read_text()
 assert "KU_FLUX_TITLE_TERMINAL" in kernel
+for key in ("HOME", "TERMINAL", "FILES", "PERFORMANCE", "BROWSER",
+            "MONITOR", "SETTINGS", "ABOUT"):
+    assert f"KU_FLUX_TITLE_{key}, KU_FLUX_EXEC_{key}" in kernel, (
+        "Dock title must be tied to its installed executable: " + key
+    )
+assert "owner.executable, pin.executable" in kernel
 assert "KU_FLUX_TITLE_TERMINAL" in (root / "userspace/gui/terminal/main.c").read_text()
 assert '"FLUX TERMINAL"' not in kernel, "stale WM terminal title reintroduced"
 assert "KU_FLUX_TITLE_HOME" in launcher

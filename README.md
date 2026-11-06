@@ -6,8 +6,8 @@ usługami i natywnym pulpitem Flux. Nie jest dystrybucją Linuxa.
 **Wersja kodu: 7.0.0-dev. Priorytet: ukończenie Flux Modern 8.0.
 Cel końcowy: 15.0.0 stable. Projekt pozostaje w rozwoju.**
 
-Bieżąca praca: `codex/road-to-15-stability`,
-[PR #55](https://github.com/KrzysioYT/KuroganeOS/pull/55).
+Bieżąca praca: `integration/flux8-reconciliation`,
+[Draft PR #58](https://github.com/KrzysioYT/KuroganeOS/pull/58).
 [Stan i dowody](DEVELOPMENT_STATE.md) rozróżniają implementację od kwalifikacji.
 
 ## Uruchomienie
