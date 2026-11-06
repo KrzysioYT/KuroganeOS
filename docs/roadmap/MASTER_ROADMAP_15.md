@@ -58,6 +58,23 @@ UNVERIFIED.
 `reliable-file` and CLA checks; force-push and branch deletion are disabled,
 including for administrators.
 
+## Product adoption strategy
+
+The formal version sequence below remains the source of truth for milestone
+numbering and qualification. The user-facing goals, adoption priorities,
+hardware tiers, ecosystem strategy and 15.0 product acceptance contract are
+defined in [PRODUCT_ADOPTION_ROADMAP.md](PRODUCT_ADOPTION_ROADMAP.md).
+
+Use both documents together:
+- this master roadmap answers **which formal milestone and engineering scope**;
+- the product adoption roadmap answers **what users/developers must be able to do**
+  and what evidence is needed before KuroganeOS is a credible desktop alternative.
+
+The adoption roadmap does not change the kernel architecture, current release
+identity, licence, existing branch state or release gates. Explicit owner
+decisions (especially licensing, certified hardware and compatibility scope)
+remain decisions, not assumed implementation tasks.
+
 ## Feature-led development, qualification-led releases (2026-10-27 decision)
 
 The roadmap must describe **capabilities people can actually use**, not only
