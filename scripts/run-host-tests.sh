@@ -37,6 +37,9 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_PYTHON" tests/test_qmp_pointer_selection.py
 "$HOST_PYTHON" tests/test_flux_lifecycle_qmp.py
 "$HOST_PYTHON" tests/test_installer_qemu_safety.py
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_dev_login_profile.c -o "$OUT_DIR/test_dev_login_profile"
+"$OUT_DIR/test_dev_login_profile"
 
 # Keep the strict compiler probe alongside the lifecycle evidence tests.
 "$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \

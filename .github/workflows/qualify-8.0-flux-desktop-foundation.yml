@@ -70,6 +70,15 @@ jobs:
           fi
       - name: Memory, ELF, IPC, scheduler and ownership UBSan
         run: bash scripts/test-core-ubsan.sh
+      - name: Installed login profile fails closed
+        run: |
+          mkdir -p build/tests/desktop
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            tests/test_dev_login_profile.c -o build/tests/desktop/login-profile
+          build/tests/desktop/login-profile
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_dev_login_profile.c -o build/tests/desktop/login-profile-ubsan
+          build/tests/desktop/login-profile-ubsan
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop

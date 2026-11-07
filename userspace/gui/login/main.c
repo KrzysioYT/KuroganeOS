@@ -1,13 +1,11 @@
 #include "../common.h"
 #include "../../../common/version.h"
-#include "../../../common/dev_profile.h"
+#include "../../runtime/dev_login_profile.h"
 
 #include <kurogane/account.h>
 #include <kurogane/session.h>
 
-#define LOGIN_USERNAME_CAPACITY KU_DEV_PROFILE_USERNAME_CAPACITY
 #define LOGIN_PASSWORD_CAPACITY 48U
-#define LOGIN_CONFIG_CAPACITY 384U
 #define LOGIN_SERVICE_ATTEMPTS 200U
 
 // On-screen, non-sensitive session-stage label. The specific transport and
@@ -15,75 +13,13 @@
 static const char* g_failed_stage = "UNKNOWN";
 static char g_retry_message[96];
 
-
-
-typedef struct login_profile {
-    char username[LOGIN_USERNAME_CAPACITY];
-    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
-    uint64_t password_hash;
-    int password_required;
-    int installed_profile;
-    int profile_valid;
-} login_profile;
-
-static int read_small_file(const char* path, char* output, size_t capacity) {
-    const ku_result_t opened = ku_open(path, strlen(path), KU_OPEN_READ);
-    if (opened <= 0 || output == NULL || capacity < 2U) return 0;
-    {
-        const ku_handle_t handle = (ku_handle_t)opened;
-        const ku_result_t result = ku_read(handle, output, capacity - 1U);
-        (void)ku_close(handle);
-        if (result < 0) return 0;
-        output[(size_t)result] = '\0';
-        return 1;
-    }
-}
-
-static void load_profile(login_profile* profile) {
-    char config[LOGIN_CONFIG_CAPACITY];
-    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
-    struct ku_dev_profile_data parsed = {{0}, 0U, 0};
-    int locale_valid = 0;
-
-    if (profile == NULL) return;
-    memset(profile, 0, sizeof(*profile));
-    (void)strlcpy(profile->username, "developer", sizeof(profile->username));
-    (void)strlcpy(profile->locale, "en-US", sizeof(profile->locale));
-    profile->profile_valid = 1;
-
-    if (read_small_file("/etc/locale.cfg", config, sizeof(config))) {
-        locale_valid = ku_dev_profile_parse_locale(config, locale);
-        if (locale_valid) {
-            (void)strlcpy(profile->locale, locale, sizeof(profile->locale));
-        }
-    }
-
-    if (!read_small_file("/etc/user.cfg", config, sizeof(config))) return;
-
-    profile->installed_profile = 1;
-    if (!locale_valid || !ku_dev_profile_parse_user_config(config, &parsed)) {
-        /*
-         * Fail closed. A truncated/tampered installed profile must never turn
-         * into the zero-initialized no-password path.
-         */
-        profile->profile_valid = 0;
-        profile->password_required = 1;
-        profile->password_hash = 0U;
-        return;
-    }
-
-    (void)strlcpy(profile->username, parsed.username, sizeof(profile->username));
-    profile->password_required = parsed.password_required;
-    profile->password_hash = parsed.password_hash;
-}
-
-static int is_polish(const login_profile* profile) {
+static int is_polish(const ku_dev_login_profile* profile) {
     return profile != NULL && profile->locale[0] == 'p' && profile->locale[1] == 'l';
 }
 
 static void build_scene(
     kui_scene* scene,
-    const login_profile* profile,
+    const ku_dev_login_profile* profile,
     const char* password,
     const char* error) {
     kui_flow root;
@@ -105,13 +41,15 @@ static void build_scene(
     (void)kui_flow_panel(&root, 1U,
         polish ? "LOGOWANIE KUROGANEOS" : "KUROGANEOS LOGIN");
     (void)kui_flow_label(&root, 2U, KUROGANE_PRODUCT_STRING " / DEV BETA");
-    (void)strlcpy(account_line + strlen(account_line), profile->username,
-                  sizeof(account_line) - strlen(account_line));
-    (void)kui_flow_label(&root, 3U, account_line);
+    if (profile->kind != KU_DEV_LOGIN_BLOCKED) {
+        (void)strlcpy(account_line + strlen(account_line), profile->credentials.username,
+                      sizeof(account_line) - strlen(account_line));
+        (void)kui_flow_label(&root, 3U, account_line);
+    }
     (void)kui_flow_separator(&root, 4U);
 
     kui_flow_begin(&session, scene, 1U);
-    if (profile->installed_profile && !profile->profile_valid) {
+    if (profile->kind == KU_DEV_LOGIN_BLOCKED) {
         (void)kui_flow_label(&session, 9U,
             polish ? "PROFIL KONTA JEST USZKODZONY"
                    : "ACCOUNT PROFILE IS INVALID");
@@ -124,12 +62,12 @@ static void build_scene(
         return;
     }
 
-    if (!profile->installed_profile) {
+    if (profile->kind == KU_DEV_LOGIN_LIVE) {
         (void)kui_flow_label(&session, 9U,
             polish ? "SESJA LIVE / TYLKO DO ODCZYTU"
                    : "LIVE SESSION / READ-ONLY SYSTEM ROOT");
     }
-    if (profile->password_required) {
+    if (profile->credentials.password_required) {
         const size_t length = strlen(password);
         const size_t count = length < sizeof(masked) - 1U
             ? length : sizeof(masked) - 1U;
@@ -230,7 +168,7 @@ static ku_status_t session_transact(
     return KU_STATUS_WOULD_BLOCK;
 }
 
-static int current_account(const login_profile* profile, uint64_t* account_id) {
+static int current_account(const ku_dev_login_profile* profile, uint64_t* account_id) {
     ku_result_t connected;
     ku_service_connection_t connection;
     ku_account_request request;
@@ -255,9 +193,15 @@ static int current_account(const login_profile* profile, uint64_t* account_id) {
         puts("[SESSION] flux_account_reply: FAIL");
         return 0;
     }
-    if (response.account_id == 0U ||
-        (response.flags & KU_ACCOUNT_FLAG_PROFILE_VALID) == 0U ||
-        strcmp(response.username, profile->username) != 0) {
+    const uint32_t expected_flags = KU_ACCOUNT_FLAG_PROFILE_VALID |
+        (profile->kind == KU_DEV_LOGIN_INSTALLED
+            ? KU_ACCOUNT_FLAG_INSTALLED : KU_ACCOUNT_FLAG_LIVE) |
+        (profile->credentials.password_required
+            ? KU_ACCOUNT_FLAG_PASSWORD_REQUIRED : 0U);
+    if (response.account_id == 0U || response.flags != expected_flags ||
+        strncmp(response.username, profile->credentials.username,
+                sizeof(response.username)) != 0 ||
+        strncmp(response.locale, profile->locale, sizeof(response.locale)) != 0) {
         // No user/profile values are written to serial; a mismatch is
         // important when booting with a persisted installed account.
         puts("[SESSION] flux_account_profile_mismatch: FAIL");
@@ -346,7 +290,7 @@ static int wait_for_desktop(uint64_t pid) {
     }
 }
 
-static int start_session(ku_window_t window, const login_profile* profile) {
+static int start_session(ku_window_t window, const ku_dev_login_profile* profile) {
     const char launcher[] = "/gui/launcher";
     ku_result_t connected;
     ku_service_connection_t connection;
@@ -484,7 +428,7 @@ cleanup:
  * Negative results guarantee that the Login window is still alive.
  */
 static int try_start_session(
-    ku_window_t window, const login_profile* profile, char* password,
+    ku_window_t window, const ku_dev_login_profile* profile, char* password,
     size_t* password_length, const char** error, kui_scene* scene) {
     const int status = start_session(window, profile);
     if (status >= 0) return status;
@@ -508,7 +452,7 @@ static int try_start_session(
 }
 
 int main(void) {
-    login_profile profile;
+    ku_dev_login_profile profile;
     char password[LOGIN_PASSWORD_CAPACITY] = {0};
     size_t password_length = 0U;
     const char* error = NULL;
@@ -516,7 +460,7 @@ int main(void) {
     kui_scene scene;
     uint32_t pointer_buttons = 0U;
 
-    load_profile(&profile);
+    ku_dev_login_load_profile(&profile);
     window = gui_open("KUROGANE LOGIN", 280, 245, 520, 290);
     if (window == KU_INVALID_WINDOW) return 1;
 
@@ -527,10 +471,10 @@ int main(void) {
     }
 
     puts("[TEST] red_flux_login_surface: PASS");
-    if (profile.installed_profile && !profile.profile_valid) {
+    if (profile.kind == KU_DEV_LOGIN_BLOCKED) {
         puts("[TEST] installed_account_profile_invalid_blocked: PASS");
     } else {
-        puts(profile.installed_profile
+        puts(profile.kind == KU_DEV_LOGIN_INSTALLED
             ? "[TEST] installed_account_profile: PASS"
             : "[TEST] live_login_profile: PASS");
     }
@@ -543,12 +487,12 @@ int main(void) {
             return 0;
         }
 
-        if (profile.installed_profile && !profile.profile_valid) {
+        if (profile.kind == KU_DEV_LOGIN_BLOCKED) {
             /* Invalid persistent credentials are a hard authentication gate. */
             continue;
         }
 
-        if (!profile.password_required && event.type == KU_UI_EVENT_POINTER) {
+        if (!profile.credentials.password_required && event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
             pointer_buttons = event.buttons;
             if ((event.buttons & UINT32_C(1)) != 0U &&
@@ -564,7 +508,7 @@ int main(void) {
         }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (!profile.password_required) {
+        if (!profile.credentials.password_required) {
             if (gui_key_activate(&event)) {
                 const int launched = try_start_session(
                     window, &profile, password, &password_length, &error, &scene);
@@ -582,7 +526,7 @@ int main(void) {
             error = NULL;
         } else if (gui_key_activate(&event)) {
             if (ku_dev_credential_verify(
-                    profile.username, password, profile.password_hash)) {
+                    profile.credentials.username, password, profile.credentials.password_hash)) {
                 puts("[TEST] installed_login_password: PASS");
                 const int launched = try_start_session(
                     window, &profile, password, &password_length, &error, &scene);
