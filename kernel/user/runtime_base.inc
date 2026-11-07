@@ -169,30 +169,35 @@ ui::Rect native_bounds(
     const uint32_t scale_percent = ui::desktop_text_scale_percent();
     int32_t x = 0;
     int32_t y = 0;
-    int32_t width = 0;
-    int32_t height = 0;
+    int32_t bottom = 0;
     int32_t inset = 0;
+    // Commands have already passed native_frame_valid, including bounded
+    // nonnegative positions and extents. Transform both ends of each span.
     if (!graphics::scale_layout_coordinate(command.x, scale_percent, &x) ||
         !graphics::scale_layout_coordinate(command.y, scale_percent, &y) ||
+        !graphics::scale_layout_coordinate(
+            command.y + command.height, scale_percent, &bottom) ||
         !graphics::scale_layout_coordinate(16, scale_percent, &inset)) {
         return {content.x, content.y, 0, 0};
     }
-    if (command.width == 0) {
-        width = content.width - x - inset;
-    } else if (!graphics::scale_layout_coordinate(
-                   command.width, scale_percent, &width)) {
+    const int32_t available_width = content.width - x;
+    const int32_t available_height = content.height - y;
+    if (available_width <= 0 || available_height <= 0) {
         return {content.x, content.y, 0, 0};
+    }
+    int32_t width = available_width - inset;
+    if (command.width != 0) {
+        int32_t right = 0;
+        if (!graphics::scale_layout_coordinate(
+                command.x + command.width, scale_percent, &right)) {
+            return {content.x, content.y, 0, 0};
+        }
+        width = right - x;
     }
     if (width < 1) width = 1;
-    const int32_t available_width = content.width - x;
-    if (available_width > 0 && width > available_width) width = available_width;
-    if (!graphics::scale_layout_coordinate(
-            command.height, scale_percent, &height)) {
-        return {content.x, content.y, 0, 0};
-    }
-    const int32_t available_height = content.height - y;
-    if (available_height > 0 && height > available_height) height = available_height;
-    if (height < 1) height = 1;
+    if (width > available_width) width = available_width;
+    int32_t height = bottom - y;
+    if (height > available_height) height = available_height;
     return {content.x + x, content.y + y, width, height};
 }
 
@@ -252,6 +257,7 @@ void draw_native_frame(
     for (uint32_t index = 0U; index < frame.command_count; ++index) {
         const ku_ui_native_command& command = frame.commands[index];
         const ui::Rect bounds = native_bounds(content, command);
+        if (bounds.width <= 0 || bounds.height <= 0) continue;
         const bool selected = (command.flags & KU_UI_NATIVE_SELECTED) != 0U;
         const bool disabled = (command.flags & KU_UI_NATIVE_DISABLED) != 0U;
         const bool destructive =

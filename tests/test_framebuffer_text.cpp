@@ -36,9 +36,34 @@ size_t count_gray(uint32_t x, uint32_t y, uint32_t width,
     }
     return count;
 }
+
+void test_layout_input_edges() {
+    const uint32_t scales[] = {100U, 125U, 150U, 200U};
+    // Odd origins and widths expose fractional edges; negative starts
+    // cover pointer capture that carries a coordinate outside the client.
+    for (uint32_t scale : scales) {
+        for (int32_t begin = -4; begin < 40; ++begin) {
+            for (int32_t length = 1; length < 9; ++length) {
+                const int32_t end = begin + length;
+                int32_t physical_begin = 0;
+                int32_t physical_end = 0;
+                assert(graphics::scale_layout_coordinate(begin, scale, &physical_begin));
+                assert(graphics::scale_layout_coordinate(end, scale, &physical_end));
+                assert(physical_begin < physical_end);
+                for (int32_t pixel = physical_begin - 1; pixel <= physical_end; ++pixel) {
+                    int32_t logical = 0;
+                    assert(graphics::unscale_layout_coordinate(pixel, scale, &logical));
+                    const bool visible = pixel >= physical_begin && pixel < physical_end;
+                    assert((logical >= begin && logical < end) == visible);
+                }
+            }
+        }
+    }
+}
 }
 
 int main() {
+    test_layout_input_edges();
     KuroganeFramebuffer framebuffer{};
     framebuffer.base = g_pixels;
     framebuffer.width = WIDTH;

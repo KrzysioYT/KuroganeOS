@@ -116,6 +116,12 @@ jobs:
           c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
             -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke-ubsan
           build/tests/desktop/dock-smoke-ubsan
+      - name: Fractional scale rendering and pointer edges with UBSan
+        run: |
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_framebuffer_text.cpp kernel/drivers/framebuffer.cpp \
+            -o build/tests/desktop/framebuffer-text-ubsan
+          build/tests/desktop/framebuffer-text-ubsan
       - name: Assert actual authenticated Files launch is in QEMU contract
         run: |
           python3 tests/test_flux8_application_smoke.py

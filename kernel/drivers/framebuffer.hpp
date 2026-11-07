@@ -61,7 +61,8 @@ void set_text_scale_limit(uint32_t maximum_scale);
 void reset_text_scale_limit();
 bool set_text_scale_percent(uint32_t percent);
 uint32_t text_scale_percent();
-// Translate native layout positions and pointer events using the same scale.
+// Map half-open logical rectangle boundaries (ceil) and physical input pixels
+// (floor). Scale both rectangle ends, then subtract to get the pixel extent.
 bool scale_layout_coordinate(
     int32_t coordinate, uint32_t percent, int32_t* scaled);
 bool unscale_layout_coordinate(

@@ -85,9 +85,13 @@ class Harness:
         time.sleep(.2)
 
     def pointer(self, info, x, y):
+        # The guest floors tablet samples. Round the encoded value upwards
+        # so a test that targets a one-pixel edge hits that exact pixel.
+        dx, dy = info['sw'] - 1, info['sh'] - 1
+        assert 0 <= x <= dx and 0 <= y <= dy
         self.execute('input-send-event', {'events': [
-            {'type': 'abs', 'data': {'axis': 'x', 'value': round(x * 32767 / (info['sw'] - 1))}},
-            {'type': 'abs', 'data': {'axis': 'y', 'value': round(y * 32767 / (info['sh'] - 1))}}]})
+            {'type': 'abs', 'data': {'axis': 'x', 'value': (x * 32767 + dx - 1) // dx}},
+            {'type': 'abs', 'data': {'axis': 'y', 'value': (y * 32767 + dy - 1) // dy}}]})
         time.sleep(.15)
 
     def button(self, down):
@@ -106,6 +110,32 @@ class Harness:
             raise FileExistsError(target)
         time.sleep(.3)
         self.execute('screendump', {'filename': str(target)})
+
+    def verify_scaled_files_edge(self, files):
+        start = self.mark()
+        self.key('ctrl', 'alt', 'f3')
+        files = self.wait(start, 'focus', app=2, window=files['id'])
+        # Files starts in /, sorts directories first, and its first tile
+        # follows the panel and breadcrumb. Click the *last painted pixel*
+        # of the tile at 200%, not its center. Previously inverse rounding
+        # sent that pixel to the first logical row below the tile.
+        tile_x = 16 + 12
+        tile_bottom = 16 + (38 + 6) + (22 + 6) + 68
+        x = files['x'] + 4 + 2 * (tile_x + 40)
+        y = files['y'] + 36 + 2 * tile_bottom - 1
+        assert x < files['x'] + files['w'] - 4
+        assert y < files['y'] + files['h'] - 4
+        self.pointer(files, x, y)
+        self.button(True)
+        self.button(False)
+        self.screenshot('08-files-200-percent')
+        # History can go back only if the pointer really opened a folder.
+        marker = '[TEST] flux_files_history: PASS'
+        previous = self.serial.read_text(errors='replace').count(marker)
+        self.key('alt', 'left')
+        self.wait_marker(marker, previous)
+        print('[lifecycle] Files tile edge at 200% opened a real directory: PASS',
+              flush=True)
 
     def run(self):
         time.sleep(2)  # Let Home's normal autostart finish before resource checks.
@@ -214,24 +244,23 @@ class Harness:
             self.wait_marker('[TEST] flux_theme_persistence: PASS')
             self.key('tab')
             self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 1)
-            self.key('tab')
-            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
+            # TEXT SIZE - wraps 100% to 200%, where a last-pixel hit
+            # exercises the most visible edge error.
             self.key('ret')
             self.wait_marker('[TEST] flux_text_scale_persistence: PASS')
+            self.wait_marker('[SETTINGS] text_scale_saved=200')
             self.key('shift', 'tab')
-            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 3)
-            self.key('shift', 'tab')
-            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 4)
+            self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
         # Return to the color controls after exercising text-scale persistence.
         self.key('shift', 'tab')
         self.wait_marker(
             '[INPUT] flux_settings_keyboard_focus: PASS',
-            4 if self.settings_write else 1)
+            3 if self.settings_write else 1)
         self.screenshot('06-settings-keyboard-scroll')
         self.key('tab')
         self.wait_marker(
             '[INPUT] flux_settings_keyboard_focus: PASS',
-            5 if self.settings_write else 2)
+            4 if self.settings_write else 2)
         self.screenshot('07-settings-keyboard-wrap')
         if self.settings_write:
             self.key('spc')
@@ -239,6 +268,8 @@ class Harness:
         start = self.mark()
         self.control(settings, 0)
         self.wait(start, 'close', app=6, window=settings['id'])
+        if self.settings_write:
+            self.verify_scaled_files_edge(files)
         (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
         self.read()  # Fail even if a fault follows the last accepted transition.
         print('[lifecycle] PASS: minimize/restore/maximize/move/resize/focus/close/reopen/settings-keyboard', flush=True)

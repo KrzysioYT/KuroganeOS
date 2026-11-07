@@ -142,21 +142,6 @@ bool supported_text_scale_percent(uint32_t percent) {
            percent == 150U || percent == 200U;
 }
 
-bool transform_layout_coordinate(
-    int32_t coordinate,
-    uint32_t numerator,
-    uint32_t denominator,
-    int32_t* result) {
-    if (result == nullptr || denominator == 0U) return false;
-    const int64_t product = static_cast<int64_t>(coordinate) * numerator;
-    const int64_t half = static_cast<int64_t>(denominator / 2U);
-    const int64_t rounded = product > 0
-        ? product + half
-        : (product < 0 ? product - half : 0);
-    *result = saturate_i32(rounded / denominator);
-    return true;
-}
-
 int base64_value(char character) {
     if (character >= 'A' && character <= 'Z') return character - 'A';
     if (character >= 'a' && character <= 'z') return character - 'a' + 26;
@@ -545,14 +530,21 @@ uint32_t text_scale_percent() {
 
 bool scale_layout_coordinate(
     int32_t coordinate, uint32_t percent, int32_t* scaled) {
-    if (!supported_text_scale_percent(percent)) return false;
-    return transform_layout_coordinate(coordinate, percent, 100U, scaled);
+    if (scaled == nullptr || !supported_text_scale_percent(percent)) return false;
+    const int64_t product = static_cast<int64_t>(coordinate) * percent;
+    // First physical pixel whose inverse lies on or beyond this boundary.
+    *scaled = saturate_i32(product / 100 + (product % 100 > 0 ? 1 : 0));
+    return true;
 }
 
 bool unscale_layout_coordinate(
     int32_t coordinate, uint32_t percent, int32_t* unscaled) {
-    if (!supported_text_scale_percent(percent)) return false;
-    return transform_layout_coordinate(coordinate, 100U, percent, unscaled);
+    if (unscaled == nullptr || !supported_text_scale_percent(percent)) return false;
+    const int64_t product = static_cast<int64_t>(coordinate) * 100;
+    // Negative pointer positions must not round into the window at zero.
+    *unscaled = saturate_i32(
+        product / percent - (product % percent < 0 ? 1 : 0));
+    return true;
 }
 
 void put_pixel(int32_t x, int32_t y, Color color) {
