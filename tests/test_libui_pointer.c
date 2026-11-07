@@ -274,6 +274,38 @@ int main(void) {
         key.type = KU_UI_EVENT_POINTER;
         if (flux_settings_key(&form, &key, &target) != 0) return 39;
     }
+    {
+        kui_scene form;
+        kui_flow fields;
+        ku_ui_native_frame frame;
+        kui_scene_initialize(&form);
+        kui_flow_begin(&fields, &form, 0U);
+        (void)kui_flow_panel(&fields, 1U, "Appearance");
+        (void)kui_flow_metric(&fields, 2U, "STATUS", 1U, 1U);
+        (void)kui_flow_button(&fields, 3U, "TEXT SIZE");
+        (void)kui_flow_toggle(&fields, 4U, "HIGH CONTRAST", 0);
+        (void)kui_scene_select(&form, 4U);
+        form.viewport_height = 120U;
+        if (kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 2U ||
+            kui_scene_hit_test(&form, 24, 195) != 0U) return 40;
+        kui_scene_reveal_selection(&form);
+        if (!kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 2U ||
+            kui_scene_hit_test(&form, 24, center_y(&frame, 1U)) != 4U) return 41;
+        form.viewport_height = 72U; /* After shrinking, only the toggle fits. */
+        kui_scene_reveal_selection(&form);
+        if (!kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 1U ||
+            kui_scene_hit_test(&form, 24, center_y(&frame, 0U)) != 4U) return 42;
+        (void)kui_scene_scroll(&form, INT32_MIN);
+        if (kui_scene_selection_visible(&form)) return 43;
+        (void)kui_scene_scroll(&form, INT32_MAX);
+        if (!kui_scene_selection_visible(&form)) return 44;
+    }
     puts("libui native packet + mouse hit-test + scroll ABI tests passed");
     return 0;
 }

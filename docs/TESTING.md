@@ -365,3 +365,13 @@ ELF validation, Scheduler 2.0, ticket-lock contention, IPC, shared memory, stale
 file handles, session ownership, hostile package paths and ABI. These are
 bounded regression tests, not an exhaustive syscall fuzzer or a proof of
 freedom from data races. Real guest SMP and resource churn remain separate.
+
+### Settings viewport at 200%
+
+Settings now measures the caller-owned native content area in logical pixels.
+The same row geometry governs drawing, pointer hit-testing and keyboard focus.
+The optimized and UBSan libui tests exercise a mixed-height form, a clipped
+selection, scroll to the last control, and a reduced viewport. The installed
+QEMU lifecycle scenario also shrinks Settings at 200% and requires a fresh
+keyboard-focus marker for a control that fits in the new viewport. This is
+scoped to Settings; it does not qualify the layout of all desktop apps.

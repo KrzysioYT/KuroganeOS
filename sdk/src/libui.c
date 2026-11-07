@@ -264,7 +264,9 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     count = visible_view_count(scene);
     rows = scene->visible_rows == 0U ? KU_UI_MAX_LINES : scene->visible_rows;
-    maximum = count > rows ? count - rows : 0U;
+    maximum = scene->viewport_height != 0U
+        ? (count == 0U ? 0U : count - 1U)
+        : (count > rows ? count - rows : 0U);
     next = (int64_t)scene->scroll_offset + (int64_t)delta;
     if (next < 0) next = 0;
     if ((uint64_t)next > maximum) next = maximum;
@@ -422,6 +424,42 @@ static uint32_t native_rows(const kui_scene* scene) {
     return scene->visible_rows;
 }
 
+static int native_fits(const kui_scene* scene, const kui_native_layout* geometry) {
+    return scene->viewport_height == 0U ||
+        (uint32_t)(geometry->y + geometry->height) <= scene->viewport_height;
+}
+
+int kui_scene_selection_visible(const kui_scene* scene) {
+    if (scene == NULL || !interactive_view(find_view_const(scene, scene->selected_id))) return 0;
+    kui_native_layout_state state;
+    native_layout_initialize(&state);
+    uint32_t visible = 0U;
+    uint32_t output = 0U;
+    for (uint32_t i = 0U; i < scene->view_count && output < native_rows(scene); ++i) {
+        const kui_view* view = &scene->views[i];
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (visible++ < scene->scroll_offset) continue;
+        kui_native_layout geometry;
+        native_layout_view(scene, view, &state, &geometry);
+        if (!native_fits(scene, &geometry)) return 0;
+        if (view->id == scene->selected_id) return 1;
+        ++output;
+    }
+    return 0;
+}
+
+void kui_scene_reveal_selection(kui_scene* scene) {
+    if (scene == NULL || !interactive_view(find_view_const(scene, scene->selected_id))) return;
+    uint32_t selected = 0U;
+    for (uint32_t i = 0U; i < scene->view_count; ++i) {
+        if (scene->views[i].id == scene->selected_id) break;
+        if ((scene->views[i].flags & KUI_VIEW_HIDDEN) == 0U) ++selected;
+    }
+    if (scene->scroll_offset > selected) scene->scroll_offset = selected;
+    while (scene->scroll_offset < selected && !kui_scene_selection_visible(scene))
+        ++scene->scroll_offset;
+}
+
 uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
     uint32_t visible_index = 0U;
     uint32_t output_index = 0U;
@@ -440,6 +478,7 @@ uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
         if (visible_index++ < scene->scroll_offset) continue;
         native_layout_view(scene, view, &state, &geometry);
         if (geometry.height <= 0) continue;
+        if (!native_fits(scene, &geometry)) break;
         within_x = x >= geometry.x &&
             (geometry.width == 0 || x < geometry.x + geometry.width);
         if (interactive_view(view) && within_x &&
@@ -480,6 +519,7 @@ ku_status_t kui_scene_build_native(
         if (visible_index++ < scene->scroll_offset) continue;
         native_layout_view(scene, view, &state, &geometry);
         if (geometry.height <= 0) return KU_STATUS_CORRUPT_DATA;
+        if (!native_fits(scene, &geometry)) break;
 
         command = &frame->commands[output_index++];
         command->type = view->type;

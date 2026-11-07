@@ -621,6 +621,15 @@ static void build_scene(
     }
 }
 
+static void refresh_viewport(ku_window_t window, kui_scene* scene) {
+    const ku_result_t height = ku_ui_native_height(window);
+    if (height <= 0 || height > UINT32_MAX ||
+        scene->viewport_height == (uint32_t)height) return;
+    scene->viewport_height = (uint32_t)height;
+    kui_scene_reveal_selection(scene);
+    (void)kui_scene_present(window, scene);
+}
+
 int main(void) {
     const ku_window_t window = gui_open(KU_FLUX_TITLE_SETTINGS, 400, 110, 510, 560);
     settings_client settings;
@@ -679,7 +688,10 @@ int main(void) {
                 text_scale_percent,
                 &audio, settings.connected, feedback);
     (void)kui_scene_select(&scene, 30U);
-    flux_settings_reveal_selection(&scene);
+    const ku_result_t initial_height = ku_ui_native_height(window);
+    if (initial_height > 0 && initial_height <= UINT32_MAX)
+        scene.viewport_height = (uint32_t)initial_height;
+    kui_scene_reveal_selection(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         if (settings.connected) (void)ku_service_close(settings.connection);
         (void)ku_ui_close(window);
@@ -704,7 +716,12 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         uint32_t target;
-        const int wait_result = gui_wait_event(window, &event);
+        int wait_result;
+        do {
+            refresh_viewport(window, &scene);
+            wait_result = kui_next_event(window, &event);
+            if (wait_result == 0) (void)kuro_sleep(1U);
+        } while (wait_result == 0);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) {
             puts("[TEST] desktop_settings_closed: PASS");
             break;
@@ -725,13 +742,20 @@ int main(void) {
         if (event.type == KU_UI_EVENT_KEY) {
             const int action = flux_settings_key(&scene, &event, &target);
             if (action == 1) {
-                flux_settings_reveal_selection(&scene);
+                kui_scene_reveal_selection(&scene);
                 (void)kui_scene_present(window, &scene);
-                puts("[INPUT] flux_settings_keyboard_focus: PASS");
-                puts("[TEST] flux_settings_keyboard_access: PASS");
+                if (kui_scene_selection_visible(&scene)) {
+                    puts("[INPUT] flux_settings_keyboard_focus: PASS");
+                    puts("[TEST] flux_settings_keyboard_access: PASS");
+                }
                 continue;
             }
             if (action == 2) {
+                if (!kui_scene_selection_visible(&scene)) {
+                    kui_scene_reveal_selection(&scene);
+                    (void)kui_scene_present(window, &scene);
+                    continue;
+                }
                 puts("[INPUT] flux_settings_keyboard_activate: PASS");
                 puts("[TEST] flux_settings_keyboard_access: PASS");
             } else {
@@ -750,10 +774,12 @@ int main(void) {
                 for (uint32_t index = 0U; index < steps; ++index) {
                     if (kui_scene_select_next(&scene, direction) != KU_STATUS_OK) break;
                 }
-                flux_settings_reveal_selection(&scene);
+                kui_scene_reveal_selection(&scene);
                 (void)kui_scene_present(window, &scene);
-                puts("[INPUT] flux_settings_keyboard_focus: PASS");
-                puts("[TEST] flux_settings_keyboard_access: PASS");
+                if (kui_scene_selection_visible(&scene)) {
+                    puts("[INPUT] flux_settings_keyboard_focus: PASS");
+                    puts("[TEST] flux_settings_keyboard_access: PASS");
+                }
                 continue;
             }
         } else if (event.type == KU_UI_EVENT_POINTER) {
@@ -890,8 +916,11 @@ int main(void) {
                         &audio, settings.connected, feedback);
             if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
             scene.scroll_offset = old_offset;
+            const ku_result_t height = ku_ui_native_height(window);
+            if (height > 0 && height <= UINT32_MAX)
+                scene.viewport_height = (uint32_t)height;
             (void)kui_scene_scroll(&scene, 0);
-            flux_settings_reveal_selection(&scene);
+            kui_scene_reveal_selection(&scene);
         }
         (void)kui_scene_present(window, &scene);
     }

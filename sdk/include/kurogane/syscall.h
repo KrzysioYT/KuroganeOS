@@ -86,7 +86,8 @@ enum ku_syscall_number {
     // PID1-only recovery: release the GUI framebuffer before console shell.
     KU_SYS_CONSOLE_FALLBACK = 72,
     KU_SYS_DESKTOP_BACKGROUND = 73,
-    KU_SYS_DESKTOP_TEXT_SCALE = 74
+    KU_SYS_DESKTOP_TEXT_SCALE = 74,
+    KU_SYS_UI_NATIVE_HEIGHT = 75
 };
 
 enum ku_open_flags {

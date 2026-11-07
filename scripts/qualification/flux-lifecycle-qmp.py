@@ -249,6 +249,16 @@ class Harness:
             self.key('ret')
             self.wait_marker('[TEST] flux_text_scale_persistence: PASS')
             self.wait_marker('[SETTINGS] text_scale_saved=200')
+            start = self.mark()
+            x = settings['x'] + settings['w'] - 5
+            y = settings['y'] + settings['h'] - 5
+            previous_height = settings['h']
+            self.pointer(settings, x, y)
+            self.button(True)
+            self.pointer(settings, x, y - 150)
+            self.button(False)
+            settings = self.wait(start, 'resize', app=6, window=settings['id'])
+            assert settings['h'] < previous_height
             self.key('shift', 'tab')
             self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS', 2)
         # Return to the color controls after exercising text-scale persistence.

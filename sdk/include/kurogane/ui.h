@@ -213,6 +213,13 @@ static inline ku_status_t ku_ui_present_native(
         sizeof(ku_ui_native_frame));
 }
 
+/* Logical vertical space available to a native scene in the caller's window.
+ * Returns a positive height or a negative status. No other window is exposed.
+ */
+static inline ku_result_t ku_ui_native_height(ku_window_t window) {
+    return ku_syscall3(KU_SYS_UI_NATIVE_HEIGHT, window, 0U, 0U);
+}
+
 static inline ku_status_t ku_ui_poll(
     ku_window_t window,
     ku_ui_event* event) {

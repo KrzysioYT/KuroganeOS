@@ -96,6 +96,7 @@ int main() {
     static_assert(KU_SYS_CONSOLE_FALLBACK == 72);
     static_assert(KU_SYS_DESKTOP_BACKGROUND == 73);
     static_assert(KU_SYS_DESKTOP_TEXT_SCALE == 74);
+    static_assert(KU_SYS_UI_NATIVE_HEIGHT == 75);
     static_assert(KU_DESKTOP_TEXT_SCALE_QUERY == 0);
     static_assert(KU_DESKTOP_TEXT_SCALE_SET == 1);
     static_assert(sizeof(ku_ui_event) == 32);
