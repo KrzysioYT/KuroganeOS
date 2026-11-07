@@ -1,6 +1,6 @@
 # KuroganeOS — stan rozwoju
 
-Aktualizacja: 2026-11-01. Gałąź robocza: `integration/flux8-reconciliation`,
+Aktualizacja: 2026-11-07. Gałąź robocza: `integration/flux8-reconciliation`,
 oparta na `origin/main` (`ace922e4`) i integrująca historię #55 → #56 → #57.
 To kandydat integracyjny; nie jest scalony do `main` ani zakwalifikowany jako
 wydanie 8.0.0.
@@ -14,7 +14,42 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Kwalifikacja bieżącego runtime checkpoint — `64577459`
+## Flux 8 — audyt P0 i wyniki 2026-11-07
+
+PR #58 pozostaje Draft. Gałąź zawiera `main` (`ace922e4`) oraz wcześniejsze
+gałęzie Flux. Odrębnej gałęzi `agent/ui-font-foundation` nie scalano.
+Kontrakt produktu określa [Product Adoption Roadmap](docs/roadmap/PRODUCT_ADOPTION_ROADMAP.md).
+Stan poniżej dotyczy konkretnych scenariuszy i rewizji.
+
+| Obszar | Wynik i granica dowodu |
+| --- | --- |
+| Try → Login → Home → Files/Terminal | **PASS**: rzeczywisty input USB keyboard/tablet, brak PS/2; oba procesy i powierzchnie aplikacji. Dedykowany workflow działa teraz na gałęzi PR #58; host odtwarza trafienia szyny Modern w 1024×768 i 1280×800. |
+| Instalacja i logowanie | **PASS**: read-only target wraca do Try i Home, anulowanie nie zmienia dysku, błędne hasło jest odrzucone przed utworzeniem sesji, poprawne działa na dwóch bootach bez ISO. |
+| Uszkodzony profil | **PASS**: kopia instalacji bez plików konta pokazuje ekran blokady i odrzuca Enter. Login i accountd używają jednej polityki odczytu. Host potwierdza odrzucanie I/O error, NUL i za długich danych. To nie zastępuje KDF, uprawnień ani ochrony przed modyfikacją dysku offline. |
+| Okna i Settings | **PASS zakresowo**: focus, przesunięcie, resize, minimalizacja, restore, zamknięcie/relaunch, realne zapisy Settings i odtworzenie motywu/skali po restarcie. |
+| HiDPI | **CZĘŚCIOWE**: zgodność granic rysowania i inputu przy 100/125/150/200% przeszła na hoście z UBSan. QEMU otwiera katalog kliknięciem w ostatni piksel kafelka Files przy 200% i potwierdza trwałość 200%. Pełny layout, chrome, wszystkie aplikacje i wizualna akceptacja nadal otwarte. |
+| Interaktywny VirtualBox i sprzęt | **BLOCKED w tym środowisku**: brak VirtualBox z widoczną sesją. Nie przenosimy dawnych wyników headless ani QEMU na test ręczny. Fizyczny sprzęt nie był testowany w tej partii. |
+
+- `24b199858d9a5846c2ab88e30434d9dfaaebaa92` — pierwszy ponownie włączony
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42384777717).
+- `82c023768a68fc35d76a7440b10a03019b7cb1b3` — hasło i uszkodzony profil:
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42385865048),
+  [ISO/host i trzy NIC](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42385869402).
+  SHA256 ISO: `56f3e4b24c5eb2e5b298dbedf6e14b4ee0eae1f62105e80e3012fb7ad1736dd8`.
+  Ta rewizja poprawiła też test źródłowy, który na `2b3009f` jeszcze odwoływał
+  się do starej nazwy pola Login.
+- `5e8822116a6bf3e7ad7a3a6cf50c790cca1f0bbc` — host/UBSan, QEMU i 200%:
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42386319917).
+  SHA256 ISO: `f0af9feccc9df4108c0a5c24d393a71e9610c8126c7321a495d2646f0a2f6372`.
+  Run zachowuje serial, manifest instalacji i zrzuty z gościa.
+
+Następne priorytety: [widoczny test VirtualBox na tym samym ISO](docs/VIRTUALBOX.md),
+pełny układ przy 125–200%, interaktywne scenariusze aplikacji oraz odzyskiwanie
+sesji po awarii usług. Ścieżki 9–15 pozostają kierunkiem, nie wydanymi
+funkcjami. [Analiza opcji licencji](docs/roadmap/LICENSING_OPTIONS.md) jest
+przygotowana do osobnej decyzji; LICENSE i CLA pozostają bez zmian.
+
+## Historyczna kwalifikacja runtime checkpoint — `64577459`
 
 Runtime SHA: `6457745962fde73c81a7004bce13cea6992a85c1`; system nadal ma
 tożsamość `7.0.0-dev`. Ustawienie 100/125/150/200% skaluje tekst oraz geometrię

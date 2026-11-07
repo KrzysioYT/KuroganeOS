@@ -295,10 +295,11 @@ jobs:
         run: |
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
+          iso="dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso"
+          printf 'FLUX_QUALIFICATION_ISO=%s\n' "$iso" >> "$GITHUB_ENV"
           mkdir -p build/tests/flux-8-foundation
           git rev-parse HEAD > build/tests/flux-8-foundation/source-sha.txt
-          sha256sum "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
-            | tee build/tests/flux-8-foundation/iso-sha256.txt
+          sha256sum "$iso" | tee build/tests/flux-8-foundation/iso-sha256.txt
       - name: Log in to real Ring-3 desktop using USB HID
         shell: bash
         run: |
@@ -313,7 +314,7 @@ jobs:
           # left rail at both 1024x768 and 1280x800. The old floating Dock
           # coordinates no longer launch apps in the Modern layout.
           bash scripts/smoke-uefi-iso-qemu.sh \
-            "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" --smp 4 \
+            "$FLUX_QUALIFICATION_ISO" --smp 4 \
             --nic none --no-ps2 --usb-keyboard --usb-tablet \
             --log-dir build/tests/flux-8-foundation --timeout 240 \
             --send-key-after-marker 'installer: select setup mode:' ret \
@@ -354,8 +355,18 @@ jobs:
         run: |
           python3 tests/test_installer_qemu_safety.py
           python3 scripts/qualification/installer-qemu.py \
-            --iso "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
+            --iso "$FLUX_QUALIFICATION_ISO" \
             --output build/tests/flux-8-installed --desktop-lifecycle --password-profile --timeout 240
+      - name: Retain the same ISO for interactive VirtualBox acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-8-interactive-iso-${{ github.sha }}
+          path: |
+            ${{ env.FLUX_QUALIFICATION_ISO }}
+            build/tests/flux-8-foundation/source-sha.txt
+            build/tests/flux-8-foundation/iso-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Retain desktop serial evidence
         if: always()
         uses: actions/upload-artifact@v4

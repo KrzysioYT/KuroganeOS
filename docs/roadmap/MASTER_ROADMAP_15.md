@@ -17,46 +17,29 @@ Historical milestones retain their original scoped evidence and requirements.
 
 The compiled runtime identity follows explicit milestone closeout. Roadmap qualification never silently rewrites already-built media, and only `15.0.0` is planned as the first product-level STABLE release.
 
-## Current execution order — runtime SHA `64577459`
+## Current execution order
 
-1. Mainline reconciliation remains Draft PR #58 from
-   `integration/flux8-reconciliation`; the latest tested runtime checkpoint is
-   `6457745962fde73c81a7004bce13cea6992a85c1` (`7.0.0-dev`). It preserves
-   the #55 -> #56 -> #57 ancestry; #55 already contains #51-54. Existing
-   PRs/bases remain unchanged. Actions `reliable-file` (`41352989065`), CLA
-   (`41352989090`) and `iso-qualification` (`41352989006`) pass on this exact
-   runtime SHA. One approval and the remaining Flux 8 gates are outstanding.
-   Do not mark ready or merge.
-2. Finish 8.x reliability and accessibility together: full app/clipboard/failure
-   recovery matrix, keyboard focus across applications, Settings/dock/wallpaper
-   persistence, licensed scalable fonts and HiDPI. Settings keyboard support and
-   exact theme reboot verification are concrete increments, not full completion.
-   Flux Settings now exposes global persistent 100/125/150/200% text rendering;
-   QEMU verifies persistence across reboot, but visual fit across all native
-   surfaces remains unverified. It is not whole-UI HiDPI or per-user isolation.
-   The exact runtime ISO also passed QEMU setup-media Try with no system disk,
-   no PS/2 devices, USB HID keyboard/report-pointer input and Home startup.
-3. Automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI install with
-   disk-only boot, FAT32/PID 1 and PCnet NAT passed on exact runtime SHA
-   `64577459`. Visible mouse/keyboard acceptance remains UNVERIFIED; QEMU and
-   headless input do not replace this gate.
-4. For 9–11, expand qualified networking/storage/application SDK coverage while
-   preserving existing ABI and adding real developer examples and diagnostics.
-5. For 12, replace FNV1A64-DEV passwords with a product KDF, design atomic settings
-   replacement/power-loss recovery, and qualify signed updates plus rollback.
-   Security blockers discovered earlier are not deferred merely to hit a date.
-6. For 13–15, measure latency/memory/power, run long-lived resource and fault
-   stress, qualify physical Intel/AMD hardware, then enforce the complete RC
-   matrix. No version promotion based solely on UI appearance or a host PASS.
-
-The exact-SHA host/UBSan, Debug/Release builds, Release media, QEMU
-read-only-recovery/install/two-boot/125% scale persistence, automated
-VirtualBox and Actions results for `64577459` are recorded in
-[`docs/TESTING.md`](../TESTING.md). Manual VirtualBox interaction remains
-UNVERIFIED.
-`main` now requires a PR, one approval and the `iso-qualification`,
-`reliable-file` and CLA checks; force-push and branch deletion are disabled,
-including for administrators.
+1. **Flux 8 first.** Draft PR #58 on `integration/flux8-reconciliation`
+   integrates the native desktop without promoting the compiled identity
+   `7.0.0-dev`. [Development state](../../DEVELOPMENT_STATE.md) lists
+   exact source, media and test evidence. Keep the PR in Draft while the
+   mandatory acceptance gates are open.
+2. Exercise live and installed user journeys: real Home and app surfaces,
+   protected login and visible failure, keyboard/pointer and USB HID,
+   persistent settings, and recovery from application or service failure.
+   Continue native typography and HiDPI work. Host coordinate checks are
+   useful evidence; they do not qualify the whole visible layout.
+3. Run [visible VirtualBox acceptance](../VIRTUALBOX.md) on the candidate.
+   Automated QEMU and headless VirtualBox results are separate evidence.
+4. For 9–11, expand qualified networking, storage and application SDK
+   coverage. Validate KuroPOSIX with source ports; Linux binaries remain
+   a separate research track.
+5. For 12, replace the development credential scheme, enforce permissions
+   and qualify signed updates, rollback and recovery. Security defects
+   found earlier still take priority over new features.
+6. For 13–15, measure latency, memory and power; test failure and sustained
+   use; qualify documented physical Intel/AMD profiles; then apply the
+   complete RC matrix before any stable release.
 
 ## Product adoption strategy
 

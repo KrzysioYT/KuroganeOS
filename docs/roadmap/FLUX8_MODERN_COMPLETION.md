@@ -2,10 +2,29 @@
 
 Status: **ACTIVE DEVELOPMENT, NOT QUALIFIED**
 Integration branch: `integration/flux8-reconciliation`
-PR ancestry: #55 -> #56 -> #57
+Draft integration PR: #58 (ancestry #55 -> #56 -> #57)
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
 
-## Current runtime qualification — `64577459`
+## 2026-11-07 — restored P0 qualification and native input fix
+
+The [development scorecard](../../DEVELOPMENT_STATE.md) records exact-SHA
+evidence. The integration branch runs the dedicated USB-only Flux workflow.
+It clicks the Modern rail in the real live ISO, then tests installed Login
+with wrong/correct passwords, two disk-only boots, and recovery with the
+account files removed from a disposable copy. A damaged installed profile
+does not select the passwordless developer fallback.
+
+Native command boundaries and pointer mapping agree at all four scales in
+host tests. At 200%, the QEMU lifecycle harness clicks the last painted
+pixel of a Files tile, confirms real directory navigation using history,
+and verifies restoration after reboot. This covers one guest hit target,
+not the visible layout and access to every control at each scale.
+
+The interactive VirtualBox gate is still open. Use the matching ISO, SHA256,
+and [manual acceptance steps](../VIRTUALBOX.md); do not count headless input
+or screenshots alone as manual acceptance.
+
+## Historical runtime qualification — `64577459`
 
 Runtime source commit:
 `6457745962fde73c81a7004bce13cea6992a85c1`; PR #58 remains Draft and the

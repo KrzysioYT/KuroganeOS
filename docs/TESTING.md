@@ -19,10 +19,15 @@ mouse/keyboard acceptance. Record source SHA, media SHA256, VM/device profile,
 log and runner result. A documentation-only change does not requalify changed
 runtime code.
 
+The active integration workflow uploads the ISO used by its QEMU job with
+`source-sha.txt` and `iso-sha256.txt` for manual VirtualBox acceptance. The
+latest scoped results and outstanding gates are in
+[DEVELOPMENT_STATE.md](../DEVELOPMENT_STATE.md).
+
 The older scenario runners below remain specialized tools; `validate-2.0.ps1`
 is not the complete release gate for 8.0 or 15.0.
 
-## Current exact-runtime evidence — `64577459`
+## Historical exact-runtime evidence — `64577459`
 
 Runtime source: `6457745962fde73c81a7004bce13cea6992a85c1`; system identity
 remains `7.0.0-dev`. At 100/125/150/200%, native Ring-3 command geometry follows
@@ -342,7 +347,9 @@ theme SET/GET and desktop application. An ISO Try package is read-only; its
 settings write failure must not be mistaken for a keyboard transport failure.
 `installer-qemu.py --desktop-lifecycle` enables both checks on the first installed
 boot, then verifies the ordinary second disk-only boot. The installed runner now compares the exact nondefault theme value saved
-by Settings with the value restored and applied by Home after reboot.
+by Settings with the value restored and applied by Home after reboot. It also
+requires a real directory navigation from a click at the last pixel of a
+Files tile at 200% UI scale, and restores 200% on the next boot.
 
 ## Extended core audit (macOS and Linux)
 

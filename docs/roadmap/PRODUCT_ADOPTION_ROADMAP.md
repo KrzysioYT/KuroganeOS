@@ -115,7 +115,7 @@ Before actively recruiting external contributors or promoting KuroganeOS as an o
 - **Open-source community model:** select an established OSI-approved licence compatible with the project's goals and third-party components; review the CLA and contribution process accordingly.
 - **Source-available independent project:** retain the current model, explain commercial, redistribution and derivative-work restrictions prominently, and accept that some developers, packagers and organizations will not participate.
 
-Recommended direction for broad Linux-community adoption: evaluate an OSI-approved licence for the project code, with a separate trademark policy and clear third-party notices. This is a recommendation, **not authorization to change the licence**. Preserve valid historical MIT grants and obtain qualified legal review before a licence migration.
+Recommended direction for broad Linux-community adoption: evaluate an OSI-approved licence for the project code, with a separate trademark policy and clear third-party notices. This is a recommendation, **not authorization to change the licence**. Preserve valid historical MIT grants and obtain qualified legal review before a licence migration. See the [licensing options memo](LICENSING_OPTIONS.md) for candidate models, dependency checks and contributor implications.
 
 Required supporting work:
 - clear contribution guide and maintainer responsibilities;

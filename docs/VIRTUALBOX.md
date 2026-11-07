@@ -41,10 +41,22 @@ Sukces spawn/liveness nie dowodzi poprawnej odpowiedzi accountd ani widocznego
 okna. Sprawdź Login → Home, rzeczywiste Files/Terminal oraz input, focus,
 minimalizację, przywracanie, resize, wheel i recovery.
 
-Do kwalifikacji konkretnego SHA zbuduj obraz w czystym checkoutcie tej
-rewizji i użyj `-SkipGitUpdate`, żeby helper nie pobrał nowszej. Wybierz
-unikalną nazwę testowej VM (parametr `-Name`), zamiast używać dysku z danymi.
-Zapisz wersję VirtualBox, SHA kodu, SHA256 ISO, profil wejścia i wyniki:
+Do kwalifikacji wybierz artefakt `flux-8-interactive-iso-<SHA>` z udanego
+uruchomienia **Qualify 8.0 Flux desktop foundation**. Zawiera dokładnie
+ten ISO, na którym przeprowadzono test QEMU, oraz SHA źródła i sumę obrazu.
+Po rozpakowaniu zweryfikuj sumę i podaj ISO wprost twórcy VM:
+
+```powershell
+$iso = 'C:\sciezka\do\KuroganeOS-7.0.0-dev-x86_64.iso'
+Get-FileHash -Algorithm SHA256 -LiteralPath $iso
+$vm = 'KuroganeOS-Flux8-Test-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
+.\scripts\create-virtualbox-vm.ps1 -Iso $iso -Name $vm -Nic pcnet -Start
+```
+
+Porównaj hash z `iso-sha256.txt` przed startem. Jeżeli budujesz osobno
+w Windows, `-SkipGitUpdate` zachowa wskazany checkout, ale taki build jest
+odrębnym artefaktem. Zapisz wersję VirtualBox, SHA kodu, SHA256 ISO, profil
+wejścia i wyniki:
 
 1. W widocznym oknie VM wybierz Try i zaloguj się klawiaturą. Otwórz Files
    i Terminal myszą, wpisz polecenie i przewiń listę. Sprawdź focus oraz

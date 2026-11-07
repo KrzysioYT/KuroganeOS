@@ -2,7 +2,7 @@
 
 Status: **ACTIVE CANDIDATE / NO PRODUCT STABLE RELEASE**
 Source of truth: `DEVELOPMENT_STATE.md`; work branch
-`codex/road-to-15-stability`; PR #55 kept Draft until qualified.
+`integration/flux8-reconciliation`; PR #58 stays Draft during qualification.
 
 Companion product strategy: [PRODUCT_ADOPTION_ROADMAP.md](PRODUCT_ADOPTION_ROADMAP.md).
 This file describes engineering workstreams; the product adoption roadmap
