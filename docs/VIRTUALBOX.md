@@ -3,6 +3,8 @@
 Host x86-64 z Windows 11, Oracle VirtualBox, Git, cross toolchain i WSL.
 [Przygotowanie builda](BUILDING.md). Wersja runtime: `7.0.0-dev`.
 
+[Gotowy kandydat Flux 8 do pobrania i testu bez przebudowy](FLUX8_TEST_CANDIDATE.md).
+
 ## Świeże media
 
 Z katalogu repozytorium:
