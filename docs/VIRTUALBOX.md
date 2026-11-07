@@ -11,7 +11,7 @@ Z katalogu repozytorium:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-flux8-virtualbox.ps1
 ```
 
-Helper przełącza na `codex/road-to-15-stability`, pobiera zmiany przez
+Helper przełącza na `integration/flux8-reconciliation`, pobiera zmiany przez
 fast-forward, buduje release ISO i wypisuje jego SHA256. Nie wykonuje resetu
 Git ani usuwania VDI. Przed ponownym uruchomieniem wyłącz VM normalnie.
 `-SkipGitUpdate` zachowuje lokalną rewizję, `-NoBuild` pomija kompilację;
@@ -40,6 +40,20 @@ Zapisz nazwę VM, SHA kodu, hash ISO oraz pełny log od bootu, nie tylko końcó
 Sukces spawn/liveness nie dowodzi poprawnej odpowiedzi accountd ani widocznego
 okna. Sprawdź Login → Home, rzeczywiste Files/Terminal oraz input, focus,
 minimalizację, przywracanie, resize, wheel i recovery.
+
+Do kwalifikacji konkretnego SHA zbuduj obraz w czystym checkoutcie tej
+rewizji i użyj `-SkipGitUpdate`, żeby helper nie pobrał nowszej. Wybierz
+unikalną nazwę testowej VM (parametr `-Name`), zamiast używać dysku z danymi.
+Zapisz wersję VirtualBox, SHA kodu, SHA256 ISO, profil wejścia i wyniki:
+
+1. W widocznym oknie VM wybierz Try i zaloguj się klawiaturą. Otwórz Files
+   i Terminal myszą, wpisz polecenie i przewiń listę. Sprawdź focus oraz
+   minimalizację, przywrócenie, przesunięcie i zmianę rozmiaru okna.
+2. Na pustym testowym VDI zainstaluj system z hasłem. Po odłączeniu ISO
+   sprawdź błędne hasło, poprawne hasło i start Home z zainstalowanego dysku.
+3. W Settings sprawdź czytelność oraz klikalność przy 100/125/150/200%.
+   Zmień motyw i skalę, uruchom zainstalowany system ponownie i sprawdź,
+   czy wróciły te same wartości. Dołącz zrzuty i log, bez prawdziwych haseł.
 
 ## Znany incydent zainstalowanego systemu
 

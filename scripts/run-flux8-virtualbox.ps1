@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $Root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $Creator = Join-Path $PSScriptRoot 'create-virtualbox-vm.ps1'
 $Build = Join-Path $PSScriptRoot 'build-media.ps1'
-$Branch = 'codex/road-to-15-stability'
+$Branch = 'integration/flux8-reconciliation'
 $VBox = 'C:\Program Files\Oracle\VirtualBox\VBoxManage.exe'
 $VmRoot = Join-Path $HOME 'VirtualBox VMs'
 
