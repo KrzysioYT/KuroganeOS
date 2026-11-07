@@ -4,77 +4,22 @@ on:
   push:
     branches:
       - codex/road-to-15-stability
+      - integration/flux8-reconciliation
     paths:
       - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
-      - 'kernel/ui/**'
-      - 'sdk/include/kurogane/flux_app_catalog.h'
-      - 'tests/test_flux_app_catalog.c'
-      - 'tests/test_flux_app_catalog_sources.py'
-      - 'sdk/include/kurogane/flux_app_lifecycle.h'
-      - 'tests/test_flux_app_lifecycle.c'
-      - 'tests/test_flux_label_fitting.cpp'
-      - 'tests/test_flux_session_owner_policy.cpp'
-      - 'kernel/drivers/framebuffer.cpp'
-      - 'kernel/drivers/framebuffer.hpp'
-      - 'kernel/drivers/rounded_rect.hpp'
-      - 'tests/test_flux_cursor_overlay.cpp'
-      - 'tests/test_flux_rounded_geometry.cpp'
-      - 'kernel/input/**'
-      - 'kernel/apps/desktop_session.cpp'
-      - 'userspace/gui/login/**'
-      - 'userspace/gui/launcher/**'
-      - 'tests/test_window_manager.cpp'
-      - 'tests/test_input.cpp'
-      - 'scripts/run-host-tests.sh'
-      - 'scripts/test-core-ubsan.sh'
-      - 'kernel/arch/x86_64/context_switch.asm'
-      - 'scripts/build.ps1'
-      - 'scripts/build-linux.sh'
-      - 'kernel/install/package.cpp'
-      - 'kernel/core/log.hpp'
-      - 'tests/test_kernel_log_header.cpp'
-      - 'kernel/install/package_vfs.cpp'
-      - 'scripts/build-install-package.py'
-      - 'tests/test_package_vfs.cpp'
-      - 'tests/test_install_package_path_collisions.py'
-      - 'scripts/build-macos.sh'
-      - 'scripts/build-installer-macos.sh'
-      - 'scripts/verify-userspace-overlay.py'
-      - 'tests/test_userspace_overlay.py'
-      - 'tests/test_userspace_build_parity.py'
-      - 'scripts/smoke-uefi-iso-qemu.sh'
-      - 'scripts/qualification/flux-lifecycle-qmp.py'
-      - 'tests/test_flux_lifecycle_qmp.py'
-      - 'scripts/qualification/installer-qemu.py'
-      - 'tests/test_installer_qemu_safety.py'
-      - 'kernel/user/runtime_base.inc'
-      - 'sdk/include/kurogane/design.h'
-      - 'sdk/include/kurogane/desktop.h'
-      - 'sdk/include/kurogane/syscall.h'
-      - 'sdk/src/libui.c'
-      - 'userspace/gui/settings/**'
-      - 'userspace/gui/browser/**'
-      - 'userspace/gui/clipboard_actions.h'
-      - 'userspace/gui/performance/**'
-      - 'tests/test_flux_theme_palette.c'
-      - 'kernel/core/system_metrics.cpp'
-      - 'tests/test_system_metrics_sampling.cpp'
-      - 'tests/test_flux_ui_state.cpp'
-      - 'tests/test_sdk_abi.cpp'
-      - 'kernel/user/child_termination_policy.hpp'
-      - 'kernel/user/console_fallback_policy.hpp'
-      - 'tests/test_console_fallback_policy.cpp'
-      - 'userspace/system/init/main.c'
-      - 'tests/test_child_termination_policy.cpp'
-      - 'kernel/user/ui_event_queue.hpp'
-      - 'tests/test_ui_event_queue.cpp'
-      - 'sdk/include/kurogane/ui.h'
-      - 'userspace/gui/files/**'
-      - 'tests/test_files_wheel_paging.c'
-      - 'tests/test_flux_files_keyboard.c'
-      - 'tests/test_mouse_first_apps.py'
-      - 'tests/test_flux8_application_smoke.py'
-      - 'docs/ROAD_TO_15_STATUS.md'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
   workflow_dispatch:
 
 permissions:
@@ -154,7 +99,7 @@ jobs:
               "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}-ubsan"
             "build/tests/desktop/${unit}-ubsan"
           done
-      - name: Real Dock dispatch after Files changes task count
+      - name: Modern rail pointer dispatch at both GOP sizes
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
             -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke
@@ -335,6 +280,10 @@ jobs:
         run: |
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
+          mkdir -p build/tests/flux-8-foundation
+          git rev-parse HEAD > build/tests/flux-8-foundation/source-sha.txt
+          sha256sum "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
+            > build/tests/flux-8-foundation/iso-sha256.txt
       - name: Log in to real Ring-3 desktop using USB HID
         shell: bash
         run: |
@@ -345,19 +294,20 @@ jobs:
           # separate, invalid shell command.
           # USB tablet QMP coordinates are scaled from a 1024x768 logical
           # space (scripts/smoke-uefi-iso-qemu.sh), NOT raw framebuffer px.
-          # x=450,y=726 hits Files for both 1024x768 and 1280x800 GOP.
-          # After Files opens, one task expands and recenters the Dock.
-          # x=367,y=726 hits the shifted Terminal pin in both GOP modes.
-          # Never pass raw 1280x800 window pixel coordinates to QMP.
+          # Files (42,174) and Terminal (42,312) are on the fixed Modern
+          # left rail at both 1024x768 and 1280x800. The old floating Dock
+          # coordinates no longer launch apps in the Modern layout.
           bash scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" --smp 4 \
             --nic none --no-ps2 --usb-keyboard --usb-tablet \
             --log-dir build/tests/flux-8-foundation --timeout 240 \
-            --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
-            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
-            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 450 726 \
+            --send-key-after-marker 'installer: select setup mode:' ret \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
+            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 42 174 \
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 350 300 down \
-            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 367 726 \
+            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 42 312 \
+            --require-marker '[TEST] setup_try_mode: PASS' \
+            --require-marker '[TEST] live_package_root: PASS' \
             --require-marker '[TEST] flux_files_usb_wheel_input: PASS' \
             --require-marker '[TEST] desktop_terminal_ring3: PASS' \
             --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \

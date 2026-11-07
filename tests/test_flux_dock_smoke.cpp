@@ -13,6 +13,9 @@ char command;
 void receive(windowing::WindowId, const input::Event& event, void*) {
     if (event.type == input::EventType::KeyDown) command = event.character;
 }
+int tablet_pixel(int logical, int logical_max, int screen_max) {
+    return (logical * 32767 / logical_max) * screen_max / 32767;
+}
 void click(int x, int y) {
     input::Event event{};
     event.x = x;
@@ -41,12 +44,14 @@ int main() {
         assert(layout.pulse_ribbon.width == width);
         assert(layout.work_area.x == 95 && layout.work_area.y == 66);
         const int rail_center = layout.signal_spine.x + layout.signal_spine.width / 2;
-        click(rail_center, layout.signal_spine.y + 6 + 72 + 36);
+        // Exercise the exact normalized points used by the QMP smoke
+        // through the USB tablet mapping, at both guest GOP sizes.
+        click(tablet_pixel(42, 1023, width - 1), tablet_pixel(174, 767, height - 1));
         assert(command == 'f');
         assert(create_window(KU_FLUX_TITLE_FILES, 2, {120, 90, 600, 450},
             nullptr, nullptr, nullptr, &files) == Status::Ok);
         command = 0;
-        click(rail_center, layout.signal_spine.y + 6 + 3 * 72 + 36);
+        click(tablet_pixel(42, 1023, width - 1), tablet_pixel(312, 767, height - 1));
         assert(command == 't');
 
         // Home is on the launch button, not in the task list. An app tab
