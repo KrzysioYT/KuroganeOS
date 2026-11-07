@@ -300,14 +300,15 @@ crash/recovery, installed persistence, Classic, or VirtualBox acceptance matrix.
 ```bash
 python3 scripts/qualification/installer-qemu.py \
   --iso dist/KuroganeOS-7.0.0-dev-x86_64.iso \
-  --output build/tests/flux-8-installed --timeout 240
+  --output build/tests/flux-8-installed --desktop-lifecycle --password-profile \
+  --timeout 240
 ```
 
 The output directory must not exist. The runner creates its own 512 MiB raw
 file with exclusive creation; it never accepts an existing target disk. Only
 that file and the read-only ISO are attached during installation. Real USB
-input chooses Install, the default English/user/no-password profile, and the
-sole test disk. It first cancels at the erase prompt and verifies the entire
+input chooses Install, the English/user profile, and the sole test disk.
+It first cancels at the erase prompt and verifies the entire
 blank-disk hash is unchanged, then confirms INSTALL and requires the guest's
 payload verification and completion marker.
 
@@ -316,10 +317,15 @@ an authenticated Home; the first must finish the first-boot transaction and
 the second must report persisted installation state. The runner rejects
 fallback to live media, guest FAIL markers and failed QEMU exits. It retains
 serial logs, screenshots, the disk and a manifest with ISO/disk/harness hashes.
-CI uploads evidence without the large writable disk image. Existing output
-and symlink refusal regressions run via `tests/test_installer_qemu_safety.py`.
-This covers the default no-password account on emulated AHCI; it is not a
-password, upgrade, settings-persistence, power-loss or physical-install gate.
+CI uploads evidence without the writable disk images. The password option
+uses a public test fixture, rejects a wrong password on the first boot, then
+requires the right password before session creation and the completed Login
+handoff. It also boots a disposable copy with both account files removed;
+Login must reject Enter while the installation marker remains. Without
+the option, the runner uses the default passwordless profile.
+This is an emulated AHCI test, not an upgrade, power-loss or physical-install
+gate. The fixture uses the existing development credential scheme, not a
+production password KDF.
 
 ## Settings keyboard accessibility
 

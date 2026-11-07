@@ -292,7 +292,7 @@ jobs:
           mkdir -p build/tests/flux-8-foundation
           git rev-parse HEAD > build/tests/flux-8-foundation/source-sha.txt
           sha256sum "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
-            > build/tests/flux-8-foundation/iso-sha256.txt
+            | tee build/tests/flux-8-foundation/iso-sha256.txt
       - name: Log in to real Ring-3 desktop using USB HID
         shell: bash
         run: |
@@ -344,12 +344,12 @@ jobs:
             --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle \
             --log-dir build/tests/flux-8-lifecycle --timeout 240 \
             --send-key-after-marker '[TEST] live_login_profile: PASS' ret
-      - name: Install to a new disk and boot twice without ISO
+      - name: Install with a test password, boot twice, and reject a missing account profile
         run: |
           python3 tests/test_installer_qemu_safety.py
           python3 scripts/qualification/installer-qemu.py \
             --iso "dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso" \
-            --output build/tests/flux-8-installed --desktop-lifecycle --timeout 240
+            --output build/tests/flux-8-installed --desktop-lifecycle --password-profile --timeout 240
       - name: Retain desktop serial evidence
         if: always()
         uses: actions/upload-artifact@v4

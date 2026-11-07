@@ -877,13 +877,15 @@ void run_interactive(
         profile.language == Language::Polish
             ? "LOGIN BEDZIE WYMAGAL HASLA" : "LOGIN WILL REQUIRE A PASSWORD");
     profile.password_required = password_mode == 1U;
-    if (profile.password_required &&
-        !read_input(
-            profile.language == Language::Polish ? "HASLO" : "PASSWORD",
-            profile.language == Language::Polish
-                ? "WPISZ HASLO DO KONTA" : "ENTER THE ACCOUNT PASSWORD",
-            profile.password, sizeof(profile.password), true, false)) {
-        fail("PASSWORD SETUP CANCELLED");
+    if (profile.password_required) {
+        terminal::println("installer: enter password:");
+        if (!read_input(
+                profile.language == Language::Polish ? "HASLO" : "PASSWORD",
+                profile.language == Language::Polish
+                    ? "WPISZ HASLO DO KONTA" : "ENTER THE ACCOUNT PASSWORD",
+                profile.password, sizeof(profile.password), true, false)) {
+            fail("PASSWORD SETUP CANCELLED");
+        }
     }
 
     const storage::block::Device* target = nullptr;

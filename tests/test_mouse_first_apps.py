@@ -104,7 +104,7 @@ assert "KU_UI_EVENT_KEY" in terminal, "terminal: required keyboard input was rem
 login = read("userspace/gui/login/main.c")
 assert "KU_UI_EVENT_KEY" in login, "login: password keyboard input was removed"
 assert "KU_UI_EVENT_POINTER" in login, "login: mouse activation missing"
-assert "if (!profile.password_required)" in login
+assert "if (!profile.credentials.password_required)" in login
 assert "gui_key_activate(&event)" in login, "login: Enter activation missing for live profile"
 assert 'flux_login_retry_available: PASS' in login
 assert 'flux_login_error_render: PASS' in login

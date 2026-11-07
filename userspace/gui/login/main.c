@@ -459,6 +459,7 @@ int main(void) {
     ku_window_t window;
     kui_scene scene;
     uint32_t pointer_buttons = 0U;
+    int blocked_submission_logged = 0;
 
     ku_dev_login_load_profile(&profile);
     window = gui_open("KUROGANE LOGIN", 280, 245, 520, 290);
@@ -489,6 +490,11 @@ int main(void) {
 
         if (profile.kind == KU_DEV_LOGIN_BLOCKED) {
             /* Invalid persistent credentials are a hard authentication gate. */
+            if (!blocked_submission_logged && event.type == KU_UI_EVENT_KEY &&
+                gui_key_activate(&event)) {
+                puts("[TEST] installed_login_invalid_profile_rejected: PASS");
+                blocked_submission_logged = 1;
+            }
             continue;
         }
 

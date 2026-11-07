@@ -13,6 +13,20 @@ spec.loader.exec_module(module)
 
 
 class SafetyTests(unittest.TestCase):
+    def test_password_evidence_requires_rejection_before_session(self):
+        prefix = [module.INSTALLED_PROFILE, module.BAD_PASSWORD, module.GOOD_PASSWORD]
+        suffix = [module.SESSION_CREATED, module.HOME_FRAME, module.DESKTOP]
+        module.verify_password_login('\r\n'.join(prefix + suffix), True)
+        module.verify_password_login('\n'.join([prefix[0], prefix[2], *suffix]), False)
+        for wrong in (
+            [prefix[0], prefix[2], *suffix],  # First boot did not reject a bad password.
+            [*prefix[:2], module.SESSION_CREATED, prefix[2], *suffix[1:]],
+            [*prefix, *suffix[:-1]],  # Home rendered but the Login handoff did not finish.
+            [*prefix, *suffix, module.SESSION_CREATED],  # Unexpected duplicate session.
+        ):
+            with self.assertRaises(RuntimeError):
+                module.verify_password_login('\n'.join(wrong), True)
+
     def test_theme_evidence_requires_two_real_nondefault_changes(self):
         self.assertEqual(module.saved_theme('[SETTINGS] theme_saved=5\r\n[SETTINGS] theme_saved=4\r\n'), 4)
         for text in ('', '[SETTINGS] theme_saved=4\n',

@@ -9,9 +9,20 @@ import re
 import shutil
 import socket
 import subprocess
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
+INSTALLED_PROFILE = '[TEST] installed_account_profile: PASS'
+BAD_PASSWORD = '[TEST] installed_login_bad_password_rejected: PASS'
+GOOD_PASSWORD = '[TEST] installed_login_password: PASS'
+SESSION_CREATED = '[SESSION] flux_session_create: PASS'
+HOME_FRAME = '[SESSION] flux_home_first_frame: PASS'
+DESKTOP = '[TEST] red_flux_login_to_desktop: PASS'
+INVALID_PROFILE = '[TEST] installed_account_profile_invalid_blocked: PASS'
+REJECTED_PROFILE = '[TEST] installed_login_invalid_profile_rejected: PASS'
+# Public keyboard fixture for disposable VM disks; never accept real passwords.
+FIXTURE_PASSWORD = 'flux8'
 
 
 def firmware():
@@ -57,6 +68,69 @@ def saved_text_scale(text):
     return values[0]
 
 
+def verify_password_login(text, rejected_first):
+    sequence = [INSTALLED_PROFILE]
+    if rejected_first:
+        sequence.append(BAD_PASSWORD)
+    sequence.extend([GOOD_PASSWORD, SESSION_CREATED, HOME_FRAME, DESKTOP])
+    watched = set(sequence) | {BAD_PASSWORD}
+    events = [line for line in text.splitlines() if line in watched]
+    if events != sequence:
+        raise RuntimeError('installed password login did not reject/authenticate in order')
+
+
+def disk_boot_command(disk, log_dir, timeout):
+    return ['bash', str(ROOT / 'scripts/smoke-uefi-iso-qemu.sh'), str(disk),
+            '--disk', '--persistent-disk', '--smp', '4', '--nic', 'none', '--no-ps2',
+            '--usb-keyboard', '--usb-tablet', '--timeout', str(timeout),
+            '--log-dir', str(log_dir)]
+
+
+def send_keys_after(cmd, marker, keys):
+    for key in keys:
+        cmd.extend(['--send-key-after-marker-count', marker, '1', key])
+
+
+def verify_missing_profile(disk, output, env, timeout):
+    # Modify only a new copy of the just-installed disposable disk, never a
+    # device or the disk used to demonstrate the successful installation.
+    damaged = output / 'missing-profile.img'
+    original_hash = digest(disk)
+    with disk.open('rb') as source, damaged.open('xb') as copy:
+        shutil.copyfileobj(source, copy)
+    partition = subprocess.check_output(
+        ['sgdisk', '--info=2', str(damaged)], text=True, env=dict(env, LC_ALL='C'))
+    match = re.search(r'^First sector: (\d+)\b', partition, re.M)
+    if not match or "Partition name: 'Kurogane Root'" not in partition:
+        raise RuntimeError('disposable disk does not contain expected FAT32 root partition')
+    offset = int(match[1]) * 512
+    if not 0 < offset < damaged.stat().st_size:
+        raise RuntimeError('invalid root partition offset in disposable disk')
+    subprocess.run(
+        ['mdel', '-i', f'{damaged}@@{offset}', '::/etc/user.cfg', '::/etc/locale.cfg'],
+        check=True, env=env)
+    log_dir = output / 'missing-profile-boot'
+    cmd = disk_boot_command(damaged, log_dir, timeout)
+    cmd.extend([
+        '--send-key-after-marker', INVALID_PROFILE, 'ret',
+        '--require-marker', INVALID_PROFILE,
+        '--require-marker', REJECTED_PROFILE,
+        '--require-marker', '[ACCOUNTD] installed_profile_invalid: FAIL',
+        '--screendump-after-marker', REJECTED_PROFILE, str(output / 'missing-profile.ppm'),
+    ])
+    with (output / 'missing-profile-runner.log').open('wb') as log:
+        subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    text = (log_dir / 'serial.log').read_text(errors='replace')
+    if any(marker in text for marker in (
+            'PANIC_BEGIN', 'FATAL ERROR', '[TEST] live_login_profile: PASS',
+            INSTALLED_PROFILE, SESSION_CREATED, HOME_FRAME, DESKTOP)):
+        raise RuntimeError('damaged installation booted a session or suffered a fatal fault')
+    if digest(disk) != original_hash:
+        raise RuntimeError('successful installation disk changed during profile fault test')
+    print('[installer-qemu] missing installed profile: Login refused the session: PASS',
+          flush=True)
+
+
 def wait_marker(serial, marker, process, deadline):
     while time.monotonic() < deadline:
         text = serial.read_text(errors='replace') if serial.exists() else ''
@@ -78,7 +152,6 @@ def verify_read_only_target_recovery(iso, output, code, variables, timeout):
     vars_copy = output / 'readonly-vars.fd'
     shutil.copyfile(variables, vars_copy)
     serial = output / 'readonly-serial.log'
-    import tempfile
     with tempfile.TemporaryDirectory(prefix='ku-readonly-') as sockets:
         qmp_path = Path(sockets) / 'qmp.sock'
         command = ['qemu-system-x86_64', '-machine', 'q35,accel=tcg,i8042=off',
@@ -117,9 +190,13 @@ def verify_read_only_target_recovery(iso, output, code, variables, timeout):
                     raise TimeoutError('waiting for read-only target fallback')
                 if '[TEST] live_package_root: PASS' not in text:
                     raise RuntimeError('read-only target did not enter the live session')
+                qmp.key('ret')
+                wait_marker(serial, '[TEST] live_login_profile: PASS', process, deadline)
+                qmp.key('ret')
+                wait_marker(serial, DESKTOP, process, deadline)
                 if digest(disk) != original_hash:
                     raise RuntimeError('read-only target changed during recovery')
-                print('[installer-qemu] read-only target -> live recovery: PASS',
+                print('[installer-qemu] read-only target -> live recovery and Home: PASS',
                       flush=True)
             finally:
                 if qmp:
@@ -170,6 +247,8 @@ def main():
     parser.add_argument('--timeout', type=int, default=240)
     parser.add_argument('--desktop-lifecycle', action='store_true',
                         help='exercise windows and Settings keyboard on first installed boot')
+    parser.add_argument('--password-profile', action='store_true',
+                        help='qualify wrong/correct passwords and a damaged profile on disposable disks')
     args = parser.parse_args()
     if not 60 <= args.timeout <= 240:
         parser.error('timeout must be 60..240 seconds per phase')
@@ -192,7 +271,6 @@ def main():
         iso, output, code, variables, args.timeout)
     serial = output / 'install-serial.log'
     # macOS UNIX socket paths have a short limit; use a separate disposable dir.
-    import tempfile
     with tempfile.TemporaryDirectory(prefix='ku-install-') as sockets:
         qmp_path = Path(sockets) / 'qmp.sock'
         command = ['qemu-system-x86_64', '-machine', 'q35,accel=tcg,i8042=off',
@@ -216,10 +294,20 @@ def main():
                 qmp = QMP(qmp_path)
                 qmp.key('down')
                 qmp.key('ret')
-                for marker in ('installer: select language:', 'installer: enter username:',
-                               'installer: select password mode:', 'installer: select target disk index:'):
+                for marker in ('installer: select language:', 'installer: enter username:'):
                     wait_marker(serial, marker, process, deadline)
                     qmp.key('ret')
+                wait_marker(serial, 'installer: select password mode:', process, deadline)
+                if args.password_profile:
+                    qmp.key('down')
+                qmp.key('ret')
+                if args.password_profile:
+                    wait_marker(serial, 'installer: enter password:', process, deadline)
+                    for key in FIXTURE_PASSWORD:
+                        qmp.key(key)
+                    qmp.key('ret')
+                wait_marker(serial, 'installer: select target disk index:', process, deadline)
+                qmp.key('ret')
                 wait_marker(serial, 'installer: type INSTALL to confirm:', process, deadline)
                 # Exercise cancellation before granting the destructive confirmation.
                 qmp.key('esc')
@@ -248,14 +336,24 @@ def main():
     expected_theme = None
     expected_text_scale = None
     for phase, marker in (('first-boot', 'installed_first_boot'), ('second-boot', 'installed_persistence')):
-        cmd = ['bash', str(ROOT / 'scripts/smoke-uefi-iso-qemu.sh'), str(disk),
-            '--disk', '--persistent-disk', '--smp', '4', '--nic', 'none', '--no-ps2',
-            '--usb-keyboard', '--usb-tablet', '--timeout', str(args.timeout),
-            '--log-dir', str(output / phase),
-            '--send-key-after-marker', '[TEST] installed_account_profile: PASS', 'ret',
+        cmd = disk_boot_command(disk, output / phase, args.timeout)
+        cmd.extend([
             '--require-marker', f'[TEST] {marker}: PASS',
-            '--require-marker', '[SESSION] flux_home_first_frame: PASS',
-            '--screendump-after-marker', '[SESSION] flux_home_first_frame: PASS', str(output / (phase + '.ppm'))]
+            '--require-marker', HOME_FRAME,
+            '--require-marker', DESKTOP,
+            '--screendump-after-marker', DESKTOP, str(output / (phase + '.ppm')),
+        ])
+        rejected_first = phase == 'first-boot'
+        if args.password_profile:
+            after = INSTALLED_PROFILE
+            if rejected_first:
+                send_keys_after(cmd, INSTALLED_PROFILE, ['n', 'o', 'ret'])
+                cmd.extend(['--require-marker', BAD_PASSWORD])
+                after = BAD_PASSWORD
+            send_keys_after(cmd, after, [*FIXTURE_PASSWORD, 'ret'])
+            cmd.extend(['--require-marker', GOOD_PASSWORD])
+        else:
+            cmd.extend(['--send-key-after-marker', INSTALLED_PROFILE, 'ret'])
         if args.desktop_lifecycle and phase == 'first-boot':
             cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
         if expected_theme is not None:
@@ -273,6 +371,10 @@ def main():
             raise RuntimeError(phase + ' reported guest failure')
         if '[TEST] installer_package_preflight: PASS' in text or '[TEST] live_login_profile: PASS' in text:
             raise RuntimeError('booted installer/live media instead of installed disk')
+        if args.password_profile:
+            verify_password_login(text, rejected_first)
+            print('[installer-qemu] ' + phase + ' password authentication: PASS',
+                  flush=True)
         if args.desktop_lifecycle and phase == 'first-boot':
             expected_theme = saved_theme(text)
             expected_text_scale = saved_text_scale(text)
@@ -289,10 +391,13 @@ def main():
             print('[installer-qemu] exact text scale restored after reboot: PASS',
                   flush=True)
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
+    if args.password_profile:
+        verify_missing_profile(disk, output, env, args.timeout)
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme,
-                'restored_text_scale': expected_text_scale, 'result': 'PASS'}
+                'restored_text_scale': expected_text_scale, 'password_profile': args.password_profile,
+                'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)
 

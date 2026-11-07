@@ -362,6 +362,8 @@ for _ in range(40):
         receive_object(stream, f"send-key {key}")
         stream.close()
         client.close()
+        # Wait for QEMU's 80 ms release before another queued keystroke.
+        time.sleep(0.18)
         print(f"[qmp] acknowledged send-key {key}")
         raise SystemExit(0)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
@@ -994,6 +996,11 @@ while ((SECONDS < deadline)); do
                 "${lifecycle_options[@]}"
             echo "[uefi-qemu] Flux window lifecycle: PASS"
             flux_lifecycle_done=true
+        fi
+        # The serial log can grow between the readiness check above and the
+        # required-marker loop. Home alone must never complete this scenario.
+        if $flux_lifecycle && ! $flux_lifecycle_done; then
+            all_markers_ready=false
         fi
         if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
             for index in "${!require_markers[@]}"; do
