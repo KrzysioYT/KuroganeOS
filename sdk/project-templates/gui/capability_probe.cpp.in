@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include <kurogane/libui.h>
 #include <kurogane/kurogane.h>
 
@@ -12,14 +13,30 @@ int main() {
     kui_frame_initialize(&frame);
     (void)kui_frame_set_line(&frame, 0, "@PROJECT_NAME@");
     (void)kui_frame_set_line(&frame, 2, "External libui application");
-    (void)kui_present(window, &frame);
+    if (kui_present(window, &frame) != KU_STATUS_OK) {
+        (void)ku_ui_close(window);
+        return 2;
+    }
+    puts("[SDK_GUI] presented");
     for (;;) {
         ku_ui_event event;
         const int available = kui_next_event(window, &event);
         if (available < 0 ||
             (available > 0 && event.type == KU_UI_EVENT_CLOSE)) break;
+        if (available > 0 && (event.type == KU_UI_EVENT_KEY ||
+                              event.type == KU_UI_EVENT_POINTER)) {
+            const char* text = event.type == KU_UI_EVENT_KEY
+                ? "Keyboard input received" : "Pointer input received";
+            (void)kui_frame_set_line(&frame, 4, text);
+            if (kui_present(window, &frame) != KU_STATUS_OK) {
+                (void)ku_ui_close(window);
+                return 3;
+            }
+            puts(event.type == KU_UI_EVENT_KEY ? "[SDK_GUI] keyboard" : "[SDK_GUI] pointer");
+        }
         (void)kuro_sleep(1);
     }
-    (void)ku_ui_close(window);
+    if (ku_ui_close(window) != KU_STATUS_OK) return 4;
+    puts("[SDK_GUI] closed");
     return 0;
 }

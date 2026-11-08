@@ -57,6 +57,15 @@ Copy `build/my-app/build/my-app` into an image overlay as `/apps/my-app`, then
 repackage and launch it through `SPAWN`. ABI major 1 fixes syscall/status/handle
 and public structure contracts; callers must initialize sizes/reserved fields.
 
+For an interactive GUI example, generate `--template gui --name fluxdemo`.
+Build it with the same sysroot command, install `build/fluxdemo` as
+`/apps/fluxdemo`, and run `open /apps/fluxdemo` from Flux Terminal. The window
+reports received keyboard and pointer events and closes through native window
+controls. `[SDK_GUI]` serial markers are emitted after successful presentation,
+input handling and closure. Generated projects use the same scalar compiler
+flags as built-in Ring-3 programs; generator tests disassemble the linked ELF
+to reject accidental SIMD register use.
+
 There is no dynamic loader, shared-library ABI, C++ standard library,
 exceptions/RTTI, socket API, threads API, PE or `.kex` support in 2.0.
 
