@@ -675,7 +675,7 @@ static void toggle_selected_pin(void) {
     }
 }
 
-static void build_scene(kui_scene* scene) {
+static void build_scene(ku_window_t window, kui_scene* scene) {
     kui_flow root;
     kui_flow apps;
     ku_system_snapshot system;
@@ -731,6 +731,8 @@ static void build_scene(kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
+    const ku_result_t height = ku_ui_native_height(window);
+    if (height > 0 && height <= UINT32_MAX) scene->viewport_height = (uint32_t)height;
     kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
@@ -804,7 +806,7 @@ int main(void) {
     // The first Home frame is the authenticated desktop handoff contract.
     // Never block this milestone on settingsd, notifd or persistent pin IO.
     // Live services can load after the window is already displayed.
-    build_scene(&scene);
+    build_scene(window, &scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         puts("[SESSION] flux_home_ui_present: FAIL");
         (void)ku_ui_close(window);
@@ -858,7 +860,7 @@ int main(void) {
 
     // Optional services might be temporarily unavailable; Home must remain
     // alive and allow Dock/keyboard commands even if this refresh fails.
-    build_scene(&scene);
+    build_scene(window, &scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         puts("[SESSION] flux_home_optional_refresh: FAIL");
     }
@@ -874,7 +876,7 @@ int main(void) {
             if (refresh_ticks >= KU_SYSTEM_TICKS_PER_SECOND) {
                 refresh_ticks = 0U;
                 report_ready_apps();
-                build_scene(&scene);
+                build_scene(window, &scene);
                 if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
             }
             (void)kuro_sleep(1U);
@@ -888,7 +890,8 @@ int main(void) {
                 (void)kui_scene_scroll(&scene, event.wheel_y > 0 ? -1 : 1);
                 if (scene.scroll_offset != previous) {
                     g_scroll_offset = scene.scroll_offset;
-                    (void)kui_scene_present(window, &scene);
+                    if (kui_scene_present(window, &scene) == KU_STATUS_OK)
+                        puts("[TEST] flux_home_wheel_navigation: PASS");
                 }
             }
             continue;
@@ -914,7 +917,7 @@ int main(void) {
             } else {
                 continue;
             }
-            build_scene(&scene);
+            build_scene(window, &scene);
             (void)kui_scene_present(window, &scene);
             continue;
         }
@@ -951,7 +954,9 @@ int main(void) {
                 changed = 1;
             }
             if (changed) {
-                build_scene(&scene);
+                build_scene(window, &scene);
+                kui_scene_reveal_selection(&scene);
+                g_scroll_offset = scene.scroll_offset;
                 if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
             }
             continue;
@@ -984,7 +989,7 @@ int main(void) {
         } else {
             continue;
         }
-        build_scene(&scene);
+        build_scene(window, &scene);
         (void)kui_scene_present(window, &scene);
     }
 

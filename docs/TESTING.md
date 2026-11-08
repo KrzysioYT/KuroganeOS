@@ -8,6 +8,18 @@ keyboard. On a read-only root, Settings labels changes **Session only** and
 settingsd keeps them in memory. The installed-disk test separately checks a
 durable save and verifies the same values after a disk-only reboot.
 
+The installed lifecycle also scrolls Files at 200% from the left margin to
+reach **New folder** and **Rename selected**. It creates `flx8qa`, renames it to
+`flx8ok`, and checks the disposable FAT32 root after the second boot. Wheel
+input over directory tiles still pages the directory. On the Live ISO, Files
+labels and disables mutations on the read-only mount.
+
+The installed test then focuses Terminal at 200%, verifies the prompt in the
+framebuffer, types `ls`, and checks that empty `echo`, `echo j`, and `echo k`
+produce distinct rendered output. History uses the physical arrow keys.
+The Live test also searches Home for Files, opens and closes the result, then
+scrolls to Log out and verifies a fresh login and desktop at 200%.
+
 ## Settings IPC backpressure regression
 
 `tests/test_settings_service.c` exercises the production settings daemon with

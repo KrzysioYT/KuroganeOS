@@ -316,6 +316,9 @@ static void build_scene(
     char page[24];
     size_t visible = 0U;
     size_t index;
+    ku_file_stat directory_info = {0};
+    const int read_only = ku_file_stat_path(path, strlen(path), &directory_info) == KU_STATUS_OK &&
+        (directory_info.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
 
     gui_u64(page, sizeof(page), entry_count == 0U ? 0U : page_start / PAGE_SIZE + 1U);
     append_text(heading, sizeof(heading), page);
@@ -365,10 +368,14 @@ static void build_scene(
     (void)kui_flow_button(&root, 32U, "NEXT PAGE");
     (void)kui_flow_button(&root, 34U, "COPY SELECTED PATH");
     (void)kui_flow_button(&root, 37U,
-        edit_mode == 1 ? "CANCEL NEW FOLDER" : "NEW FOLDER");
+        read_only ? "NEW FOLDER / READ-ONLY" : edit_mode == 1 ? "CANCEL NEW FOLDER" : "NEW FOLDER");
     (void)kui_flow_button(&root, 39U,
-        edit_mode == 2 ? "CANCEL RENAME" : "RENAME SELECTED");
+        read_only ? "RENAME / READ-ONLY" : edit_mode == 2 ? "CANCEL RENAME" : "RENAME SELECTED");
     (void)kui_flow_label(&root, 33U, preview);
+    if (read_only && edit_mode == 0) {
+        (void)kui_scene_set_flags(scene, 37U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, 39U, KUI_VIEW_DISABLED);
+    }
     if (edit_mode != 0) {
         for (uint32_t id = 10U; id < 10U + PAGE_SIZE; ++id) {
             (void)kui_scene_set_flags(scene, id, KUI_VIEW_DISABLED);
@@ -403,6 +410,20 @@ static void build_scene(
                entries[selected].type != KU_FILE_TYPE_DIRECTORY) {
         (void)kui_scene_set_flags(scene, 39U, KUI_VIEW_DISABLED);
     }
+}
+
+static int update_viewport(ku_window_t window, kui_scene* scene) {
+    const ku_result_t height = ku_ui_native_height(window);
+    if (height <= 0 || height > UINT32_MAX || scene->viewport_height == (uint32_t)height)
+        return 0;
+    scene->viewport_height = (uint32_t)height;
+    (void)kui_scene_scroll(scene, 0);
+    return 1;
+}
+
+static ku_status_t present_files(ku_window_t window, kui_scene* scene) {
+    (void)update_viewport(window, scene);
+    return kui_scene_present(window, scene);
 }
 
 static int activate_selected(
@@ -483,7 +504,7 @@ int main(void) {
     }
     build_scene(&scene, path, query, &history, edit_mode, edit_name,
                 entries, entry_count, page_start, selected, preview);
-    if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
+    if (present_files(window, &scene) != KU_STATUS_OK) {
         (void)ku_ui_close(window);
         return 3;
     }
@@ -503,7 +524,12 @@ int main(void) {
     for (;;) {
         ku_ui_event event;
         uint32_t target;
-        const int wait_result = gui_wait_event(window, &event);
+        int wait_result;
+        do {
+            if (update_viewport(window, &scene)) (void)kui_scene_present(window, &scene);
+            wait_result = kui_next_event(window, &event);
+            if (wait_result == 0) (void)kuro_sleep(1U);
+        } while (wait_result == 0);
         if (wait_result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
         if (edit_mode != 0 && event.type == KU_UI_EVENT_KEY) {
             const flux_files_folder_action edit = flux_files_folder_key(
@@ -615,7 +641,7 @@ int main(void) {
             }
             build_scene(&scene, path, query, &history, edit_mode, edit_name,
                         entries, entry_count, page_start, selected, preview);
-            (void)kui_scene_present(window, &scene);
+            (void)present_files(window, &scene);
             continue;
         }
         if (edit_mode != 0 && event.type == KU_UI_EVENT_SCROLL) continue;
@@ -624,6 +650,17 @@ int main(void) {
             // fewer items than a page, where the offset cannot change.
             if (event.wheel_y != 0)
                 puts("[TEST] flux_files_usb_wheel_input: PASS");
+            const uint32_t hovered = kui_scene_hit_test(&scene, event.x, event.y);
+            if (hovered < 10U || hovered >= 10U + PAGE_SIZE) {
+                const uint32_t before = scene.scroll_offset;
+                const int32_t step = event.wheel_y == INT32_MIN ? INT32_MAX : -event.wheel_y;
+                (void)kui_scene_scroll(&scene, step);
+                if (scene.scroll_offset != before) {
+                    (void)present_files(window, &scene);
+                    puts("[TEST] flux_files_controls_scroll: PASS");
+                }
+                if (scene.scroll_offset != 0U || before != 0U) continue;
+            }
             // Preserve combined wheel detents without integer overflow.
             const size_t before = page_start;
             page_start = flux_files_wheel_page(
@@ -634,7 +671,7 @@ int main(void) {
                 build_scene(&scene, path, query, &history,
                             edit_mode, edit_name, entries, entry_count,
                             page_start, selected, preview);
-                (void)kui_scene_present(window, &scene);
+                (void)present_files(window, &scene);
                 puts("[TEST] flux_files_usb_wheel_paging: PASS");
             }
             continue;
@@ -662,7 +699,7 @@ int main(void) {
                 build_scene(&scene, path, query, &history,
                             edit_mode, edit_name, entries, entry_count,
                             page_start, selected, preview);
-                (void)kui_scene_present(window, &scene);
+                (void)present_files(window, &scene);
                 puts("[TEST] flux_files_search: PASS");
                 continue;
             } else {
@@ -674,7 +711,7 @@ int main(void) {
                     build_scene(&scene, path, query, &history,
                                 edit_mode, edit_name, entries, entry_count,
                                 page_start, selected, preview);
-                    (void)kui_scene_present(window, &scene);
+                    (void)present_files(window, &scene);
                     puts("[TEST] flux_files_keyboard_navigation: PASS");
                     continue;
                 }
@@ -703,7 +740,7 @@ int main(void) {
                         build_scene(&scene, path, query, &history, edit_mode,
                                     edit_name, entries, entry_count,
                                     page_start, selected, preview);
-                        (void)kui_scene_present(window, &scene);
+                        (void)present_files(window, &scene);
                     }
                 }
                 continue;
@@ -800,7 +837,7 @@ int main(void) {
 
         build_scene(&scene, path, query, &history, edit_mode, edit_name,
                     entries, entry_count, page_start, selected, preview);
-        (void)kui_scene_present(window, &scene);
+        (void)present_files(window, &scene);
     }
 
     (void)ku_ui_close(window);

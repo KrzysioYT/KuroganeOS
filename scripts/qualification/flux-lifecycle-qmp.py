@@ -22,14 +22,18 @@ def records(text):
     return result
 
 
-def screenshot_pixel(path, x, y):
+def screenshot_region(path, x, y, w, h):
     magic, dimensions, depth, pixels = path.read_bytes().split(b'\n', 3)
     width, height = map(int, dimensions.split())
     if (magic != b'P6' or depth != b'255' or len(pixels) != width * height * 3
-            or not (0 <= x < width and 0 <= y < height)):
+            or not (0 <= x < x + w <= width and 0 <= y < y + h <= height)):
         raise ValueError(f'invalid framebuffer sample: {path}, ({x}, {y})')
-    offset = (y * width + x) * 3
-    return pixels[offset:offset + 3].hex()
+    return b''.join(pixels[(row * width + x) * 3:(row * width + x + w) * 3]
+                    for row in range(y, y + h))
+
+
+def screenshot_pixel(path, x, y):
+    return screenshot_region(path, x, y, 1, 1).hex()
 
 
 class Harness:
@@ -109,6 +113,14 @@ class Harness:
         self.execute('input-send-event', {'events': [{'type': 'btn', 'data': {'button': 'left', 'down': down}}]})
         time.sleep(.15)
 
+    def scroll_down(self, info, x, y, steps):
+        self.pointer(info, x, y)
+        for _ in range(steps):
+            self.execute('input-send-event', {'events': [
+                {'type': 'btn', 'data': {'button': 'wheel-down', 'down': down}}
+                for down in (True, False)]})
+            time.sleep(.07)
+
     def control(self, info, index):
         # Production chrome: 22px controls, 4px gaps, 8px right inset, 36px header.
         self.pointer(info, info['x'] + info['w'] - 19 - index * 26, info['y'] + 18)
@@ -147,6 +159,44 @@ class Harness:
         self.wait_marker(marker, previous)
         print('[lifecycle] Files tile edge at 200% opened a real directory: PASS',
               flush=True)
+
+        # Scroll at the left margin, outside the directory tiles. The last
+        # page ends with the two mutation buttons followed by a status label.
+        button_rows = ((files['h'] - 40) // 2 - 16 - 22) // 40
+        assert 2 <= button_rows <= 8
+
+        def click_mutation(rows_from_end):
+            previous_scrolls = self.serial.read_text(errors='replace').count(
+                '[TEST] flux_files_controls_scroll: PASS')
+            self.scroll_down(files, files['x'] + 12, files['y'] + 90, 16)
+            self.wait_marker('[TEST] flux_files_controls_scroll: PASS', previous_scrolls)
+            row_y = 16 + (button_rows - rows_from_end) * 40 + 17
+            self.pointer(files, files['x'] + 100, files['y'] + 36 + 2 * row_y)
+            self.button(True)
+            self.button(False)
+
+        click_mutation(2)
+        for key in 'flx8qa':
+            self.key(key)
+        self.key('ret')
+        self.wait_marker('[TEST] flux_files_mkdir: PASS')
+        for key in 'flx8qa':
+            self.key(key)
+        self.pointer(files, files['x'] + 4 + 2 * (tile_x + 40),
+                     files['y'] + 36 + 2 * (tile_bottom - 30))
+        for down in (True, False):
+            self.execute('input-send-event', {'events': [
+                {'type': 'btn', 'data': {'button': 'right', 'down': down}}]})
+            time.sleep(.15)
+        click_mutation(1)
+        for _ in range(6):
+            self.key('backspace')
+        for key in 'flx8ok':
+            self.key(key)
+        self.key('ret')
+        self.wait_marker('[TEST] flux_files_rename: PASS')
+        self.screenshot('09-files-rename-200-percent')
+        print('[lifecycle] Files created and renamed a directory at 200%: PASS', flush=True)
 
     def run(self):
         time.sleep(2)  # Let Home's normal autostart finish before resource checks.
@@ -276,6 +326,12 @@ class Harness:
             self.wait_marker('[SETTINGS] text_scale_session=200', 1)
             self.key('ret')
             self.wait_marker('[SETTINGS] text_scale_session=100')
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=125')
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=150', 1)
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=200', 2)
             assert '[SETTINGS] theme_saved=' not in self.serial.read_text(errors='replace')
             start = self.mark()
             self.control(settings, 0)
@@ -290,6 +346,25 @@ class Harness:
             self.screenshot('08-home-after-color')
             assert screenshot_pixel(self.output / '08-home-after-color.ppm',
                                     home['x'] + 12, home['y'] + 24) == '0d0a16'
+            for char in 'files':
+                self.key(char)
+            start = self.mark()
+            self.key('ret')
+            found = self.wait(start, 'present', app=2)
+            start = self.mark()
+            self.control(found, 0)
+            self.wait(start, 'close', app=2, window=found['id'])
+            self.scroll_down(home, home['x'] + 65, home['y'] + 70, 16)
+            self.wait_marker('[TEST] flux_home_wheel_navigation: PASS')
+            # With the Files search filter, the final page has one tile row
+            # followed by Pin/Unpin and Log out at the default Home bounds.
+            self.pointer(home, home['x'] + 100, home['y'] + 8 + 2 * (16 + 76 + 40 + 17))
+            self.button(True)
+            self.button(False)
+            self.wait_marker('[TEST] desktop_logout_requested: PASS')
+            self.wait_marker('[TEST] red_flux_login_surface: PASS', 1)
+            self.key('ret')
+            self.wait_marker('[SESSION] flux_home_first_frame: PASS', 1)
             (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
             print('[lifecycle] PASS: live color and scale applied through Settings IPC', flush=True)
             return
@@ -336,6 +411,32 @@ class Harness:
         self.wait(start, 'close', app=6, window=settings['id'])
         if self.settings_write:
             self.verify_scaled_files_edge(files)
+            start = self.mark()
+            self.key('ctrl', 'alt', 'f2')
+            terminal = self.wait(start, 'focus', window=reopened['id'])
+            output_samples = []
+            for index, command in enumerate(('ls', 'echo', 'echo j', 'echo k')):
+                for char in command:
+                    self.key('spc' if char == ' ' else char)
+                if command == 'ls':
+                    self.screenshot('10-terminal-input-200-percent')
+                    # The selected input border is Crimson after the installed
+                    # Settings sequence, and fits below three output rows.
+                    x = terminal['x'] + 4 + 2 * 16 + 24
+                    y = terminal['y'] + 36 + 2 * (16 + 44 + 3 * 28)
+                    assert screenshot_pixel(self.output / '10-terminal-input-200-percent.ppm',
+                                            x, y) == 'bd2849'
+                self.key('ret')
+                if command == 'ls':
+                    self.screenshot('11-terminal-ls-200-percent')
+                else:
+                    name = f'terminal-echo-{index}'
+                    self.screenshot(name)
+                    x = terminal['x'] + 4 + 2 * 16
+                    y = terminal['y'] + 36 + 2 * (16 + 44 + 2 * 28) + 6
+                    output_samples.append(screenshot_region(
+                        self.output / (name + '.ppm'), x, y, 30, 20))
+            assert len(set(output_samples)) == 3, 'empty echo, j and k must have distinct output'
         (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
         self.read()  # Fail even if a fault follows the last accepted transition.
         print('[lifecycle] PASS: minimize/restore/maximize/move/resize/focus/close/reopen/settings-keyboard', flush=True)

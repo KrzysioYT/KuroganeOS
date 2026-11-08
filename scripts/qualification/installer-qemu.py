@@ -393,6 +393,18 @@ def main():
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
     if args.password_profile:
         verify_missing_profile(disk, output, env, args.timeout)
+    if args.desktop_lifecycle:
+        partition = subprocess.check_output(
+            ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
+        match = re.search(r'^First sector: (\d+)\b', partition, re.M)
+        if not match or "Partition name: 'Kurogane Root'" not in partition:
+            raise RuntimeError('cannot verify Files mutation on the installed root partition')
+        image = f'{disk}@@{int(match[1]) * 512}'
+        listing = subprocess.check_output(['mdir', '-i', image, '::/'], text=True, env=env)
+        if not re.search(r'^flx8ok\s+<DIR>', listing, re.I | re.M) or re.search(
+                r'^flx8qa\s+<DIR>', listing, re.I | re.M):
+            raise RuntimeError('Files mkdir/rename did not persist exactly one final directory')
+        print('[installer-qemu] Files mkdir/rename persisted after reboot: PASS', flush=True)
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme,
