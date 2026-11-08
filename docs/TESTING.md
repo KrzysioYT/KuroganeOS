@@ -1,5 +1,10 @@
 # Testing and QEMU validation
 
+Use the [Windows 11 VirtualBox matrix](FLUX8_VIRTUALBOX_MATRIX.md) for
+visible Flux acceptance and record the source SHA and ISO SHA-256 per run.
+The host framebuffer regression checks that changing the desktop session
+indicator leaves the adjacent label intact at all four text scales.
+
 The Flux foundation gate boots the installer ISO in Try mode and clicks
 **Next color**. It checks that Settings applies Violet through the settings
 service and that the framebuffer uses the new palette in the Dock, Home,

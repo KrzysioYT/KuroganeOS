@@ -62,6 +62,16 @@ bool modern_wide_desktop() {
         graphics::width() >= 1024U && graphics::height() >= 720U;
 }
 
+constexpr char kSessionLabel[] = "DESKTOP SESSION:";
+constexpr int32_t kHeaderGap = 8;
+constexpr int32_t kSessionDotWidth = 5;
+
+int32_t desktop_session_x(int32_t width) {
+    const int32_t label = static_cast<int32_t>(graphics::measure_text_width(kSessionLabel));
+    const int32_t value = static_cast<int32_t>(graphics::measure_text_width("OFFLINE"));
+    return (width - label - value - 2 * kHeaderGap - kSessionDotWidth) / 2;
+}
+
 bool text_equals(const char* left, const char* right) {
     if (left == nullptr || right == nullptr) return false;
     size_t index = 0U;
@@ -503,14 +513,24 @@ void desktop(const char* title) {
         graphics::fill_rect(0, 57, width, 1, kTheme.border);
         graphics::fill_rect(width / 4, 58, width / 2, 1, kRedDeep);
         brand_mark(37, 29, 2, kTheme.accent, kRedMuted);
-        graphics::draw_text(77, 17, "KUROGANEOS", kTheme.text,
-                            kHeaderBand, 2U, true);
-        graphics::draw_text(248, 22, KUROGANE_VERSION_STRING,
-                            kTheme.text_muted, kHeaderBand, 1U, true);
-        graphics::draw_text(77, 42, "BUILT IN STEEL. REFINED IN FIRE.",
-                            kTheme.text_muted, kHeaderBand, 1U, true);
-        graphics::draw_text(width - 187, 23, "FLUX 8 / MODERN",
-                            kTheme.text_muted, kHeaderBand, 1U, true);
+        constexpr int32_t brand_x = 77;
+        const int32_t brand_width = desktop_session_x(width) - brand_x - 16;
+        const int32_t version_width = static_cast<int32_t>(
+            graphics::measure_text_width(KUROGANE_VERSION_STRING));
+        const int32_t title_budget = brand_width - version_width - kHeaderGap;
+        const uint32_t title_width = graphics::draw_text_ellipsized(
+            brand_x, 8, "KUROGANEOS", title_budget > 0 ? static_cast<uint32_t>(title_budget) : 0U,
+            kTheme.text, kHeaderBand, 2U, true, graphics::TextWeight::Normal);
+        const int32_t version_offset = static_cast<int32_t>(title_width) + kHeaderGap;
+        graphics::draw_text_ellipsized(brand_x + version_offset, 18, KUROGANE_VERSION_STRING,
+            static_cast<uint32_t>(brand_width - version_offset), kTheme.text_muted,
+            kHeaderBand, 1U, true, graphics::TextWeight::Normal);
+        graphics::draw_text_ellipsized(brand_x, 39, "BUILT IN STEEL. REFINED IN FIRE.",
+            static_cast<uint32_t>(brand_width), kTheme.text_muted, kHeaderBand, 1U, true,
+            graphics::TextWeight::Normal);
+        constexpr char mode[] = "FLUX 8 / MODERN";
+        graphics::draw_text(width - 18 - static_cast<int32_t>(graphics::measure_text_width(mode)),
+                            23, mode, kTheme.text_muted, kHeaderBand, 1U, true);
         return;
     }
 
@@ -576,13 +596,15 @@ void desktop(const char* title) {
 
 void desktop_session_status(bool ready) {
     if (!graphics::available() || !modern_wide_desktop()) return;
-    const int32_t x = static_cast<int32_t>(graphics::width()) / 2 - 104;
-    graphics::draw_text(x, 25, "DESKTOP SESSION:", kTheme.text_muted,
+    const int32_t x = desktop_session_x(static_cast<int32_t>(graphics::width()));
+    const int32_t value_x = x + static_cast<int32_t>(graphics::measure_text_width(kSessionLabel)) + kHeaderGap;
+    const int32_t dot_x = value_x + static_cast<int32_t>(graphics::measure_text_width("OFFLINE")) + kHeaderGap;
+    graphics::draw_text(x, 25, kSessionLabel, kTheme.text_muted,
                         kHeaderBand, 1U, true);
-    graphics::draw_text(x + 143, 25, ready ? "ONLINE" : "OFFLINE",
+    graphics::draw_text(value_x, 25, ready ? "ONLINE" : "OFFLINE",
                         ready ? graphics::rgb(102, 199, 89) : kRedMuted,
                         kHeaderBand, 1U, true);
-    graphics::fill_rect(x + 201, 27, 5, 5,
+    graphics::fill_rect(dot_x, 27, kSessionDotWidth, kSessionDotWidth,
                         ready ? graphics::rgb(102, 199, 89) : kRedDeep);
 }
 
