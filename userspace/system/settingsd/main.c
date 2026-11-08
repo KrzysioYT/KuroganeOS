@@ -8,6 +8,7 @@
 #define SETTINGSD_MAX_RECORDS 32U
 #define SETTINGSD_DB_PATH "/settings.db"
 #define SETTINGSD_TMP_PATH "/settings.tmp"
+#define SETTINGSD_BACKUP_PATH "/settings.bak"
 #define SETTINGSD_DB_MAGIC UINT32_C(0x4B535431)
 #define SETTINGSD_DB_VERSION UINT32_C(1)
 
@@ -219,20 +220,39 @@ static ku_status_t persist_records(void) {
         SETTINGSD_DB_PATH,
         sizeof(SETTINGSD_DB_PATH) - 1U);
     if (status == KU_STATUS_ALREADY_EXISTS) {
-        status = ku_file_unlink(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+        /* FAT32 rename does not replace a destination. Preserve the old
+         * database until the new one has been published and synchronized. */
+        status = ku_file_unlink(SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U);
         if (status == KU_STATUS_OK || status == KU_STATUS_NOT_FOUND) {
             status = ku_file_rename(
-                SETTINGSD_TMP_PATH,
-                sizeof(SETTINGSD_TMP_PATH) - 1U,
-                SETTINGSD_DB_PATH,
-                sizeof(SETTINGSD_DB_PATH) - 1U);
+                SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U,
+                SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U);
+        }
+        if (status == KU_STATUS_OK) {
+            status = ku_file_sync();
+            if (status == KU_STATUS_OK) {
+                status = ku_file_rename(
+                    SETTINGSD_TMP_PATH, sizeof(SETTINGSD_TMP_PATH) - 1U,
+                    SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+            }
+            if (status != KU_STATUS_OK) {
+                /* Best-effort rollback. If writes remain unavailable, keep
+                 * the backup for load_records() on the next service start. */
+                (void)ku_file_rename(
+                    SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U,
+                    SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+                (void)ku_file_sync();
+            }
         }
     }
     if (status != KU_STATUS_OK) {
         (void)ku_file_unlink(SETTINGSD_TMP_PATH, sizeof(SETTINGSD_TMP_PATH) - 1U);
         return status;
     }
-    return ku_file_sync();
+    status = ku_file_sync();
+    /* Leave the synchronized previous generation as a recovery copy. A later
+     * successful replacement removes it only while the current DB exists. */
+    return status;
 }
 
 static ku_status_t load_records(void) {
@@ -245,14 +265,19 @@ static ku_status_t load_records(void) {
     uint32_t checksum;
     size_t expected_size;
     size_t index;
+    const char* path = SETTINGSD_DB_PATH;
 
     clear_bytes(records, sizeof(records));
-    status = ku_file_stat_path(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U, &info);
+    status = ku_file_stat_path(path, u_strlen(path), &info);
+    if (status == KU_STATUS_NOT_FOUND) {
+        path = SETTINGSD_BACKUP_PATH;
+        status = ku_file_stat_path(path, u_strlen(path), &info);
+    }
     if (status == KU_STATUS_NOT_FOUND) return KU_STATUS_OK;
     if (status != KU_STATUS_OK || info.type != KU_FILE_TYPE_REGULAR) return KU_STATUS_IO_ERROR;
     if (info.size < sizeof(header) || info.size > sizeof(header) + sizeof(disk_records)) return KU_STATUS_CORRUPT_DATA;
 
-    opened = ku_file_open(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+    opened = ku_file_open(path, u_strlen(path));
     if (opened <= 0) return (ku_status_t)opened;
     file = (ku_file_t)opened;
     if (!read_all(file, &header, sizeof(header))) {

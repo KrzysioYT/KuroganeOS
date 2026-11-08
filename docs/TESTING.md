@@ -10,6 +10,14 @@ clear the client. The test reproduced a dropped reply before the fix and is
 part of `scripts/run-host-tests.sh`. This host test does not qualify settings
 disk-write failure recovery or per-user storage isolation.
 
+`tests/test_settings_persistence.c` injects a failed replacement rename with
+the FAT32 no-overwrite contract. It checks rollback in memory, restart recovery
+from the previous database, recovery when the rollback rename also fails, and
+a subsequent successful save/delete/reload. `settingsd` retains `settings.bak`
+and reads it only when `settings.db` is absent; a corrupt current database is
+not silently replaced with stale preferences. These bounded host checks do
+not establish power-loss atomicity of FAT32 or physical-media durability.
+
 Hosted tests cover deterministic logic; QEMU proves CPU privilege, timer
 preemption, hardware/DMA paths, persistence, networking, GUI input and install.
 A marker counts only with a successful runner exit and no `[TEST] ...: FAIL`.

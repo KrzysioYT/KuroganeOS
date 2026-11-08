@@ -57,6 +57,11 @@ echo "[host-tests] python:       $HOST_PYTHON"
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_settings_service"
 "$OUT_DIR/test_settings_service"
 
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_settings_persistence.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_settings_persistence"
+"$OUT_DIR/test_settings_persistence"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
