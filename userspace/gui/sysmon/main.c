@@ -15,11 +15,6 @@ static void build_scene(kui_scene* scene, uint32_t heartbeat) {
     (void)strlcpy(identity + strlen(identity), tid, sizeof(identity) - strlen(identity));
 
     kui_scene_initialize(scene);
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR / RUNTIME");
     (void)kui_flow_label(&root, 2U, identity);

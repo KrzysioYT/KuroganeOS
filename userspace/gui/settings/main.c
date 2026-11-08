@@ -3,6 +3,7 @@
 #include <kurogane/flux_app_catalog.h>
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
+#include <kurogane/filesystem.h>
 #include "navigation.h"
 
 #define UI_LOW_CONTRAST_KEY "ui.low_contrast"
@@ -14,6 +15,7 @@
 typedef struct settings_client {
     ku_service_connection_t connection;
     int connected;
+    int session_only;
 } settings_client;
 
 static void append_text(char* destination, size_t capacity, const char* source) {
@@ -66,8 +68,11 @@ static int connect_settings(settings_client* client) {
     while (attempts++ < 300U) {
         const ku_result_t result = ku_settings_connect();
         if (result > 0) {
+            ku_file_stat root;
             client->connection = (ku_service_connection_t)result;
             client->connected = 1;
+            client->session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&
+                (root.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
             return 1;
         }
         if (result != KU_STATUS_NOT_FOUND && result != KU_STATUS_WOULD_BLOCK) return 0;
@@ -537,7 +542,7 @@ static void build_scene(
     uint32_t background_id,
     uint32_t text_scale_percent,
     const ku_audio_state* audio,
-    int settings_online,
+    const settings_client* settings,
     const char* feedback) {
     kui_flow root;
     char volume[64] = "MASTER VOLUME\n";
@@ -548,7 +553,8 @@ static void build_scene(
     uint32_t volume_value = 0U;
     int muted = 0;
 
-    append_text(service, sizeof(service), settings_online ? "PERSISTENT / ONLINE" : "OFFLINE");
+    append_text(service, sizeof(service), !settings->connected ? "OFFLINE"
+        : settings->session_only ? "SESSION ONLY / READ-ONLY ROOT" : "PERSISTENT / ONLINE");
     if (audio != NULL && audio->available != 0U) {
         append_percent(volume, sizeof(volume), audio->volume_percent);
         volume_value = audio->volume_percent;
@@ -573,7 +579,7 @@ static void build_scene(
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX SETTINGS / PERSONALIZATION");
     (void)kui_flow_label(&root, 4U, feedback);
-    (void)kui_flow_metric(&root, 2U, service, settings_online ? 100U : 0U, 100U);
+    (void)kui_flow_metric(&root, 2U, service, settings->connected ? 100U : 0U, 100U);
     (void)kui_flow_metric(&root, 3U, volume, volume_value, 100U);
     (void)kui_flow_panel(&root, 28U, "FLUX 8 / COLOR PERSONALIZATION");
     (void)kui_flow_label(&root, 29U, palette_label);
@@ -593,7 +599,7 @@ static void build_scene(
         style_id == KU_FLUX_STYLE_MODERN);
     (void)kui_flow_toggle(
         &root, 10U,
-        "LOW CONTRAST ACCENT\nPERSISTENT INTERFACE PROFILE",
+        "LOW CONTRAST ACCENT\nSETTINGS WINDOW",
         low_contrast);
     (void)kui_flow_toggle(
         &root, 11U,
@@ -602,7 +608,7 @@ static void build_scene(
     (void)kui_flow_button(&root, 20U, "VOLUME -10");
     (void)kui_flow_button(&root, 21U, "VOLUME +10");
     (void)kui_flow_button(&root, 22U, "RESET INTERFACE PROFILE");
-    if (!settings_online) {
+    if (!settings->connected) {
         (void)kui_scene_set_flags(scene, 10U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 31U, KUI_VIEW_DISABLED);
@@ -652,7 +658,11 @@ int main(void) {
         const ku_status_t status = read_bool_setting(
             &settings, UI_LOW_CONTRAST_KEY, &low_contrast);
         if (status == KU_STATUS_OK) restored = 1;
-        else if (status != KU_STATUS_NOT_FOUND) settings.connected = 0;
+        else if (status != KU_STATUS_NOT_FOUND) {
+            (void)ku_service_close(settings.connection);
+            settings.connected = 0;
+            feedback = "SETTINGS SERVICE / READ FAILED";
+        }
         if (settings.connected) {
             uint32_t stored_theme = KU_FLUX_THEME_RED;
             if (read_theme_setting(&settings, &stored_theme) == KU_STATUS_OK &&
@@ -686,7 +696,7 @@ int main(void) {
     (void)read_audio(&audio);
     build_scene(&scene, low_contrast, theme_id, style_id, background_id,
                 text_scale_percent,
-                &audio, settings.connected, feedback);
+                &audio, &settings, feedback);
     (void)kui_scene_select(&scene, 30U);
     const ku_result_t initial_height = ku_ui_native_height(window);
     if (initial_height > 0 && initial_height <= UINT32_MAX)
@@ -806,8 +816,9 @@ int main(void) {
                 feedback = "CONTRAST / SAVE FAILED";
             } else {
                 low_contrast = confirmed;
-                feedback = "CONTRAST / SAVED";
-                puts("[TEST] desktop_settings_profile_persist: PASS");
+                feedback = settings.session_only ? "CONTRAST / SESSION ONLY" : "CONTRAST / SAVED";
+                puts(settings.session_only ? "[SETTINGS] contrast_session"
+                    : "[TEST] desktop_settings_profile_persist: PASS");
             }
         } else if (target == 30U || target == 31U) {
             const uint32_t requested = target == 30U
@@ -822,11 +833,12 @@ int main(void) {
                 feedback = "COLOR / SAVE FAILED";
             } else {
                 theme_id = confirmed;
-                feedback = "COLOR / SAVED";
-                puts("[TEST] flux_theme_persistence: PASS");
+                feedback = settings.session_only ? "COLOR / SESSION ONLY" : "COLOR / SAVED";
+                if (!settings.session_only) puts("[TEST] flux_theme_persistence: PASS");
                 char value[24];
                 gui_u64(value, sizeof(value), theme_id);
-                printf("[SETTINGS] theme_saved=%s\n", value);
+                printf(settings.session_only ? "[SETTINGS] theme_session=%s\n"
+                    : "[SETTINGS] theme_saved=%s\n", value);
             }
         } else if (target == 32U) {
             const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN
@@ -840,8 +852,9 @@ int main(void) {
                 feedback = "STYLE / SAVE FAILED";
             } else {
                 style_id = confirmed;
-                feedback = "STYLE / SAVED";
-                puts("[TEST] flux_style_persistence: PASS");
+                feedback = settings.session_only ? "STYLE / SESSION ONLY" : "STYLE / SAVED";
+                puts(settings.session_only ? "[SETTINGS] style_session"
+                    : "[TEST] flux_style_persistence: PASS");
             }
         } else if (target == 33U || target == 34U) {
             static const uint32_t scales[] = {100U, 125U, 150U, 200U};
@@ -867,11 +880,12 @@ int main(void) {
                     puts("[TEST] flux_text_scale_persistence: FAIL");
                 } else {
                     text_scale_percent = requested;
-                    feedback = "TEXT SIZE / SAVED";
-                    puts("[TEST] flux_text_scale_persistence: PASS");
+                    feedback = settings.session_only ? "TEXT SIZE / SESSION ONLY" : "TEXT SIZE / SAVED";
+                    if (!settings.session_only) puts("[TEST] flux_text_scale_persistence: PASS");
                     char value[24];
                     gui_u64(value, sizeof(value), text_scale_percent);
-                    printf("[SETTINGS] text_scale_saved=%s\n", value);
+                    printf(settings.session_only ? "[SETTINGS] text_scale_session=%s\n"
+                        : "[SETTINGS] text_scale_saved=%s\n", value);
                 }
             }
         } else if (target >= 40U && target <= 42U) {
@@ -884,8 +898,9 @@ int main(void) {
                     : "WALLPAPER / PARTIAL FAILURE; CHECK SETTINGS";
             } else {
                 background_id = requested;
-                feedback = "WALLPAPER / SAVED";
-                puts("[TEST] flux_background_persistence: PASS");
+                feedback = settings.session_only ? "WALLPAPER / SESSION ONLY" : "WALLPAPER / SAVED";
+                puts(settings.session_only ? "[SETTINGS] wallpaper_session"
+                    : "[TEST] flux_background_persistence: PASS");
             }
         } else if (target == 11U) {
             feedback = apply_audio_mute(&audio)
@@ -900,7 +915,8 @@ int main(void) {
             const int reset = reset_interface_profile(
                 &settings, &low_contrast, &theme_id, &style_id, &background_id,
                 &text_scale_percent);
-            feedback = reset > 0 ? "PROFILE / DEFAULTS RESTORED" : reset == 0
+            feedback = reset > 0 ? (settings.session_only ? "PROFILE / RESET FOR SESSION"
+                : "PROFILE / DEFAULTS RESTORED") : reset == 0
                 ? "PROFILE / RESET FAILED; PREVIOUS VALUES KEPT"
                 : "PROFILE / PARTIAL FAILURE; CHECK SETTINGS";
             puts(reset > 0 ? "[TEST] flux_settings_profile_reset: PASS" :
@@ -913,7 +929,7 @@ int main(void) {
             const uint32_t old_selected = kui_scene_selected(&scene);
             build_scene(&scene, low_contrast, theme_id, style_id, background_id,
                         text_scale_percent,
-                        &audio, settings.connected, feedback);
+                        &audio, &settings, feedback);
             if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
             scene.scroll_offset = old_offset;
             const ku_result_t height = ku_ui_native_height(window);

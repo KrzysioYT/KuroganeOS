@@ -343,14 +343,15 @@ jobs:
             --require-marker '[TEST] flux_files_directory_grid: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL|flux_home_.*: FAIL|flux_app_spawn: FAIL' \
             build/tests/flux-8-foundation/serial.log
-      - name: Exercise actual window lifecycle through USB HID
+      - name: Exercise window lifecycle and session-only Settings on the Live ISO
         run: |
           python3 tests/test_flux_lifecycle_qmp.py
           bash scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img --disk --smp 4 \
-            --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle \
+            "$FLUX_QUALIFICATION_ISO" --smp 4 \
+            --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle --flux-settings-session \
             --log-dir build/tests/flux-8-lifecycle --timeout 240 \
-            --send-key-after-marker '[TEST] live_login_profile: PASS' ret
+            --send-key-after-marker 'installer: select setup mode:' ret \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret
       - name: Install with a test password, boot twice, and reject a missing account profile
         run: |
           python3 tests/test_installer_qemu_safety.py

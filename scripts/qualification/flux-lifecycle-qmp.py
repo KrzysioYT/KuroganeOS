@@ -22,6 +22,16 @@ def records(text):
     return result
 
 
+def screenshot_pixel(path, x, y):
+    magic, dimensions, depth, pixels = path.read_bytes().split(b'\n', 3)
+    width, height = map(int, dimensions.split())
+    if (magic != b'P6' or depth != b'255' or len(pixels) != width * height * 3
+            or not (0 <= x < width and 0 <= y < height)):
+        raise ValueError(f'invalid framebuffer sample: {path}, ({x}, {y})')
+    offset = (y * width + x) * 3
+    return pixels[offset:offset + 3].hex()
+
+
 class Harness:
     def __init__(self, args):
         self.serial = Path(args.serial)
@@ -30,6 +40,7 @@ class Harness:
         self.deadline = time.monotonic() + args.timeout
         self.results = []
         self.settings_write = getattr(args, "settings_write", False)
+        self.settings_session = getattr(args, "settings_session", False)
         self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connection.settimeout(3)
         self.connection.connect(args.qmp)
@@ -237,6 +248,51 @@ class Harness:
         self.key('ctrl', 'alt', 'f7')
         settings = self.wait(start, 'present', app=6)
         self.wait_marker('[TEST] flux_settings_keyboard_ready: PASS')
+        if self.settings_session:
+            self.screenshot('06-settings-before-color')
+            # Default scale. Content starts after 36px of chrome. The next
+            # color button is centered 283px down the initial form.
+            self.pointer(settings, settings['x'] + 100, settings['y'] + 36 + 283)
+            self.button(True)
+            self.button(False)
+            self.wait_marker('[SETTINGS] theme_session=1')
+            self.screenshot('07-settings-after-color')
+            for window in (files, reopened, settings):
+                # Sample inside content, left of the first layout column.
+                x, y = window['x'] + 6, window['y'] + 46
+                assert screenshot_pixel(self.output / '06-settings-before-color.ppm', x, y) == '090a0c'
+                assert screenshot_pixel(self.output / '07-settings-after-color.ppm', x, y) == '0d0a16', window
+            assert screenshot_pixel(self.output / '06-settings-before-color.ppm', 42, 92) == '8b1824'
+            assert screenshot_pixel(self.output / '07-settings-after-color.ppm', 42, 92) == '6c46a1'
+            # Select the next keyboard control from NEXT COLOR and apply
+            # the preceding size (100% wraps to 200%).
+            self.key('tab')
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=200')
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=150')
+            self.key('tab')
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=200', 1)
+            self.key('ret')
+            self.wait_marker('[SETTINGS] text_scale_session=100')
+            assert '[SETTINGS] theme_saved=' not in self.serial.read_text(errors='replace')
+            start = self.mark()
+            self.control(settings, 0)
+            self.wait(start, 'close', app=6, window=settings['id'])
+            # Reveal the Home scene after the change. It was already open
+            # before Settings, as were Files and Terminal.
+            for app in (reopened, files):
+                start = self.mark()
+                self.control(app, 0)
+                self.wait(start, 'close', app=app['app'], window=app['id'])
+            home = next(r for r in self.read() if r['action'] == 'present' and r['app'] == 0)
+            self.screenshot('08-home-after-color')
+            assert screenshot_pixel(self.output / '08-home-after-color.ppm',
+                                    home['x'] + 12, home['y'] + 24) == '0d0a16'
+            (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
+            print('[lifecycle] PASS: live color and scale applied through Settings IPC', flush=True)
+            return
         self.key('tab')
         self.wait_marker('[INPUT] flux_settings_keyboard_focus: PASS')
         if self.settings_write:
@@ -292,9 +348,13 @@ def main():
     parser.add_argument('--timeout', type=float, default=180)
     parser.add_argument('--settings-write', action='store_true',
                         help='also activate and save themes; requires writable root')
+    parser.add_argument('--settings-session', action='store_true',
+                        help='click a color and exercise temporary UI scale on a Live ISO')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')
+    if args.settings_write and args.settings_session:
+        parser.error('settings storage modes are mutually exclusive')
     harness = Harness(args)
     try:
         harness.run()

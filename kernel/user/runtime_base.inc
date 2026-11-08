@@ -887,6 +887,9 @@ uint32_t public_file_flags(fs::vfs::NodeFlags flags) {
     if (fs::vfs::has_flag(flags, fs::vfs::NodeFlags::Seekable)) {
         result |= KU_FILE_FLAG_SEEKABLE;
     }
+    if (fs::vfs::has_flag(flags, fs::vfs::NodeFlags::ReadOnlyMount)) {
+        result |= KU_FILE_FLAG_READ_ONLY_MOUNT;
+    }
     return result;
 }
 

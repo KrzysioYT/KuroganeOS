@@ -96,11 +96,6 @@ static void render(
 
     kui_scene_initialize(&scene);
     scene.visible_rows = 12U;
-    kui_scene_set_palette(
-        &scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, &scene, 0U);
     (void)kui_flow_panel(&root, 1U, "RED FLUX TERMINAL");
     for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {

@@ -44,6 +44,7 @@ typedef struct settingsd_disk_record {
 
 static settingsd_client clients[SETTINGSD_MAX_CLIENTS];
 static settingsd_record records[SETTINGSD_MAX_RECORDS];
+static int session_only;
 
 static void clear_bytes(void* memory, size_t size) {
     size_t index;
@@ -339,6 +340,7 @@ static ku_status_t set_record(const ku_settings_request* request) {
     key_copy(record->key, request->key);
     copy_bytes(record->value, request->value, request->value_size);
     record->active = 1;
+    if (session_only) return KU_STATUS_OK;
     status = persist_records();
     if (status != KU_STATUS_OK) {
         if (had_previous) *record = previous;
@@ -354,6 +356,7 @@ static ku_status_t delete_record(const char* key) {
     if (record == (settingsd_record*)0) return KU_STATUS_NOT_FOUND;
     previous = *record;
     clear_bytes(record, sizeof(*record));
+    if (session_only) return KU_STATUS_OK;
     status = persist_records();
     if (status != KU_STATUS_OK) *record = previous;
     return status;
@@ -557,6 +560,9 @@ static void service_clients(void) {
 }
 
 __attribute__((noreturn)) void _start(void) {
+    ku_file_stat root;
+    session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&
+        (root.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
     const ku_status_t load_status = load_records();
     ku_result_t endpoint;
     if (load_status != KU_STATUS_OK) {

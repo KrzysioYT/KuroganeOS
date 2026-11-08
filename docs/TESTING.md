@@ -1,5 +1,13 @@
 # Testing and QEMU validation
 
+The Flux foundation gate boots the installer ISO in Try mode and clicks
+**Next color**. It checks that Settings applies Violet through the settings
+service and that the framebuffer uses the new palette in the Dock, Home,
+Settings, Files, and Terminal. The same run exercises text scaling from the
+keyboard. On a read-only root, Settings labels changes **Session only** and
+settingsd keeps them in memory. The installed-disk test separately checks a
+durable save and verifies the same values after a disk-only reboot.
+
 ## Settings IPC backpressure regression
 
 `tests/test_settings_service.c` exercises the production settings daemon with

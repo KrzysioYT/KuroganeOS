@@ -32,6 +32,7 @@ usb_hotplug_cycles=0
 require_network=false
 require_tls=false
 flux_settings_write=false
+flux_settings_session=false
 flux_lifecycle=false
 flux_lifecycle_done=false
 send_key_after_marker=""
@@ -87,6 +88,7 @@ while (($#)); do
         --require-tls) require_tls=true; require_network=true; shift ;;
         --flux-lifecycle) flux_lifecycle=true; shift ;;
         --flux-settings-write) flux_settings_write=true; shift ;;
+        --flux-settings-session) flux_settings_session=true; shift ;;
         --send-key-after-marker)
             [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
             [[ -z "$send_key_after_marker" ]] || { echo "only one --send-key-after-marker is supported" >&2; exit 2; }
@@ -151,6 +153,10 @@ done
 [[ -n "$media" ]] || usage
 if $flux_settings_write && { ! $flux_lifecycle || [[ "$media_kind" != disk ]]; }; then
     echo "--flux-settings-write requires --flux-lifecycle --disk and a writable root" >&2
+    exit 2
+fi
+if $flux_settings_session && { ! $flux_lifecycle || [[ "$media_kind" != iso ]]; }; then
+    echo "--flux-settings-session requires --flux-lifecycle and a Live ISO" >&2
     exit 2
 fi
 if $flux_lifecycle; then
@@ -991,6 +997,7 @@ while ((SECONDS < deadline)); do
         if $flux_lifecycle && ! $flux_lifecycle_done && grep -Fq '[SESSION] flux_home_first_frame: PASS' "$serial"; then
             lifecycle_options=(--timeout "$((deadline - SECONDS))")
             if $flux_settings_write; then lifecycle_options+=(--settings-write); fi
+            if $flux_settings_session; then lifecycle_options+=(--settings-session); fi
             python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/flux-lifecycle-qmp.py" \
                 --qmp "$qmp" --serial "$serial" --output "$log_dir" \
                 "${lifecycle_options[@]}"

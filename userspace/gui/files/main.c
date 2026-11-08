@@ -334,11 +334,6 @@ static void build_scene(
 
     kui_scene_initialize(scene);
     scene->visible_rows = 17U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, heading);
     if (edit_mode != 0) {

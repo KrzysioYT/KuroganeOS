@@ -469,6 +469,9 @@ Status lookup_canonical(
         route.backend_path,
         MAX_PATH_LENGTH + 1);
     candidate.info = backend_info;
+    if (mount_entry.filesystem.read_only) {
+        candidate.info.flags = candidate.info.flags | NodeFlags::ReadOnlyMount;
+    }
     if (route.mount_index != 0 &&
         path.length == mount_entry.path_length) {
         if (backend_info.type != NodeType::Directory) {

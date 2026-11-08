@@ -244,6 +244,12 @@ int main() {
         return 1;
     }
 
+    FileStat root_info{};
+    if (stat(&state, &path_context, "/", &root_info) != Status::Ok ||
+        !has_flag(root_info.flags, NodeFlags::ReadOnlyMount)) {
+        std::cerr << "read-only mount flag missing from root stat\n";
+        return 1;
+    }
     if (create(&state, &path_context, "/NEW.TXT") != Status::ReadOnly) {
         std::cerr << "live package unexpectedly accepted a mutation\n";
         return 1;
