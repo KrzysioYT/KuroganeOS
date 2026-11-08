@@ -256,6 +256,8 @@ ku_status_t kui_scene_set_value(
     return KU_STATUS_OK;
 }
 
+static uint32_t native_last_page(const kui_scene* scene, uint32_t count);
+
 ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     uint32_t count;
     uint32_t rows;
@@ -265,7 +267,7 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     count = visible_view_count(scene);
     rows = scene->visible_rows == 0U ? KU_UI_MAX_LINES : scene->visible_rows;
     maximum = scene->viewport_height != 0U
-        ? (count == 0U ? 0U : count - 1U)
+        ? native_last_page(scene, count)
         : (count > rows ? count - rows : 0U);
     next = (int64_t)scene->scroll_offset + (int64_t)delta;
     if (next < 0) next = 0;
@@ -427,6 +429,29 @@ static uint32_t native_rows(const kui_scene* scene) {
 static int native_fits(const kui_scene* scene, const kui_native_layout* geometry) {
     return scene->viewport_height == 0U ||
         (uint32_t)(geometry->y + geometry->height) <= scene->viewport_height;
+}
+
+/* Start the last page as early as possible while keeping its tail visible. */
+static uint32_t native_last_page(const kui_scene* scene, uint32_t count) {
+    const uint32_t rows = native_rows(scene);
+    const uint32_t first = count > rows ? count - rows : 0U;
+    for (uint32_t offset = first; offset + 1U < count; ++offset) {
+        kui_native_layout_state state;
+        uint32_t visible = 0U;
+        uint32_t fitted = 0U;
+        native_layout_initialize(&state);
+        for (uint32_t i = 0U; i < scene->view_count; ++i) {
+            const kui_view* view = &scene->views[i];
+            if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+            if (visible++ < offset) continue;
+            kui_native_layout geometry;
+            native_layout_view(scene, view, &state, &geometry);
+            if (!native_fits(scene, &geometry)) break;
+            ++fitted;
+        }
+        if (fitted == count - offset) return offset;
+    }
+    return count == 0U ? 0U : count - 1U;
 }
 
 int kui_scene_selection_visible(const kui_scene* scene) {
