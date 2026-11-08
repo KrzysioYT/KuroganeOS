@@ -1,5 +1,15 @@
 # Testing and QEMU validation
 
+## Settings IPC backpressure regression
+
+`tests/test_settings_service.c` exercises the production settings daemon with
+bounded fake IPC queues. A blocked reply retains its original value, stops
+consuming requests on that connection, and does not stall other clients.
+Authorization failures are also retried; terminal send failures close and
+clear the client. The test reproduced a dropped reply before the fix and is
+part of `scripts/run-host-tests.sh`. This host test does not qualify settings
+disk-write failure recovery or per-user storage isolation.
+
 Hosted tests cover deterministic logic; QEMU proves CPU privilege, timer
 preemption, hardware/DMA paths, persistence, networking, GUI input and install.
 A marker counts only with a successful runner exit and no `[TEST] ...: FAIL`.

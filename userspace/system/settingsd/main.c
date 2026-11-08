@@ -15,6 +15,8 @@ typedef struct settingsd_client {
     ku_service_connection_t connection;
     uint64_t pid;
     int active;
+    int response_pending;
+    ku_settings_response response;
 } settingsd_client;
 
 typedef struct settingsd_record {
@@ -397,8 +399,8 @@ static ku_status_t publish_change_event(void) {
     return status;
 }
 
-static ku_status_t send_response(
-    ku_service_connection_t connection,
+static void queue_response(
+    settingsd_client* client,
     ku_status_t status,
     const settingsd_record* record) {
     ku_settings_response response;
@@ -410,7 +412,22 @@ static ku_status_t send_response(
         response.value_size = record->value_size;
         copy_bytes(response.value, record->value, record->value_size);
     }
-    return ku_service_send(connection, &response, sizeof(response));
+    /* Snapshot the result: another client may change/delete the record while
+     * this connection waits for space in its IPC reply queue. */
+    client->response = response;
+    client->response_pending = 1;
+}
+
+static void flush_response(settingsd_client* client) {
+    const ku_status_t status = ku_service_send(
+        client->connection, &client->response, sizeof(client->response));
+    if (status == KU_STATUS_WOULD_BLOCK) return;
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(client->connection);
+        clear_bytes(client, sizeof(*client));
+        return;
+    }
+    client->response_pending = 0;
 }
 
 static void handle_request(settingsd_client* client, const ku_service_message* message) {
@@ -419,17 +436,17 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
     ku_status_t status = KU_STATUS_INVALID_ARGUMENT;
 
     if (message->data_size != sizeof(ku_settings_request)) {
-        (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_CORRUPT_DATA, (const settingsd_record*)0);
         return;
     }
     request = (const ku_settings_request*)(const void*)message->data;
     if (request->structure_size != sizeof(*request) || !key_valid(request->key)) {
-        (void)send_response(client->connection, KU_STATUS_INVALID_ARGUMENT, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_INVALID_ARGUMENT, (const settingsd_record*)0);
         return;
     }
     if (client->pid == 0U) client->pid = message->sender_pid;
     else if (client->pid != message->sender_pid) {
-        (void)send_response(client->connection, KU_STATUS_ACCESS_DENIED, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_ACCESS_DENIED, (const settingsd_record*)0);
         return;
     }
 
@@ -467,7 +484,7 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
             ? "[TEST] settings_change_publish: PASS\n"
             : "[TEST] settings_change_publish: FAIL\n");
     }
-    (void)send_response(client->connection, status, record);
+    queue_response(client, status, record);
 }
 
 static void accept_clients(ku_service_endpoint_t endpoint) {
@@ -498,6 +515,10 @@ static void service_clients(void) {
         ku_service_message message;
         ku_status_t status;
         if (!client->active) continue;
+        if (client->response_pending) {
+            flush_response(client);
+            continue;
+        }
         status = ku_service_receive(client->connection, &message);
         if (status == KU_STATUS_WOULD_BLOCK) continue;
         if (status != KU_STATUS_OK) {
@@ -506,6 +527,7 @@ static void service_clients(void) {
             continue;
         }
         handle_request(client, &message);
+        flush_response(client);
     }
 }
 
