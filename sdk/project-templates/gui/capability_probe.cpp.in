@@ -21,8 +21,16 @@ int main() {
     for (;;) {
         ku_ui_event event;
         const int available = kui_next_event(window, &event);
-        if (available < 0 ||
-            (available > 0 && event.type == KU_UI_EVENT_CLOSE)) break;
+        if (available < 0) {
+            (void)ku_ui_close(window);
+            return 4;
+        }
+        if (available > 0 && event.type == KU_UI_EVENT_CLOSE) {
+            // The compositor has already removed this window and released
+            // the handle by the time the close event is delivered.
+            puts("[SDK_GUI] closed");
+            return 0;
+        }
         if (available > 0 && (event.type == KU_UI_EVENT_KEY ||
                               event.type == KU_UI_EVENT_POINTER)) {
             const char* text = event.type == KU_UI_EVENT_KEY
@@ -36,7 +44,4 @@ int main() {
         }
         (void)kuro_sleep(1);
     }
-    if (ku_ui_close(window) != KU_STATUS_OK) return 4;
-    puts("[SDK_GUI] closed");
-    return 0;
 }
