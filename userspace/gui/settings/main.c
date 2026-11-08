@@ -68,7 +68,7 @@ static int connect_settings(settings_client* client) {
     while (attempts++ < 300U) {
         const ku_result_t result = ku_settings_connect();
         if (result > 0) {
-            ku_file_stat root;
+            ku_file_stat root = {0};
             client->connection = (ku_service_connection_t)result;
             client->connected = 1;
             client->session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&

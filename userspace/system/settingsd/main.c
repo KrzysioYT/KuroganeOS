@@ -560,7 +560,7 @@ static void service_clients(void) {
 }
 
 __attribute__((noreturn)) void _start(void) {
-    ku_file_stat root;
+    ku_file_stat root = {0};
     session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&
         (root.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
     const ku_status_t load_status = load_records();
