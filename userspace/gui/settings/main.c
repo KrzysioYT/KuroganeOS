@@ -36,12 +36,18 @@ static void copy_key(char* destination, const char* source) {
 }
 
 static ku_status_t settings_transact(
-    ku_service_connection_t connection,
+    settings_client* client,
     const ku_settings_request* request,
     ku_settings_response* response) {
+    if (client->connection == 0U) {
+        const ku_result_t opened = ku_settings_connect();
+        if (opened <= 0) return (ku_status_t)opened;
+        client->connection = (ku_service_connection_t)opened;
+    }
+    const ku_service_connection_t connection = client->connection;
     uint32_t attempts = 0U;
     ku_status_t status = ku_service_send(connection, request, sizeof(*request));
-    if (status != KU_STATUS_OK) return status;
+    if (status != KU_STATUS_OK) goto disconnected;
     while (attempts++ < 300U) {
         ku_service_message message;
         status = ku_service_receive(connection, &message);
@@ -49,16 +55,26 @@ static ku_status_t settings_transact(
             (void)kuro_sleep(1U);
             continue;
         }
-        if (status != KU_STATUS_OK) return status;
-        if (message.data_size != sizeof(*response)) return KU_STATUS_CORRUPT_DATA;
+        if (status != KU_STATUS_OK) goto disconnected;
+        if (message.data_size != sizeof(*response)) {
+            status = KU_STATUS_CORRUPT_DATA;
+            goto disconnected;
+        }
         *response = *(const ku_settings_response*)(const void*)message.data;
         if (response->structure_size != sizeof(*response) ||
             response->value_size > KU_SETTINGS_VALUE_CAPACITY) {
-            return KU_STATUS_CORRUPT_DATA;
+            status = KU_STATUS_CORRUPT_DATA;
+            goto disconnected;
         }
         return response->status;
     }
-    return KU_STATUS_TIMED_OUT;
+    status = KU_STATUS_TIMED_OUT;
+disconnected:
+    /* Replies have no request ID. Discard the entire connection so a late
+     * response cannot be mistaken for the next operation's result. */
+    (void)ku_service_close(connection);
+    client->connection = 0U;
+    return status;
 }
 
 static int connect_settings(settings_client* client) {
@@ -96,7 +112,7 @@ static ku_status_t read_bool_setting(
     request.operation = KU_SETTINGS_GET;
     request.type = KU_SETTINGS_TYPE_NONE;
     copy_key(request.key, key);
-    status = settings_transact(client->connection, &request, &response);
+    status = settings_transact(client, &request, &response);
     if (status != KU_STATUS_OK) return status;
     if (response.type != KU_SETTINGS_TYPE_BOOL || response.value_size != 1U ||
         response.value[0] > 1U) return KU_STATUS_CORRUPT_DATA;
@@ -120,7 +136,7 @@ static ku_status_t write_bool_setting(
     request.value_size = 1U;
     copy_key(request.key, key);
     request.value[0] = value != 0 ? 1U : 0U;
-    return settings_transact(client->connection, &request, &response);
+    return settings_transact(client, &request, &response);
 }
 
 
@@ -137,7 +153,7 @@ static ku_status_t read_theme_setting(
     request.structure_size = sizeof(request);
     request.operation = KU_SETTINGS_GET;
     copy_key(request.key, UI_THEME_KEY);
-    status = settings_transact(client->connection, &request, &response);
+    status = settings_transact(client, &request, &response);
     if (status != KU_STATUS_OK) return status;
     if (response.type != KU_SETTINGS_TYPE_U64 ||
         response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
@@ -160,7 +176,7 @@ static ku_status_t write_theme_setting(settings_client* client, uint32_t theme_i
     request.value_size = sizeof(value);
     copy_key(request.key, UI_THEME_KEY);
     memcpy(request.value, &value, sizeof(value));
-    return settings_transact(client->connection, &request, &response);
+    return settings_transact(client, &request, &response);
 }
 
 static ku_status_t read_style_setting(
@@ -176,7 +192,7 @@ static ku_status_t read_style_setting(
     request.structure_size = sizeof(request);
     request.operation = KU_SETTINGS_GET;
     copy_key(request.key, UI_STYLE_KEY);
-    status = settings_transact(client->connection, &request, &response);
+    status = settings_transact(client, &request, &response);
     if (status != KU_STATUS_OK) return status;
     if (response.type != KU_SETTINGS_TYPE_U64 ||
         response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
@@ -199,7 +215,7 @@ static ku_status_t write_style_setting(settings_client* client, uint32_t style_i
     request.value_size = sizeof(value);
     copy_key(request.key, UI_STYLE_KEY);
     memcpy(request.value, &value, sizeof(value));
-    return settings_transact(client->connection, &request, &response);
+    return settings_transact(client, &request, &response);
 }
 
 static ku_status_t read_background_setting(
@@ -215,7 +231,7 @@ static ku_status_t read_background_setting(
     request.structure_size = sizeof(request);
     request.operation = KU_SETTINGS_GET;
     copy_key(request.key, UI_BACKGROUND_KEY);
-    status = settings_transact(client->connection, &request, &response);
+    status = settings_transact(client, &request, &response);
     if (status != KU_STATUS_OK) return status;
     if (response.type != KU_SETTINGS_TYPE_U64 ||
         response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
@@ -239,7 +255,7 @@ static ku_status_t write_background_setting(
     request.value_size = sizeof(value);
     copy_key(request.key, UI_BACKGROUND_KEY);
     memcpy(request.value, &value, sizeof(value));
-    return settings_transact(client->connection, &request, &response);
+    return settings_transact(client, &request, &response);
 }
 
 static ku_status_t read_text_scale_setting(
@@ -255,7 +271,7 @@ static ku_status_t read_text_scale_setting(
     request.structure_size = sizeof(request);
     request.operation = KU_SETTINGS_GET;
     copy_key(request.key, UI_TEXT_SCALE_KEY);
-    status = settings_transact(client->connection, &request, &response);
+    status = settings_transact(client, &request, &response);
     if (status != KU_STATUS_OK) return status;
     if (response.type != KU_SETTINGS_TYPE_U64 ||
         response.value_size != sizeof(value)) return KU_STATUS_CORRUPT_DATA;
@@ -284,7 +300,7 @@ static ku_status_t write_text_scale_setting(
     request.value_size = sizeof(value);
     copy_key(request.key, UI_TEXT_SCALE_KEY);
     memcpy(request.value, &value, sizeof(value));
-    return settings_transact(client->connection, &request, &response);
+    return settings_transact(client, &request, &response);
 }
 
 static int select_desktop_theme(uint32_t theme_id) {
@@ -369,52 +385,52 @@ static int active_desktop_text_scale(uint32_t* percent) {
     return 1;
 }
 
-/* Keep the persisted value and compositor in agreement, and verify rollback
- * before claiming that a failed selection left the previous choice intact. */
-static int apply_text_scale_choice(
-    settings_client* client, uint32_t requested, uint32_t previous) {
-    uint32_t confirmed = 0U;
-    if (client == NULL || !client->connected ||
-        (requested != 100U && requested != 125U &&
-         requested != 150U && requested != 200U) ||
-        (previous != 100U && previous != 125U &&
-         previous != 150U && previous != 200U)) return 0;
-    if (requested == previous) return 1;
-    if (write_text_scale_setting(client, requested) == KU_STATUS_OK &&
-        read_text_scale_setting(client, &confirmed) == KU_STATUS_OK &&
-        confirmed == requested && select_desktop_text_scale(requested)) return 1;
+/* Snapshot storage independently of the visible selection. An absent key
+ * must remain absent on rollback, even if the compositor has a default. */
+static int apply_appearance_choice(
+    settings_client* client, const char* key, uint32_t requested, uint32_t previous,
+    ku_status_t (*read_choice)(settings_client*, uint32_t*),
+    ku_status_t (*write_choice)(settings_client*, uint32_t),
+    int (*select_choice)(uint32_t)) {
+    uint32_t stored = 0U;
+    const ku_status_t initial = read_choice(client, &stored);
+    if (initial != KU_STATUS_OK && initial != KU_STATUS_NOT_FOUND) return 0;
 
-    confirmed = 0U;
-    const int wrote_previous =
-        write_text_scale_setting(client, previous) == KU_STATUS_OK;
-    const int restored_live = select_desktop_text_scale(previous);
-    const int verified_previous =
-        read_text_scale_setting(client, &confirmed) == KU_STATUS_OK &&
-        confirmed == previous;
-    return wrote_previous && restored_live && verified_previous ? 0 : -1;
+    uint32_t confirmed = 0U;
+    const int ready = write_choice(client, requested) == KU_STATUS_OK &&
+        read_choice(client, &confirmed) == KU_STATUS_OK && confirmed == requested;
+    if (ready && select_choice(requested)) return 1;
+
+    const int restored_live = !ready || select_choice(previous);
+    ku_status_t status = read_choice(client, &confirmed);
+    if (status == initial && (initial == KU_STATUS_NOT_FOUND || confirmed == stored))
+        return restored_live ? 0 : -1;
+
+    if (initial == KU_STATUS_NOT_FOUND) {
+        ku_settings_request request = {0};
+        ku_settings_response response;
+        request.structure_size = sizeof(request);
+        request.operation = KU_SETTINGS_DELETE;
+        copy_key(request.key, key);
+        (void)settings_transact(client, &request, &response);
+    } else {
+        (void)write_choice(client, stored);
+    }
+    status = read_choice(client, &confirmed);
+    return restored_live && status == initial &&
+        (initial == KU_STATUS_NOT_FOUND || confirmed == stored) ? 0 : -1;
 }
 
-/* Apply a wallpaper only when both persistent and live states agree. Failed
- * saves attempt to restore both; never show "saved" for a partial change. */
+static int apply_text_scale_choice(
+    settings_client* client, uint32_t requested, uint32_t previous) {
+    return apply_appearance_choice(client, UI_TEXT_SCALE_KEY, requested, previous,
+        read_text_scale_setting, write_text_scale_setting, select_desktop_text_scale);
+}
+
 static int apply_background_choice(
     settings_client* client, uint32_t requested, uint32_t previous) {
-    uint32_t confirmed = KU_FLUX_BACKGROUND_COUNT;
-    if (client == NULL || !client->connected ||
-        requested >= KU_FLUX_BACKGROUND_COUNT ||
-        previous >= KU_FLUX_BACKGROUND_COUNT) return 0;
-    if (requested == previous) return 1;
-    if (write_background_setting(client, requested) == KU_STATUS_OK &&
-        read_background_setting(client, &confirmed) == KU_STATUS_OK &&
-        confirmed == requested && select_desktop_background(requested)) return 1;
-
-    confirmed = KU_FLUX_BACKGROUND_COUNT;
-    const int wrote_previous =
-        write_background_setting(client, previous) == KU_STATUS_OK;
-    const int restored_live = select_desktop_background(previous);
-    const int verified_previous =
-        read_background_setting(client, &confirmed) == KU_STATUS_OK &&
-        confirmed == previous;
-    return wrote_previous && restored_live && verified_previous ? 0 : -1;
+    return apply_appearance_choice(client, UI_BACKGROUND_KEY, requested, previous,
+        read_background_setting, write_background_setting, select_desktop_background);
 }
 
 /* A profile reset is not a cosmetic toggle: persist all five defaults,
@@ -554,6 +570,7 @@ static void build_scene(
     int muted = 0;
 
     append_text(service, sizeof(service), !settings->connected ? "OFFLINE"
+        : settings->connection == 0U ? "RETRY ON NEXT ACTION"
         : settings->session_only ? "SESSION ONLY / READ-ONLY ROOT" : "PERSISTENT / ONLINE");
     if (audio != NULL && audio->available != 0U) {
         append_percent(volume, sizeof(volume), audio->volume_percent);
@@ -659,7 +676,8 @@ int main(void) {
             &settings, UI_LOW_CONTRAST_KEY, &low_contrast);
         if (status == KU_STATUS_OK) restored = 1;
         else if (status != KU_STATUS_NOT_FOUND) {
-            (void)ku_service_close(settings.connection);
+            if (settings.connection != 0U) (void)ku_service_close(settings.connection);
+            settings.connection = 0U;
             settings.connected = 0;
             feedback = "SETTINGS SERVICE / READ FAILED";
         }
@@ -703,7 +721,7 @@ int main(void) {
         scene.viewport_height = (uint32_t)initial_height;
     kui_scene_reveal_selection(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
-        if (settings.connected) (void)ku_service_close(settings.connection);
+        if (settings.connection != 0U) (void)ku_service_close(settings.connection);
         (void)ku_ui_close(window);
         return 2;
     }
@@ -824,15 +842,14 @@ int main(void) {
             const uint32_t requested = target == 30U
                 ? (theme_id + KU_FLUX_THEME_COUNT - 1U) % KU_FLUX_THEME_COUNT
                 : (theme_id + 1U) % KU_FLUX_THEME_COUNT;
-            uint32_t confirmed = KU_FLUX_THEME_RED;
-            if (!settings.connected ||
-                write_theme_setting(&settings, requested) != KU_STATUS_OK ||
-                read_theme_setting(&settings, &confirmed) != KU_STATUS_OK ||
-                confirmed != requested || !select_desktop_theme(confirmed)) {
+            const int applied = apply_appearance_choice(&settings, UI_THEME_KEY, requested,
+                theme_id, read_theme_setting, write_theme_setting, select_desktop_theme);
+            if (applied <= 0) {
                 puts("[TEST] flux_theme_persistence: FAIL");
-                feedback = "COLOR / SAVE FAILED";
+                feedback = applied == 0 ? "COLOR / UPDATE FAILED"
+                    : "COLOR / PARTIAL FAILURE; CHECK SETTINGS";
             } else {
-                theme_id = confirmed;
+                theme_id = requested;
                 feedback = settings.session_only ? "COLOR / SESSION ONLY" : "COLOR / SAVED";
                 if (!settings.session_only) puts("[TEST] flux_theme_persistence: PASS");
                 char value[24];
@@ -843,15 +860,14 @@ int main(void) {
         } else if (target == 32U) {
             const uint32_t requested = style_id == KU_FLUX_STYLE_MODERN
                 ? KU_FLUX_STYLE_CLASSIC : KU_FLUX_STYLE_MODERN;
-            uint32_t confirmed = KU_FLUX_STYLE_MODERN;
-            if (!settings.connected ||
-                write_style_setting(&settings, requested) != KU_STATUS_OK ||
-                read_style_setting(&settings, &confirmed) != KU_STATUS_OK ||
-                confirmed != requested || !select_desktop_style(confirmed)) {
+            const int applied = apply_appearance_choice(&settings, UI_STYLE_KEY, requested,
+                style_id, read_style_setting, write_style_setting, select_desktop_style);
+            if (applied <= 0) {
                 puts("[TEST] flux_style_persistence: FAIL");
-                feedback = "STYLE / SAVE FAILED";
+                feedback = applied == 0 ? "STYLE / UPDATE FAILED"
+                    : "STYLE / PARTIAL FAILURE; CHECK SETTINGS";
             } else {
-                style_id = confirmed;
+                style_id = requested;
                 feedback = settings.session_only ? "STYLE / SESSION ONLY" : "STYLE / SAVED";
                 puts(settings.session_only ? "[SETTINGS] style_session"
                     : "[TEST] flux_style_persistence: PASS");
@@ -941,7 +957,7 @@ int main(void) {
         (void)kui_scene_present(window, &scene);
     }
 
-    if (settings.connected) (void)ku_service_close(settings.connection);
+    if (settings.connection != 0U) (void)ku_service_close(settings.connection);
     (void)ku_ui_close(window);
     return 0;
 }

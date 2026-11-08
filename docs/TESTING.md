@@ -22,6 +22,13 @@ scrolls to Log out and verifies a fresh login and desktop at 200%.
 
 ## Settings IPC backpressure regression
 
+`tests/test_flux_theme_failure.c` runs the production Settings appearance
+handler against injected service and compositor failures. It verifies that a
+rejected theme restores the previous saved value, including an absent key, and
+reports an unverified rollback. A timeout after a committed write invalidates
+the connection before readback and rollback, so a late reply cannot become the
+next request's result. The same handler serves style, wallpaper and scale.
+
 `tests/test_settings_service.c` exercises the production settings daemon with
 bounded fake IPC queues. A blocked reply retains its original value, stops
 consuming requests on that connection, and does not stall other clients.
