@@ -12,6 +12,7 @@
 #define UI_BACKGROUND_KEY "ui.background"
 #define NEXT_WALLPAPER_ID 47U
 #define UI_TEXT_SCALE_KEY "ui.text_scale"
+#define RESET_PROFILE_ID 22U
 
 typedef struct settings_client {
     ku_service_connection_t connection;
@@ -628,7 +629,7 @@ static void build_scene(
         muted);
     (void)kui_flow_button(&root, 20U, "VOLUME -10");
     (void)kui_flow_button(&root, 21U, "VOLUME +10");
-    (void)kui_flow_button(&root, 22U, "RESET INTERFACE PROFILE");
+    (void)kui_flow_button(&root, RESET_PROFILE_ID, "RESET INTERFACE PROFILE");
     if (!settings->connected) {
         (void)kui_scene_set_flags(scene, 10U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
@@ -640,7 +641,7 @@ static void build_scene(
         (void)kui_scene_set_flags(scene, 40U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 41U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 42U, KUI_VIEW_DISABLED);
-        (void)kui_scene_set_flags(scene, 22U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, RESET_PROFILE_ID, KUI_VIEW_DISABLED);
     }
     if (audio == NULL || audio->available == 0U) {
         (void)kui_scene_set_flags(scene, 11U, KUI_VIEW_DISABLED);
@@ -929,7 +930,7 @@ int main(void) {
         } else if (target == 21U) {
             feedback = apply_audio_delta(&audio, 1)
                 ? "AUDIO / VOLUME UPDATED" : "AUDIO / UNAVAILABLE";
-        } else if (target == 22U) {
+        } else if (target == RESET_PROFILE_ID) {
             const int reset = reset_interface_profile(
                 &settings, &low_contrast, &theme_id, &style_id, &background_id,
                 &text_scale_percent);
@@ -943,13 +944,16 @@ int main(void) {
             continue;
         }
         {
-            const uint32_t old_offset = scene.scroll_offset;
-            const uint32_t old_selected = kui_scene_selected(&scene);
+            // The profile result is at the top of the form. Show it after
+            // a reset instead of leaving the view on the last page.
+            const uint32_t next_offset = target == RESET_PROFILE_ID ? 0U : scene.scroll_offset;
+            const uint32_t next_selection = target == RESET_PROFILE_ID
+                ? NEXT_WALLPAPER_ID : kui_scene_selected(&scene);
             build_scene(&scene, low_contrast, theme_id, style_id, background_id,
                         text_scale_percent,
                         &audio, &settings, feedback);
-            if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
-            scene.scroll_offset = old_offset;
+            if (next_selection != 0U) (void)kui_scene_select(&scene, next_selection);
+            scene.scroll_offset = next_offset;
             (void)gui_update_scene_viewport(window, &scene);
             (void)kui_scene_scroll(&scene, 0);
             kui_scene_reveal_selection(&scene);

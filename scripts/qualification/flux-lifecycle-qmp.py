@@ -134,11 +134,17 @@ class Harness:
         time.sleep(.3)
         self.execute('screendump', {'filename': str(target)})
 
-    def verify_wallpaper_shortcut(self, session_only):
+    def open_settings(self):
+        marker = '[TEST] flux_settings_keyboard_ready: PASS'
+        previous = self.serial.read_text(errors='replace').count(marker)
         start = self.mark()
         self.key('ctrl', 'alt', 'f7')
         settings = self.wait(start, 'present', app=6)
-        self.wait_marker('[TEST] flux_settings_keyboard_ready: PASS', 1)
+        self.wait_marker(marker, previous)
+        return settings
+
+    def verify_wallpaper_shortcut(self, session_only):
+        settings = self.open_settings()
         if session_only:
             self.screenshot('wallpaper-before')
         # At 200% the initial viewport starts at the two stacked metric
@@ -163,6 +169,41 @@ class Harness:
         start = self.mark()
         self.control(settings, 0)
         self.wait(start, 'close', app=6, window=settings['id'])
+
+    def verify_profile_reset(self):
+        settings = self.open_settings()
+        # Shift+Tab from Previous Color reaches Next Wallpaper. A second
+        # Shift+Tab from there wraps to Reset Interface Profile.
+        self.key('shift', 'tab')
+        self.key('ret')
+        self.wait_marker('[SETTINGS] wallpaper_session=1', 1)
+        for _ in range(8):
+            self.key('tab')
+        self.key('ret')
+        self.wait_marker('[SETTINGS] style_session')
+        self.key('tab')
+        self.key('ret')
+        self.wait_marker('[SETTINGS] contrast_session')
+        self.screenshot('profile-before-reset')
+        for _ in range(10):
+            self.key('shift', 'tab')
+        self.key('ret')
+        self.wait_marker('[TEST] flux_settings_profile_reset: PASS')
+        self.screenshot('profile-after-reset')
+        initial, changed, reset = (
+            self.output / (name + '.ppm') for name in
+            ('06-settings-before-color', 'profile-before-reset', 'profile-after-reset'))
+        assert screenshot_pixel(reset, 42, 92) == screenshot_pixel(initial, 42, 92) == '8b1824'
+        # The Modern identity header is restored at its original scale.
+        assert screenshot_region(reset, 78, 8, 380, 44) == screenshot_region(initial, 78, 8, 380, 44)
+        # Settings returns to the first panel so the reset result below it is visible.
+        panel = (settings['x'] + 24, settings['y'] + 60, 300, 22)
+        assert screenshot_region(reset, *panel) == screenshot_region(initial, *panel)
+        # This band on the right is desktop-only, beyond the application windows.
+        desktop = (settings['sw'] - 90, 245, 60, 72)
+        assert screenshot_region(reset, *desktop) == screenshot_region(initial, *desktop)
+        assert screenshot_region(changed, *desktop) != screenshot_region(reset, *desktop)
+        print('[lifecycle] PASS: profile reset restored the default desktop rendering', flush=True)
 
     def verify_scaled_files_edge(self, files):
         start = self.mark()
@@ -356,6 +397,19 @@ class Harness:
                 assert screenshot_pixel(self.output / '07-settings-after-color.ppm', x, y) == '0d0a16', window
             assert screenshot_pixel(self.output / '06-settings-before-color.ppm', 42, 92) == '8b1824'
             assert screenshot_pixel(self.output / '07-settings-after-color.ppm', 42, 92) == '6c46a1'
+            self.pointer(settings, settings['x'] + 100, settings['y'] + 36 + 243)
+            self.button(True)
+            self.button(False)
+            self.wait_marker('[SETTINGS] theme_session=0')
+            self.screenshot('settings-after-previous-color')
+            for window in (files, reopened, settings):
+                x, y = window['x'] + 6, window['y'] + 46
+                assert screenshot_pixel(self.output / 'settings-after-previous-color.ppm', x, y) == '090a0c'
+            assert screenshot_pixel(self.output / 'settings-after-previous-color.ppm', 42, 92) == '8b1824'
+            self.pointer(settings, settings['x'] + 100, settings['y'] + 36 + 283)
+            self.button(True)
+            self.button(False)
+            self.wait_marker('[SETTINGS] theme_session=1', 1)
             # Select the next keyboard control from NEXT COLOR and apply
             # the preceding size (100% wraps to 200%).
             self.key('tab')
@@ -443,6 +497,8 @@ class Harness:
             self.wait_marker('[TEST] red_flux_login_surface: PASS', 1)
             self.key('ret')
             self.wait_marker('[SESSION] flux_home_first_frame: PASS', 1)
+            self.wait_marker('[SETTINGS] text_scale_restored=200')
+            self.verify_profile_reset()
             (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
             print('[lifecycle] PASS: live color and scale applied through Settings IPC', flush=True)
             return
