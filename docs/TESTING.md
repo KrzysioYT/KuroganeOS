@@ -12,6 +12,10 @@ after it wraps to a new row at 200% and confirms its navigation before
 exercising file mutations. The window-width query is append-only in the
 syscall ABI. Rebuild callers when updating the static libui SDK header.
 
+The Live scenario also opens Notifications and clicks Refresh at 200%,
+checking the returned public feed. It opens System Monitor and compares the
+visible uptime between two kernel snapshots.
+
 The Flux foundation gate boots the installer ISO in Try mode and clicks
 **Next color**. It checks that Settings applies Violet through the settings
 service and that the framebuffer uses the new palette in the Dock, Home,

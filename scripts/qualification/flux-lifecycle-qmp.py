@@ -358,6 +358,41 @@ class Harness:
             self.screenshot('08-home-after-color')
             assert screenshot_pixel(self.output / '08-home-after-color.ppm',
                                     home['x'] + 12, home['y'] + 24) == '0d0a16'
+            for char in 'notifications':
+                self.key(char)
+            start = self.mark()
+            self.key('ret')
+            notifications = self.wait(start, 'present', app=8)
+            self.wait_marker('[TEST] flux_notification_center_public_record: PASS')
+            # Refresh sits before the notices so it remains reachable at 200%.
+            self.pointer(notifications, notifications['x'] + 70,
+                         notifications['y'] + 36 + 2 * (16 + 44 + 28 + 17))
+            self.button(True)
+            self.button(False)
+            self.wait_marker('[NOTIFY] refreshed=')
+            assert re.search(r'\[NOTIFY\] refreshed=[1-3]\b',
+                             self.serial.read_text(errors='replace'))
+            start = self.mark()
+            self.control(notifications, 0)
+            self.wait(start, 'close', app=8, window=notifications['id'])
+            self.key('esc')
+            for char in 'monitor':
+                self.key(char)
+            start = self.mark()
+            self.key('ret')
+            monitor = self.wait(start, 'present', app=5)
+            self.wait_marker('[TEST] flux_sysmon_snapshot: PASS')
+            self.screenshot('09-monitor-uptime')
+            time.sleep(1.2)
+            self.screenshot('10-monitor-uptime')
+            x = monitor['x'] + 4 + 2 * 16
+            y = monitor['y'] + 36 + 2 * (16 + 44) + 6
+            assert screenshot_region(self.output / '09-monitor-uptime.ppm', x, y, 250, 20) != \
+                screenshot_region(self.output / '10-monitor-uptime.ppm', x, y, 250, 20)
+            start = self.mark()
+            self.control(monitor, 0)
+            self.wait(start, 'close', app=5, window=monitor['id'])
+            self.key('esc')
             for char in 'files':
                 self.key(char)
             start = self.mark()
