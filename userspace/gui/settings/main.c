@@ -10,6 +10,7 @@
 #define UI_THEME_KEY "ui.theme"
 #define UI_STYLE_KEY "ui.style"
 #define UI_BACKGROUND_KEY "ui.background"
+#define NEXT_WALLPAPER_ID 47U
 #define UI_TEXT_SCALE_KEY "ui.text_scale"
 
 typedef struct settings_client {
@@ -565,6 +566,7 @@ static void build_scene(
     char service[64] = "SETTINGS SERVICE\n";
     char palette_label[64] = "ACTIVE COLOR / ";
     char background_label[64] = "WALLPAPER / ";
+    char next_wallpaper[64] = "NEXT WALLPAPER / ";
     char text_scale_label[64] = "TEXT SIZE / ";
     uint32_t volume_value = 0U;
     int muted = 0;
@@ -592,13 +594,15 @@ static void build_scene(
     append_text(palette_label, sizeof(palette_label), ku_flux_theme_name(theme_id));
     append_text(background_label, sizeof(background_label),
                 ku_flux_background_name(background_id));
+    append_text(next_wallpaper, sizeof(next_wallpaper),
+                ku_flux_background_name(background_id));
     append_percent(text_scale_label, sizeof(text_scale_label), text_scale_percent);
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX SETTINGS / PERSONALIZATION");
     (void)kui_flow_label(&root, 4U, feedback);
     (void)kui_flow_metric(&root, 2U, service, settings->connected ? 100U : 0U, 100U);
     (void)kui_flow_metric(&root, 3U, volume, volume_value, 100U);
-    (void)kui_flow_panel(&root, 28U, "FLUX 8 / COLOR PERSONALIZATION");
+    (void)kui_flow_button(&root, NEXT_WALLPAPER_ID, next_wallpaper);
     (void)kui_flow_label(&root, 29U, palette_label);
     (void)kui_flow_button(&root, 30U, "PREVIOUS COLOR");
     (void)kui_flow_button(&root, 31U, "NEXT COLOR");
@@ -629,6 +633,7 @@ static void build_scene(
         (void)kui_scene_set_flags(scene, 10U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 30U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 31U, KUI_VIEW_DISABLED);
+        (void)kui_scene_set_flags(scene, NEXT_WALLPAPER_ID, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 33U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 34U, KUI_VIEW_DISABLED);
         (void)kui_scene_set_flags(scene, 32U, KUI_VIEW_DISABLED);
@@ -899,8 +904,9 @@ int main(void) {
                         : "[SETTINGS] text_scale_saved=%s\n", value);
                 }
             }
-        } else if (target >= 40U && target <= 42U) {
-            const uint32_t requested = target - 40U;
+        } else if (target == NEXT_WALLPAPER_ID || (target >= 40U && target <= 42U)) {
+            const uint32_t requested = target == NEXT_WALLPAPER_ID
+                ? (background_id + 1U) % KU_FLUX_BACKGROUND_COUNT : target - 40U;
             const int applied = apply_background_choice(
                 &settings, requested, background_id);
             if (applied <= 0) {
@@ -910,8 +916,9 @@ int main(void) {
             } else {
                 background_id = requested;
                 feedback = settings.session_only ? "WALLPAPER / SESSION ONLY" : "WALLPAPER / SAVED";
-                puts(settings.session_only ? "[SETTINGS] wallpaper_session"
-                    : "[TEST] flux_background_persistence: PASS");
+                if (!settings.session_only) puts("[TEST] flux_background_persistence: PASS");
+                printf(settings.session_only ? "[SETTINGS] wallpaper_session=%u\n"
+                    : "[SETTINGS] wallpaper_saved=%u\n", (unsigned)background_id);
             }
         } else if (target == 11U) {
             feedback = apply_audio_mute(&audio)

@@ -134,6 +134,36 @@ class Harness:
         time.sleep(.3)
         self.execute('screendump', {'filename': str(target)})
 
+    def verify_wallpaper_shortcut(self, session_only):
+        start = self.mark()
+        self.key('ctrl', 'alt', 'f7')
+        settings = self.wait(start, 'present', app=6)
+        self.wait_marker('[TEST] flux_settings_keyboard_ready: PASS', 1)
+        if session_only:
+            self.screenshot('wallpaper-before')
+        # At 200% the initial viewport starts at the two stacked metric
+        # cards. Click the shortcut below them without scrolling.
+        y = settings['y'] + 36 + 2 * (16 + 2 * 66 + 17)
+        for wallpaper in ((1, 2, 0) if session_only else (1,)):
+            self.pointer(settings, settings['x'] + 100, y)
+            self.button(True)
+            self.button(False)
+            mode = 'session' if session_only else 'saved'
+            self.wait_marker(f'[SETTINGS] wallpaper_{mode}={wallpaper}')
+            if session_only:
+                self.screenshot(f'wallpaper-{wallpaper}')
+        if session_only:
+            # Read only exposed desktop pixels to the right of Home and Settings.
+            samples = [screenshot_region(self.output / (name + '.ppm'),
+                        settings['sw'] - 90, 245, 60, 72)
+                       for name in ('wallpaper-before', 'wallpaper-1',
+                                    'wallpaper-2', 'wallpaper-0')]
+            assert len(set(samples[:3])) == 3, 'desktop did not show three distinct wallpapers'
+            assert samples[0] == samples[3], 'wallpaper did not cycle back to Forged Steel'
+        start = self.mark()
+        self.control(settings, 0)
+        self.wait(start, 'close', app=6, window=settings['id'])
+
     def verify_scaled_files_edge(self, files):
         start = self.mark()
         self.key('ctrl', 'alt', 'f3')
@@ -358,6 +388,7 @@ class Harness:
             self.screenshot('08-home-after-color')
             assert screenshot_pixel(self.output / '08-home-after-color.ppm',
                                     home['x'] + 12, home['y'] + 24) == '0d0a16'
+            self.verify_wallpaper_shortcut(session_only=True)
             for char in 'notifications':
                 self.key(char)
             start = self.mark()
@@ -457,6 +488,7 @@ class Harness:
         self.control(settings, 0)
         self.wait(start, 'close', app=6, window=settings['id'])
         if self.settings_write:
+            self.verify_wallpaper_shortcut(session_only=False)
             self.verify_scaled_files_edge(files)
             start = self.mark()
             self.key('ctrl', 'alt', 'f2')

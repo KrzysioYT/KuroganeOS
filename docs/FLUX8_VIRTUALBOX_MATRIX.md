@@ -14,7 +14,7 @@ $vm = 'KuroganeOS-Flux8-QA-' + (Get-Date -Format 'yyyyMMdd-HHmmss')
 | Scenariusz | Operacja i oczekiwany wynik | Wynik |
 | --- | --- | --- |
 | Try i Settings | Wejdź do Home. Otwórz Files i Terminal, potem Settings. Kliknij **Next Color** oraz **Previous Color**. Zmieniają się kolory Docka, Home i już otwartych okien. Komunikat brzmi `SESSION ONLY`. | Do uzupełnienia |
-| Tapeta i reset | Wybierz kolejno Grid, Minimal i Forged. Potwierdź zmianę tła poza oknami. Zmień styl i skalę. Przejdź klawiszem Tab do resetu, użyj Enter i sprawdź rzeczywisty powrót wyglądu domyślnego. | Do uzupełnienia |
+| Tapeta i reset | Zostaw Home otwarte i w Settings kliknij **Next Wallpaper** obok ustawień koloru, bez przewijania. Sprawdź trzy warianty (Graphite Grid, Minimal Dark, Forged Steel) po nazwie przycisku i po tle poza oknami. Powtórz przy 200%. Zmień styl i skalę, następnie użyj **Reset Interface Profile** i sprawdź powrót wyglądu domyślnego. | Do uzupełnienia |
 | Skala i geometria | Dla 100/125/150/200% sprawdź nagłówek, pozycję wskaźnika i działanie przycisków w zwykłym i zmniejszonym oknie. Powtórz przy 1024×768 i 1280×800 oraz przy 1920×1080, jeśli profil GOP je udostępnia. Zapisz niedostępne tryby. | Do uzupełnienia |
 | Dock i okna | Uruchom aplikacje z Docka myszą, przełącz aktywne okno, przesuń je, zmień rozmiar, zminimalizuj, przywróć i zamknij. Sprawdź, które okno faktycznie otrzymuje klawisze. | Do uzupełnienia |
 | Home i Terminal | Wyszukaj Files z Home i uruchom wynik. W Terminalu wykonaj `ls`, `echo j` i `echo k`. Sprawdź wyniki, przewijanie, historię strzałkami oraz widoczność pola polecenia przy 200%. | Do uzupełnienia |

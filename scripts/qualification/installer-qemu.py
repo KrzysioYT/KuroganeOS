@@ -364,6 +364,8 @@ def main():
                 f'[SETTINGS] text_scale_restored={expected_text_scale}',
                 '--require-marker',
                 '[TEST] flux_text_scale_restore: PASS'])
+            cmd.extend(['--require-marker', '[SETTINGS] wallpaper_restored=1',
+                        '--require-marker', '[TEST] flux_background_restore: PASS'])
         with (output / (phase + '-runner.log')).open('wb') as log:
             subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         text = (output / phase / 'serial.log').read_text(errors='replace')
@@ -378,6 +380,8 @@ def main():
         if args.desktop_lifecycle and phase == 'first-boot':
             expected_theme = saved_theme(text)
             expected_text_scale = saved_text_scale(text)
+            if re.findall(r'^\[SETTINGS\] wallpaper_saved=(\d+)\r?$', text, re.M) != ['1']:
+                raise RuntimeError('expected the wallpaper shortcut to save Graphite Grid')
         if expected_theme is not None and phase == 'second-boot':
             restored = re.findall(r'^\[SETTINGS\] theme_restored=(\d+)\r?$', text, re.M)
             if restored != [str(expected_theme)]:
@@ -390,6 +394,9 @@ def main():
                     'reboot restored a different or ambiguous text scale')
             print('[installer-qemu] exact text scale restored after reboot: PASS',
                   flush=True)
+            if re.findall(r'^\[SETTINGS\] wallpaper_restored=(\d+)\r?$', text, re.M) != ['1']:
+                raise RuntimeError('reboot restored a different or ambiguous wallpaper')
+            print('[installer-qemu] exact wallpaper restored after reboot: PASS', flush=True)
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
     if args.password_profile:
         verify_missing_profile(disk, output, env, args.timeout)
@@ -408,7 +415,9 @@ def main():
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme,
-                'restored_text_scale': expected_text_scale, 'password_profile': args.password_profile,
+                'restored_text_scale': expected_text_scale,
+                'restored_wallpaper': 1 if args.desktop_lifecycle else None,
+                'password_profile': args.password_profile,
                 'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)

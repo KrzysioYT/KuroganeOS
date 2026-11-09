@@ -202,7 +202,11 @@ static int restore_desktop_background(void) {
         apply.structure_size = sizeof(apply);
         apply.action = KU_DESKTOP_BACKGROUND_SET;
         apply.background_id = (uint32_t)saved_background;
-        const int success = ku_desktop_background(&apply) == KU_STATUS_OK;
+        const int success = ku_desktop_background(&apply) == KU_STATUS_OK &&
+            apply.background_id == saved_background;
+        if (success) {
+            printf("[SETTINGS] wallpaper_restored=%u\n", (unsigned)apply.background_id);
+        }
         (void)ku_service_close(connection);
         return success;
     }
