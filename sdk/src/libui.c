@@ -378,6 +378,18 @@ static void native_flush_metrics(kui_native_layout_state* state) {
     state->metric_column = 0U;
 }
 
+static uint32_t native_grid_columns(const kui_scene* scene, int32_t left,
+                                    int32_t gap, int32_t* width, uint32_t maximum) {
+    if (scene->viewport_width == 0U) return maximum;
+    const int64_t available = (int64_t)scene->viewport_width - left - KU_FLUX_PANEL_PADDING;
+    if (available < *width) {
+        *width = available > 0 ? (int32_t)available : 1;
+        return 1U;
+    }
+    const uint32_t columns = 1U + (uint32_t)((available - *width) / (*width + gap));
+    return columns < maximum ? columns : maximum;
+}
+
 static void native_layout_view(
     const kui_scene* scene,
     const kui_view* view,
@@ -385,34 +397,37 @@ static void native_layout_view(
     kui_native_layout* output) {
     const uint32_t depth = view_depth(scene, view);
     const int32_t indent = (int32_t)(depth * 12U);
+    const int32_t left = KU_FLUX_PANEL_PADDING + indent;
     if (view->type == KUI_VIEW_METRIC) {
         native_flush_tiles(state);
-        if (state->metric_column >= KUI_METRIC_COLUMNS) native_flush_metrics(state);
-        output->x = KU_FLUX_PANEL_PADDING + indent +
-            (int32_t)state->metric_column * (KUI_METRIC_WIDTH + KUI_METRIC_GAP_X);
-        output->y = state->cursor_y;
         output->width = KUI_METRIC_WIDTH;
+        const uint32_t columns = native_grid_columns(scene, left, KUI_METRIC_GAP_X,
+            &output->width, KUI_METRIC_COLUMNS);
+        if (state->metric_column >= columns) native_flush_metrics(state);
+        output->x = left + (int32_t)state->metric_column * (output->width + KUI_METRIC_GAP_X);
+        output->y = state->cursor_y;
         output->height = KUI_METRIC_HEIGHT;
         ++state->metric_column;
-        if (state->metric_column == KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        if (state->metric_column == columns) native_flush_metrics(state);
         return;
     }
     if (view->type == KUI_VIEW_TILE) {
         native_flush_metrics(state);
-        if (state->tile_column >= KUI_TILE_COLUMNS) native_flush_tiles(state);
-        output->x = KU_FLUX_PANEL_PADDING + indent +
-            (int32_t)state->tile_column * (KUI_TILE_WIDTH + KUI_TILE_GAP_X);
-        output->y = state->cursor_y;
         output->width = KUI_TILE_WIDTH;
+        const uint32_t columns = native_grid_columns(scene, left, KUI_TILE_GAP_X,
+            &output->width, KUI_TILE_COLUMNS);
+        if (state->tile_column >= columns) native_flush_tiles(state);
+        output->x = left + (int32_t)state->tile_column * (output->width + KUI_TILE_GAP_X);
+        output->y = state->cursor_y;
         output->height = KUI_TILE_HEIGHT;
         ++state->tile_column;
-        if (state->tile_column == KUI_TILE_COLUMNS) native_flush_tiles(state);
+        if (state->tile_column == columns) native_flush_tiles(state);
         return;
     }
 
     native_flush_metrics(state);
     native_flush_tiles(state);
-    output->x = KU_FLUX_PANEL_PADDING + indent;
+    output->x = left;
     output->y = state->cursor_y;
     output->width = 0;
     output->height = native_view_height(view->type);
@@ -493,6 +508,7 @@ uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
     const uint32_t rows = scene == (const kui_scene*)0 ? 0U : native_rows(scene);
     if (scene == (const kui_scene*)0 || x < 0 || y < 0 ||
         x > KU_UI_NATIVE_COORD_LIMIT || y > KU_UI_NATIVE_COORD_LIMIT) return 0U;
+    if (scene->viewport_width != 0U && (uint32_t)x >= scene->viewport_width) return 0U;
     native_layout_initialize(&state);
 
     for (index = 0U; index < scene->view_count && output_index < rows; ++index) {
@@ -504,8 +520,12 @@ uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
         native_layout_view(scene, view, &state, &geometry);
         if (geometry.height <= 0) continue;
         if (!native_fits(scene, &geometry)) break;
-        within_x = x >= geometry.x &&
-            (geometry.width == 0 || x < geometry.x + geometry.width);
+        int64_t width = geometry.width;
+        if (width == 0 && scene->viewport_width != 0U) {
+            const int64_t available = (int64_t)scene->viewport_width - geometry.x - KU_FLUX_PANEL_PADDING;
+            width = available > 0 ? available : 1;
+        }
+        within_x = x >= geometry.x && (width == 0 || x < geometry.x + width);
         if (interactive_view(view) && within_x &&
             y >= geometry.y && y < geometry.y + geometry.height) {
             return view->id;

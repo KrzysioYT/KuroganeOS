@@ -645,10 +645,7 @@ static void build_scene(
 }
 
 static void refresh_viewport(ku_window_t window, kui_scene* scene) {
-    const ku_result_t height = ku_ui_native_height(window);
-    if (height <= 0 || height > UINT32_MAX ||
-        scene->viewport_height == (uint32_t)height) return;
-    scene->viewport_height = (uint32_t)height;
+    if (!gui_update_scene_viewport(window, scene)) return;
     kui_scene_reveal_selection(scene);
     (void)kui_scene_present(window, scene);
 }
@@ -716,9 +713,7 @@ int main(void) {
                 text_scale_percent,
                 &audio, &settings, feedback);
     (void)kui_scene_select(&scene, 30U);
-    const ku_result_t initial_height = ku_ui_native_height(window);
-    if (initial_height > 0 && initial_height <= UINT32_MAX)
-        scene.viewport_height = (uint32_t)initial_height;
+    (void)gui_update_scene_viewport(window, &scene);
     kui_scene_reveal_selection(&scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         if (settings.connection != 0U) (void)ku_service_close(settings.connection);
@@ -948,9 +943,7 @@ int main(void) {
                         &audio, &settings, feedback);
             if (old_selected != 0U) (void)kui_scene_select(&scene, old_selected);
             scene.scroll_offset = old_offset;
-            const ku_result_t height = ku_ui_native_height(window);
-            if (height > 0 && height <= UINT32_MAX)
-                scene.viewport_height = (uint32_t)height;
+            (void)gui_update_scene_viewport(window, &scene);
             (void)kui_scene_scroll(&scene, 0);
             kui_scene_reveal_selection(&scene);
         }

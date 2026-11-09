@@ -412,17 +412,8 @@ static void build_scene(
     }
 }
 
-static int update_viewport(ku_window_t window, kui_scene* scene) {
-    const ku_result_t height = ku_ui_native_height(window);
-    if (height <= 0 || height > UINT32_MAX || scene->viewport_height == (uint32_t)height)
-        return 0;
-    scene->viewport_height = (uint32_t)height;
-    (void)kui_scene_scroll(scene, 0);
-    return 1;
-}
-
 static ku_status_t present_files(ku_window_t window, kui_scene* scene) {
-    (void)update_viewport(window, scene);
+    (void)gui_update_scene_viewport(window, scene);
     return kui_scene_present(window, scene);
 }
 
@@ -526,7 +517,7 @@ int main(void) {
         uint32_t target;
         int wait_result;
         do {
-            if (update_viewport(window, &scene)) (void)kui_scene_present(window, &scene);
+            if (gui_update_scene_viewport(window, &scene)) (void)kui_scene_present(window, &scene);
             wait_result = kui_next_event(window, &event);
             if (wait_result == 0) (void)kuro_sleep(1U);
         } while (wait_result == 0);
@@ -777,9 +768,11 @@ int main(void) {
             if (index >= entry_count) continue;
             selected = (uint32_t)index;
             if (directory_like(entries[index].type)) {
-                (void)activate_selected(
+                if (activate_selected(
                     path, query, &history, entries, &entry_count, &page_start, &selected,
-                    status, sizeof(status), preview, sizeof(preview));
+                    status, sizeof(status), preview, sizeof(preview))) {
+                    printf("[FILES] opened_tile=%u\n", (unsigned)(target - 10U));
+                }
             } else {
                 char target_path[PATH_CAPACITY];
                 if (join_path(path, entries[index].name, target_path, sizeof(target_path))) {

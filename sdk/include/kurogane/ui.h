@@ -220,6 +220,10 @@ static inline ku_result_t ku_ui_native_height(ku_window_t window) {
     return ku_syscall3(KU_SYS_UI_NATIVE_HEIGHT, window, 0U, 0U);
 }
 
+static inline ku_result_t ku_ui_native_width(ku_window_t window) {
+    return ku_syscall3(KU_SYS_UI_NATIVE_WIDTH, window, 0U, 0U);
+}
+
 static inline ku_status_t ku_ui_poll(
     ku_window_t window,
     ku_ui_event* event) {

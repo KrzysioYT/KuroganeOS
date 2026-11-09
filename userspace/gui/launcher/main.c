@@ -731,8 +731,7 @@ static void build_scene(ku_window_t window, kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
-    const ku_result_t height = ku_ui_native_height(window);
-    if (height > 0 && height <= UINT32_MAX) scene->viewport_height = (uint32_t)height;
+    (void)gui_update_scene_viewport(window, scene);
     kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
@@ -869,6 +868,10 @@ int main(void) {
         ku_ui_event event;
         int available;
         reap_children();
+        if (gui_update_scene_viewport(window, &scene)) {
+            g_scroll_offset = scene.scroll_offset;
+            if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+        }
         available = kui_next_event(window, &event);
         if (available < 0) break;
         if (available == 0) {

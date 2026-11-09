@@ -5,6 +5,13 @@ visible Flux acceptance and record the source SHA and ISO SHA-256 per run.
 The host framebuffer regression checks that changing the desktop session
 indicator leaves the adjacent label intact at all four text scales.
 
+Home, Files and Settings measure the logical client width and height. The
+libui test checks wrapping, shrinking and hit-testing of card edges in wide
+and narrow views. The installed QEMU scenario clicks the second directory
+after it wraps to a new row at 200% and confirms its navigation before
+exercising file mutations. The window-width query is append-only in the
+syscall ABI. Rebuild callers when updating the static libui SDK header.
+
 The Flux foundation gate boots the installer ISO in Try mode and clicks
 **Next color**. It checks that Settings applies Violet through the settings
 service and that the framebuffer uses the new palette in the Dock, Home,

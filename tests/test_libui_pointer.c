@@ -306,6 +306,33 @@ int main(void) {
         (void)kui_scene_scroll(&form, INT32_MAX);
         if (!kui_scene_selection_visible(&form)) return 44;
     }
+    {
+        kui_scene grid;
+        kui_flow cards;
+        kui_scene_initialize(&grid);
+        kui_flow_begin(&cards, &grid, 0U);
+        for (uint32_t i = 0U; i < 3U; ++i)
+            (void)kui_flow_metric(&cards, 1U + i, "METRIC", 1U, 2U);
+        for (uint32_t i = 0U; i < 3U; ++i)
+            (void)kui_flow_tile(&cards, 4U + i, "APPLICATION", 0U);
+        const uint32_t widths[] = {620U, 315U, 126U};
+        for (size_t size = 0U; size < sizeof(widths) / sizeof(widths[0]); ++size) {
+            grid.viewport_width = widths[size];
+            if (kui_scene_build_native(&grid, &native) != KU_STATUS_OK || native.command_count != 6U)
+                return 45;
+            for (uint32_t i = 0U; i < native.command_count; ++i) {
+                const ku_ui_native_command* card = &native.commands[i];
+                if (card->width <= 0 || (uint32_t)(card->x + card->width) >= grid.viewport_width)
+                    return 46;
+                if (i >= 3U && (kui_scene_hit_test(&grid, card->x + card->width - 1,
+                        center_y(&native, i)) != i + 1U ||
+                    kui_scene_hit_test(&grid, card->x + card->width, center_y(&native, i)) != 0U))
+                    return 47;
+            }
+            if (size == 0U && native.commands[3].y != native.commands[5].y) return 48;
+            if (size != 0U && native.commands[3].y >= native.commands[4].y) return 49;
+        }
+    }
     puts("libui native packet + mouse hit-test + scroll ABI tests passed");
     return 0;
 }

@@ -1624,16 +1624,18 @@ void syscall_handler(
             frame.rax = KU_STATUS_OK;
             return;
         }
+        case KU_SYS_UI_NATIVE_WIDTH:
         case KU_SYS_UI_NATIVE_HEIGHT: {
             ui::Rect content{};
             if (!context->ui.active || frame.rdi != context->ui.window ||
                 frame.rsi != 0U || frame.rdx != 0U ||
                 windowing::content_geometry(context->ui.window, &content) !=
-                    windowing::Status::Ok || content.height <= 0) {
+                    windowing::Status::Ok || content.width <= 0 || content.height <= 0) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            frame.rax = static_cast<uint64_t>(content.height) * 100U /
+            const int32_t extent = frame.rax == KU_SYS_UI_NATIVE_WIDTH ? content.width : content.height;
+            frame.rax = static_cast<uint64_t>(extent) * 100U /
                 ui::desktop_text_scale_percent();
             return;
         }

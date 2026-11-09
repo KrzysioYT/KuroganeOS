@@ -57,6 +57,7 @@ typedef struct kui_scene {
         uint32_t viewport_height; /* Logical pixels; zero keeps row-only layout. */
     };
     kui_view views[KUI_MAX_VIEWS];
+    uint32_t viewport_width; /* Logical pixels; zero keeps fixed columns. */
 } kui_scene;
 
 typedef struct kui_flow {

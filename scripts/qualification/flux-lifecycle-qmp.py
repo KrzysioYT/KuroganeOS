@@ -160,6 +160,18 @@ class Harness:
         print('[lifecycle] Files tile edge at 200% opened a real directory: PASS',
               flush=True)
 
+        # At this logical width there is one column. The next directory
+        # moved under the first, so click the new row and verify its slot.
+        wrapped = '[FILES] opened_tile=1'
+        previous_tile = self.serial.read_text(errors='replace').count(wrapped)
+        self.pointer(files, x, y + 2 * (68 + 8))
+        self.button(True)
+        self.button(False)
+        self.wait_marker(wrapped, previous_tile)
+        self.key('alt', 'left')
+        self.wait_marker(marker, previous + 1)
+        print('[lifecycle] Files wrapped directory tile at 200%: PASS', flush=True)
+
         # Scroll at the left margin, outside the directory tiles. The last
         # page ends with the two mutation buttons followed by a status label.
         button_rows = ((files['h'] - 40) // 2 - 16 - 22) // 40
