@@ -1,6 +1,6 @@
 # KuroganeOS — stan rozwoju
 
-Aktualizacja: 2026-11-07. Gałąź robocza: `integration/flux8-reconciliation`,
+Aktualizacja: 2026-11-10. Gałąź robocza: `integration/flux8-reconciliation`,
 oparta na `origin/main` (`ace922e4`) i integrująca historię #55 → #56 → #57.
 To kandydat integracyjny; nie jest scalony do `main` ani zakwalifikowany jako
 wydanie 8.0.0.
@@ -14,7 +14,17 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
-## Flux 8 — audyt P0 i wyniki 2026-11-07
+## Kwalifikacja kandydata `d0bb7511`
+
+W widocznym VirtualBox potwierdzono dziewięć scenariuszy w sprawdzonym
+zakresie PS/2. Osobna kwalifikacja QEMU obejmuje USB HID bez PS/2. SHA źródeł,
+sumę pobranego ISO i granice dowodu zapisano w
+[macierzy VirtualBox](docs/FLUX8_VIRTUALBOX_MATRIX.md).
+Stan wydania pozostaje **BLOCKED**. Otwarte elementy kontraktu i wymagana
+niezależna akceptacja PR #58 są opisane w
+[szkicu informacji o wydaniu](docs/releases/FLUX_MODERN_8.md).
+
+## Historyczny audyt Flux 8 P0 — 2026-11-07
 
 PR #58 pozostaje Draft. Gałąź zawiera `main` (`ace922e4`) oraz wcześniejsze
 gałęzie Flux. Odrębnej gałęzi `agent/ui-font-foundation` nie scalano.

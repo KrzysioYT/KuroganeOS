@@ -1,9 +1,17 @@
 # Flux Modern 8.x — Completion contract
 
-Status: **ACTIVE DEVELOPMENT, NOT QUALIFIED**
+Status: **RELEASE BLOCKED**. [Stan kandydata i otwarte bramki](../releases/FLUX_MODERN_8.md).
 Integration branch: `integration/flux8-reconciliation`
 Draft integration PR: #58 (ancestry #55 -> #56 -> #57)
 System identity remains `7.0.0-dev` until exact-SHA acceptance.
+
+## Candidate qualification — `d0bb7511`
+
+The exact candidate ISO passed the nine exercised scenarios in visible
+VirtualBox with PS/2 input. Separate QEMU coverage used USB HID without PS/2.
+The GOP profiles were selected before boot. In-session resolution changes,
+full desktop scaling, Dock ordering and saved window geometry remain open
+contract items. [VirtualBox evidence](../FLUX8_VIRTUALBOX_MATRIX.md)
 
 ## 2026-11-07 — restored P0 qualification and native input fix
 

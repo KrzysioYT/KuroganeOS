@@ -3,6 +3,13 @@
 Obraz służy do kwalifikacji Flux Modern 8.0.0. Runtime zgłasza wersję
 `7.0.0-dev`. Wyniki ręczne zapisuj osobno dla każdego obrazu.
 
+Obraz użyty w widocznej kwalifikacji pochodzi z
+`d0bb7511ebd4ab1a67928d02e7d9b364defffab9`. Jego SHA-256 to
+`5f24b9c49811f4137e7a92cd26e97e5bf0bc8cbe4ddbde529fe6de22e2ad6d5d`.
+[Pobierz zweryfikowany artefakt](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42546543990/artifacts/13643782633)
+
+## Wybór obrazu dla nowszej rewizji
+
 1. Otwórz [PR #58](https://github.com/KrzysioYT/KuroganeOS/pull/58) i odczytaj
    pełny SHA gałęzi `integration/flux8-reconciliation`.
 2. W [Actions](https://github.com/KrzysioYT/KuroganeOS/actions/workflows/qualify-8.0-flux-desktop-foundation.yml?query=branch%3Aintegration%2Fflux8-reconciliation)

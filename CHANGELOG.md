@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Flux Modern 8 — kandydat `d0bb7511`
+
+- Settings stosuje kolor i tapetę w Try oraz zapisuje je na zainstalowanym
+  systemie. Skrót **Next Wallpaper** jest dostępny przy 200%, a reset pokazuje
+  wynik na początku formularza.
+- Natywne karty zawijają się według szerokości okna. Files i Terminal
+  zachowują obsługę wskaźnika i klawiatury przy wysokiej skali.
+- Notifications odświeża listę, a Monitor pokazuje czas pracy kernela.
+- [Macierz kwalifikacji VirtualBox](docs/FLUX8_VIRTUALBOX_MATRIX.md) zapisuje
+  9/9 scenariuszy w sprawdzonym zakresie. [Stan wydania i ograniczenia](docs/releases/FLUX_MODERN_8.md).
+
 ### Flux 8 integration checkpoint — not a release
 
 - Integrated the required #55 → #56 → #57 history on a clean `origin/main`
