@@ -3,6 +3,19 @@
 Status **BLOCKED**. To szkic informacji o wydaniu. Zakwalifikowany w poniższym
 zakresie obraz zgłasza wersję `7.0.0-dev`.
 
+## Zamrożenie zakresu
+
+Gałąź `integration/flux8-reconciliation` jest objęta zamrożeniem Flux 8.
+Dopuszczalne są poprawki krytyczne i regresyjne, zmiany testów i CI,
+dokumentacja, wersjonowanie oraz przygotowanie publikacji. Nowe funkcje
+pozostają poza zakresem zamrożonej gałęzi.
+
+Zamrożenie zachowuje obowiązujący kontrakt 8.0. Pozycje P1 opisane niżej
+wymagają spełnienia kontraktu albo jawnej zmiany zakresu wydania przez
+właściciela projektu. Kwalifikacja fizycznego sprzętu i widoczny VirtualBox
+z USB pozostają poza obowiązkową macierzą tego wydania. Pokrycie wejścia to
+widoczny VirtualBox z PS/2 oraz osobny QEMU z USB HID.
+
 ## Co obejmuje kandydat
 
 - Natywny pulpit Modern z Home, Dockiem, wyszukiwaniem i zachowanym trybem
@@ -58,10 +71,16 @@ Kopia różniła się od dysku kwalifikacyjnego dodanym plikiem aplikacji.
 ## Sekwencja wydania
 
 1. Domknąć punkty blokujące kontrakt. Zaktualizować tożsamość w
-   `common/version.h` i odpowiadającą jej kontrolę w workflow Flux.
+   `common/version.h` i odpowiadającą jej kontrolę w workflow Flux. Sprawdzić
+   wspólną wersję w bootloaderze, instalatorze, Login, About, nazwach ISO
+   i manifestach. Bieżące etykiety `DEV BETA` i historyczny komunikat
+   instalatora w COM1 wymagają przeglądu przy zmianie tożsamości.
 2. Zbudować ISO i zapisać SHA źródeł oraz SHA-256 obrazu. Na tym obrazie
-   powtórzyć m.in. UEFI, Try, logowanie, instalację, start z VDI, ustawienia
-   oraz aplikacje i geometrię zależną od wyświetlanej wersji.
+   powtórzyć pełne kontrole automatyczne oraz widoczny smoke PS/2. Objąć
+   nim Try → Login → Home, About i układ nagłówka przy 1024×768 i 200%,
+   uruchomienie Files i Terminala, instalację na świeżym VDI oraz start
+   bez ISO z odtworzeniem niedomyślnych ustawień. Wynik zapisać dla sumy
+   nowego ISO.
 3. Uzyskać niezależną akceptację końcowego HEAD. Ochrona `main` wymaga
    aktualnej gałęzi i kontroli `iso-qualification`, `reliable-file` oraz
    `Verify contributor CLA acceptance`. [PR #58](https://github.com/KrzysioYT/KuroganeOS/pull/58)

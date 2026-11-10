@@ -14,6 +14,10 @@ produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
 
+Flux 8 jest objęty zamrożeniem zakresu. Otwarte bramki, dopuszczalne zmiany
+i plan ponownej kwalifikacji opisuje
+[dokument wydania](docs/releases/FLUX_MODERN_8.md#zamrożenie-zakresu).
+
 ## Kwalifikacja kandydata `d0bb7511`
 
 W widocznym VirtualBox potwierdzono dziewięć scenariuszy w sprawdzonym
