@@ -29,6 +29,14 @@ int main() {
     assert(ui::desktop_style_id() == KU_FLUX_STYLE_MODERN);
     assert(!ui::set_desktop_style(KU_FLUX_STYLE_COUNT));
     assert(ui::desktop_style_id() == KU_FLUX_STYLE_MODERN);
-    std::puts("Flux 8 kernel theme and style state: PASS");
+    assert(ui::desktop_background_id() == KU_FLUX_BACKGROUND_FORGED);
+    for (uint32_t id = 0U; id < KU_FLUX_BACKGROUND_COUNT; ++id) {
+        assert(ui::set_desktop_background(id));
+        assert(ui::desktop_background_id() == id);
+    }
+    assert(!ui::set_desktop_background(KU_FLUX_BACKGROUND_COUNT));
+    assert(ui::desktop_background_id() == KU_FLUX_BACKGROUND_MINIMAL);
+    assert(ui::set_desktop_background(KU_FLUX_BACKGROUND_FORGED));
+    std::puts("Flux 8 kernel theme, style and background state: PASS");
     return 0;
 }

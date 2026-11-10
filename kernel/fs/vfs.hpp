@@ -61,6 +61,7 @@ enum class NodeType : uint8_t {
 enum class NodeFlags : uint32_t {
     None = 0,
     Seekable = UINT32_C(1) << 0,
+    ReadOnlyMount = UINT32_C(1) << 1,
 };
 
 constexpr NodeFlags operator|(NodeFlags left, NodeFlags right) {

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -105,6 +106,12 @@ def main() -> int:
         header = expected_elf.read_bytes()[:20]
         if header[:5] != b"\x7fELF\x02" or int.from_bytes(header[16:18], "little") != 2:
             raise AssertionError(f"generated project is not ELF64 ET_EXEC: {expected_elf}")
+        objdump = shutil.which("x86_64-elf-objdump") or shutil.which("objdump")
+        if objdump is None:
+            raise AssertionError("objdump is required to verify the scalar userspace ABI")
+        assembly = run([objdump, "-d", str(expected_elf)]).stdout
+        if re.search(r"\b(?:xmm|ymm|zmm|mm)[0-9]+\b|\bst\([0-7]\)", assembly):
+            raise AssertionError(f"generated project violates the scalar userspace ABI: {expected_elf}")
 
     protected_project = workspace / "sdk-console-probe"
     protected_source = protected_project / "src" / "capability_probe.cpp"

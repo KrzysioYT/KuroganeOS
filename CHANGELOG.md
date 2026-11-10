@@ -2,6 +2,92 @@
 
 ## Unreleased
 
+### Flux Modern 8 — kandydat `d0bb7511`
+
+- Settings stosuje kolor i tapetę w Try oraz zapisuje je na zainstalowanym
+  systemie. Skrót **Next Wallpaper** jest dostępny przy 200%, a reset pokazuje
+  wynik na początku formularza.
+- Natywne karty zawijają się według szerokości okna. Files i Terminal
+  zachowują obsługę wskaźnika i klawiatury przy wysokiej skali.
+- Notifications odświeża listę, a Monitor pokazuje czas pracy kernela.
+- [Macierz kwalifikacji VirtualBox](docs/FLUX8_VIRTUALBOX_MATRIX.md) zapisuje
+  9/9 scenariuszy w sprawdzonym zakresie. [Stan wydania i ograniczenia](docs/releases/FLUX_MODERN_8.md).
+
+### Flux 8 integration checkpoint — not a release
+
+- Integrated the required #55 → #56 → #57 history on a clean `origin/main`
+  based branch, retaining the existing PRs and their bases.
+- Expanded native Files, Launcher, Terminal and Settings workflows, and added
+  installer package-VFS validation plus QMP lifecycle/install qualification
+  harnesses.
+- Repaired the shared host-test runner syntax regression that caused the
+  nineteen reported #55 check failures; no checks were disabled.
+- Fixed installer target selection for read-only block devices: the capability
+  now propagates through partitions, writes are rejected centrally, and setup
+  returns to live recovery when no writable disk exists.
+- Reproduced the unsafe path on the previous ISO, then verified the fix on
+  exact SHA `5c3199467b0a1cf726761dadd1ad66c782fa99ae`: host regression, 11
+  UBSan groups, Release media, read-only recovery, nondestructive cancellation,
+  install, two disk-only boots and persisted theme all passed.
+- Exact-head Actions passed: `reliable-file` `41337504861`,
+  `iso-qualification` `41337504951`, and CLA `41337504885`.
+- ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
+- Automated VirtualBox 7.2.20 Try-to-desktop and EFI/AHCI install with disk-only
+  reboot passed on runtime SHA `7287fe1`; the visible/manual mouse and keyboard
+  interaction remains UNVERIFIED. Runtime stays `7.0.0-dev`; Flux 8.0 is not
+  complete.
+- Started native typography: added licensed DejaVu Sans normal/bold source,
+  a reproducible 4-bit antialiased atlas for ASCII/Latin-1/Polish and U+FFFD,
+  plus freestanding proportional text rendering at 100/125/150/200% text
+  scales. Host coverage verifies glyph fallback, metrics, weights and clipping;
+  modern and Classic window titles use the bold face. The atlas is guarded by
+  a 512 KiB compile-time memory ceiling. Wrapping and shaping remain open;
+  Settings currently persists global text size only, not whole-UI HiDPI.
+  Full host regression,
+  core UBSan, isolated Debug/Release kernel builds and deterministic atlas
+  regeneration passed on the unpublished working tree based on `05e67146`;
+  media and guest testing remain NOT RUN.
+- Modern and Classic window titles now use bold text and UTF-8-safe ellipsis
+  within available width. Native scene labels wrap to bounded dimensions,
+  including hard breaks only at complete UTF-8 code points. Full host
+  regression, core UBSan and isolated Debug/Release kernel builds passed on
+  the working tree based on `41490e42`; media and guest testing remain NOT RUN.
+- Added fixed-point glyph advances and generated, bounded pair kerning to the
+  native renderer; drawing, measurement, title fitting and wrapping share the
+  same metrics. The latest full host regression, core UBSan, deterministic
+  atlas generation and isolated Debug/Release kernel builds passed on the
+  working tree based on `561d0a89`; media and guest testing remain NOT RUN.
+- Added an append-only desktop text-scale syscall and Flux Settings controls
+  for globally persisted 100/125/150/200% text rendering. Reset restores 100%;
+  Home reapplies valid preferences on session startup; failed selections
+  attempt and verify rollback. Text buttons, task labels and metrics use
+  bounded ellipsis. The initial text-scale increment did not scale whole-UI
+  geometry or provide per-user isolation. On runtime SHA `7287fe1`, full host
+  regression and 11 UBSan groups,
+  isolated Debug/Release builds, Release ISO and QEMU install/two-boot
+  persistence all PASS. The QEMU run restored 125% text scale and theme 2;
+  ISO SHA-256 is `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80`.
+  Actions `reliable-file` (`41348763286`), CLA (`41349152187`), and
+  `iso-qualification` (`41348763424`) all PASS on this runtime SHA. Automated
+  VirtualBox 7.2.20 Try-to-desktop and EFI/AHCI install/disk-only reboot also
+  PASS on the exact ISO; visible/manual interaction remains UNVERIFIED. ISO
+  qualification covered host ABI/SDK and regression, IMG/ISO, FAT32/VFS,
+  20 ISO structure checks, OVMF boot, and E1000/PCnet/VirtIO NAT.
+  QEMU USB-only setup Try also reached Home with zero block devices, no PS/2,
+  USB keyboard and report-pointer input; all required markers passed.
+- Native Ring-3 surface bounds now scale with the persisted 100/125/150/200%
+  preference, and pointer/scroll coordinates are inverse-mapped into app
+  logical pixels so hit testing retains the SDK coordinate system. The 100%
+  path remains unchanged. This is partial HiDPI: icon internals, desktop/window
+  chrome and display-mode changes are still open. On exact runtime SHA
+  `6457745962fde73c81a7004bce13cea6992a85c1`, host regression, 11 UBSan
+  groups, isolated Debug/Release builds, 20 ISO checks, QEMU install/two-boot
+  persistence, USB-only Try, and automated VirtualBox Try/install all PASS.
+  ISO SHA-256: `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531`.
+  Actions `reliable-file` (`41352989065`), CLA (`41352989090`) and
+  `iso-qualification` (`41352989006`) all PASS on this exact SHA. Manual visible
+  VirtualBox input and scaled-widget interaction remain UNVERIFIED.
+
 ### 3.3.3-dev completion status
 
 - Changed the 3.3.3-dev completion state to **OPEN / NOT COMPLETE**.

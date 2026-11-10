@@ -110,7 +110,8 @@ static void notice_text(
     }
 }
 
-static void build_scene(kui_scene* scene, const notice_page* page) {
+static void build_scene(ku_window_t window, kui_scene* scene, const notice_page* page,
+                        const char* error) {
     kui_flow root;
     char summary[64] = "PUBLIC FEED / ";
     char number[24];
@@ -121,14 +122,11 @@ static void build_scene(kui_scene* scene, const notice_page* page) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 8U;
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX NOTIFICATION CENTER");
-    (void)kui_flow_label(&root, 2U, summary);
+    (void)kui_flow_label(&root, 2U, error != NULL ? error : summary);
+    (void)kui_flow_button(&root, 20U, "REFRESH");
+    (void)kui_flow_button(&root, 21U, "NEXT PAGE");
     for (index = 0U; index < page->count; ++index) {
         char text[64];
         notice_text(&page->records[index], text, sizeof(text));
@@ -138,46 +136,54 @@ static void build_scene(kui_scene* scene, const notice_page* page) {
     if (page->count == 0U) {
         (void)kui_flow_label(&root, 19U, "NO PUBLIC NOTIFICATIONS");
     }
-    (void)kui_flow_button(&root, 20U, "REFRESH");
-    (void)kui_flow_button(&root, 21U, "NEXT PAGE");
-    if (page->count < NOTICE_PAGE_SIZE) {
+    if (page->count < NOTICE_PAGE_SIZE || error != NULL) {
         (void)kui_scene_set_flags(scene, 21U, KUI_VIEW_DISABLED);
     }
+    (void)gui_update_scene_viewport(window, scene);
 }
 
 int main(void) {
     const ku_window_t window = gui_open(KU_FLUX_TITLE_NOTIFICATIONS, 470, 100, 520, 455);
-    const ku_result_t connected = connect_notifications();
-    ku_service_connection_t connection;
-    notice_page page;
+    ku_service_connection_t connection = 0U;
+    notice_page page = {0};
     kui_scene scene;
     uint32_t pointer_buttons = 0U;
     if (window == KU_INVALID_WINDOW) return 1;
-    if (connected <= 0) {
-        (void)ku_ui_close(window);
-        return 2;
-    }
-    connection = (ku_service_connection_t)connected;
-    if (load_page(connection, 0U, &page) != KU_STATUS_OK) {
+    const ku_result_t connected = connect_notifications();
+    if (connected > 0) connection = (ku_service_connection_t)connected;
+    notice_page first;
+    if (connection != 0U && load_page(connection, 0U, &first) == KU_STATUS_OK) {
+        page = first;
+    } else if (connection != 0U) {
         (void)ku_service_close(connection);
-        (void)ku_ui_close(window);
-        return 3;
+        connection = 0U;
     }
-    build_scene(&scene, &page);
+    build_scene(window, &scene, &page, connection != 0U ? NULL : "FEED OFFLINE / USE REFRESH");
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
-        (void)ku_service_close(connection);
+        if (connection != 0U) (void)ku_service_close(connection);
         (void)ku_ui_close(window);
         return 4;
     }
-    puts("[TEST] flux_notification_center_connected: PASS");
+    if (connection != 0U) puts("[TEST] flux_notification_center_connected: PASS");
     puts("[TEST] flux_notification_center_notice_card: PASS");
     if (page.count != 0U) puts("[TEST] flux_notification_center_public_record: PASS");
 
     for (;;) {
         ku_ui_event event;
         uint32_t target;
-        const int result = gui_wait_event(window, &event);
+        if (gui_update_scene_viewport(window, &scene)) (void)kui_scene_present(window, &scene);
+        const int result = kui_next_event(window, &event);
+        if (result == 0) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
         if (result < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            const int32_t step = event.wheel_y == INT32_MIN ? INT32_MAX : -event.wheel_y;
+            (void)kui_scene_scroll(&scene, step);
+            (void)kui_scene_present(window, &scene);
+            continue;
+        }
         if (event.type != KU_UI_EVENT_POINTER) continue;
         {
             const uint32_t previous = pointer_buttons;
@@ -188,24 +194,30 @@ int main(void) {
             if (!pressed) continue;
         }
         target = kui_scene_hit_test(&scene, event.x, event.y);
-        if (target == 20U) {
-            if (load_page(connection, 0U, &page) != KU_STATUS_OK) continue;
-        } else if (target == 21U) {
-            notice_page next;
-            if (load_page(connection, page.next_cursor, &next) != KU_STATUS_OK) continue;
-            if (next.count == 0U) {
-                if (load_page(connection, 0U, &page) != KU_STATUS_OK) continue;
-            } else {
-                page = next;
-            }
-        } else {
-            continue;
+        if (target != 20U && target != 21U) continue;
+        if (connection == 0U) {
+            const ku_result_t reopened = connect_notifications();
+            if (reopened > 0) connection = (ku_service_connection_t)reopened;
         }
-        build_scene(&scene, &page);
-        (void)kui_scene_present(window, &scene);
+        notice_page next;
+        ku_status_t status = connection != 0U
+            ? load_page(connection, target == 20U ? 0U : page.next_cursor, &next)
+            : KU_STATUS_NOT_FOUND;
+        if (status == KU_STATUS_OK && target == 21U && next.count == 0U)
+            status = load_page(connection, 0U, &next);
+        if (status == KU_STATUS_OK) {
+            page = next;
+        } else {
+            if (connection != 0U) (void)ku_service_close(connection);
+            connection = 0U;
+        }
+        build_scene(window, &scene, &page, status == KU_STATUS_OK ? NULL : "FEED UPDATE FAILED / RETRY");
+        if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+        if (status == KU_STATUS_OK && target == 20U)
+            printf("[NOTIFY] refreshed=%u\n", (unsigned)page.count);
     }
 
-    (void)ku_service_close(connection);
+    if (connection != 0U) (void)ku_service_close(connection);
     (void)ku_ui_close(window);
     return 0;
 }

@@ -1,8 +1,9 @@
 # KuroganeOS — stan rozwoju
 
-Aktualizacja: 2026-10-25. Gałąź robocza: `codex/road-to-15-stability`,
-[Draft PR #55](https://github.com/KrzysioYT/KuroganeOS/pull/55).
-Bazą integracji jest `gpt/road-to-15-consolidation`.
+Aktualizacja: 2026-11-10. Gałąź robocza: `integration/flux8-reconciliation`,
+oparta na `origin/main` (`ace922e4`) i integrująca historię #55 → #56 → #57.
+To kandydat integracyjny; nie jest scalony do `main` ani zakwalifikowany jako
+wydanie 8.0.0.
 
 ## Wersja i najbliższy cel
 
@@ -12,6 +13,134 @@ kernela, sterowników i Classic. **15.0.0 jest docelowym pierwszym wydaniem
 produktowym stable. Ani 8.0, ani 15.0 nie są obecnie ukończone.**
 Numer etapu roadmapy, wersja skompilowanego obrazu i wynik konkretnego testu
 są odrębnymi informacjami.
+
+Flux 8 jest objęty zamrożeniem zakresu. Otwarte bramki, dopuszczalne zmiany
+i plan ponownej kwalifikacji opisuje
+[dokument wydania](docs/releases/FLUX_MODERN_8.md#zamrożenie-zakresu).
+
+## Kwalifikacja kandydata `d0bb7511`
+
+W widocznym VirtualBox potwierdzono dziewięć scenariuszy w sprawdzonym
+zakresie PS/2. Osobna kwalifikacja QEMU obejmuje USB HID bez PS/2. SHA źródeł,
+sumę pobranego ISO i granice dowodu zapisano w
+[macierzy VirtualBox](docs/FLUX8_VIRTUALBOX_MATRIX.md).
+Stan wydania pozostaje **BLOCKED**. Otwarte elementy kontraktu i wymagana
+niezależna akceptacja PR #58 są opisane w
+[szkicu informacji o wydaniu](docs/releases/FLUX_MODERN_8.md).
+
+## Historyczny audyt Flux 8 P0 — 2026-11-07
+
+PR #58 pozostaje Draft. Gałąź zawiera `main` (`ace922e4`) oraz wcześniejsze
+gałęzie Flux. Odrębnej gałęzi `agent/ui-font-foundation` nie scalano.
+Kontrakt produktu określa [Product Adoption Roadmap](docs/roadmap/PRODUCT_ADOPTION_ROADMAP.md).
+Stan poniżej dotyczy konkretnych scenariuszy i rewizji.
+
+| Obszar | Wynik i granica dowodu |
+| --- | --- |
+| Try → Login → Home → Files/Terminal | **PASS**: rzeczywisty input USB keyboard/tablet, brak PS/2; oba procesy i powierzchnie aplikacji. Dedykowany workflow działa teraz na gałęzi PR #58; host odtwarza trafienia szyny Modern w 1024×768 i 1280×800. |
+| Instalacja i logowanie | **PASS**: read-only target wraca do Try i Home, anulowanie nie zmienia dysku, błędne hasło jest odrzucone przed utworzeniem sesji, poprawne działa na dwóch bootach bez ISO. |
+| Uszkodzony profil | **PASS**: kopia instalacji bez plików konta pokazuje ekran blokady i odrzuca Enter. Login i accountd używają jednej polityki odczytu. Host potwierdza odrzucanie I/O error, NUL i za długich danych. To nie zastępuje KDF, uprawnień ani ochrony przed modyfikacją dysku offline. |
+| Okna i Settings | **PASS zakresowo**: focus, przesunięcie, resize, minimalizacja, restore, zamknięcie/relaunch, realne zapisy Settings i odtworzenie motywu/skali po restarcie. |
+| HiDPI | **CZĘŚCIOWE**: zgodność granic rysowania i inputu przy 100/125/150/200% przeszła na hoście z UBSan. QEMU otwiera katalog kliknięciem w ostatni piksel kafelka Files przy 200% i potwierdza trwałość 200%. Pełny layout, chrome, wszystkie aplikacje i wizualna akceptacja nadal otwarte. |
+| Interaktywny VirtualBox i sprzęt | **BLOCKED w tym środowisku**: brak VirtualBox z widoczną sesją. Nie przenosimy dawnych wyników headless ani QEMU na test ręczny. Fizyczny sprzęt nie był testowany w tej partii. |
+
+- `24b199858d9a5846c2ab88e30434d9dfaaebaa92` — pierwszy ponownie włączony
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42384777717).
+- `82c023768a68fc35d76a7440b10a03019b7cb1b3` — hasło i uszkodzony profil:
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42385865048),
+  [ISO/host i trzy NIC](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42385869402).
+  SHA256 ISO: `56f3e4b24c5eb2e5b298dbedf6e14b4ee0eae1f62105e80e3012fb7ad1736dd8`.
+  Ta rewizja poprawiła też test źródłowy, który na `2b3009f` jeszcze odwoływał
+  się do starej nazwy pola Login.
+- `5e8822116a6bf3e7ad7a3a6cf50c790cca1f0bbc` — host/UBSan, QEMU i 200%:
+  [gate Flux](https://github.com/KrzysioYT/KuroganeOS/actions/runs/42386319917).
+  SHA256 ISO: `f0af9feccc9df4108c0a5c24d393a71e9610c8126c7321a495d2646f0a2f6372`.
+  Run zachowuje serial, manifest instalacji i zrzuty z gościa.
+
+Następne priorytety: [widoczny test VirtualBox na tym samym ISO](docs/VIRTUALBOX.md),
+pełny układ przy 125–200%, interaktywne scenariusze aplikacji oraz odzyskiwanie
+sesji po awarii usług. Ścieżki 9–15 pozostają kierunkiem, nie wydanymi
+funkcjami. [Analiza opcji licencji](docs/roadmap/LICENSING_OPTIONS.md) jest
+przygotowana do osobnej decyzji; LICENSE i CLA pozostają bez zmian.
+
+## Historyczna kwalifikacja runtime checkpoint — `64577459`
+
+Runtime SHA: `6457745962fde73c81a7004bce13cea6992a85c1`; system nadal ma
+tożsamość `7.0.0-dev`. Ustawienie 100/125/150/200% skaluje tekst oraz geometrię
+komend natywnych powierzchni Ring-3; wskaźnik i scroll są mapowane z powrotem
+do logicznej przestrzeni aplikacji. Skala 100% zachowuje dotychczasowe
+zachowanie. Nie jest to jeszcze pełne skalowanie chrome/ikon, geometrii pulpitu,
+rozdzielczości ani profil per-user. PR #58 pozostaje Draft, wymaga jednej
+akceptacji i Flux 8.0 nie jest zakwalifikowany.
+
+| Kontrola | Wynik dla runtime SHA `64577459` |
+| --- | --- |
+| Pełna regresja hosta i 11 grup UBSan | PASS |
+| Izolowane kernel/userspace Debug oraz Release installer/ISO | PASS — 20 walidacji struktury ISO |
+| QEMU/OVMF: read-only recovery, bezpieczne anulowanie, instalacja, dwa bootowania i trwałość 125% | PASS |
+| QEMU USB-only Try bez dysku/PS/2, USB HID keyboard/tablet, login i Home | PASS — zero urządzeń blokowych |
+| VirtualBox 7.2.20 Try/Login/Desktop i instalacja z disk-only boot | PASS — headless |
+| GitHub Actions `reliable-file` [41352989065](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989065), CLA [41352989090](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989090), ISO [41352989006](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41352989006) | PASS |
+| ISO SHA-256 | `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531` |
+| Ręczne widoczne testy VirtualBox i skalowane hit-testy | UNVERIFIED |
+
+QEMU manifest `/tmp/kuro-ui-scale-exact-qemu-64577459/result.json` wiąże
+pełny SHA runtime, ISO oraz disk hash `b66ecaa018784d93042d82c33061f6a421ffe5233e29486e1f17b68f27744e9b`;
+przywrócone ustawienia to theme `2` i text scale `125`. USB-only screenshot
+SHA-256: `72cafda508f85bdc1a772a81d976f190e0c20c2f9f5d74736b91916bcca8afc8`.
+Guest potwierdza boot, instalację i trwałość ustawienia, ale nie wizualne
+hit-testy natywnych kontrolek przy 125–200%. Logowanie hasłem, fizyczny sprzęt
+i pełna macierz Flux 8 pozostają otwarte.
+
+## Historyczna kwalifikacja runtime checkpoint — `7287fe1`
+
+Runtime SHA: `7287fe1d4f092e146ceda014ebf0a440c1aa4e5f`; późniejsze commity
+gałęzi są dokumentacyjne i nie zmieniają payloadu. Wersja pozostaje
+`7.0.0-dev`. Zmiany dodają globalną skalę renderowanego tekstu 100/125/150/200%,
+persistencję w Settings i odtwarzanie przez Home podczas startu sesji. To nie
+jest skalowanie geometrii całego UI ani prywatny profil per-user.
+PR #58 pozostaje Draft i wymaga jednej akceptacji. Flux 8.0 nie jest
+zakwalifikowany.
+
+| Kontrola | Wynik dla runtime SHA `7287fe1` |
+| --- | --- |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-host bash scripts/run-host-tests.sh` | PASS — pełna regresja hosta |
+| `HOST_TEST_DIR=build/tests/text-scale-exact-ubsan bash scripts/test-core-ubsan.sh` | PASS — 11 grup |
+| Izolowany kernel/userspace Debug build | PASS |
+| Izolowany Release build, SDK, installer i ISO | PASS |
+| QEMU/OVMF: read-only target, bezpieczne anulowanie, instalacja i dwa bootowania z dysku | PASS |
+| QEMU/OVMF: zmiana tekstu na 125% i odtworzenie po restarcie | PASS — manifest wiąże wynik z runtime SHA |
+| QEMU/OVMF: ISO Try bez dysku, bez PS/2, USB keyboard/tablet, logowanie i Home | PASS — 0 block devices, USB HID input, Home frame |
+| ISO `KuroganeOS-7.0.0-dev-x86_64.iso` SHA-256 | `cf1f0c0e7d21ccb3c92368508a1f16096310a3113e08815adaef814d7266be80` |
+| GitHub Actions `reliable-file`, run [41348763286](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763286) | PASS |
+| GitHub Actions CLA, run [41349152187](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41349152187) | PASS |
+| GitHub Actions `iso-qualification`, run [41348763424](https://github.com/KrzysioYT/KuroganeOS/actions/runs/41348763424) | PASS — host/SDK, regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF i trzy profile NAT |
+| VirtualBox 7.2.20: Try/Login/Desktop na dokładnym ISO, headless PS/2 | PASS |
+| VirtualBox 7.2.20: AHCI install, odłączone ISO, disk-only boot, FAT32/PID 1 i PCnet DHCP/gateway/DNS | PASS |
+| Ręczny test myszy/klawiatury w widocznym VirtualBox | UNVERIFIED |
+
+QEMU manifest `/tmp/kuro-text-scale-qemu-7287fe1d/result.json` zawiera
+`source_sha`, hash ISO, przywrócony motyw `2` i skalę tekstu `125`.
+Automatyczne testy VirtualBox 7.2.20 na tym samym ISO przeszły Try/Login/Desktop
+oraz instalację AHCI i boot z VDI bez ISO, z FAT32, PID 1 i PCnet NAT.
+QEMU USB-only Try użył tego ISO bez `--disk`, wykrył zero block devices,
+ominął PS/2 i zaliczył report-pointer click, USB keyboard login oraz Home.
+Skrypty użyły wyłącznie losowo nazwanych tymczasowych VM/VDI; ręczna widoczna
+obsługa myszy/klawiatury pozostaje UNVERIFIED. Testy logowania hasłem,
+fizycznego sprzętu, starej instalacji z `flux_account_lookup` oraz pełnej
+macierzy 8.0 pozostają niezweryfikowane.
+
+Opis PR #58 został zaktualizowany i nadal wskazuje status Draft; rozdziela
+runtime checkpoint `7287fe1` od bieżącego headu dokumentacyjnego.
+
+Gałąź `agent/ui-font-foundation` pozostaje zachowana i nie została scalona:
+ma 20 unikalnych commitów i jest 1076 commitów za `main`. Audyt nie wykazał
+licencjonowanego, skalowalnego fontu ani kompletnego rasteryzatora; jej API i
+zmiany UTF-8 nie zastępują otwartej pracy nad typografią 8.0.
+
+Ochrona `main` została włączona: wymagany Pull Request, jedna akceptacja,
+aktualne wymagane kontrole `iso-qualification`, `reliable-file` i CLA, brak
+force-push i usuwania gałęzi; reguły dotyczą również administratorów.
 
 ## Zasady projektu
 
@@ -49,16 +178,17 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
   schedulera Ring-3 z kompilacji bez osi x86_64, zapobiegając błędowi
   `-Werror` podczas testu `test_process` i utrzymując poprawny model hostowy.
 
-1. VirtualBox: zgłoszone restarty usług i `flux_account_lookup: FAIL` na starym
-   zainstalowanym obrazie. Brak 22 programów w buildzie Windows został naprawiony,
-   ale związek z całym incydentem wymaga świeżego logu. Nowe ISO nie aktualizuje
-   automatycznie plików starego zainstalowanego rootfs.
-2. Pełna akceptacja Flux: wszystkie aplikacje, lifecycle, focus/capture,
-   restart/recovery, clipboard, interakcje i trwałość ustawień na tym samym SHA.
-3. Skalowalne fonty, HiDPI i zmiany trybu wyświetlania, dostępność, drag/drop
-   oraz pozostałe otwarte pozycje kontraktu 8.0.
-4. Produktowe security/KDF, aktualizacje/rollback, szersza zgodność sprzętowa
-   i długotrwałe testy pozostają pracą do 15.0, nie ukończonymi funkcjami.
+1. Ręczna, widoczna kwalifikacja myszy/klawiatury w VirtualBox pozostaje
+   UNVERIFIED. Dostępny VirtualBox 7.2.20 przeszedł automatyczne testy Try,
+   instalacji i bootu dyskowego. Historyczny `flux_account_lookup: FAIL` nie
+   wystąpił w świeżym profilu bez hasła; stary obraz i logowanie hasłem
+   pozostają niezweryfikowane.
+2. Full Flux acceptance remains open: every app and file workflow, clipboard,
+   crash/recovery, complete accessibility and the full settings matrix.
+3. Licensed scalable typography, HiDPI and live display-mode changes, drag/drop
+   and other open 8.0 contract items remain incomplete.
+4. Product security/KDF, signed updates/rollback, wider physical hardware
+   coverage and long-duration tests remain work toward 15.0.
 
 ## Dokumenty nadrzędne
 
@@ -71,3 +201,258 @@ nowym commitom statusu PASS z poprzedniego uruchomienia.
 Historyczny QUALIFIED oznacza zakres wskazanej rewizji, a nie bezwarunkowe
 potwierdzenie obecnego HEAD. Oryginalne audyty i informacje o wydaniach zachowują
 daty i znaczenie historyczne.
+
+## 2026-10-25 — macOS runtime image parity (active)
+
+macOS image creation was independently reported to omit 22 baseline Ring-3
+programs despite passing image/UEFI tests. `scripts/build-macos.sh` is being
+aligned with the 33-program Linux/Windows inventory; a mandatory ELF/overlay
+preflight rejects missing accountd, sessiond, notificationd and GUI applications
+before IMG/ISO publication. Actual macOS host execution and boot verification
+remain UNVERIFIED until tested on the matching source SHA.
+
+## 2026-10-25 — Try startup and no-target recovery (working tree)
+
+The current uncommitted work is based on `3da0696`; evidence below is useful
+engineering progress, not an exact-SHA release qualification.
+
+- Normal non-safe startup now initializes the compositor before PID 1 starts
+  Login. If optional compositor initialization fails, PID 1 retains a visible
+  recovery path; explicit desktop-only startup remains fatal on that error.
+- Setup-media Try no longer requires a writable target disk. Selecting Install
+  without a target mounts the read-only live package, explains why installation
+  is unavailable, and waits for input before entering Try without writing media.
+- Both Foundation builders now inspect the published FAT32/VFS root and require
+  all 44 declared runtime ELF64 paths, including account/session services and
+  GUI apps. Windows/Linux/macOS inventory parity has host regression coverage;
+  those three native builder environments have not all been executed here.
+- On the arm64 macOS host, the optimized host suite passed under Rosetta.
+  The root-volume validator and a targeted UBSan build both passed against the
+  isolated release IMG; the clean media build and those image checks are from a
+  staging worktree, not yet a committed source SHA.
+- QEMU/TCG verified setup ISO Try and no-disk Install recovery, plus USB-only
+  Login -> authenticated session -> first Home frame. A live ISO interaction
+  opened Terminal from the Dock, presented its native surface and produced a
+  QMP screenshot. A prior Foundation IMG run also passed Files/Terminal launch,
+  wheel input and two presented surfaces.
+- Two later Foundation IMG retries stopped after `userspace ABI probe passed`,
+  before the Ring-3 preemption acceptance marker. This unresolved intermittent
+  boot failure blocks reliability claims despite the earlier successful run.
+- Actual 1280x800 guest screenshots for setup, Login, Home, Files and Terminal
+  were visually inspected. The available boot capture is firmware/loader text,
+  not a graphical OS splash; no graphical splash/progress implementation is
+  evidenced. The visible UI remains on transitional bitmap typography.
+
+The complete Flux redesign and 8.0 qualification remain open: licensed scalable
+font and full text layout, HiDPI/responsive behavior, app/window lifecycle and
+failure recovery, settings persistence, blank-disk install/boot, VirtualBox
+interactive acceptance, and the remaining acceptance matrix. No version
+promotion is implied.
+
+## Exact-SHA runtime checkpoint — 4ca69f57
+
+Source: `4ca69f5797904f4152ad4a74ef3b8ceb3d807847` on
+`codex/road-to-15-stability`. The host was Apple Silicon macOS `arm64`;
+x86-64 guest runs used QEMU/TCG. The clean release build and all generated
+media were kept in an isolated worktree at
+`/tmp/kuroganeos-release-4ca69f57`.
+
+| Evidence | Result |
+| --- | --- |
+| macOS release IMG and ISO build | PASS; both generated from the exact source SHA |
+| Published root FAT32/VFS payload | PASS; all 44 required ELF64 programs validated in the image |
+| `arch -x86_64 /bin/bash scripts/run-host-tests.sh` | PASS; optimized host regression suite, including package VFS listing; one pre-existing mbedTLS `x509_crt.c` compiler warning |
+| `bash scripts/validate-foundation-root-image.sh dist/KuroganeOS-7.0.0-dev-macos-qemu.img` | PASS; 44 required ELF64 payloads |
+| Targeted root-image test with `-fsanitize=undefined -fno-sanitize-recover=all` | PASS |
+| IMG QEMU/TCG, USB keyboard + tablet, no PS/2 | PASS; Try → Login → authenticated owned session → first Home frame; Files enumerated and received wheel input; Terminal launched as Ring-3; two child spawns and two presented surfaces |
+| ISO QEMU/TCG, USB keyboard + tablet, no PS/2 | PASS; Install without a target disk showed the explicit refusal, entered the read-only live package and reached the authenticated Home frame |
+
+Generated media and SHA256:
+
+- `dist/KuroganeOS-7.0.0-dev-macos-qemu.img` —
+  `48723c4f84de9d28897cafc4fb5bf2862d435b0a8112855de64de86ad0a856cf`
+- `dist/KuroganeOS-7.0.0-dev-x86_64.iso` —
+  `53586c4f5fc98a8a983c9ab36d439de3ab41bbdd56740deb15c58930b674cd14`
+
+QMP guest screenshots for setup refusal, Login, Home, Files and Terminal were
+captured from this build and visually reviewed. They show the existing bitmap
+typography and no graphical OS splash; these images do not constitute full
+layout, accessibility or clipping acceptance. The VFS change fixes the
+reproduced live-Try Files failure: directory enumeration now works through
+the read-only package adapter, allowing Files to present a surface.
+
+This exact candidate did not receive complete 8.0 acceptance. In particular,
+the blank-disk install/boot, VirtualBox interaction, persistence across
+restart, full window/input/clipboard lifecycle, crash and service recovery
+matrix, licensed scalable typography, HiDPI, and the complete application
+suite remain unverified or incomplete. Version remains `7.0.0-dev`; 8.0 is
+**ACTIVE / NOT QUALIFIED** and 15.0.0 stable remains the product goal.
+
+## 2026-10-27 — Restore hosted regression gates
+
+The latest roadmap source `58c98d62` passed the scoped Flux workflow
+`40432993532`, but other gates failed before exercising their runtime cases:
+the full Linux host suite stopped at `test_xhci_ports` because GCC treated the
+kernel `log` namespace as a conflicting math builtin, and standalone HTTPS
+workflow `40433000556` omitted the logger fixture required by the client.
+
+The logger header now scopes the GCC diagnostic exception to the namespace
+declaration, retaining caller warnings and `-Werror`. The complete host suite
+and standalone HTTPS workflow share `scripts/test-tls-http.sh`, including
+`host_log_stub.cpp`; `--ubsan` retains the sanitizer gate. Workflow path filters
+also cover the shared runner, logger header and fixture.
+
+Local validation on Apple Silicon: optimized host suite under Rosetta PASS;
+standalone HTTPS optimized and UBSan PASS; hosted-mode GCC 16 header probe
+reproduced the diagnostic before the change and passed afterward. This is not
+a claim that the complete Linux CI matrix has been rerun. The unmodified
+`58c98d62` release ISO also passed USB-only QEMU/TCG Try -> authenticated Home
+-> Files wheel -> Terminal, with two child spawns and two presented surfaces.
+Full 8.0 acceptance, including VirtualBox, remains open.
+
+## 2026-10-27 — Local installer and disk-only reboot evidence
+
+A portable QEMU runner now installs to an exclusively created 512 MiB image;
+existing output directories/symlinks are rejected. It cancels before INSTALL
+and compares the full blank-disk hash, then installs and boots the same disk
+twice with the ISO detached. Both boots must authenticate the installed account
+and present Home; first-boot transaction and persisted-install markers are
+required separately. CI now includes this scenario and retains evidence but
+not the writable disk.
+
+Local macOS/QEMU/TCG passed installation and both disk-only boots against the
+`42e73a0d` release ISO (SHA256
+`c11fecc76140adca1e79dda6095a442c585cb17845d6969ef43db800a76749c6`).
+The expanded run also passed cancellation with an unchanged disk hash. The
+runner was working-tree code during that test; its manifest records its own
+SHA256 in addition to the guest ISO hash. This is scoped evidence for an
+English default no-password account, AHCI, 4 vCPU, USB keyboard/tablet. It does
+not qualify password login, upgrades, settings persistence, power-loss recovery
+or native VirtualBox. The remote QEMU job for `42e73a0d` was still installing
+host dependencies when this evidence was recorded; no remote QEMU PASS is
+claimed. Hosted Flux sanitizer and standalone HTTPS jobs passed on that SHA.
+
+## 2026-10-27 — Settings keyboard development
+
+The previous commit `452d8e2e` completed both hosted sanitizer and QEMU jobs in
+Actions run `40437531957`, including installation and two disk-only boots.
+
+Settings previously ignored all keyboard events. It now supports visible
+Tab/Shift+Tab focus, Enter/Space activation, scroll-to-focus and focus preservation
+after rebuilding its scene. Optimized/UBSan policy tests and the complete local
+host suite passed. A working-tree QEMU installed boot passed navigation and the
+window lifecycle; screenshots confirmed the final reset control is visible.
+The initial ISO Try test correctly rejected theme persistence on its read-only
+root. Write acceptance is explicitly reserved for a writable installed disk.
+Exact candidate media and final runtime results are recorded with the delivery
+artifacts; this does not promote the system version or qualify all of 8.0.
+
+## 2026-10-27 — Road to 15: kernel-host portability and FAT32 packaging
+
+On `58c98d62`, the exact-SHA GitHub checks returned 10 successes and 24
+failures. Many failed independently at the same `kernel/core/log.hpp`
+hosted-GCC `-Werror=builtin-declaration-mismatch` warning. The TLS HTTP
+harness separately failed to link the kernel diagnostic functions. These
+were test/toolchain integration defects; this result is **not** evidence of
+24 separate defective hardware drivers.
+
+New candidate commits:
+- `b76577cf`: narrowly scope the hosted compiler warning to the legacy
+  kernel logging namespace, supply a real host TLS diagnostic sink and tighten
+  the VirtualBox documentation assertion.
+- `facb1593`: reject case-insensitive FAT32 file aliases and file-as-directory
+  collisions in both installer packager and kernel package parser.
+- Current CI additionally tests package reading under UBSan, with a hostile
+  path matrix in Python and C++.
+
+Observed during candidate runs: `http-lifecycle`, `host-regression` and
+multiple service checks passed on `b76577cf`; most hardware/QEMU jobs were
+still in progress when recorded. These earlier successes **do not qualify
+the new head**, which requires its own checks. No clean-boot evidence for the
+new head was collected here. Compiler, parser and unit tests are necessary,
+but not sufficient for product-level 15.0.0. The version remains `7.0.0-dev`.
+
+### 2026-10-27 — HTTP host logger dual-linkage repair
+
+After the prior hosted compiler fix, standalone `http-lifecycle` passed, but
+17 broader CI jobs converged on a **new** link failure in
+`tests/test_tls_http_io.cpp`: its local `log::write/write_hex` definitions
+collided with `tests/host_log_stub.cpp` supplied by the complete host suite.
+The test-only logger functions are now weak where supported so the shared
+host fixture overrides them; the test's HTTP response/result assertions
+remain in place. Exact-SHA CI must revalidate the fix before any qualification.
+
+## 2026-10-27 — FAT32 installed/live parity and HTTP harness recovery
+
+- `90156e9e`: removed a duplicate strong host logging definition introduced
+  by the earlier TLS HTTP regression fix. The isolated HTTP workflow and the
+  complete host runner must both link against the same test without conflict.
+  Its test-local definitions are weak, overridden by the host suite's existing
+  `host_log_stub.cpp` where available; this is test-only, not guest code.
+- `44cc2bce`: completed the case-insensitive ASCII path equivalence across
+  live installation-package VFS lookup, opening and directory enumeration.
+  The host fixture covers mixed-case direct reads and deduplicated folder
+  listing while retaining read-only semantics and separate ESP/root contents.
+
+Neither change qualifies 15.0.0. Exact-current-SHA CI was **queued** when this
+checkpoint was recorded; a prior successful run is not transferable. Native
+macOS/QEMU/VirtualBox profiles require their own acceptance evidence.
+
+## 2026-10-27 — Repository cleanup and integrated audit
+
+Rechecked 63 remote branches / 11 PRs, backed up all refs, atomically deleted 39
+fully contained branch tips with expected-SHA leases, retained 24 and all PR
+heads/bases. See `docs/audit/2026-10-27-deleted-branches.json` for recovery pairs.
+Integrated current roadmap base `0feb33db` without rewriting either history.
+Resolved host-runner merge syntax, consolidated the HTTP logger fixture, enabled
+real context-switch tests on Mach-O, and separated host/ELF compiler selection
+in the legacy SDK test. Added a reusable 11-case core UBSan runner.
+
+Settings/Home now report only confirmed numeric theme IDs; installer qualification
+compares the saved nondefault theme with Home's exact restored value on the
+second disk-only boot. Final run results and hashes belong to the delivered
+audit matrix, not historical PASS claims. VirtualBox x86 launch on this Apple M4
+returned `VBOX_E_PLATFORM_ARCH_NOT_SUPPORTED` at that historical checkpoint.
+Automated VirtualBox tests later ran on prior PR SHA `0c708fea`; current-head
+interactive acceptance remains UNVERIFIED.
+Product KDF and atomic settings replacement under power loss remain unresolved.
+
+## 2026-10-27 — Flux Dock application identity hardening
+
+- Flux now assigns a canonical Dock app ID when its Ring-3 window is created,
+  comparing both the shared application title and the owner's immutable
+  executable path. A different same-session program that copies `FILES` or
+  `RED FLUX TERMINAL` may retain its normal window but cannot impersonate a
+  running Dock app, claim readiness or steal its focus action. The resolved ID
+  is kept with the generation-safe window slot, without per-frame process
+  table queries; closing/reusing the slot releases that identity.
+- `tests/test_flux_app_identity.cpp` covers exact matches, alternate image
+  paths, prefix/suffix spoofing, wrong titles and absent inputs. Existing Flux
+  Dock click/launcher smoke and catalog source-parity checks remain active.
+- Kept the QEMU lifecycle/installer contracts and native Settings keyboard
+  policies alongside the newly integrated Files, Terminal, Home and wallpaper
+  workflows. The merge retains both families of host regression tests.
+- Local Linux `make test` passed the entire host suite, including freestanding
+  Mbed TLS, SDK, driver, KuroFS, Flux and QMP-protocol tests. The changed
+  `kernel/ui/window_manager.cpp` compiled as a freestanding kernel object in
+  both debug and optimized release configurations; the new identity policy
+  also passed a targeted UBSan run.
+
+This is **host-side evidence**, not guest proof for the combined source. Clean
+release media, USB-only QEMU login/app usage, VirtualBox interactive acceptance
+and the remaining 8.0 requirements still need separate verification. Runtime
+identity stays `7.0.0-dev`; neither 8.0 nor 15.0 is promoted by this merge.
+
+## 2026-10-27 — Flux 8 cross-PR integration candidate
+
+Integrated the 12 Home, Files, Terminal, Settings, wallpaper and Dock-identity
+commits from PR #57 on top of PR #56's installer, theme-restart,
+accessibility and window-lifecycle changes. Seven merge conflicts were resolved
+while retaining both keyboard policies, the QEMU lifecycle tests, the verified
+theme-save marker and the real profile/wallpaper controls.
+
+Linux x86 host `make test`: **PASS** after initializing pinned Mbed TLS; debug
+`make kernel`: **PASS**. `make stage` compiled kernel, Ring-3 binaries and SDK
+but stopped at media packaging because `sgdisk` is absent on this host. No
+combined-commit QEMU/VirtualBox boot or full release-media PASS is claimed.
+The integrated branch is a Draft PR candidate, not an 8.0 release closeout.

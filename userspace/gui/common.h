@@ -45,16 +45,25 @@ static inline int gui_wait_event(ku_window_t window, ku_ui_event* event) {
     }
 }
 
+static inline int gui_update_scene_viewport(ku_window_t window, kui_scene* scene) {
+    const ku_result_t height = ku_ui_native_height(window);
+    const ku_result_t width = ku_ui_native_width(window);
+    if (height <= 0 || height > UINT32_MAX) return 0;
+    const uint32_t logical_width = width > 0 && width <= UINT32_MAX ? (uint32_t)width : 0U;
+    if (scene->viewport_height == (uint32_t)height && scene->viewport_width == logical_width)
+        return 0;
+    scene->viewport_height = (uint32_t)height;
+    scene->viewport_width = logical_width;
+    (void)kui_scene_scroll(scene, 0);
+    return 1;
+}
+
 static inline int gui_key_up(const ku_ui_event* event) {
-    return event != NULL &&
-        (event->key == KU_UI_KEY_ARROW_UP ||
-         event->character == 'k' || event->character == 'K');
+    return event != NULL && event->key == KU_UI_KEY_ARROW_UP;
 }
 
 static inline int gui_key_down(const ku_ui_event* event) {
-    return event != NULL &&
-        (event->key == KU_UI_KEY_ARROW_DOWN ||
-         event->character == 'j' || event->character == 'J');
+    return event != NULL && event->key == KU_UI_KEY_ARROW_DOWN;
 }
 
 static inline int gui_key_left(const ku_ui_event* event) {

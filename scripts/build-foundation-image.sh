@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
     cat >&2 <<'EOF'
@@ -144,6 +145,11 @@ fsck.fat -vn "$root_volume" >/dev/null
 dd if="$esp_volume" of="$temporary" bs=1M seek=1 conv=notrunc status=none
 dd if="$root_volume" of="$temporary" bs=1M seek=65 conv=notrunc status=none
 sgdisk --verify "$temporary" >/dev/null
+
+# Validate the published FAT32/VFS root, not only the staging overlay. A
+# successful copy must retain every required runtime service and GUI ELF.
+HOST_CXX="${HOST_CXX:-c++}" \
+    bash "$repo_root/scripts/validate-foundation-root-image.sh" "$temporary"
 
 # Publish only after both filesystems and all staged files were written. The
 # final rename is atomic within the output directory.

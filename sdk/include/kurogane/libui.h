@@ -52,8 +52,12 @@ typedef struct kui_scene {
     uint32_t scroll_offset;
     uint32_t visible_rows;
     uint32_t selected_id;
-    uint32_t reserved;
+    union {
+        uint32_t reserved; /* Retained for source and binary layout compatibility. */
+        uint32_t viewport_height; /* Logical pixels; zero keeps row-only layout. */
+    };
     kui_view views[KUI_MAX_VIEWS];
+    uint32_t viewport_width; /* Logical pixels; zero keeps fixed columns. */
 } kui_scene;
 
 typedef struct kui_flow {
@@ -68,6 +72,8 @@ ku_status_t kui_present(ku_window_t window, const ku_ui_frame* frame);
 int kui_next_event(ku_window_t window, ku_ui_event* event);
 
 void kui_scene_initialize(kui_scene* scene);
+int kui_scene_selection_visible(const kui_scene* scene);
+void kui_scene_reveal_selection(kui_scene* scene);
 void kui_scene_apply_flux_theme(kui_scene* scene);
 void kui_scene_set_palette(
     kui_scene* scene,

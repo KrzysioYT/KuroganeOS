@@ -4,60 +4,22 @@ on:
   push:
     branches:
       - codex/road-to-15-stability
+      - integration/flux8-reconciliation
     paths:
       - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
-      - 'kernel/ui/**'
-      - 'sdk/include/kurogane/flux_app_catalog.h'
-      - 'tests/test_flux_app_catalog.c'
-      - 'tests/test_flux_app_catalog_sources.py'
-      - 'sdk/include/kurogane/flux_app_lifecycle.h'
-      - 'tests/test_flux_app_lifecycle.c'
-      - 'tests/test_flux_label_fitting.cpp'
-      - 'tests/test_flux_session_owner_policy.cpp'
-      - 'kernel/drivers/framebuffer.cpp'
-      - 'kernel/drivers/framebuffer.hpp'
-      - 'kernel/drivers/rounded_rect.hpp'
-      - 'tests/test_flux_cursor_overlay.cpp'
-      - 'tests/test_flux_rounded_geometry.cpp'
-      - 'kernel/input/**'
-      - 'kernel/apps/desktop_session.cpp'
-      - 'userspace/gui/login/**'
-      - 'userspace/gui/launcher/**'
-      - 'tests/test_window_manager.cpp'
-      - 'tests/test_input.cpp'
-      - 'scripts/run-host-tests.sh'
-      - 'scripts/build.ps1'
-      - 'scripts/build-linux.sh'
-      - 'tests/test_userspace_build_parity.py'
-      - 'scripts/smoke-uefi-iso-qemu.sh'
-      - 'kernel/user/runtime_base.inc'
-      - 'sdk/include/kurogane/design.h'
-      - 'sdk/include/kurogane/desktop.h'
-      - 'sdk/include/kurogane/syscall.h'
-      - 'sdk/src/libui.c'
-      - 'userspace/gui/settings/**'
-      - 'userspace/gui/browser/**'
-      - 'userspace/gui/clipboard_actions.h'
-      - 'userspace/gui/performance/**'
-      - 'tests/test_flux_theme_palette.c'
-      - 'kernel/core/system_metrics.cpp'
-      - 'tests/test_system_metrics_sampling.cpp'
-      - 'tests/test_flux_ui_state.cpp'
-      - 'tests/test_sdk_abi.cpp'
-      - 'kernel/user/child_termination_policy.hpp'
-      - 'kernel/user/console_fallback_policy.hpp'
-      - 'tests/test_console_fallback_policy.cpp'
-      - 'userspace/system/init/main.c'
-      - 'tests/test_child_termination_policy.cpp'
-      - 'kernel/user/ui_event_queue.hpp'
-      - 'tests/test_ui_event_queue.cpp'
-      - 'sdk/include/kurogane/ui.h'
-      - 'userspace/gui/files/**'
-      - 'tests/test_files_wheel_paging.c'
-      - 'tests/test_flux_files_keyboard.c'
-      - 'tests/test_mouse_first_apps.py'
-      - 'tests/test_flux8_application_smoke.py'
-      - 'docs/ROAD_TO_15_STATUS.md'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
   workflow_dispatch:
 
 permissions:
@@ -79,8 +41,10 @@ jobs:
           set -euo pipefail
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           git diff --check
-      - name: Windows and Linux userspace inventory parity
-        run: python3 tests/test_userspace_build_parity.py
+      - name: Windows, Linux and macOS userspace inventory parity
+        run: |
+          python3 tests/test_userspace_build_parity.py
+          python3 tests/test_userspace_overlay.py
       - name: Parse native Windows build script
         shell: pwsh
         run: |
@@ -92,6 +56,29 @@ jobs:
             $parseErrors | ForEach-Object { Write-Error $_.Message }
             exit 1
           }
+      - name: Freestanding kernel logger strict GCC and Clang headers
+        run: |
+          set -euo pipefail
+          mkdir -p build/tests/desktop
+          c++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-gcc
+          build/tests/desktop/log-header-gcc
+          if command -v clang++ >/dev/null 2>&1; then
+            clang++ -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+              tests/test_kernel_log_header.cpp -o build/tests/desktop/log-header-clang
+            build/tests/desktop/log-header-clang
+          fi
+      - name: Memory, ELF, IPC, scheduler and ownership UBSan
+        run: bash scripts/test-core-ubsan.sh
+      - name: Installed login profile fails closed
+        run: |
+          mkdir -p build/tests/desktop
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            tests/test_dev_login_profile.c -o build/tests/desktop/login-profile
+          build/tests/desktop/login-profile
+          cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            -Isdk/include tests/test_dev_login_profile.c -o build/tests/desktop/login-profile-ubsan
+          build/tests/desktop/login-profile-ubsan
       - name: Window Manager optimized + UBSan
         run: |
           mkdir -p build/tests/desktop
@@ -121,7 +108,7 @@ jobs:
               "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}-ubsan"
             "build/tests/desktop/${unit}-ubsan"
           done
-      - name: Real Dock dispatch after Files changes task count
+      - name: Modern rail pointer dispatch at both GOP sizes
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
             -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke
@@ -129,6 +116,12 @@ jobs:
           c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
             -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o build/tests/desktop/dock-smoke-ubsan
           build/tests/desktop/dock-smoke-ubsan
+      - name: Fractional scale rendering and pointer edges with UBSan
+        run: |
+          c++ -std=c++17 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_framebuffer_text.cpp kernel/drivers/framebuffer.cpp \
+            -o build/tests/desktop/framebuffer-text-ubsan
+          build/tests/desktop/framebuffer-text-ubsan
       - name: Assert actual authenticated Files launch is in QEMU contract
         run: |
           python3 tests/test_flux8_application_smoke.py
@@ -177,6 +170,16 @@ jobs:
           cc -std=c11 -O1 -g -fsanitize=undefined -fno-sanitize-recover=all -Isdk/include \
             tests/test_flux_app_lifecycle.c -o build/tests/desktop/app-lifecycle-ubsan
           build/tests/desktop/app-lifecycle-ubsan
+      - name: FAT32 installer collisions and read-only package VFS UBSan
+        run: |
+          set -euo pipefail
+          python3 tests/test_install_package_path_collisions.py
+          c++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_package_vfs.cpp kernel/install/package_vfs.cpp \
+            kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp \
+            -o build/tests/desktop/package-vfs-ubsan
+          build/tests/desktop/package-vfs-ubsan
       - name: Input event/viewport optimized + UBSan
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -292,6 +295,11 @@ jobs:
         run: |
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
+          iso="dist/KuroganeOS-$(bash scripts/read-version.sh)-x86_64.iso"
+          printf 'FLUX_QUALIFICATION_ISO=%s\n' "$iso" >> "$GITHUB_ENV"
+          mkdir -p build/tests/flux-8-foundation
+          git rev-parse HEAD > build/tests/flux-8-foundation/source-sha.txt
+          sha256sum "$iso" | tee build/tests/flux-8-foundation/iso-sha256.txt
       - name: Log in to real Ring-3 desktop using USB HID
         shell: bash
         run: |
@@ -302,19 +310,20 @@ jobs:
           # separate, invalid shell command.
           # USB tablet QMP coordinates are scaled from a 1024x768 logical
           # space (scripts/smoke-uefi-iso-qemu.sh), NOT raw framebuffer px.
-          # x=450,y=726 hits Files for both 1024x768 and 1280x800 GOP.
-          # After Files opens, one task expands and recenters the Dock.
-          # x=367,y=726 hits the shifted Terminal pin in both GOP modes.
-          # Never pass raw 1280x800 window pixel coordinates to QMP.
+          # Files (42,174) and Terminal (42,312) are on the fixed Modern
+          # left rail at both 1024x768 and 1280x800. The old floating Dock
+          # coordinates no longer launch apps in the Modern layout.
           bash scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            "$FLUX_QUALIFICATION_ISO" --smp 4 \
             --nic none --no-ps2 --usb-keyboard --usb-tablet \
             --log-dir build/tests/flux-8-foundation --timeout 240 \
-            --send-key-after-marker '[TEST] live_login_profile: PASS' ret \
-            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
-            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 450 726 \
+            --send-key-after-marker 'installer: select setup mode:' ret \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret \
+            --click-after-marker '[TEST] red_flux_login_to_desktop: PASS' 42 174 \
             --wheel-after-marker '[TEST] flux_files_directory_grid: PASS' 350 300 down \
-            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 367 726 \
+            --click-after-marker '[TEST] flux_files_usb_wheel_input: PASS' 42 312 \
+            --require-marker '[TEST] setup_try_mode: PASS' \
+            --require-marker '[TEST] live_package_root: PASS' \
             --require-marker '[TEST] flux_files_usb_wheel_input: PASS' \
             --require-marker '[TEST] desktop_terminal_ring3: PASS' \
             --require-marker-count '[INPUT] flux_app_spawn: PASS' 2 \
@@ -334,12 +343,41 @@ jobs:
             --require-marker '[TEST] flux_files_directory_grid: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|red_flux_login_to_desktop: FAIL|flux_home_.*: FAIL|flux_app_spawn: FAIL' \
             build/tests/flux-8-foundation/serial.log
+      - name: Exercise window lifecycle and session-only Settings on the Live ISO
+        run: |
+          python3 tests/test_flux_lifecycle_qmp.py
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            "$FLUX_QUALIFICATION_ISO" --smp 4 \
+            --nic none --no-ps2 --usb-keyboard --usb-tablet --flux-lifecycle --flux-settings-session \
+            --log-dir build/tests/flux-8-lifecycle --timeout 240 \
+            --send-key-after-marker 'installer: select setup mode:' ret \
+            --send-key-after-marker-count '[TEST] live_login_profile: PASS' 1 ret
+      - name: Install with a test password, boot twice, and reject a missing account profile
+        run: |
+          python3 tests/test_installer_qemu_safety.py
+          python3 scripts/qualification/installer-qemu.py \
+            --iso "$FLUX_QUALIFICATION_ISO" \
+            --output build/tests/flux-8-installed --desktop-lifecycle --password-profile --timeout 240
+      - name: Retain the same ISO for interactive VirtualBox acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-8-interactive-iso-${{ github.sha }}
+          path: |
+            ${{ env.FLUX_QUALIFICATION_ISO }}
+            build/tests/flux-8-foundation/source-sha.txt
+            build/tests/flux-8-foundation/iso-sha256.txt
+          if-no-files-found: error
+          retention-days: 30
       - name: Retain desktop serial evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: flux-8-foundation-${{ github.sha }}
-          path: build/tests/flux-8-foundation
+          path: |
+            build/tests/flux-8-foundation
+            build/tests/flux-8-lifecycle
+            build/tests/flux-8-installed
+            !build/tests/flux-8-installed/*.img
           if-no-files-found: warn
 
   scoped-desktop-gate:

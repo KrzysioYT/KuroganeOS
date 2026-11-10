@@ -14,6 +14,7 @@
 #include "../storage/partition_device.hpp"
 #include "../terminal.hpp"
 #include "../../common/version.h"
+#include <kurogane/design.h>
 
 namespace install::installer {
 namespace {
@@ -25,15 +26,15 @@ fs::fat32::FileSystem g_root{};
 constexpr size_t kVerifyBufferBytes = 1024U * 1024U;
 alignas(64) uint8_t g_verify_buffer[kVerifyBufferBytes]{};
 
-constexpr graphics::Color kBackground = UINT32_C(0x050608);
-constexpr graphics::Color kPanel = UINT32_C(0x111317);
-constexpr graphics::Color kPanelRaised = UINT32_C(0x191C21);
-constexpr graphics::Color kBorder = UINT32_C(0x343941);
-constexpr graphics::Color kText = UINT32_C(0xECEEF1);
-constexpr graphics::Color kMuted = UINT32_C(0x9098A3);
-constexpr graphics::Color kAccent = UINT32_C(0xE0192D);
-constexpr graphics::Color kAccentBright = UINT32_C(0xFF3347);
-constexpr graphics::Color kDanger = UINT32_C(0xFF4055);
+constexpr graphics::Color kBackground = KU_FLUX_COLOR_VOID_BLACK;
+constexpr graphics::Color kPanel = KU_FLUX_COLOR_SURFACE;
+constexpr graphics::Color kPanelRaised = KU_FLUX_COLOR_SURFACE_ELEVATED;
+constexpr graphics::Color kBorder = KU_FLUX_COLOR_BORDER;
+constexpr graphics::Color kText = KU_FLUX_COLOR_TEXT_PRIMARY;
+constexpr graphics::Color kMuted = KU_FLUX_COLOR_TEXT_SECONDARY;
+constexpr graphics::Color kAccent = KU_FLUX_COLOR_ACCENT;
+constexpr graphics::Color kAccentBright = KU_FLUX_COLOR_BORDER_FOCUS;
+constexpr graphics::Color kDanger = KU_FLUX_COLOR_DANGER;
 
 constexpr size_t kUsernameCapacity = 24U;
 constexpr size_t kPasswordCapacity = 48U;
@@ -350,6 +351,25 @@ void show_error(const char* reason) {
                         kMuted, kPanel, 1U, true);
 }
 
+void show_install_unavailable() {
+    draw_setup_title(
+        "INSTALL UNAVAILABLE",
+        "A TARGET DISK IS REQUIRED ONLY FOR INSTALLATION");
+    const int32_t width = static_cast<int32_t>(graphics::width());
+    const int32_t x = width / 2 - 280;
+    graphics::fill_rect(x, 210, 560, 150, kPanel);
+    graphics::draw_rect(x, 210, 560, 150, kDanger, 2U);
+    graphics::draw_text(x + 28, 240, "NO WRITABLE TARGET DISK",
+                        kDanger, kPanel, 2U, true);
+    graphics::draw_text(x + 28, 290, "CONNECT A WRITABLE DISK",
+                        kText, kPanel, 1U, true);
+    draw_footer("ENTER: CONTINUE TO THE LIVE TRY SESSION");
+    terminal::println(
+        "installer: no writable target disk; continue to the non-destructive live session");
+    terminal::println("[TEST] installer_target_disk_unavailable: PASS");
+    static_cast<void>(wait_key());
+}
+
 [[noreturn]] void fail(const char* reason) {
     terminal::write("installer error: ");
     terminal::println(reason);
@@ -661,8 +681,8 @@ void draw_progress(size_t stage, const char* label) {
     graphics::draw_text(x + 30, 365, step, kAccentBright, kPanel, 1U, true);
 }
 
-size_t choose_disk() {
-    const size_t count = storage::device_registry::device_count();
+const storage::block::Device* choose_disk() {
+    const size_t count = storage::device_registry::writable_device_count();
     if (count == 0U) fail("NO WRITABLE BLOCK DEVICE DETECTED");
     size_t selected = 0U;
     for (;;) {
@@ -672,7 +692,7 @@ size_t choose_disk() {
         const int32_t x = width / 2 - 250;
         storage::device_registry::Entry entry{};
         const bool available =
-            storage::device_registry::entry_at(selected, &entry) &&
+            storage::device_registry::writable_entry_at(selected, &entry) &&
             entry.device != nullptr;
         graphics::fill_rect(x, 220, 500, 120, kPanelRaised);
         graphics::draw_rect(x, 220, 500, 120, kAccent, 2U);
@@ -720,7 +740,7 @@ size_t choose_disk() {
             selected = (selected + 1U) % count;
         } else if (event.key == drivers::keyboard::KeyCode::Enter ||
                    event.key == drivers::keyboard::KeyCode::KeypadEnter) {
-            return selected;
+            return available ? entry.device : nullptr;
         }
     }
 }
@@ -806,14 +826,22 @@ void run_interactive(
         "INSTALL KUROGANEOS",
         "CONFIGURE A USER AND DEPLOY TO A DISK");
 
-    if (mode == 0U) {
+    const bool try_selected = mode == 0U;
+    const bool target_disk_unavailable =
+        storage::device_registry::writable_device_count() == 0U;
+    if (try_selected || target_disk_unavailable) {
         const fs::root_volume::Status live_status =
             fs::root_volume::initialize_live_package(package_bytes, package_size);
         if (live_status != fs::root_volume::Status::Ok) {
             fail(fs::root_volume::status_message(live_status));
         }
         terminal::println("[TEST] live_package_root: PASS");
-        terminal::println("[TEST] setup_try_mode: PASS");
+        if (try_selected) {
+            terminal::println("[TEST] setup_try_mode: PASS");
+            return;
+        }
+        show_install_unavailable();
+        terminal::println("[TEST] setup_no_disk_recovery: PASS");
         return;
     }
 
@@ -849,20 +877,21 @@ void run_interactive(
         profile.language == Language::Polish
             ? "LOGIN BEDZIE WYMAGAL HASLA" : "LOGIN WILL REQUIRE A PASSWORD");
     profile.password_required = password_mode == 1U;
-    if (profile.password_required &&
-        !read_input(
-            profile.language == Language::Polish ? "HASLO" : "PASSWORD",
-            profile.language == Language::Polish
-                ? "WPISZ HASLO DO KONTA" : "ENTER THE ACCOUNT PASSWORD",
-            profile.password, sizeof(profile.password), true, false)) {
-        fail("PASSWORD SETUP CANCELLED");
+    if (profile.password_required) {
+        terminal::println("installer: enter password:");
+        if (!read_input(
+                profile.language == Language::Polish ? "HASLO" : "PASSWORD",
+                profile.language == Language::Polish
+                    ? "WPISZ HASLO DO KONTA" : "ENTER THE ACCOUNT PASSWORD",
+                profile.password, sizeof(profile.password), true, false)) {
+            fail("PASSWORD SETUP CANCELLED");
+        }
     }
 
     const storage::block::Device* target = nullptr;
     for (;;) {
         terminal::println("installer: select target disk index:");
-        const size_t target_index = choose_disk();
-        target = storage::device_registry::device_at(target_index);
+        target = choose_disk();
         if (target == nullptr) fail("SELECTED DISK DISAPPEARED");
         if (confirm_erase()) {
             terminal::println("[TEST] installer_confirmation: PASS");

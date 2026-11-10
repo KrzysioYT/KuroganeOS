@@ -256,6 +256,8 @@ ku_status_t kui_scene_set_value(
     return KU_STATUS_OK;
 }
 
+static uint32_t native_last_page(const kui_scene* scene, uint32_t count);
+
 ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     uint32_t count;
     uint32_t rows;
@@ -264,7 +266,9 @@ ku_status_t kui_scene_scroll(kui_scene* scene, int32_t delta) {
     if (scene == (kui_scene*)0) return KU_STATUS_INVALID_ARGUMENT;
     count = visible_view_count(scene);
     rows = scene->visible_rows == 0U ? KU_UI_MAX_LINES : scene->visible_rows;
-    maximum = count > rows ? count - rows : 0U;
+    maximum = scene->viewport_height != 0U
+        ? native_last_page(scene, count)
+        : (count > rows ? count - rows : 0U);
     next = (int64_t)scene->scroll_offset + (int64_t)delta;
     if (next < 0) next = 0;
     if ((uint64_t)next > maximum) next = maximum;
@@ -374,6 +378,18 @@ static void native_flush_metrics(kui_native_layout_state* state) {
     state->metric_column = 0U;
 }
 
+static uint32_t native_grid_columns(const kui_scene* scene, int32_t left,
+                                    int32_t gap, int32_t* width, uint32_t maximum) {
+    if (scene->viewport_width == 0U) return maximum;
+    const int64_t available = (int64_t)scene->viewport_width - left - KU_FLUX_PANEL_PADDING;
+    if (available < *width) {
+        *width = available > 0 ? (int32_t)available : 1;
+        return 1U;
+    }
+    const uint32_t columns = 1U + (uint32_t)((available - *width) / (*width + gap));
+    return columns < maximum ? columns : maximum;
+}
+
 static void native_layout_view(
     const kui_scene* scene,
     const kui_view* view,
@@ -381,34 +397,37 @@ static void native_layout_view(
     kui_native_layout* output) {
     const uint32_t depth = view_depth(scene, view);
     const int32_t indent = (int32_t)(depth * 12U);
+    const int32_t left = KU_FLUX_PANEL_PADDING + indent;
     if (view->type == KUI_VIEW_METRIC) {
         native_flush_tiles(state);
-        if (state->metric_column >= KUI_METRIC_COLUMNS) native_flush_metrics(state);
-        output->x = KU_FLUX_PANEL_PADDING + indent +
-            (int32_t)state->metric_column * (KUI_METRIC_WIDTH + KUI_METRIC_GAP_X);
-        output->y = state->cursor_y;
         output->width = KUI_METRIC_WIDTH;
+        const uint32_t columns = native_grid_columns(scene, left, KUI_METRIC_GAP_X,
+            &output->width, KUI_METRIC_COLUMNS);
+        if (state->metric_column >= columns) native_flush_metrics(state);
+        output->x = left + (int32_t)state->metric_column * (output->width + KUI_METRIC_GAP_X);
+        output->y = state->cursor_y;
         output->height = KUI_METRIC_HEIGHT;
         ++state->metric_column;
-        if (state->metric_column == KUI_METRIC_COLUMNS) native_flush_metrics(state);
+        if (state->metric_column == columns) native_flush_metrics(state);
         return;
     }
     if (view->type == KUI_VIEW_TILE) {
         native_flush_metrics(state);
-        if (state->tile_column >= KUI_TILE_COLUMNS) native_flush_tiles(state);
-        output->x = KU_FLUX_PANEL_PADDING + indent +
-            (int32_t)state->tile_column * (KUI_TILE_WIDTH + KUI_TILE_GAP_X);
-        output->y = state->cursor_y;
         output->width = KUI_TILE_WIDTH;
+        const uint32_t columns = native_grid_columns(scene, left, KUI_TILE_GAP_X,
+            &output->width, KUI_TILE_COLUMNS);
+        if (state->tile_column >= columns) native_flush_tiles(state);
+        output->x = left + (int32_t)state->tile_column * (output->width + KUI_TILE_GAP_X);
+        output->y = state->cursor_y;
         output->height = KUI_TILE_HEIGHT;
         ++state->tile_column;
-        if (state->tile_column == KUI_TILE_COLUMNS) native_flush_tiles(state);
+        if (state->tile_column == columns) native_flush_tiles(state);
         return;
     }
 
     native_flush_metrics(state);
     native_flush_tiles(state);
-    output->x = KU_FLUX_PANEL_PADDING + indent;
+    output->x = left;
     output->y = state->cursor_y;
     output->width = 0;
     output->height = native_view_height(view->type);
@@ -422,6 +441,65 @@ static uint32_t native_rows(const kui_scene* scene) {
     return scene->visible_rows;
 }
 
+static int native_fits(const kui_scene* scene, const kui_native_layout* geometry) {
+    return scene->viewport_height == 0U ||
+        (uint32_t)(geometry->y + geometry->height) <= scene->viewport_height;
+}
+
+/* Start the last page as early as possible while keeping its tail visible. */
+static uint32_t native_last_page(const kui_scene* scene, uint32_t count) {
+    const uint32_t rows = native_rows(scene);
+    const uint32_t first = count > rows ? count - rows : 0U;
+    for (uint32_t offset = first; offset + 1U < count; ++offset) {
+        kui_native_layout_state state;
+        uint32_t visible = 0U;
+        uint32_t fitted = 0U;
+        native_layout_initialize(&state);
+        for (uint32_t i = 0U; i < scene->view_count; ++i) {
+            const kui_view* view = &scene->views[i];
+            if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+            if (visible++ < offset) continue;
+            kui_native_layout geometry;
+            native_layout_view(scene, view, &state, &geometry);
+            if (!native_fits(scene, &geometry)) break;
+            ++fitted;
+        }
+        if (fitted == count - offset) return offset;
+    }
+    return count == 0U ? 0U : count - 1U;
+}
+
+int kui_scene_selection_visible(const kui_scene* scene) {
+    if (scene == NULL || !interactive_view(find_view_const(scene, scene->selected_id))) return 0;
+    kui_native_layout_state state;
+    native_layout_initialize(&state);
+    uint32_t visible = 0U;
+    uint32_t output = 0U;
+    for (uint32_t i = 0U; i < scene->view_count && output < native_rows(scene); ++i) {
+        const kui_view* view = &scene->views[i];
+        if ((view->flags & KUI_VIEW_HIDDEN) != 0U) continue;
+        if (visible++ < scene->scroll_offset) continue;
+        kui_native_layout geometry;
+        native_layout_view(scene, view, &state, &geometry);
+        if (!native_fits(scene, &geometry)) return 0;
+        if (view->id == scene->selected_id) return 1;
+        ++output;
+    }
+    return 0;
+}
+
+void kui_scene_reveal_selection(kui_scene* scene) {
+    if (scene == NULL || !interactive_view(find_view_const(scene, scene->selected_id))) return;
+    uint32_t selected = 0U;
+    for (uint32_t i = 0U; i < scene->view_count; ++i) {
+        if (scene->views[i].id == scene->selected_id) break;
+        if ((scene->views[i].flags & KUI_VIEW_HIDDEN) == 0U) ++selected;
+    }
+    if (scene->scroll_offset > selected) scene->scroll_offset = selected;
+    while (scene->scroll_offset < selected && !kui_scene_selection_visible(scene))
+        ++scene->scroll_offset;
+}
+
 uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
     uint32_t visible_index = 0U;
     uint32_t output_index = 0U;
@@ -430,6 +508,7 @@ uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
     const uint32_t rows = scene == (const kui_scene*)0 ? 0U : native_rows(scene);
     if (scene == (const kui_scene*)0 || x < 0 || y < 0 ||
         x > KU_UI_NATIVE_COORD_LIMIT || y > KU_UI_NATIVE_COORD_LIMIT) return 0U;
+    if (scene->viewport_width != 0U && (uint32_t)x >= scene->viewport_width) return 0U;
     native_layout_initialize(&state);
 
     for (index = 0U; index < scene->view_count && output_index < rows; ++index) {
@@ -440,8 +519,13 @@ uint32_t kui_scene_hit_test(const kui_scene* scene, int32_t x, int32_t y) {
         if (visible_index++ < scene->scroll_offset) continue;
         native_layout_view(scene, view, &state, &geometry);
         if (geometry.height <= 0) continue;
-        within_x = x >= geometry.x &&
-            (geometry.width == 0 || x < geometry.x + geometry.width);
+        if (!native_fits(scene, &geometry)) break;
+        int64_t width = geometry.width;
+        if (width == 0 && scene->viewport_width != 0U) {
+            const int64_t available = (int64_t)scene->viewport_width - geometry.x - KU_FLUX_PANEL_PADDING;
+            width = available > 0 ? available : 1;
+        }
+        within_x = x >= geometry.x && (width == 0 || x < geometry.x + width);
         if (interactive_view(view) && within_x &&
             y >= geometry.y && y < geometry.y + geometry.height) {
             return view->id;
@@ -480,6 +564,7 @@ ku_status_t kui_scene_build_native(
         if (visible_index++ < scene->scroll_offset) continue;
         native_layout_view(scene, view, &state, &geometry);
         if (geometry.height <= 0) return KU_STATUS_CORRUPT_DATA;
+        if (!native_fits(scene, &geometry)) break;
 
         command = &frame->commands[output_index++];
         command->type = view->type;

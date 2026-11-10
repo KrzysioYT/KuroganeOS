@@ -8,6 +8,7 @@
 #define SETTINGSD_MAX_RECORDS 32U
 #define SETTINGSD_DB_PATH "/settings.db"
 #define SETTINGSD_TMP_PATH "/settings.tmp"
+#define SETTINGSD_BACKUP_PATH "/settings.bak"
 #define SETTINGSD_DB_MAGIC UINT32_C(0x4B535431)
 #define SETTINGSD_DB_VERSION UINT32_C(1)
 
@@ -15,6 +16,8 @@ typedef struct settingsd_client {
     ku_service_connection_t connection;
     uint64_t pid;
     int active;
+    int response_pending;
+    ku_settings_response response;
 } settingsd_client;
 
 typedef struct settingsd_record {
@@ -41,6 +44,7 @@ typedef struct settingsd_disk_record {
 
 static settingsd_client clients[SETTINGSD_MAX_CLIENTS];
 static settingsd_record records[SETTINGSD_MAX_RECORDS];
+static int session_only;
 
 static void clear_bytes(void* memory, size_t size) {
     size_t index;
@@ -217,20 +221,39 @@ static ku_status_t persist_records(void) {
         SETTINGSD_DB_PATH,
         sizeof(SETTINGSD_DB_PATH) - 1U);
     if (status == KU_STATUS_ALREADY_EXISTS) {
-        status = ku_file_unlink(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+        /* FAT32 rename does not replace a destination. Preserve the old
+         * database until the new one has been published and synchronized. */
+        status = ku_file_unlink(SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U);
         if (status == KU_STATUS_OK || status == KU_STATUS_NOT_FOUND) {
             status = ku_file_rename(
-                SETTINGSD_TMP_PATH,
-                sizeof(SETTINGSD_TMP_PATH) - 1U,
-                SETTINGSD_DB_PATH,
-                sizeof(SETTINGSD_DB_PATH) - 1U);
+                SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U,
+                SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U);
+        }
+        if (status == KU_STATUS_OK) {
+            status = ku_file_sync();
+            if (status == KU_STATUS_OK) {
+                status = ku_file_rename(
+                    SETTINGSD_TMP_PATH, sizeof(SETTINGSD_TMP_PATH) - 1U,
+                    SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+            }
+            if (status != KU_STATUS_OK) {
+                /* Best-effort rollback. If writes remain unavailable, keep
+                 * the backup for load_records() on the next service start. */
+                (void)ku_file_rename(
+                    SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U,
+                    SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+                (void)ku_file_sync();
+            }
         }
     }
     if (status != KU_STATUS_OK) {
         (void)ku_file_unlink(SETTINGSD_TMP_PATH, sizeof(SETTINGSD_TMP_PATH) - 1U);
         return status;
     }
-    return ku_file_sync();
+    status = ku_file_sync();
+    /* Leave the synchronized previous generation as a recovery copy. A later
+     * successful replacement removes it only while the current DB exists. */
+    return status;
 }
 
 static ku_status_t load_records(void) {
@@ -243,14 +266,19 @@ static ku_status_t load_records(void) {
     uint32_t checksum;
     size_t expected_size;
     size_t index;
+    const char* path = SETTINGSD_DB_PATH;
 
     clear_bytes(records, sizeof(records));
-    status = ku_file_stat_path(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U, &info);
+    status = ku_file_stat_path(path, u_strlen(path), &info);
+    if (status == KU_STATUS_NOT_FOUND) {
+        path = SETTINGSD_BACKUP_PATH;
+        status = ku_file_stat_path(path, u_strlen(path), &info);
+    }
     if (status == KU_STATUS_NOT_FOUND) return KU_STATUS_OK;
     if (status != KU_STATUS_OK || info.type != KU_FILE_TYPE_REGULAR) return KU_STATUS_IO_ERROR;
     if (info.size < sizeof(header) || info.size > sizeof(header) + sizeof(disk_records)) return KU_STATUS_CORRUPT_DATA;
 
-    opened = ku_file_open(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+    opened = ku_file_open(path, u_strlen(path));
     if (opened <= 0) return (ku_status_t)opened;
     file = (ku_file_t)opened;
     if (!read_all(file, &header, sizeof(header))) {
@@ -312,6 +340,7 @@ static ku_status_t set_record(const ku_settings_request* request) {
     key_copy(record->key, request->key);
     copy_bytes(record->value, request->value, request->value_size);
     record->active = 1;
+    if (session_only) return KU_STATUS_OK;
     status = persist_records();
     if (status != KU_STATUS_OK) {
         if (had_previous) *record = previous;
@@ -327,6 +356,7 @@ static ku_status_t delete_record(const char* key) {
     if (record == (settingsd_record*)0) return KU_STATUS_NOT_FOUND;
     previous = *record;
     clear_bytes(record, sizeof(*record));
+    if (session_only) return KU_STATUS_OK;
     status = persist_records();
     if (status != KU_STATUS_OK) *record = previous;
     return status;
@@ -397,8 +427,8 @@ static ku_status_t publish_change_event(void) {
     return status;
 }
 
-static ku_status_t send_response(
-    ku_service_connection_t connection,
+static void queue_response(
+    settingsd_client* client,
     ku_status_t status,
     const settingsd_record* record) {
     ku_settings_response response;
@@ -410,7 +440,22 @@ static ku_status_t send_response(
         response.value_size = record->value_size;
         copy_bytes(response.value, record->value, record->value_size);
     }
-    return ku_service_send(connection, &response, sizeof(response));
+    /* Snapshot the result: another client may change/delete the record while
+     * this connection waits for space in its IPC reply queue. */
+    client->response = response;
+    client->response_pending = 1;
+}
+
+static void flush_response(settingsd_client* client) {
+    const ku_status_t status = ku_service_send(
+        client->connection, &client->response, sizeof(client->response));
+    if (status == KU_STATUS_WOULD_BLOCK) return;
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(client->connection);
+        clear_bytes(client, sizeof(*client));
+        return;
+    }
+    client->response_pending = 0;
 }
 
 static void handle_request(settingsd_client* client, const ku_service_message* message) {
@@ -419,17 +464,17 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
     ku_status_t status = KU_STATUS_INVALID_ARGUMENT;
 
     if (message->data_size != sizeof(ku_settings_request)) {
-        (void)send_response(client->connection, KU_STATUS_CORRUPT_DATA, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_CORRUPT_DATA, (const settingsd_record*)0);
         return;
     }
     request = (const ku_settings_request*)(const void*)message->data;
     if (request->structure_size != sizeof(*request) || !key_valid(request->key)) {
-        (void)send_response(client->connection, KU_STATUS_INVALID_ARGUMENT, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_INVALID_ARGUMENT, (const settingsd_record*)0);
         return;
     }
     if (client->pid == 0U) client->pid = message->sender_pid;
     else if (client->pid != message->sender_pid) {
-        (void)send_response(client->connection, KU_STATUS_ACCESS_DENIED, (const settingsd_record*)0);
+        queue_response(client, KU_STATUS_ACCESS_DENIED, (const settingsd_record*)0);
         return;
     }
 
@@ -467,7 +512,7 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
             ? "[TEST] settings_change_publish: PASS\n"
             : "[TEST] settings_change_publish: FAIL\n");
     }
-    (void)send_response(client->connection, status, record);
+    queue_response(client, status, record);
 }
 
 static void accept_clients(ku_service_endpoint_t endpoint) {
@@ -498,6 +543,10 @@ static void service_clients(void) {
         ku_service_message message;
         ku_status_t status;
         if (!client->active) continue;
+        if (client->response_pending) {
+            flush_response(client);
+            continue;
+        }
         status = ku_service_receive(client->connection, &message);
         if (status == KU_STATUS_WOULD_BLOCK) continue;
         if (status != KU_STATUS_OK) {
@@ -506,10 +555,14 @@ static void service_clients(void) {
             continue;
         }
         handle_request(client, &message);
+        flush_response(client);
     }
 }
 
 __attribute__((noreturn)) void _start(void) {
+    ku_file_stat root = {0};
+    session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&
+        (root.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
     const ku_status_t load_status = load_records();
     ku_result_t endpoint;
     if (load_status != KU_STATUS_OK) {

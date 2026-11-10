@@ -1,25 +1,42 @@
 #include "../common.h"
+#include <kurogane/design.h>
 #include <kurogane/flux_app_catalog.h>
 #include "../../common/terminal_shell.h"
+#include "completion.h"
+#include "scrollback.h"
 
 #define TERMINAL_INPUT_CAPACITY 160U
 #define TERMINAL_OUTPUT_LINES 8U
-#define TERMINAL_OUTPUT_CAPACITY 64U
+#define TERMINAL_HISTORY_LINES 96U
+#define TERMINAL_OUTPUT_CAPACITY 128U
 #define TERMINAL_VISIBLE_INPUT 46U
 
 static ku_shell_state g_shell;
-static char g_output[TERMINAL_OUTPUT_LINES][TERMINAL_OUTPUT_CAPACITY];
+static char g_output[TERMINAL_HISTORY_LINES][TERMINAL_OUTPUT_CAPACITY];
+static size_t g_output_count;
+static size_t g_scrollback_offset;
+static uint32_t g_viewport_height;
+static size_t g_visible_lines = TERMINAL_OUTPUT_LINES;
+static const char* g_hint = "TAB COMPLETE  PGUP/PGDN SCROLL  UP/DOWN HISTORY";
 
 static void terminal_emit(void* context, const char* line) {
     (void)context;
-    for (size_t index = 1U; index < TERMINAL_OUTPUT_LINES; ++index) {
-        (void)strlcpy(
-            g_output[index - 1U], g_output[index], TERMINAL_OUTPUT_CAPACITY);
+    if (g_output_count == TERMINAL_HISTORY_LINES) {
+        for (size_t index = 1U; index < TERMINAL_HISTORY_LINES; ++index) {
+            (void)strlcpy(
+                g_output[index - 1U], g_output[index], TERMINAL_OUTPUT_CAPACITY);
+        }
+    } else {
+        ++g_output_count;
     }
     (void)strlcpy(
-        g_output[TERMINAL_OUTPUT_LINES - 1U],
+        g_output[g_output_count - 1U],
         line != NULL ? line : "",
         TERMINAL_OUTPUT_CAPACITY);
+    if (g_scrollback_offset != 0U) {
+        g_scrollback_offset = terminal_scrollback_step(
+            g_scrollback_offset, g_output_count, g_visible_lines, 1);
+    }
 }
 
 static const ku_shell_io g_io = {
@@ -28,9 +45,8 @@ static const ku_shell_io g_io = {
 };
 
 static void clear_output(void) {
-    for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {
-        g_output[index][0] = '\0';
-    }
+    g_output_count = 0U;
+    g_scrollback_offset = 0U;
 }
 
 static void build_input_display(
@@ -73,27 +89,38 @@ static void render(
     kui_scene scene;
     kui_flow root;
     char input_display[64];
+    const uint32_t minimum = KU_FLUX_PANEL_PADDING + KU_FLUX_INPUT_HEIGHT;
+    const uint32_t panel_row = KU_FLUX_PANEL_HEIGHT + 6U;
+    const uint32_t output_row = KU_FLUX_LABEL_HEIGHT + 6U;
+    const int show_header = g_viewport_height == 0U || g_viewport_height >= minimum + panel_row;
+    const uint32_t reserved = minimum + (show_header ? panel_row : 0U);
+    const int show_hint = g_viewport_height == 0U ||
+        g_viewport_height >= reserved + output_row * 5U;
+    const uint32_t overhead = reserved + (show_hint ? output_row : 0U);
+    g_visible_lines = g_viewport_height == 0U ? TERMINAL_OUTPUT_LINES
+        : g_viewport_height > overhead ? (g_viewport_height - overhead) / output_row : 0U;
+    if (g_visible_lines > TERMINAL_OUTPUT_LINES) g_visible_lines = TERMINAL_OUTPUT_LINES;
+    g_scrollback_offset = terminal_scrollback_step(
+        g_scrollback_offset, g_output_count, g_visible_lines, 0);
+    const size_t displayed = g_output_count < g_visible_lines ? g_output_count : g_visible_lines;
+    const size_t blank = g_visible_lines - displayed;
+    const size_t first = g_output_count - displayed - g_scrollback_offset;
 
     build_input_display(
         input, length, cursor, input_display, sizeof(input_display));
 
     kui_scene_initialize(&scene);
     scene.visible_rows = 12U;
-    kui_scene_set_palette(
-        &scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
+    scene.viewport_height = g_viewport_height;
     kui_flow_begin(&root, &scene, 0U);
-    (void)kui_flow_panel(&root, 1U, "RED FLUX TERMINAL");
-    for (size_t index = 0U; index < TERMINAL_OUTPUT_LINES; ++index) {
+    if (show_header) (void)kui_flow_panel(&root, 1U, "RED FLUX TERMINAL");
+    for (size_t index = 0U; index < g_visible_lines; ++index) {
         (void)kui_flow_label(
-            &root, 10U + (uint32_t)index, g_output[index]);
+            &root, 10U + (uint32_t)index,
+            index < blank ? "" : g_output[first + index - blank]);
     }
     (void)kui_flow_input(&root, 30U, input_display);
-    (void)kui_flow_label(
-        &root, 31U,
-        "ARROWS EDIT/HISTORY  ENTER RUN  ESC CANCEL");
+    if (show_hint) (void)kui_flow_label(&root, 31U, g_hint);
     (void)kui_scene_select(&scene, 30U);
     (void)kui_scene_present(window, &scene);
 }
@@ -147,17 +174,57 @@ int main(void) {
     char input[TERMINAL_INPUT_CAPACITY] = {0};
     size_t length = 0U;
     size_t cursor = 0U;
+    const ku_result_t initial_height = ku_ui_native_height(window);
+    if (initial_height > 0 && initial_height <= UINT32_MAX)
+        g_viewport_height = (uint32_t)initial_height;
     render(window, input, length, cursor);
 
     for (;;) {
         ku_ui_event event;
-        const int available = gui_wait_event(window, &event);
+        const ku_result_t height = ku_ui_native_height(window);
+        if (height > 0 && height <= UINT32_MAX && g_viewport_height != (uint32_t)height) {
+            g_viewport_height = (uint32_t)height;
+            render(window, input, length, cursor);
+        }
+        const int available = kui_next_event(window, &event);
+        if (available == 0) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
         if (available < 0 || event.type == KU_UI_EVENT_CLOSE) break;
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            if (event.wheel_y != 0) {
+                g_scrollback_offset = terminal_scrollback_step(
+                    g_scrollback_offset, g_output_count,
+                    g_visible_lines, (int64_t)event.wheel_y * 2);
+                render(window, input, length, cursor);
+            }
+            continue;
+        }
         if (event.type != KU_UI_EVENT_KEY) continue;
 
-        if (gui_key_activate(&event)) {
+        g_hint = "TAB COMPLETE  PGUP/PGDN SCROLL  UP/DOWN HISTORY";
+        if (event.key == KU_UI_KEY_PAGE_UP || event.key == KU_UI_KEY_PAGE_DOWN) {
+            g_scrollback_offset = terminal_scrollback_step(
+                g_scrollback_offset, g_output_count, g_visible_lines,
+                event.key == KU_UI_KEY_PAGE_UP ? 7 : -7);
+        } else if (gui_key_tab(&event)) {
+            terminal_completion_result completed = terminal_complete_command(
+                input, sizeof(input), &cursor);
+            if (completed == TERMINAL_COMPLETION_NONE) {
+                completed = (terminal_completion_result)ku_shell_complete_path(
+                    &g_shell, input, sizeof(input), &cursor);
+            }
+            length = strlen(input);
+            if (completed == TERMINAL_COMPLETION_AMBIGUOUS) {
+                g_hint = "TAB / MULTIPLE COMMAND OR PATH MATCHES";
+            } else if (completed == TERMINAL_COMPLETION_NONE) {
+                g_hint = "TAB / NO COMMAND OR PATH MATCH";
+            }
+        } else if (gui_key_activate(&event)) {
             ku_shell_action action;
             input[length] = '\0';
+            g_scrollback_offset = 0U;
             action = ku_shell_execute(&g_shell, &g_io, input);
             length = 0U;
             cursor = 0U;

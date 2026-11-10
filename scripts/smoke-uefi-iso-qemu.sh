@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -31,6 +31,10 @@ usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
 require_tls=false
+flux_settings_write=false
+flux_settings_session=false
+flux_lifecycle=false
+flux_lifecycle_done=false
 send_key_after_marker=""
 send_key_name=""
 send_key_sent=false
@@ -52,6 +56,9 @@ wheel_x=()
 wheel_y=()
 wheel_direction=()
 wheel_sent=()
+screendump_markers=()
+screendump_paths=()
+screendump_sent=()
 require_markers=()
 require_marker_count_markers=()
 require_marker_count_targets=()
@@ -79,6 +86,9 @@ while (($#)); do
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
+        --flux-lifecycle) flux_lifecycle=true; shift ;;
+        --flux-settings-write) flux_settings_write=true; shift ;;
+        --flux-settings-session) flux_settings_session=true; shift ;;
         --send-key-after-marker)
             [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
             [[ -z "$send_key_after_marker" ]] || { echo "only one --send-key-after-marker is supported" >&2; exit 2; }
@@ -121,6 +131,13 @@ while (($#)); do
             wheel_sent+=(false)
             shift 5
             ;;
+        --screendump-after-marker)
+            [[ $# -ge 3 && -n "$2" && -n "$3" && "$3" == *.ppm ]] || usage
+            screendump_markers+=("$2")
+            screendump_paths+=("$3")
+            screendump_sent+=(false)
+            shift 3
+            ;;
         --require-marker) [[ $# -ge 2 && -n "$2" ]] || usage; require_markers+=("$2"); shift 2 ;;
         --require-marker-count)
             [[ $# -ge 3 && -n "$2" && "$3" =~ ^[1-9][0-9]*$ ]] || usage
@@ -134,6 +151,21 @@ while (($#)); do
     esac
 done
 [[ -n "$media" ]] || usage
+if $flux_settings_write && { ! $flux_lifecycle || [[ "$media_kind" != disk ]]; }; then
+    echo "--flux-settings-write requires --flux-lifecycle --disk and a writable root" >&2
+    exit 2
+fi
+if $flux_settings_session && { ! $flux_lifecycle || [[ "$media_kind" != iso ]]; }; then
+    echo "--flux-settings-session requires --flux-lifecycle and a Live ISO" >&2
+    exit 2
+fi
+if $flux_lifecycle; then
+    if ! $usb_keyboard || ! $usb_tablet || [[ -z "$log_dir" ]]; then
+        echo "--flux-lifecycle requires --usb-keyboard --usb-tablet --log-dir" >&2
+        exit 2
+    fi
+    require_markers+=('[SESSION] flux_home_first_frame: PASS')
+fi
 if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
     echo "--persistent-disk requires --disk" >&2
     exit 2
@@ -196,6 +228,12 @@ for index in "${!wheel_markers[@]}"; do
         exit 2
     fi
 done
+for screenshot in "${screendump_paths[@]}"; do
+    if [[ -e "$screenshot" ]]; then
+        echo "refusing to overwrite screenshot: $screenshot" >&2
+        exit 1
+    fi
+done
 if $require_network && [[ "$nic_model" == "none" ]]; then
     echo "--require-network/--require-tls needs --nic e1000, e1000e, pcnet or virtio" >&2
     exit 2
@@ -248,6 +286,32 @@ marker_occurrences() {
     local count
     count="$(grep -F -c -- "$marker" "$serial" 2>/dev/null || true)"
     printf '%s\n' "${count:-0}"
+}
+
+capture_pending_screenshots() {
+    local index marker
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" == true ]]; then
+            continue
+        fi
+        marker="${screendump_markers[$index]}"
+        if grep -Fq "$marker" "$serial"; then
+            python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/qmp-screendump.py" \
+                "$qmp" "${screendump_paths[$index]}"
+            screendump_sent[$index]=true
+            echo "[uefi-qemu] captured frame after marker: $marker"
+        fi
+    done
+}
+
+screenshots_complete() {
+    local index
+    for index in "${!screendump_markers[@]}"; do
+        if [[ "${screendump_sent[$index]}" != true ]]; then
+            return 1
+        fi
+    done
+    return 0
 }
 
 send_qemu_key() {
@@ -304,6 +368,8 @@ for _ in range(40):
         receive_object(stream, f"send-key {key}")
         stream.close()
         client.close()
+        # Wait for QEMU's 80 ms release before another queued keystroke.
+        time.sleep(0.18)
         print(f"[qmp] acknowledged send-key {key}")
         raise SystemExit(0)
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
@@ -837,6 +903,7 @@ done
 deadline=$((SECONDS + timeout_seconds))
 while ((SECONDS < deadline)); do
     if [[ -f "$serial" ]]; then
+        capture_pending_screenshots
         if $usb_hotplug; then
             usb_action=""
             case "$usb_hotplug_phase" in
@@ -925,7 +992,23 @@ while ((SECONDS < deadline)); do
                 echo "[uefi-qemu] wheel ${wheel_direction[$index]} at ${wheel_x[$index]},${wheel_y[$index]} after marker: $marker"
             fi
         done
+        capture_pending_screenshots
         all_markers_ready=true
+        if $flux_lifecycle && ! $flux_lifecycle_done && grep -Fq '[SESSION] flux_home_first_frame: PASS' "$serial"; then
+            lifecycle_options=(--timeout "$((deadline - SECONDS))")
+            if $flux_settings_write; then lifecycle_options+=(--settings-write); fi
+            if $flux_settings_session; then lifecycle_options+=(--settings-session); fi
+            python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/flux-lifecycle-qmp.py" \
+                --qmp "$qmp" --serial "$serial" --output "$log_dir" \
+                "${lifecycle_options[@]}"
+            echo "[uefi-qemu] Flux window lifecycle: PASS"
+            flux_lifecycle_done=true
+        fi
+        # The serial log can grow between the readiness check above and the
+        # required-marker loop. Home alone must never complete this scenario.
+        if $flux_lifecycle && ! $flux_lifecycle_done; then
+            all_markers_ready=false
+        fi
         if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
             for index in "${!require_markers[@]}"; do
                 require_marker="${require_markers[$index]}"
@@ -946,7 +1029,7 @@ while ((SECONDS < deadline)); do
                     all_markers_ready=false
                 fi
             done
-            if $all_markers_ready && ! $require_network; then
+            if $all_markers_ready && screenshots_complete && ! $require_network; then
                 echo "[uefi-qemu] required runtime markers: PASS"
                 for require_marker in "${require_markers[@]}"; do
                     echo "[uefi-qemu] marker: $require_marker"
@@ -976,7 +1059,8 @@ while ((SECONDS < deadline)); do
                 exit 1
             fi
 
-            if [[ "$network_state" == 0 ]] && $all_markers_ready; then
+            if [[ "$network_state" == 0 ]] &&
+               $all_markers_ready && screenshots_complete; then
                 if ((${#require_markers[@]} != 0 || ${#require_marker_count_markers[@]} != 0)); then
                     echo "[uefi-qemu] required runtime markers: PASS"
                     for require_marker in "${require_markers[@]}"; do
@@ -995,6 +1079,7 @@ while ((SECONDS < deadline)); do
                 exit 0
             fi
         elif ((${#require_markers[@]} == 0 && ${#require_marker_count_markers[@]} == 0)) &&
+             screenshots_complete &&
              grep -Eq 'KuroganeOS kernel entry|\[TEST\] paging: PASS|KUROGANE OS' "$serial"; then
             echo "[uefi-qemu] $media_kind UEFI boot: PASS"
             echo "[uefi-qemu] firmware CODE: $firmware_code"
@@ -1030,6 +1115,11 @@ elif $require_network; then
 else
     echo "OVMF/QEMU did not boot KuroganeOS $media_kind media within $timeout_seconds seconds" >&2
 fi
+for index in "${!screendump_markers[@]}"; do
+    if [[ "${screendump_sent[$index]}" != true ]]; then
+        echo "screenshot marker was not reached: ${screendump_markers[$index]}" >&2
+    fi
+done
 [[ -f "$qemu_log" ]] && tail -n 100 "$qemu_log" >&2 || true
 [[ -f "$serial" ]] && tail -n 220 "$serial" >&2 || true
 exit 1

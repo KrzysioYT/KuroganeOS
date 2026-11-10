@@ -8,7 +8,6 @@ HOST_CC="${HOST_CC:-cc}"
 HOST_CXX="${HOST_CXX:-c++}"
 HOST_PYTHON="${HOST_PYTHON:-python3}"
 OUT_DIR="${HOST_TEST_DIR:-build/tests/host}"
-
 mkdir -p "$OUT_DIR"
 
 HOST_ARCH_FLAGS=()
@@ -36,18 +35,52 @@ echo "[host-tests] python:       $HOST_PYTHON"
   tests/test_keyboard_lifecycle.cpp -o "$OUT_DIR/test_keyboard_lifecycle"
 "$OUT_DIR/test_keyboard_lifecycle"
 "$HOST_PYTHON" tests/test_qmp_pointer_selection.py
+"$HOST_PYTHON" tests/test_flux_lifecycle_qmp.py
+"$HOST_PYTHON" tests/test_installer_qemu_safety.py
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_dev_login_profile.c -o "$OUT_DIR/test_dev_login_profile"
+"$OUT_DIR/test_dev_login_profile"
+
+# Keep the strict compiler probe alongside the lifecycle evidence tests.
+"$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
+"$OUT_DIR/test_kernel_log_header"
+
 
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_clipboard_service.c \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_clipboard_service"
 "$OUT_DIR/test_clipboard_service"
 
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_settings_service.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_settings_service"
+"$OUT_DIR/test_settings_service"
+
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_settings_persistence.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_settings_persistence"
+"$OUT_DIR/test_settings_persistence"
+
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_theme_failure.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_theme_failure"
+"$OUT_DIR/test_flux_theme_failure"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_launcher_search.c -o "$OUT_DIR/test_flux_launcher_search"
+"$OUT_DIR/test_flux_launcher_search"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_app_identity.cpp -o "$OUT_DIR/test_flux_app_identity"
+"$OUT_DIR/test_flux_app_identity"
 "$HOST_PYTHON" tests/test_flux8_application_smoke.py
 
 "$HOST_PYTHON" tests/test_userspace_build_parity.py
+"$HOST_PYTHON" tests/test_userspace_overlay.py
+"$HOST_PYTHON" tests/test_install_package_path_collisions.py
 "$HOST_PYTHON" tests/test_release_version.py
 "$HOST_PYTHON" tests/test_driver_mmio_windows.py
 RELEASE_VERSION="$(bash scripts/read-version.sh common/version.h)"
@@ -100,7 +133,7 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_scheduler2"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  tests/test_driver_requirement_policy.cpp \
+  -DKUROGANE_HOST_TEST tests/test_driver_requirement_policy.cpp \
   kernel/drivers/core/device_manager.cpp kernel/drivers/core/driver_manager.cpp \
   -o "$OUT_DIR/test_driver_requirement_policy"
 "$OUT_DIR/test_driver_requirement_policy"
@@ -110,6 +143,7 @@ bash tests/test_network_smoke_state.sh
 # legacy test.sh entry also runs this regression, but all qualification gates
 # using this suite must cover the input contract directly.
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST \
   tests/test_input.cpp kernel/input/input.cpp kernel/drivers/mouse_protocol.cpp \
   -o "$OUT_DIR/test_input"
 "$OUT_DIR/test_input"
@@ -130,6 +164,7 @@ bash tests/test_network_smoke_state.sh
 # stale-handle rejection, partial-attach cleanup, fallback and slot reuse.
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_HOST_TEST \
   tests/test_driver_core.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/drivers/core/driver_manager.cpp \
@@ -364,12 +399,12 @@ timeout 10 "$OUT_DIR/test_xhci_cleanup"
 
 # Exercise production PCI word writes and VirtIO resource failure paths.
 for test in test_pci_word_write test_virtio_net_cleanup; do
-  extra_sources=()
+  source_files=("tests/$test.cpp")
   if [[ "$test" == test_virtio_net_cleanup ]]; then
-    extra_sources+=(kernel/drivers/virtio/pci_transport.cpp)
+    source_files+=(kernel/drivers/virtio/pci_transport.cpp kernel/net/network.cpp)
   fi
   "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-    -ffunction-sections -fdata-sections "tests/$test.cpp" "${extra_sources[@]}" \
+    -ffunction-sections -fdata-sections "${source_files[@]}" \
     "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/$test"
   "$OUT_DIR/$test"
 done
@@ -397,6 +432,12 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_label_fitting.cpp -o "$OUT_DIR/test_flux_label_fitting"
 "$OUT_DIR/test_flux_label_fitting"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_package_vfs.cpp kernel/install/package_vfs.cpp \
+  kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp \
+  -o "$OUT_DIR/test_package_vfs"
+"$OUT_DIR/test_package_vfs"
 
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_catalog.c -o "$OUT_DIR/test_flux_app_catalog_c"
@@ -428,6 +469,26 @@ python3 tests/test_flux8_virtualbox_runner.py
   tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
 "$OUT_DIR/test_files_wheel_paging"
 
+# The native Terminal must complete real shell words and keep wheel/PageUp
+# scrollback within its bounded history window (including extreme deltas).
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_terminal_command_completion.c \
+  -o "$OUT_DIR/test_terminal_command_completion"
+"$OUT_DIR/test_terminal_command_completion"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -x c++ tests/test_terminal_command_completion.c \
+  -o "$OUT_DIR/test_terminal_command_completion_cpp"
+"$OUT_DIR/test_terminal_command_completion_cpp"
+
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_terminal_vfs_commands.c \
+  -o "$OUT_DIR/test_terminal_vfs_commands"
+"$OUT_DIR/test_terminal_vfs_commands"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_terminal_vfs_commands.c \
+  -o "$OUT_DIR/test_terminal_vfs_commands_cpp"
+"$OUT_DIR/test_terminal_vfs_commands_cpp"
+
 # Exercise production Flux 8 palette contracts in hosted C and C++.
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_theme_palette.c \
@@ -457,6 +518,59 @@ python3 tests/test_flux8_virtualbox_runner.py
   -Isdk/include -x c++ tests/test_flux_files_keyboard.c \
   -o "$OUT_DIR/test_flux_files_keyboard_cpp"
 "$OUT_DIR/test_flux_files_keyboard_cpp"
+
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_files_filter.c \
+  -o "$OUT_DIR/test_flux_files_filter"
+"$OUT_DIR/test_flux_files_filter"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_files_filter.c \
+  -o "$OUT_DIR/test_flux_files_filter_cpp"
+"$OUT_DIR/test_flux_files_filter_cpp"
+
+# Files Back/Forward must retain bounded path/filter history, prune forward
+# branches only on a successful visit, and behave identically in C/C++.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_flux_files_history.c \
+  -o "$OUT_DIR/test_flux_files_history"
+"$OUT_DIR/test_flux_files_history"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -x c++ tests/test_flux_files_history.c \
+  -o "$OUT_DIR/test_flux_files_history_cpp"
+"$OUT_DIR/test_flux_files_history_cpp"
+
+# Only an explicit New Folder confirmation may request a Ring-3 mkdir;
+# reject traversal and unsafe names before building a VFS path.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_files_folder_creation.c \
+  -o "$OUT_DIR/test_flux_files_folder_creation"
+"$OUT_DIR/test_flux_files_folder_creation"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_files_folder_creation.c \
+  -o "$OUT_DIR/test_flux_files_folder_creation_cpp"
+"$OUT_DIR/test_flux_files_folder_creation_cpp"
+
+# Explicit file/folder rename must reject mount/device entries and unsafe
+# path segments before the VFS syscall. Verify identical C and C++ policies.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_files_rename.c \
+  -o "$OUT_DIR/test_flux_files_rename"
+"$OUT_DIR/test_flux_files_rename"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_files_rename.c \
+  -o "$OUT_DIR/test_flux_files_rename_cpp"
+"$OUT_DIR/test_flux_files_rename_cpp"
+
+# Settings can now be traversed without a pointer, including focus reveal
+# for controls outside the native scene viewport.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_settings_navigation.c \
+  -o "$OUT_DIR/test_flux_settings_navigation"
+"$OUT_DIR/test_flux_settings_navigation"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_settings_navigation.c \
+  -o "$OUT_DIR/test_flux_settings_navigation_cpp"
+"$OUT_DIR/test_flux_settings_navigation_cpp"
 
 # Flux 8 responsive geometry: compile the actual SDK placement contract
 # in both freestanding-compatible C and C++ and test overflow and small GOP.
@@ -494,6 +608,26 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_framebuffer_damage"
 
 "$OUT_DIR/test_framebuffer_damage"
+
+# Exercise the licensed grayscale text atlas, UTF-8 glyph lookup and supported
+# text scale/weight paths through the production framebuffer renderer.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
+  -Werror=undef -Werror=return-type \
+  tests/test_framebuffer_text.cpp \
+  kernel/drivers/framebuffer.cpp \
+  -o "$OUT_DIR/test_framebuffer_text"
+
+"$OUT_DIR/test_framebuffer_text"
+
+# Verify native app-tile icon geometry scales with the persisted UI scale.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
+  -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wundef \
+  -Werror=undef -Werror=return-type -Isdk/include \
+  tests/test_ui_hidpi.cpp kernel/drivers/framebuffer.cpp kernel/ui/ui.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_ui_hidpi"
+
+"$OUT_DIR/test_ui_hidpi"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" \
   -std=c++17 -O2 -Wall -Wextra -Wpedantic \
@@ -683,6 +817,24 @@ python3 tests/test_flux8_virtualbox_runner.py
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_ui_state"
 "$OUT_DIR/test_flux_ui_state"
 
+# Wallpaper IDs and Ring-3 query/set packet layout must remain compatible
+# across C11 and C++17, including a safe fallback for invalid persisted IDs.
+"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_background.c -o "$OUT_DIR/test_flux_background"
+"$OUT_DIR/test_flux_background"
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -x c++ tests/test_flux_background.c \
+  -o "$OUT_DIR/test_flux_background_cpp"
+"$OUT_DIR/test_flux_background_cpp"
+
+# Draw all three actual native wallpapers at 1024x720 and distinguish their
+# pixels, not merely their persisted IDs. No QEMU/GOP hardware is required.
+"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include tests/test_flux_wallpaper_render.cpp \
+  kernel/ui/ui.cpp kernel/drivers/framebuffer.cpp \
+  -o "$OUT_DIR/test_flux_wallpaper_render"
+"$OUT_DIR/test_flux_wallpaper_render"
+
 # System activity is sampled on a fixed shared interval. Home and Forge
 # Control must not consume counters from each other's independent reads.
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -724,12 +876,7 @@ python3 tests/test_flux8_virtualbox_runner.py
 bash ./scripts/probe-mbedtls-freestanding.sh
 
 # Exercise production HTTPS request construction/read loop with scripted TLS I/O.
-"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
-  -ffunction-sections -fdata-sections \
-  -Ikernel/net/tls -Ithird_party/mbedtls/include -Ithird_party/mbedtls/library \
-  -DMBEDTLS_CONFIG_FILE='"kurogane_mbedtls_config.h"' \
-  tests/test_tls_http_io.cpp tests/host_log_stub.cpp "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_tls_http_io"
-"$OUT_DIR/test_tls_http_io"
+HOST_CXX="$HOST_CXX" HOST_TEST_DIR="$OUT_DIR" bash scripts/test-tls-http.sh
 
 
 # The project-generator integration test consumes the real SDK sysroot rather
@@ -737,9 +884,17 @@ bash ./scripts/probe-mbedtls-freestanding.sh
 # header changes still compile into crt0/libc/libkurogane/libui and desktop ELFs.
 bash ./scripts/build-sdk.sh
 
-project_cxx="${KUROGANE_CXX:-${CXX:-$(command -v x86_64-elf-g++ >/dev/null 2>&1 && echo x86_64-elf-g++ || echo g++)}}"
+sdk_project_cxx="${KUROGANE_CXX:-}"
+if [[ -z "$sdk_project_cxx" ]]; then
+  if command -v x86_64-elf-g++ >/dev/null 2>&1; then
+    sdk_project_cxx=x86_64-elf-g++
+  else
+    sdk_project_cxx="${CXX:-g++}"
+  fi
+fi
+
 "$HOST_PYTHON" tests/test_sdk_project_generator.py \
   --root "$ROOT_DIR" \
-  --cxx "$project_cxx"
+  --cxx "$sdk_project_cxx"
 
 echo "[host-tests] PASS"
