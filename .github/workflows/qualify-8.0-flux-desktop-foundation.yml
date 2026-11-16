@@ -120,6 +120,16 @@ jobs:
               "tests/test_${unit}.cpp" -o "build/tests/desktop/${unit}-ubsan"
             "build/tests/desktop/${unit}-ubsan"
           done
+      - name: Persistent Dock permutation validation C11 and UBSan
+        run: |
+          mkdir -p build/tests/desktop
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+            tests/test_flux_dock_order_state.c -o build/tests/desktop/dock-order
+          build/tests/desktop/dock-order
+          cc -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            tests/test_flux_dock_order_state.c -o build/tests/desktop/dock-order-ubsan
+          build/tests/desktop/dock-order-ubsan
       - name: Modern rail pointer dispatch at both GOP sizes
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \

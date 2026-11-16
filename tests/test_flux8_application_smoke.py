@@ -64,7 +64,7 @@ assert '"[SESSION] flux_home_ui_present: PASS"' in launcher
 assert '"[SESSION] flux_home_first_frame: PASS"' in login
 assert 'KU_DESKTOP_PIN_ORDER_QUERY' in launcher
 assert 'KU_DESKTOP_PIN_ORDER_SET' in launcher
-assert 'valid_dock_order_state' in launcher
+assert 'flux_dock_order_valid' in launcher
 assert 'DOCK / MOVE LEFT OR UP' in launcher
 assert 'DOCK / MOVE RIGHT OR DOWN' in launcher
 print("Flux 8 application-launch smoke contract: PASS")

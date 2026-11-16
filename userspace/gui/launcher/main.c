@@ -6,6 +6,7 @@
 #include <kurogane/desktop.h>
 #include <kurogane/flux_app_lifecycle.h>
 #include "search.h"
+#include "dock_order_state.h"
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
@@ -615,24 +616,12 @@ static uint8_t collect_pin_mask(void) {
 
 /* desktop.cfg v1 stores one pin-mask byte. The new format appends a
  * versioned permutation of IDs 1..7; HOME stays at position zero. */
-static int valid_dock_order_state(const uint8_t order[8]) {
-    uint8_t seen = UINT8_C(1);
-    if (order[0] != UINT8_C(0xD8)) return 0;
-    for (size_t pos = 1U; pos < KU_DESKTOP_APP_COUNT; ++pos) {
-        const uint8_t app = order[pos];
-        if (app == 0U || app >= KU_DESKTOP_APP_COUNT ||
-            (seen & (uint8_t)(UINT8_C(1) << app)) != 0U) return 0;
-        seen = (uint8_t)(seen | (uint8_t)(UINT8_C(1) << app));
-    }
-    return seen == UINT8_MAX;
-}
-
 static int save_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
     ku_result_t opened;
     uint8_t state[9] = {0};
     state[0] = collect_pin_mask();
-    state[1] = UINT8_C(0xD8);
+    state[1] = FLUX_DOCK_ORDER_TAG;
     for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
         ku_desktop_pin_request query;
         memset(&query, 0, sizeof(query));
@@ -644,7 +633,7 @@ static int save_pin_state(void) {
             return 0;
         state[query.value + 1U] = (uint8_t)app;
     }
-    if (!valid_dock_order_state(state + 1U)) return 0;
+    if (!flux_dock_order_valid(state + 1U)) return 0;
     ku_status_t status = ku_file_create(path, sizeof(path) - 1U);
     if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
     opened = ku_file_open_ex(path, sizeof(path) - 1U, KU_FILE_OPEN_WRITE);
@@ -671,7 +660,7 @@ static int load_pin_state(void) {
     }
     const int have_order =
         ku_file_read((ku_file_t)opened, order, sizeof(order)) ==
-            (ku_result_t)sizeof(order) && valid_dock_order_state(order);
+            (ku_result_t)sizeof(order) && flux_dock_order_valid(order);
     if (ku_file_close((ku_file_t)opened) != KU_STATUS_OK) return 0;
 
     for (index = 0U; index < APP_COUNT; ++index) {
