@@ -74,9 +74,19 @@ def verify_password_login(text, rejected_first):
         sequence.append(BAD_PASSWORD)
     sequence.extend([GOOD_PASSWORD, SESSION_CREATED, HOME_FRAME, DESKTOP])
     watched = set(sequence) | {BAD_PASSWORD}
-    events = [line for line in text.splitlines() if line in watched]
+    # Serial writes from different guest processes may meet without a line
+    # separator (e.g. "profile: PASS[TEST] broker: PASS"). Recognize the
+    # complete event tokens by their byte offsets, not by whole log lines.
+    # Reject duplicates, omissions and wrong order exactly as before.
+    matches = []
+    for marker in watched:
+        matches.extend((match.start(), marker)
+                       for match in re.finditer(re.escape(marker), text))
+    events = [marker for _, marker in sorted(matches)]
     if events != sequence:
-        raise RuntimeError('installed password login did not reject/authenticate in order')
+        raise RuntimeError(
+            'installed password login did not reject/authenticate in order; '
+            f'observed={events!r}')
 
 
 def validate_dock_record(payload):
