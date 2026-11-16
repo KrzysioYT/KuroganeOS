@@ -48,6 +48,18 @@ int main() {
         // through the USB tablet mapping, at both guest GOP sizes.
         click(tablet_pixel(42, 1023, width - 1), tablet_pixel(174, 767, height - 1));
         assert(command == 'f');
+        // Custom order must change both paint position and the hitbox while
+        // leaving the command associated with each app ID unchanged.
+        uint32_t target_position = 3U;
+        assert(desktop_dock_order(2U, 7U, &target_position) == Status::Ok);
+        command = 0;
+        click(tablet_pixel(42, 1023, width - 1), tablet_pixel(174, 767, height - 1));
+        assert(command == 't');
+        command = 0;
+        click(tablet_pixel(42, 1023, width - 1), tablet_pixel(312, 767, height - 1));
+        assert(command == 'f');
+        target_position = 2U;
+        assert(desktop_dock_order(2U, 7U, &target_position) == Status::Ok);
         assert(create_window(KU_FLUX_TITLE_FILES, 2, {120, 90, 600, 450},
             nullptr, nullptr, nullptr, &files) == Status::Ok);
         command = 0;
