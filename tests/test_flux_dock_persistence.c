@@ -137,7 +137,7 @@ int main(void) {
     pinned[2] = 1U;
     assert(!load_pin_state());
     assert(save_pin_state());
-    assert(storage[0].exists && storage[0].size == 9U);
+    assert(storage[0].exists && storage[0].size == FLUX_DOCK_RECORD_BYTES);
 
     ku_desktop_pin_request move = {0};
     move.structure_size = sizeof(move);
@@ -147,7 +147,7 @@ int main(void) {
     assert(fake_pin(&move) == KU_STATUS_OK);
     pinned[3] = 1U;
     assert(save_pin_state());
-    assert(storage[2].exists && storage[2].size == 9U);
+    assert(storage[2].exists && storage[2].size == FLUX_DOCK_RECORD_BYTES);
     order[1] = 1; order[2] = 2;
     pinned[2] = 0U; pinned[3] = 0U;
     assert(load_pin_state());
@@ -184,6 +184,13 @@ int main(void) {
     assert(save_pin_state());
     assert(storage[2].exists);
 
+    /* A single flipped mask bit is structurally valid but must fail the
+     * checksum and restore the verified previous generation. */
+    storage[0].bytes[0] ^= (uint8_t)(UINT8_C(1) << 3U);
+    assert(load_pin_state());
+    assert(g_dock_recovered_from_backup == 1);
+    assert(pinned[3] == 1U && order[1] == 2U);
+
     /* Corrupt current permutation; recover verified backup generation. */
     storage[0].bytes[2] = 8U;
     assert(load_pin_state());
@@ -206,6 +213,7 @@ int main(void) {
     assert(load_pin_state());
     assert(pinned[1] == 1U && pinned[2] == 0U);
     assert(save_pin_state());
-    assert(storage[0].size == 9U);
+    assert(storage[0].size == FLUX_DOCK_RECORD_BYTES);
+    assert(flux_dock_record_valid(storage[0].bytes));
     return 0;
 }
