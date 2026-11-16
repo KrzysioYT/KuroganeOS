@@ -88,7 +88,9 @@ enum ku_syscall_number {
     KU_SYS_DESKTOP_BACKGROUND = 73,
     KU_SYS_DESKTOP_TEXT_SCALE = 74,
     KU_SYS_UI_NATIVE_HEIGHT = 75,
-    KU_SYS_UI_NATIVE_WIDTH = 76
+    KU_SYS_UI_NATIVE_WIDTH = 76,
+    // Read-only geometry of the caller's own UI window; never another PID.
+    KU_SYS_UI_WINDOW_GEOMETRY = 77
 };
 
 enum ku_open_flags {
