@@ -24,7 +24,18 @@ for sub, key in [
     ("notifications", "NOTIFICATIONS"),
 ]:
     actual = (root / "userspace/gui" / sub / "main.c").read_text()
-    assert "gui_open(KU_FLUX_TITLE_" + key in actual, sub
+    legacy = "gui_open(KU_FLUX_TITLE_" + key in actual
+    # Files uses the common native geometry-restoring opener. Keep verifying
+    # its catalog title and window lifetime rather than a fixed spelling.
+    profile = (
+        sub == "files"
+        and "gui_window_profile_open(" in actual
+        and "KU_FLUX_TITLE_" + key in actual
+        and '"window.files"' in actual
+        and "gui_window_profile_tick(" in actual
+        and "gui_window_profile_flush(" in actual
+    )
+    assert legacy or profile, sub
     assert "KU_FLUX_EXEC_" + key in launcher, "launcher image path: " + sub
 for candidate in ["kernel/ui/window_manager.cpp", "userspace/gui/launcher/main.c"]:
     assert "flux_app_catalog.h" in (root / candidate).read_text()
