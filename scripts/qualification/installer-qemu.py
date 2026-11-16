@@ -400,8 +400,19 @@ def main():
                 '[TEST] flux_text_scale_restore: PASS'])
             cmd.extend(['--require-marker', '[SETTINGS] wallpaper_restored=1',
                         '--require-marker', '[TEST] flux_background_restore: PASS'])
-        with (output / (phase + '-runner.log')).open('wb') as log:
-            subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+        runner_log = output / (phase + '-runner.log')
+        try:
+            with runner_log.open('wb') as log:
+                subprocess.run(cmd, cwd=ROOT, env=env, stdout=log,
+                               stderr=subprocess.STDOUT, check=True)
+        except subprocess.CalledProcessError:
+            # GitHub Actions otherwise only reports the wrapper command,
+            # hiding the actual QMP error in an uploaded artifact.
+            lines = runner_log.read_text(errors='replace').splitlines()
+            print(f'[installer-qemu] {phase} QMP runner failed; last 100 lines:',
+                  flush=True)
+            print('\\n'.join(lines[-100:]), flush=True)
+            raise
         text = (output / phase / 'serial.log').read_text(errors='replace')
         if re.search(r'PANIC_BEGIN|FATAL ERROR|\[(?:TEST|SESSION)\][^\n]*: FAIL', text):
             raise RuntimeError(phase + ' reported guest failure')
