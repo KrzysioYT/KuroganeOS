@@ -73,6 +73,10 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_dock_order_state.c -o "$OUT_DIR/test_flux_dock_order_state"
 "$OUT_DIR/test_flux_dock_order_state"
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_dock_persistence.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_dock_persistence"
+"$OUT_DIR/test_flux_dock_persistence"
 "$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_launcher_search.c -o "$OUT_DIR/test_flux_launcher_search"
 "$OUT_DIR/test_flux_launcher_search"
