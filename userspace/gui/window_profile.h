@@ -237,7 +237,9 @@ static inline void gui_window_profile_tick(
     if (gui_window_profile_save(profile->key, &current)) {
         profile->saved = current;
         profile->have_saved = 1;
-        puts("[WINDOW] geometry_saved");
+        printf("[WINDOW] geometry_saved key=%s x=%u y=%u w=%u h=%u\n",
+               profile->key, (unsigned)current.x, (unsigned)current.y,
+               (unsigned)current.width, (unsigned)current.height);
     } else {
         profile->retry_after = 10U;
     }
