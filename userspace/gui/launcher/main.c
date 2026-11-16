@@ -630,10 +630,25 @@ static ku_status_t read_pin_file(const char* path, size_t length,
     const ku_result_t opened = ku_file_open(path, length);
     if (opened <= 0) return (ku_status_t)opened;
     uint8_t bytes[9] = {0};
-    const ku_result_t read_size = ku_file_read(
-        (ku_file_t)opened, bytes, (size_t)info.size);
+    /* Filesystems may return short positive reads. Assemble the entire
+     * record before validating it; never apply a truncated desktop state. */
+    size_t received = 0U;
+    ku_status_t read_status = KU_STATUS_OK;
+    while (received < (size_t)info.size) {
+        const ku_result_t count = ku_file_read(
+            (ku_file_t)opened, bytes + received, (size_t)info.size - received);
+        if (count <= 0) {
+            read_status = KU_STATUS_IO_ERROR;
+            break;
+        }
+        if ((size_t)count > (size_t)info.size - received) {
+            read_status = KU_STATUS_IO_ERROR;
+            break;
+        }
+        received += (size_t)count;
+    }
     const ku_status_t closed = ku_file_close((ku_file_t)opened);
-    if (read_size != (ku_result_t)info.size || closed != KU_STATUS_OK)
+    if (read_status != KU_STATUS_OK || closed != KU_STATUS_OK)
         return KU_STATUS_IO_ERROR;
     if (info.size == 9U && !flux_dock_order_valid(bytes + 1U))
         return KU_STATUS_CORRUPT_DATA;
