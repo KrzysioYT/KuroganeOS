@@ -224,48 +224,57 @@ void brand_mark(int32_t center_x, int32_t center_y, int32_t scale,
 }
 
 void dock_icon(const Rect& bounds, DockIcon icon,
-               graphics::Color foreground, graphics::Color accent) {
+               graphics::Color foreground, graphics::Color accent,
+               uint32_t scale_percent = 100U) {
     const int32_t cx = bounds.x + bounds.width / 2;
     const int32_t cy = bounds.y + bounds.height / 2;
+    const int32_t extent = bounds.width < bounds.height ? bounds.width : bounds.height;
+    if (extent <= 0) return;
+    if (extent < 52) {
+        const uint32_t fit = static_cast<uint32_t>(extent * 100 / 26);
+        if (scale_percent > fit) scale_percent = fit;
+    }
+    const auto px = [scale_percent](int32_t value) { return scaled_ui_metric(value, scale_percent); };
+    const uint32_t stroke = static_cast<uint32_t>(px(2));
     switch (icon) {
         case DockIcon::Home:
             brand_mark(cx, cy, 1, accent, foreground);
             break;
         case DockIcon::Terminal:
-            line(cx - 9, cy - 7, cx - 2, cy, foreground);
-            line(cx - 9, cy + 7, cx - 2, cy, foreground);
-            graphics::fill_rect(cx + 1, cy + 6, 10, 2, accent);
+            line(cx - px(9), cy - px(7), cx - px(2), cy, foreground);
+            line(cx - px(9), cy + px(7), cx - px(2), cy, foreground);
+            graphics::fill_rect(cx + px(1), cy + px(6), px(10), px(2), accent);
             break;
         case DockIcon::Files:
-            graphics::fill_rect(cx - 10, cy - 7, 8, 4, accent);
-            graphics::draw_rect(cx - 11, cy - 4, 22, 15, foreground, 2U);
-            graphics::fill_rect(cx - 8, cy, 16, 2, kDockRaised);
+            graphics::fill_rect(cx - px(10), cy - px(7), px(8), px(4), accent);
+            graphics::draw_rect(cx - px(11), cy - px(4), px(22), px(15), foreground, stroke);
+            graphics::fill_rect(cx - px(8), cy, px(16), px(2), kDockRaised);
             break;
         case DockIcon::Monitor:
-            graphics::fill_rect(cx - 10, cy + 3, 4, 7, foreground);
-            graphics::fill_rect(cx - 3, cy - 2, 4, 12, accent);
-            graphics::fill_rect(cx + 4, cy - 8, 4, 18, foreground);
+            graphics::fill_rect(cx - px(10), cy + px(3), px(4), px(7), foreground);
+            graphics::fill_rect(cx - px(3), cy - px(2), px(4), px(12), accent);
+            graphics::fill_rect(cx + px(4), cy - px(8), px(4), px(18), foreground);
             break;
         case DockIcon::Settings:
-            graphics::draw_rect(cx - 8, cy - 8, 16, 16, foreground, 2U);
-            graphics::fill_rect(cx - 2, cy - 11, 4, 22, accent);
-            graphics::fill_rect(cx - 11, cy - 2, 22, 4, accent);
-            graphics::fill_rect(cx - 2, cy - 2, 4, 4, kDockSurface);
+            graphics::draw_rect(cx - px(8), cy - px(8), px(16), px(16), foreground, stroke);
+            graphics::fill_rect(cx - px(2), cy - px(11), px(4), px(22), accent);
+            graphics::fill_rect(cx - px(11), cy - px(2), px(22), px(4), accent);
+            graphics::fill_rect(cx - px(2), cy - px(2), px(4), px(4), kDockSurface);
             break;
         case DockIcon::About:
-            graphics::fill_rect(cx - 2, cy - 7, 4, 4, accent);
-            graphics::fill_rect(cx - 2, cy, 4, 11, foreground);
+            graphics::fill_rect(cx - px(2), cy - px(7), px(4), px(4), accent);
+            graphics::fill_rect(cx - px(2), cy, px(4), px(11), foreground);
             break;
         case DockIcon::Docs:
-            graphics::draw_rect(cx - 12, cy - 9, 11, 19, foreground, 2U);
-            graphics::draw_rect(cx + 1, cy - 9, 11, 19, foreground, 2U);
-            graphics::fill_rect(cx - 1, cy - 7, 2, 17, accent);
+            graphics::draw_rect(cx - px(12), cy - px(9), px(11), px(19), foreground, stroke);
+            graphics::draw_rect(cx + px(1), cy - px(9), px(11), px(19), foreground, stroke);
+            graphics::fill_rect(cx - px(1), cy - px(7), px(2), px(17), accent);
             break;
         case DockIcon::Tools:
-            line(cx - 9, cy + 10, cx + 5, cy - 4, foreground);
-            line(cx - 7, cy + 10, cx + 7, cy - 4, foreground);
-            line(cx + 5, cy - 4, cx + 10, cy - 10, accent);
-            line(cx + 7, cy - 4, cx + 11, cy - 8, accent);
+            line(cx - px(9), cy + px(10), cx + px(5), cy - px(4), foreground);
+            line(cx - px(7), cy + px(10), cx + px(7), cy - px(4), foreground);
+            line(cx + px(5), cy - px(4), cx + px(10), cy - px(10), accent);
+            line(cx + px(7), cy - px(4), cx + px(11), cy - px(8), accent);
             break;
     }
 }
@@ -864,7 +873,7 @@ void side_dock(const Rect& bounds) {
                         graphics::rgb(10, 11, 14));
     graphics::draw_rect(bounds.x, bounds.y, bounds.width, bounds.height,
                         kTheme.border);
-    const int32_t signature_y = bounds.y + bounds.height - 66;
+    const int32_t signature_y = bounds.y + bounds.height - kSideDockFooterHeight;
     graphics::fill_rect(bounds.x + 5, signature_y,
                         bounds.width - 10, 1, kTheme.border);
     brand_mark(bounds.x + bounds.width / 2, signature_y + 31,
@@ -886,11 +895,22 @@ void side_dock_item(const Rect& bounds, DockIcon icon, const char* label,
         graphics::fill_rect(bounds.x, bounds.y + 9, 2,
                             bounds.height - 18, kRedMuted);
     }
-    dock_icon({bounds.x + (bounds.width - 26) / 2, bounds.y + 14, 26, 26},
+    const uint32_t scale = desktop_text_scale_percent();
+    const int32_t label_bottom = bounds.height - scaled_ui_metric(8, scale) - 5;
+    const int32_t ideal_label_y = scaled_ui_metric(48, scale);
+    const int32_t label_y = ideal_label_y < label_bottom ? ideal_label_y : label_bottom;
+    const int32_t ideal_size = scaled_ui_metric(26, scale);
+    const int32_t max_size = label_y - 8;
+    const int32_t icon_size = ideal_size < max_size ? ideal_size : max_size;
+    const int32_t available_top = label_y - icon_size - 4;
+    const int32_t ideal_top = scaled_ui_metric(14, scale);
+    const int32_t icon_top = ideal_top < available_top ? ideal_top : available_top;
+    dock_icon({bounds.x + (bounds.width - icon_size) / 2, bounds.y + icon_top,
+               icon_size, icon_size},
               icon, focused ? kTheme.text : kTheme.text_muted,
-              focused ? kRedHot : kRedMuted);
+              focused ? kRedHot : kRedMuted, scale);
     (void)graphics::draw_text_ellipsized(
-        bounds.x + 4, bounds.y + 48, label ? label : "APP",
+        bounds.x + 4, bounds.y + label_y, label ? label : "APP",
         bounds.width > 8 ? static_cast<uint32_t>(bounds.width - 8) : 0U,
         focused ? kTheme.text : kTheme.text_muted,
         background, 1U, true, graphics::TextWeight::Normal);

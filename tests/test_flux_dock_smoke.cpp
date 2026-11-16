@@ -5,8 +5,9 @@
 // This test links the window manager without framebuffer/graphics modules.
 namespace ui {
 uint32_t g_host_style = KU_FLUX_STYLE_MODERN;
+uint32_t g_host_scale = 100U;
 uint32_t desktop_style_id() { return g_host_style; }
-uint32_t desktop_text_scale_percent() { return 100U; }
+uint32_t desktop_text_scale_percent() { return g_host_scale; }
 }
 
 namespace {
@@ -76,9 +77,58 @@ int main() {
         click(34, layout.pulse_ribbon.y + 22);
         assert(focused_window() == home);
 
+        const uint32_t scales[] = {100U, 125U, 150U, 200U};
+        for (const uint32_t scale : scales) {
+            ui::g_host_scale = scale;
+            const auto first = dock_pin_rect(0U);
+            const auto vault = dock_pin_rect(2U);
+            const auto last = dock_pin_rect(3U);
+            assert(first.height >= 72);
+            assert(first.y + first.height == vault.y);
+            assert(last.y + last.height <= layout.signal_spine.y +
+                layout.signal_spine.height - ui::kSideDockFooterHeight);
+            click(rail_center, first.y + 12);
+            assert(focused_window() == home);
+            click(rail_center, vault.y + vault.height - 1);
+            assert(focused_window() == files);
+            if (scale > 100U) assert(vault.height > 72);
+        }
+        ui::g_host_scale = 100U;
+
         // Classic remains the compact floating-dock fallback, even at 1280.
         ui::g_host_style = KU_FLUX_STYLE_CLASSIC;
         assert(workspace_geometry().pulse_ribbon.width < width);
         ui::g_host_style = KU_FLUX_STYLE_MODERN;
     }
+
+    // At the compact fallback size every pin and maximized task count
+    // must still have a usable hit target inside the floating dock.
+    assert(initialize(320U, 240U) == Status::Ok);
+    WindowId home;
+    assert(create_window(KU_FLUX_TITLE_HOME, 1U, {34, 50, 260, 160},
+                         nullptr, receive, nullptr, &home) == Status::Ok);
+    WindowId tasks[MAX_WINDOWS - 1U]{};
+    for (size_t i = 0U; i < MAX_WINDOWS - 1U; ++i)
+        assert(create_window("Task", i + 2U, {34, 50, 260, 160},
+                             nullptr, nullptr, nullptr, &tasks[i]) == Status::Ok);
+    const auto dock = workspace_geometry().pulse_ribbon;
+    int32_t right = dock.x;
+    for (size_t i = 0U; i < DOCK_PIN_COUNT; ++i) {
+        const auto pin = dock_pin_rect(i);
+        assert(pin.width > 0 && pin.x >= right);
+        right = pin.x + pin.width;
+        assert(right <= dock.x + dock.width);
+    }
+    for (size_t i = 0U; i < MAX_WINDOWS - 1U; ++i) {
+        ui::Rect tab{};
+        assert(pulse_item_geometry(i, &tab) == Status::Ok);
+        assert(tab.width > 0 && tab.x >= right);
+        right = tab.x + tab.width;
+        assert(right <= dock.x + dock.width);
+    }
+    ui::Rect last{};
+    assert(pulse_item_geometry(MAX_WINDOWS - 2U, &last) == Status::Ok);
+    assert(focus(home) == Status::Ok);
+    click(last.x + last.width / 2, last.y + last.height / 2);
+    assert(focused_window() == tasks[MAX_WINDOWS - 2U]);
 }

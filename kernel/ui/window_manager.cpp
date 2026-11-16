@@ -44,6 +44,7 @@ constexpr int32_t MODERN_RAIL_WIDTH = 79;
 constexpr int32_t MODERN_RAIL_X = 8;
 constexpr int32_t MODERN_RAIL_Y = 66;
 constexpr int32_t MODERN_RAIL_ITEM_HEIGHT = 72;
+constexpr int32_t MODERN_RAIL_PADDING = 6;
 constexpr int32_t MODERN_TASKBAR_HEIGHT = 49;
 constexpr size_t MODERN_RAIL_COUNT = 6U;
 // Sidebar order follows the web Red Flux desktop; public app IDs and the
@@ -524,6 +525,37 @@ WorkspaceGeometry calculate_workspace() {
     return geometry;
 }
 
+int32_t modern_rail_item_height(const ui::Rect& rail) {
+    const int32_t available = (rail.height - ui::kSideDockFooterHeight - MODERN_RAIL_PADDING) /
+        static_cast<int32_t>(MODERN_RAIL_COUNT);
+    const int32_t scaled = static_cast<int32_t>(
+        (MODERN_RAIL_ITEM_HEIGHT * ui::desktop_text_scale_percent() + 99U) / 100U);
+    return scaled < available ? scaled : available;
+}
+
+struct FloatingDockPins {
+    int32_t home;
+    int32_t pin;
+    int32_t gap;
+
+    int32_t width() const {
+        return home + static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * (pin + gap);
+    }
+};
+
+FloatingDockPins floating_dock_pins(const ui::Rect& dock, size_t tasks) {
+    const int32_t total = dock.width - 2 * DOCK_PADDING - DOCK_SEPARATOR;
+    const int32_t task_space = clamp_size(
+        static_cast<int32_t>(tasks) * (RIBBON_ITEM_MIN + RIBBON_GAP),
+        0, (dock.width - 2 * DOCK_PADDING) / 3);
+    const int32_t space = total - task_space;
+    const int32_t rest_count = static_cast<int32_t>(DOCK_PIN_COUNT - 1U);
+    const int32_t home = clamp_size(space / 4, 1, DOCK_HOME_WIDTH);
+    const int32_t gap = clamp_size((space - home) / (2 * rest_count) - 8, 2, DOCK_PIN_GAP);
+    const int32_t pin = clamp_size((space - home) / rest_count - gap, 1, DOCK_PIN_SIZE);
+    return {home, pin, gap};
+}
+
 ChromeGeometry calculate_chrome(const ui::Rect& bounds, ui::WindowChromeMetrics metrics) {
     ChromeGeometry geometry{};
     const int32_t header = metrics.header_height(bounds.height);
@@ -581,6 +613,7 @@ ui::Rect dock_pin_rect(size_t app_id) {
     const size_t position = dock_position(app_id);
     if (position >= DOCK_PIN_COUNT) return {};
     if (modern_rail_layout()) {
+        const int32_t height = modern_rail_item_height(workspace.signal_spine);
         // Preserve the existing Modern reference layout for the unmodified
         // classic/default permutation. Moving any app enables custom order.
         bool customized = false;
@@ -593,11 +626,11 @@ ui::Rect dock_pin_rect(size_t app_id) {
                 if (kModernRailApps[index] == app_id) rail_position = index;
             if (rail_position == MODERN_RAIL_COUNT) return {};
             return {
-                workspace.signal_spine.x + 6,
-                workspace.signal_spine.y + 6 +
-                    static_cast<int32_t>(rail_position) * MODERN_RAIL_ITEM_HEIGHT,
-                workspace.signal_spine.width - 12,
-                MODERN_RAIL_ITEM_HEIGHT,
+                workspace.signal_spine.x + MODERN_RAIL_PADDING,
+                workspace.signal_spine.y + MODERN_RAIL_PADDING +
+                    static_cast<int32_t>(rail_position) * height,
+                workspace.signal_spine.width - 2 * MODERN_RAIL_PADDING,
+                height,
             };
         }
         // Map only the visible rail apps, respecting their saved order.
@@ -614,27 +647,28 @@ ui::Rect dock_pin_rect(size_t app_id) {
         }
         if (!found) return {};
         return {
-            workspace.signal_spine.x + 6,
-            workspace.signal_spine.y + 6 +
-                static_cast<int32_t>(rail_position) * MODERN_RAIL_ITEM_HEIGHT,
-            workspace.signal_spine.width - 12,
-            MODERN_RAIL_ITEM_HEIGHT,
+            workspace.signal_spine.x + MODERN_RAIL_PADDING,
+            workspace.signal_spine.y + MODERN_RAIL_PADDING +
+                static_cast<int32_t>(rail_position) * height,
+            workspace.signal_spine.width - 2 * MODERN_RAIL_PADDING,
+            height,
         };
     }
+    const FloatingDockPins pins = floating_dock_pins(workspace.pulse_ribbon, exposed_window_count());
     const int32_t base_x = workspace.pulse_ribbon.x + DOCK_PADDING;
     if (position == 0U) {
         return {
             base_x,
             workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
-            DOCK_HOME_WIDTH,
+            pins.home,
             DOCK_PIN_SIZE,
         };
     }
     return {
-        base_x + DOCK_HOME_WIDTH + DOCK_PIN_GAP +
-            static_cast<int32_t>(position - 1U) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
+        base_x + pins.home + pins.gap +
+            static_cast<int32_t>(position - 1U) * (pins.pin + pins.gap),
         workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
-        DOCK_PIN_SIZE,
+        pins.pin,
         DOCK_PIN_SIZE,
     };
 }
@@ -659,44 +693,24 @@ ui::Rect desktop_shortcut_rect(size_t app_id) {
     };
 }
 
-int32_t ribbon_item_width(const WorkspaceGeometry& workspace) {
-    const size_t tasks = exposed_window_count();
-    if (tasks == 0U) return 0;
-    if (modern_rail_layout()) {
-        const int32_t usable = workspace.pulse_ribbon.width - 86 -
-            static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
-        return clamp_size(usable / static_cast<int32_t>(tasks),
-                          RIBBON_ITEM_MIN, 145);
-    }
-    const int32_t task_start = DOCK_PADDING + pinned_section_width() +
-        DOCK_SEPARATOR;
-    const int32_t usable = workspace.pulse_ribbon.width - task_start -
-        DOCK_PADDING - static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
-    return clamp_size(
-        usable / static_cast<int32_t>(tasks),
-        RIBBON_ITEM_MIN,
-        RIBBON_ITEM_MAX);
-}
-
 ui::Rect ribbon_item_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
     if (position >= tasks) return {};
-    const int32_t width = ribbon_item_width(workspace);
-    if (modern_rail_layout()) {
-        return {
-            78 + static_cast<int32_t>(position) * (width + RIBBON_GAP),
-            workspace.pulse_ribbon.y + 6, width,
-            workspace.pulse_ribbon.height - 12,
-        };
-    }
-    const int32_t task_start = workspace.pulse_ribbon.x + DOCK_PADDING +
-        pinned_section_width() + DOCK_SEPARATOR;
+    const bool modern = modern_rail_layout();
+    const int32_t task_start = modern ? 78 :
+        DOCK_PADDING + floating_dock_pins(workspace.pulse_ribbon, tasks).width() + DOCK_SEPARATOR;
+    const int32_t tail = modern ? 8 : DOCK_PADDING;
+    const int32_t count = static_cast<int32_t>(tasks);
+    const int32_t space = workspace.pulse_ribbon.width - task_start - tail;
+    const int32_t gap = clamp_size(space / (2 * count), 0, RIBBON_GAP);
+    const int32_t width = clamp_size((space - (count - 1) * gap) / count,
+                                    1, modern ? 145 : RIBBON_ITEM_MAX);
+    const int32_t inset = modern ? 6 : 12;
     return {
-        task_start + static_cast<int32_t>(position) * (width + RIBBON_GAP),
-        workspace.pulse_ribbon.y + 12,
-        width,
-        workspace.pulse_ribbon.height - 24,
+        workspace.pulse_ribbon.x + task_start + static_cast<int32_t>(position) * (width + gap),
+        workspace.pulse_ribbon.y + inset, width,
+        workspace.pulse_ribbon.height - 2 * inset,
     };
 }
 

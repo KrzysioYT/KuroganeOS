@@ -82,6 +82,7 @@ void dock_bar(const Rect& bounds, size_t running_count);
 void dock_item(const Rect& bounds, DockIcon icon, bool running, bool focused);
 void dock_task(const Rect& bounds, const char* title, bool focused, bool minimized);
 // Flux Modern wide-screen layout: permanently visible navigation rail.
+inline constexpr int32_t kSideDockFooterHeight = 66;
 void side_dock(const Rect& bounds);
 void side_dock_item(const Rect& bounds, DockIcon icon, const char* label,
                     bool running, bool focused);

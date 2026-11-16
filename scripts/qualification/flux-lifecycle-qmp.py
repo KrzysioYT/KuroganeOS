@@ -548,6 +548,19 @@ class Harness:
             start = self.mark()
             self.control(found, 0)
             self.wait(start, 'close', app=2, window=found['id'])
+            # The larger Modern rail still routes the new last row pixel
+            # to Files, even where the 100% rail would choose Settings.
+            row = min(self.pixels(72), (home['sh'] - 66 - 58 - 66 - 6) // 6)
+            assert row > 72
+            start = self.mark()
+            self.pointer(home, 42, 66 + 6 + 2 * row - 1)
+            self.button(True)
+            self.button(False)
+            found = self.wait(start, 'present', app=2)
+            print('[lifecycle] 200% Modern rail edge opens Files: PASS', flush=True)
+            start = self.mark()
+            self.control(found, 0)
+            self.wait(start, 'close', app=2, window=found['id'])
             self.scroll_down(home, home['x'] + 65, home['y'] + 70, 16)
             self.wait_marker('[TEST] flux_home_wheel_navigation: PASS')
             # With the Files search filter, the final page has one tile row
