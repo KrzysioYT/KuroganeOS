@@ -182,7 +182,23 @@ static inline ku_window_t gui_window_profile_open(
         profile->saved = restored;
         profile->have_saved = 1;
     }
-    return gui_open(title, x, y, width, height);
+    const ku_window_t window = gui_open(title, x, y, width, height);
+    if (window != KU_INVALID_WINDOW) {
+        ku_ui_window_geometry initial = {0};
+        initial.structure_size = sizeof(initial);
+        if (ku_ui_get_geometry(window, &initial) == KU_STATUS_OK &&
+            gui_window_geometry_valid(&initial)) {
+            profile->sample = initial;
+            profile->have_sample = 1;
+            /* Do not overwrite an existing profile with default geometry
+             * just because settingsd was unavailable during startup. */
+            if (!profile->have_saved) {
+                profile->saved = initial;
+                profile->have_saved = 1;
+            }
+        }
+    }
+    return window;
 }
 static inline void gui_window_profile_tick(
     gui_window_profile* profile, ku_window_t window) {
@@ -194,10 +210,19 @@ static inline void gui_window_profile_tick(
     current.structure_size = sizeof(current);
     if (ku_ui_get_geometry(window, &current) != KU_STATUS_OK ||
         !gui_window_geometry_valid(&current)) return;
-    if (!profile->have_sample ||
-        !gui_window_same_geometry(&profile->sample, &current)) {
+    if (!profile->have_sample) {
         profile->sample = current;
         profile->have_sample = 1;
+        profile->stable_samples = 0U;
+        if (!profile->have_saved) {
+            /* First observed default is not a user preference change. */
+            profile->saved = current;
+            profile->have_saved = 1;
+        }
+        return;
+    }
+    if (!gui_window_same_geometry(&profile->sample, &current)) {
+        profile->sample = current;
         profile->stable_samples = 0U;
         return;
     }
