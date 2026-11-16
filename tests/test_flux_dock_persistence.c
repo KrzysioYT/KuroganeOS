@@ -17,6 +17,8 @@ static size_t read_chunk_limit;
 static int fail_read_after_chunk;
 static uint32_t fail_pin_set_once_app;
 static uint32_t fail_pin_order_set_once_app;
+static uint32_t ignore_pin_set_once_app;
+static uint32_t silently_scramble_order_once_app;
 static uint8_t pinned[8] = {1U};
 static uint8_t order[8] = {0,1,2,3,4,5,6,7};
 
@@ -92,6 +94,10 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
             fail_pin_set_once_app = 0U;
             return KU_STATUS_IO_ERROR;
         }
+        if (id != 0U && ignore_pin_set_once_app == id) {
+            ignore_pin_set_once_app = 0U;
+            return KU_STATUS_OK; /* A stale service falsely acknowledges SET. */
+        }
         pinned[id] = id == 0 ? 1U : r->value != 0U;
         r->pinned = pinned[id]; return KU_STATUS_OK;
     }
@@ -118,6 +124,12 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
                 order[p] = order[p + 1U];
         }
         order[target] = (uint8_t)id;
+        if (silently_scramble_order_once_app == id) {
+            silently_scramble_order_once_app = 0U;
+            const uint8_t previous = order[3];
+            order[3] = order[4];
+            order[4] = previous;
+        }
         return KU_STATUS_OK;
     }
     return KU_STATUS_INVALID_ARGUMENT;
@@ -177,6 +189,23 @@ int main(void) {
     assert(storage[2].exists && storage[2].size == FLUX_DOCK_RECORD_BYTES);
     order[1] = 1; order[2] = 2;
     pinned[2] = 0U; pinned[3] = 0U;
+    /* A service may report OK without applying a pin update. Readback
+     * verification must detect that mismatch and roll back all changes. */
+    ignore_pin_set_once_app = 2U;
+    assert(!load_pin_state());
+    assert(ignore_pin_set_once_app == 0U);
+    assert(order[1] == 1U && order[2] == 2U);
+    assert(pinned[2] == 0U && pinned[3] == 0U);
+
+    /* Even when the last order SET acknowledges success, an inconsistent
+     * resulting permutation must not be accepted as a restored profile. */
+    silently_scramble_order_once_app = 7U;
+    assert(!load_pin_state());
+    assert(silently_scramble_order_once_app == 0U);
+    for (uint32_t position = 1U; position < 8U; ++position)
+        assert(order[position] == position);
+    assert(pinned[2] == 0U && pinned[3] == 0U);
+
     /* If a pin write fails after an earlier write succeeded, the previous
      * live pin mask and order must be restored, never half-applied. */
     fail_pin_set_once_app = 3U;
