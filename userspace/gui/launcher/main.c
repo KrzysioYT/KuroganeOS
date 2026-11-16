@@ -799,6 +799,35 @@ static int load_pin_state(void) {
             move.value = position;
             if (ku_desktop_pin(&move) != KU_STATUS_OK) goto rollback;
         }
+    }
+
+    /* A successful IPC response is not proof that all multi-step changes
+     * took effect. Verify every pinnable bit and each restored position
+     * before acknowledging recovery. An inconsistent result rolls back. */
+    for (size_t index = 0U; index < APP_COUNT; ++index) {
+        const uint32_t app_id = g_apps[index].desktop_id;
+        if (!g_apps[index].pinnable) continue;
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app_id;
+        query.action = KU_DESKTOP_PIN_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            (query.pinned != 0U) !=
+                ((mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U))
+            goto rollback;
+    }
+    if (have_order) {
+        for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+            ku_desktop_pin_request query;
+            memset(&query, 0, sizeof(query));
+            query.structure_size = sizeof(query);
+            query.app_id = order[position];
+            query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+            if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+                query.value != position)
+                goto rollback;
+        }
         ku_desktop_pin_request query;
         memset(&query, 0, sizeof(query));
         query.structure_size = sizeof(query);
