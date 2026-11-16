@@ -216,12 +216,13 @@ case "$audio_model" in
     none|ac97|hda) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
 esac
-if [[ -n "$send_key_name" && ! "$send_key_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+send_key_pattern='^[A-Za-z0-9_-]+(\+[A-Za-z0-9_-]+)*$'
+if [[ -n "$send_key_name" && ! "$send_key_name" =~ $send_key_pattern ]]; then
     echo "invalid QEMU sendkey name: $send_key_name" >&2
     exit 2
 fi
 for key in "${send_key_count_names[@]}"; do
-    if [[ ! "$key" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    if [[ ! "$key" =~ $send_key_pattern ]]; then
         echo "invalid QEMU sendkey name: $key" >&2
         exit 2
     fi

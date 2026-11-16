@@ -2,6 +2,7 @@
 """Installer automation must refuse existing output directories and devices."""
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -116,6 +117,24 @@ class SafetyTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 module.wait_marker(serial, '[TEST] installer_complete: PASS', mock.Mock(),
                                    module.time.monotonic() + 1)
+
+    def test_smoke_accepts_qmp_key_chords_through_cli(self):
+        smoke = module.ROOT / 'scripts/smoke-uefi-iso-qemu.sh'
+        with tempfile.TemporaryDirectory() as directory:
+            missing_media = Path(directory) / 'missing.img'
+            for flags in (
+                ['--send-key-after-marker', 'marker'],
+                ['--send-key-after-marker-count', 'marker', '1'],
+            ):
+                base = ['bash', str(smoke), str(missing_media), '--disk', *flags]
+                for key in ('ret', 'kp-add', 'ctrl+alt+f7'):
+                    result = subprocess.run([*base, key], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertRegex(result.stderr, 'media missing or empty|qemu-system-x86_64 is required')
+                for key in ('ctrl++f7', '+f7', 'f7+'):
+                    result = subprocess.run([*base, key], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn('invalid QEMU sendkey name', result.stderr)
 
 
 if __name__ == '__main__':
