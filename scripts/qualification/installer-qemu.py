@@ -83,7 +83,7 @@ def verify_dock_profile(disk, env):
     """Independently inspect the binary Dock record on the installed FAT32."""
     partition = subprocess.check_output(
         ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
-    match = re.search(r'^First sector: (\\d+)\\b', partition, re.M)
+    match = re.search(r'^First sector: (\d+)\b', partition, re.M)
     if not match or "Partition name: 'Kurogane Root'" not in partition:
         raise RuntimeError('Dock profile: missing installed FAT32 root partition')
     image = f'{disk}@@{int(match[1]) * 512}'
