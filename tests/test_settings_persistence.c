@@ -105,6 +105,19 @@ int main(void) {
     assert(load_records() == KU_STATUS_OK);
     assert(find_record("theme") != NULL && find_record("theme")->value[0] == 0);
 
+    /* A write failure after recovery cannot replace the only good backup
+     * with the known-corrupt primary, even if publishing the new DB fails. */
+    fail_publish = 1;
+    request.value[0] = 1;
+    assert(set_record(&request) == KU_STATUS_IO_ERROR);
+    assert(files[2].exists);
+    assert(load_records() == KU_STATUS_OK);
+    assert(find_record("theme") != NULL && find_record("theme")->value[0] == 0);
+    fail_publish = 0;
+    assert(set_record(&request) == KU_STATUS_OK);
+    assert(load_records() == KU_STATUS_OK);
+    assert(find_record("theme") != NULL && find_record("theme")->value[0] == 1);
+
     /* Two damaged generations are an error, not an empty/default profile. */
     files[2].bytes[checksum_byte] ^= 1U;
     assert(load_records() == KU_STATUS_CORRUPT_DATA);
