@@ -1639,6 +1639,38 @@ void syscall_handler(
                 ui::desktop_text_scale_percent();
             return;
         }
+        case KU_SYS_UI_WINDOW_GEOMETRY: {
+            if (!context->ui.active || frame.rdi != context->ui.window ||
+                frame.rdx != sizeof(ku_ui_window_geometry) ||
+                !validate_user_buffer(*context, frame.rsi,
+                                      sizeof(ku_ui_window_geometry), true)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
+            }
+            auto* out = reinterpret_cast<ku_ui_window_geometry*>(
+                static_cast<uintptr_t>(frame.rsi));
+            if (out->structure_size != sizeof(ku_ui_window_geometry)) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
+                return;
+            }
+            windowing::WindowInfo info{};
+            if (windowing::query(context->ui.window, &info) != windowing::Status::Ok) {
+                frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
+                return;
+            }
+            /* A maximized window returns the user's last normal geometry,
+             * not the full-screen presentation rectangle. */
+            const ui::Rect bounds = info.restore_bounds;
+            out->structure_size = sizeof(*out);
+            out->x = bounds.x;
+            out->y = bounds.y;
+            out->width = bounds.width;
+            out->height = bounds.height;
+            out->state = static_cast<uint32_t>(info.state);
+            out->reserved = 0U;
+            frame.rax = KU_STATUS_OK;
+            return;
+        }
         case KU_SYS_UI_POLL: {
             if (!context->ui.active || frame.rdi != context->ui.window ||
                 frame.rdx != sizeof(ku_ui_event) ||
