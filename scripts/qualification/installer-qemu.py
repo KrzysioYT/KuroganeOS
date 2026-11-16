@@ -79,6 +79,19 @@ def verify_password_login(text, rejected_first):
         raise RuntimeError('installed password login did not reject/authenticate in order')
 
 
+def validate_dock_record(payload):
+    """Reject malformed, stale, or checksum-damaged persisted Dock records."""
+    if len(payload) != 13 or payload[1:9] != bytes((0xD8, 1, 3, 2, 4, 5, 6, 7)):
+        raise RuntimeError('Dock profile: installed order does not match UI move')
+    if (payload[0] & 1) == 0:
+        raise RuntimeError('Dock profile: HOME pin was lost')
+    checksum = 2166136261
+    for byte in payload[:9]:
+        checksum = ((checksum ^ byte) * 16777619) & 0xFFFFFFFF
+    if payload[9:] != checksum.to_bytes(4, 'little'):
+        raise RuntimeError('Dock profile: on-disk checksum is invalid')
+
+
 def verify_dock_profile(disk, env):
     """Independently inspect the binary Dock record on the installed FAT32."""
     partition = subprocess.check_output(
@@ -89,15 +102,7 @@ def verify_dock_profile(disk, env):
     image = f'{disk}@@{int(match[1]) * 512}'
     payload = subprocess.check_output(
         ['mtype', '-i', image, '::/home/desktop.cfg'], env=env)
-    if len(payload) != 13 or payload[1:9] != bytes((0xD8, 1, 3, 2, 4, 5, 6, 7)):
-        raise RuntimeError('Dock profile: installed order does not match UI move')
-    if (payload[0] & 1) == 0:
-        raise RuntimeError('Dock profile: HOME pin was lost')
-    checksum = 2166136261
-    for byte in payload[:9]:
-        checksum = ((checksum ^ byte) * 16777619) & 0xFFFFFFFF
-    if payload[9:] != checksum.to_bytes(4, 'little'):
-        raise RuntimeError('Dock profile: on-disk checksum is invalid')
+    validate_dock_record(payload)
     print('[installer-qemu] installed Dock profile bytes and checksum: PASS',
           flush=True)
 
