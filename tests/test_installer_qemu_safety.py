@@ -47,6 +47,12 @@ class SafetyTests(unittest.TestCase):
         suffix = [module.SESSION_CREATED, module.HOME_FRAME, module.DESKTOP]
         module.verify_password_login('\r\n'.join(prefix + suffix), True)
         module.verify_password_login('\n'.join([prefix[0], prefix[2], *suffix]), False)
+        # Kernel logs may concatenate neighboring independent writes without
+        # a newline. Valid, ordered event tokens must still qualify.
+        module.verify_password_login(
+            prefix[0] + '[TEST] event_broker_loop_resumed: PASS' + '\n'
+            + '\n'.join([*prefix[1:], *suffix]), True)
+        module.verify_password_login(''.join([*prefix, *suffix]), True)
         for wrong in (
             [prefix[0], prefix[2], *suffix],  # First boot did not reject a bad password.
             [*prefix[:2], module.SESSION_CREATED, prefix[2], *suffix[1:]],
