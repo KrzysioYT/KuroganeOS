@@ -616,9 +616,39 @@ static uint8_t collect_pin_mask(void) {
 
 /* desktop.cfg v1 stores one pin-mask byte. The new format appends a
  * versioned permutation of IDs 1..7; HOME stays at position zero. */
+/* v1: one pin-mask byte; v2: mask followed by tagged ID permutation.
+ * Refuse truncated/invalid records before touching the live desktop. */
+static int g_dock_recovered_from_backup = 0;
+static ku_status_t read_pin_file(const char* path, size_t length,
+                                 uint8_t* mask, uint8_t order[8],
+                                 int* have_order) {
+    ku_file_stat info = {0};
+    ku_status_t status = ku_file_stat_path(path, length, &info);
+    if (status != KU_STATUS_OK) return status;
+    if (info.type != KU_FILE_TYPE_REGULAR ||
+        (info.size != 1U && info.size != 9U)) return KU_STATUS_CORRUPT_DATA;
+    const ku_result_t opened = ku_file_open(path, length);
+    if (opened <= 0) return (ku_status_t)opened;
+    uint8_t bytes[9] = {0};
+    const ku_result_t read_size = ku_file_read(
+        (ku_file_t)opened, bytes, (size_t)info.size);
+    const ku_status_t closed = ku_file_close((ku_file_t)opened);
+    if (read_size != (ku_result_t)info.size || closed != KU_STATUS_OK)
+        return KU_STATUS_IO_ERROR;
+    if (info.size == 9U && !flux_dock_order_valid(bytes + 1U))
+        return KU_STATUS_CORRUPT_DATA;
+    *mask = bytes[0];
+    *have_order = info.size == 9U;
+    if (*have_order)
+        for (size_t index = 0U; index < 8U; ++index)
+            order[index] = bytes[index + 1U];
+    return KU_STATUS_OK;
+}
+
 static int save_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
-    ku_result_t opened;
+    const char temporary[] = "/home/desktop.tmp";
+    const char backup[] = "/home/desktop.bak";
     uint8_t state[9] = {0};
     state[0] = collect_pin_mask();
     state[1] = FLUX_DOCK_ORDER_TAG;
@@ -634,39 +664,78 @@ static int save_pin_state(void) {
         state[query.value + 1U] = (uint8_t)app;
     }
     if (!flux_dock_order_valid(state + 1U)) return 0;
-    ku_status_t status = ku_file_create(path, sizeof(path) - 1U);
-    if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
-    opened = ku_file_open_ex(path, sizeof(path) - 1U, KU_FILE_OPEN_WRITE);
-    if (opened < 0) return 0;
-    if (ku_file_write((ku_file_t)opened, state, sizeof(state)) != (ku_result_t)sizeof(state)) {
-        (void)ku_file_close((ku_file_t)opened);
-        return 0;
-    }
-    status = ku_file_close((ku_file_t)opened);
+
+    // Write and sync the new generation without opening the published file.
+    ku_status_t status = ku_file_unlink(temporary, sizeof(temporary) - 1U);
+    if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
+    status = ku_file_create(temporary, sizeof(temporary) - 1U);
     if (status != KU_STATUS_OK) return 0;
-    return ku_file_sync() == KU_STATUS_OK;
+    const ku_result_t opened = ku_file_open_ex(
+        temporary, sizeof(temporary) - 1U, KU_FILE_OPEN_WRITE);
+    if (opened <= 0) return 0;
+    const ku_result_t written = ku_file_write(
+        (ku_file_t)opened, state, sizeof(state));
+    const ku_status_t closed = ku_file_close((ku_file_t)opened);
+    if (written != (ku_result_t)sizeof(state) || closed != KU_STATUS_OK)
+        return 0;
+    if (ku_file_sync() != KU_STATUS_OK) return 0;
+
+    status = ku_file_rename(
+        temporary, sizeof(temporary) - 1U, path, sizeof(path) - 1U);
+    if (status == KU_STATUS_ALREADY_EXISTS && g_dock_recovered_from_backup) {
+        // Primary was corrupt. Do not replace the only verified backup with it.
+        status = ku_file_unlink(path, sizeof(path) - 1U);
+        if (status == KU_STATUS_OK) status = ku_file_sync();
+        if (status == KU_STATUS_OK)
+            status = ku_file_rename(
+                temporary, sizeof(temporary) - 1U, path, sizeof(path) - 1U);
+    } else if (status == KU_STATUS_ALREADY_EXISTS) {
+        // FAT32 does not support replace-on-rename. Keep the old primary as a
+        // recovery generation across a failed or interrupted publication.
+        status = ku_file_unlink(backup, sizeof(backup) - 1U);
+        if (status == KU_STATUS_OK || status == KU_STATUS_NOT_FOUND)
+            status = ku_file_rename(
+                path, sizeof(path) - 1U, backup, sizeof(backup) - 1U);
+        if (status == KU_STATUS_OK) {
+            status = ku_file_sync();
+            if (status == KU_STATUS_OK)
+                status = ku_file_rename(
+                    temporary, sizeof(temporary) - 1U,
+                    path, sizeof(path) - 1U);
+            if (status != KU_STATUS_OK) {
+                (void)ku_file_rename(
+                    backup, sizeof(backup) - 1U, path, sizeof(path) - 1U);
+                (void)ku_file_sync();
+            }
+        }
+    }
+    if (status != KU_STATUS_OK || ku_file_sync() != KU_STATUS_OK) return 0;
+    g_dock_recovered_from_backup = 0;
+    return 1;
 }
 
 static int load_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
+    const char backup[] = "/home/desktop.bak";
     uint8_t mask = 0U;
     uint8_t order[8] = {0};
-    size_t index;
-    ku_result_t opened = ku_file_open(path, sizeof(path) - 1U);
-    if (opened < 0) return 0;
-    if (ku_file_read((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
-        (void)ku_file_close((ku_file_t)opened);
-        return 0;
+    int have_order = 0;
+    g_dock_recovered_from_backup = 0;
+    ku_status_t status = read_pin_file(
+        path, sizeof(path) - 1U, &mask, order, &have_order);
+    if (status != KU_STATUS_OK &&
+        (status == KU_STATUS_NOT_FOUND || status == KU_STATUS_CORRUPT_DATA)) {
+        status = read_pin_file(
+            backup, sizeof(backup) - 1U, &mask, order, &have_order);
+        if (status == KU_STATUS_OK) g_dock_recovered_from_backup = 1;
     }
-    const int have_order =
-        ku_file_read((ku_file_t)opened, order, sizeof(order)) ==
-            (ku_result_t)sizeof(order) && flux_dock_order_valid(order);
-    if (ku_file_close((ku_file_t)opened) != KU_STATUS_OK) return 0;
+    if (status != KU_STATUS_OK) return 0;
 
-    for (index = 0U; index < APP_COUNT; ++index) {
+    for (size_t index = 0U; index < APP_COUNT; ++index) {
         const uint32_t app_id = g_apps[index].desktop_id;
         if (!g_apps[index].pinnable) continue;
-        set_pin_state(app_id, (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
+        set_pin_state(app_id,
+            (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
     }
     if (have_order) {
         for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
