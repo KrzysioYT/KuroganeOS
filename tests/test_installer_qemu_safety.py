@@ -13,6 +13,29 @@ spec.loader.exec_module(module)
 
 
 class SafetyTests(unittest.TestCase):
+    def test_installed_dock_record_rejects_damage_and_old_versions(self):
+        # Exactly the binary data written by the actual 13-byte v3 profile.
+        record = bytearray((0x07, 0xD8, 1, 3, 2, 4, 5, 6, 7))
+        checksum = 2166136261
+        for byte in record:
+            checksum = ((checksum ^ byte) * 16777619) & 0xFFFFFFFF
+        record += checksum.to_bytes(4, 'little')
+        module.validate_dock_record(bytes(record))
+        bad_records = [
+            record[:-1],                         # Truncated checksum.
+            bytearray(record[:9]),                # Old pre-checksum format.
+            bytearray(record),                    # Valid order, corrupt checksum.
+            bytearray(record),                    # Valid digest, wrong app order.
+            bytearray(record),                    # HOME pin lost.
+        ]
+        bad_records[2][9] ^= 1
+        bad_records[3][3], bad_records[3][4] = bad_records[3][4], bad_records[3][3]
+        bad_records[4][0] &= ~1
+        for bad in bad_records:
+            with self.subTest(data=bytes(bad).hex()):
+                with self.assertRaises(RuntimeError):
+                    module.validate_dock_record(bytes(bad))
+
     def test_password_evidence_requires_rejection_before_session(self):
         prefix = [module.INSTALLED_PROFILE, module.BAD_PASSWORD, module.GOOD_PASSWORD]
         suffix = [module.SESSION_CREATED, module.HOME_FRAME, module.DESKTOP]
