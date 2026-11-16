@@ -79,6 +79,29 @@ def verify_password_login(text, rejected_first):
         raise RuntimeError('installed password login did not reject/authenticate in order')
 
 
+def verify_dock_profile(disk, env):
+    """Independently inspect the binary Dock record on the installed FAT32."""
+    partition = subprocess.check_output(
+        ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
+    match = re.search(r'^First sector: (\\d+)\\b', partition, re.M)
+    if not match or "Partition name: 'Kurogane Root'" not in partition:
+        raise RuntimeError('Dock profile: missing installed FAT32 root partition')
+    image = f'{disk}@@{int(match[1]) * 512}'
+    payload = subprocess.check_output(
+        ['mtype', '-i', image, '::/home/desktop.cfg'], env=env)
+    if len(payload) != 13 or payload[1:9] != bytes((0xD8, 1, 3, 2, 4, 5, 6, 7)):
+        raise RuntimeError('Dock profile: installed order does not match UI move')
+    if (payload[0] & 1) == 0:
+        raise RuntimeError('Dock profile: HOME pin was lost')
+    checksum = 2166136261
+    for byte in payload[:9]:
+        checksum = ((checksum ^ byte) * 16777619) & 0xFFFFFFFF
+    if payload[9:] != checksum.to_bytes(4, 'little'):
+        raise RuntimeError('Dock profile: on-disk checksum is invalid')
+    print('[installer-qemu] installed Dock profile bytes and checksum: PASS',
+          flush=True)
+
+
 def disk_boot_command(disk, log_dir, timeout):
     return ['bash', str(ROOT / 'scripts/smoke-uefi-iso-qemu.sh'), str(disk),
             '--disk', '--persistent-disk', '--smp', '4', '--nic', 'none', '--no-ps2',
@@ -247,11 +270,15 @@ def main():
     parser.add_argument('--timeout', type=int, default=240)
     parser.add_argument('--desktop-lifecycle', action='store_true',
                         help='exercise windows and Settings keyboard on first installed boot')
+    parser.add_argument('--dock-order-reboot', action='store_true',
+                        help='reorder Dock through a real Home key event and verify disk/reboot')
     parser.add_argument('--password-profile', action='store_true',
                         help='qualify wrong/correct passwords and a damaged profile on disposable disks')
     args = parser.parse_args()
     if not 60 <= args.timeout <= 240:
         parser.error('timeout must be 60..240 seconds per phase')
+    if args.dock_order_reboot and not args.desktop_lifecycle:
+        parser.error('--dock-order-reboot requires --desktop-lifecycle')
     iso = args.iso.resolve()
     if not iso.is_file():
         parser.error('ISO must be a regular file')
@@ -356,6 +383,8 @@ def main():
             cmd.extend(['--send-key-after-marker', INSTALLED_PROFILE, 'ret'])
         if args.desktop_lifecycle and phase == 'first-boot':
             cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
+            if args.dock_order_reboot:
+                cmd.append('--flux-dock-order')
         if expected_theme is not None:
             cmd.extend(['--require-marker', f'[SETTINGS] theme_restored={expected_theme}'])
         if expected_text_scale is not None:
@@ -376,6 +405,14 @@ def main():
         if args.password_profile:
             verify_password_login(text, rejected_first)
             print('[installer-qemu] ' + phase + ' password authentication: PASS',
+                  flush=True)
+        if args.dock_order_reboot and phase == 'first-boot':
+            if text.count('[DOCK] order_saved_app=2 position=3') != 1:
+                raise RuntimeError('guest did not reorder and save Files in Dock')
+        if args.dock_order_reboot and phase == 'second-boot':
+            if text.count('[DOCK] order_restored_files_position=3') != 1:
+                raise RuntimeError('cold boot did not restore the exact Files Dock position')
+            print('[installer-qemu] Dock order restored after cold disk reboot: PASS',
                   flush=True)
         if args.desktop_lifecycle and phase == 'first-boot':
             expected_theme = saved_theme(text)
@@ -400,6 +437,8 @@ def main():
         print('[installer-qemu] ' + phase + ' and authenticated Home: PASS', flush=True)
     if args.password_profile:
         verify_missing_profile(disk, output, env, args.timeout)
+    if args.dock_order_reboot:
+        verify_dock_profile(disk, env)
     if args.desktop_lifecycle:
         partition = subprocess.check_output(
             ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
@@ -418,6 +457,7 @@ def main():
                 'restored_text_scale': expected_text_scale,
                 'restored_wallpaper': 1 if args.desktop_lifecycle else None,
                 'password_profile': args.password_profile,
+                'dock_order_reboot': args.dock_order_reboot,
                 'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)
