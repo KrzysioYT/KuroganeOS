@@ -256,7 +256,7 @@ static ku_status_t persist_records(void) {
     return status;
 }
 
-static ku_status_t load_records(void) {
+static ku_status_t load_records_from(const char* path) {
     settingsd_disk_header header;
     settingsd_disk_record disk_records[SETTINGSD_MAX_RECORDS];
     ku_file_stat info;
@@ -266,15 +266,8 @@ static ku_status_t load_records(void) {
     uint32_t checksum;
     size_t expected_size;
     size_t index;
-    const char* path = SETTINGSD_DB_PATH;
-
-    clear_bytes(records, sizeof(records));
     status = ku_file_stat_path(path, u_strlen(path), &info);
-    if (status == KU_STATUS_NOT_FOUND) {
-        path = SETTINGSD_BACKUP_PATH;
-        status = ku_file_stat_path(path, u_strlen(path), &info);
-    }
-    if (status == KU_STATUS_NOT_FOUND) return KU_STATUS_OK;
+    if (status == KU_STATUS_NOT_FOUND) return status;
     if (status != KU_STATUS_OK || info.type != KU_FILE_TYPE_REGULAR) return KU_STATUS_IO_ERROR;
     if (info.size < sizeof(header) || info.size > sizeof(header) + sizeof(disk_records)) return KU_STATUS_CORRUPT_DATA;
 
@@ -323,6 +316,30 @@ static ku_status_t load_records(void) {
         records[index].active = 1;
     }
     return KU_STATUS_OK;
+}
+
+/* A corrupt primary must not mask a verified older generation. Never
+ * silently replace a damaged installed profile with empty defaults. */
+static ku_status_t load_records(void) {
+    ku_status_t status;
+    ku_status_t backup_status;
+
+    clear_bytes(records, sizeof(records));
+    status = load_records_from(SETTINGSD_DB_PATH);
+    if (status == KU_STATUS_OK) return KU_STATUS_OK;
+    if (status != KU_STATUS_NOT_FOUND && status != KU_STATUS_CORRUPT_DATA) {
+        clear_bytes(records, sizeof(records));
+        return status;
+    }
+
+    clear_bytes(records, sizeof(records));
+    backup_status = load_records_from(SETTINGSD_BACKUP_PATH);
+    if (backup_status == KU_STATUS_OK) return KU_STATUS_OK;
+    clear_bytes(records, sizeof(records));
+    if (backup_status == KU_STATUS_NOT_FOUND) {
+        return status == KU_STATUS_NOT_FOUND ? KU_STATUS_OK : KU_STATUS_CORRUPT_DATA;
+    }
+    return backup_status;
 }
 
 static ku_status_t set_record(const ku_settings_request* request) {
