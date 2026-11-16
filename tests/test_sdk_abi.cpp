@@ -101,6 +101,13 @@ int main() {
     static_assert(KU_SYS_DESKTOP_TEXT_SCALE == 74);
     static_assert(KU_SYS_UI_NATIVE_HEIGHT == 75);
     static_assert(KU_SYS_UI_NATIVE_WIDTH == 76);
+    static_assert(KU_SYS_UI_WINDOW_GEOMETRY == 77);
+    static_assert(KU_UI_WINDOW_NORMAL == 0U);
+    static_assert(KU_UI_WINDOW_MINIMIZED == 1U);
+    static_assert(KU_UI_WINDOW_MAXIMIZED == 2U);
+    static_assert(sizeof(ku_ui_window_geometry) == 28);
+    static_assert(offsetof(ku_ui_window_geometry, state) == 20U);
+    static_assert(offsetof(ku_ui_window_geometry, reserved) == 24U);
     static_assert(KU_DESKTOP_TEXT_SCALE_QUERY == 0);
     static_assert(KU_DESKTOP_TEXT_SCALE_SET == 1);
     static_assert(sizeof(ku_ui_event) == 32);
