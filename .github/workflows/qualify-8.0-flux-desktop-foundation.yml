@@ -130,6 +130,18 @@ jobs:
             -fsanitize=undefined -fno-sanitize-recover=all \
             tests/test_flux_dock_order_state.c -o build/tests/desktop/dock-order-ubsan
           build/tests/desktop/dock-order-ubsan
+      - name: Dock persistence fault injection optimized + UBSan
+        run: |
+          mkdir -p build/tests/desktop
+          cc -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -ffunction-sections -fdata-sections tests/test_flux_dock_persistence.c \
+            -Wl,--gc-sections -o build/tests/desktop/dock-persistence
+          build/tests/desktop/dock-persistence
+          cc -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -Isdk/include \
+            -fsanitize=undefined -fno-sanitize-recover=all \
+            -ffunction-sections -fdata-sections tests/test_flux_dock_persistence.c \
+            -Wl,--gc-sections -o build/tests/desktop/dock-persistence-ubsan
+          build/tests/desktop/dock-persistence-ubsan
       - name: Modern rail pointer dispatch at both GOP sizes
         run: |
           c++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
