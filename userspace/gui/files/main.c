@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "../window_profile.h"
 #include <kurogane/flux_app_catalog.h>
 #include "paging.h"
 #include "navigation.h"
@@ -464,7 +465,10 @@ static int activate_selected(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open(KU_FLUX_TITLE_FILES, 250, 75, 650, 630);
+    gui_window_profile window_profile;
+    const ku_window_t window = gui_window_profile_open(
+        &window_profile, "window.files", KU_FLUX_TITLE_FILES,
+        250, 75, 650, 630);
     explorer_entry* entries = s_directory_cache;
     size_t entry_count = 0U;
     size_t page_start = 0U;
@@ -517,6 +521,7 @@ int main(void) {
         uint32_t target;
         int wait_result;
         do {
+            gui_window_profile_tick(&window_profile, window);
             if (gui_update_scene_viewport(window, &scene)) (void)kui_scene_present(window, &scene);
             wait_result = kui_next_event(window, &event);
             if (wait_result == 0) (void)kuro_sleep(1U);
@@ -833,6 +838,7 @@ int main(void) {
         (void)present_files(window, &scene);
     }
 
+    gui_window_profile_flush(&window_profile);
     (void)ku_ui_close(window);
     return 0;
 }
