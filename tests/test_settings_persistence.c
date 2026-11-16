@@ -118,8 +118,11 @@ int main(void) {
     assert(load_records() == KU_STATUS_OK);
     assert(find_record("theme") != NULL && find_record("theme")->value[0] == 1);
 
-    /* Two damaged generations are an error, not an empty/default profile. */
+    /* The successful repair produced a new verified primary. Corrupt that
+     * new generation too before testing rejection of two damaged copies. */
+    files[0].bytes[checksum_byte] ^= 1U;
     files[2].bytes[checksum_byte] ^= 1U;
+    /* Two damaged generations are an error, not an empty/default profile. */
     assert(load_records() == KU_STATUS_CORRUPT_DATA);
     assert(find_record("theme") == NULL);
 
