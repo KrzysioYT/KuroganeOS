@@ -693,11 +693,21 @@ static int save_pin_state(void) {
     const ku_result_t opened = ku_file_open_ex(
         temporary, sizeof(temporary) - 1U, KU_FILE_OPEN_WRITE);
     if (opened <= 0) return 0;
-    const ku_result_t written = ku_file_write(
-        (ku_file_t)opened, state, sizeof(state));
+    /* A successful filesystem write may be short. Commit only after the
+     * complete record reaches the temporary file. */
+    size_t written = 0U;
+    int write_failed = 0;
+    while (written < sizeof(state)) {
+        const ku_result_t count = ku_file_write(
+            (ku_file_t)opened, state + written, sizeof(state) - written);
+        if (count <= 0 || (size_t)count > sizeof(state) - written) {
+            write_failed = 1;
+            break;
+        }
+        written += (size_t)count;
+    }
     const ku_status_t closed = ku_file_close((ku_file_t)opened);
-    if (written != (ku_result_t)sizeof(state) || closed != KU_STATUS_OK)
-        return 0;
+    if (write_failed || closed != KU_STATUS_OK) return 0;
     if (ku_file_sync() != KU_STATUS_OK) return 0;
 
     status = ku_file_rename(
