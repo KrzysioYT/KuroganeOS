@@ -45,6 +45,7 @@ class Harness:
         self.results = []
         self.settings_write = getattr(args, "settings_write", False)
         self.settings_session = getattr(args, "settings_session", False)
+        self.dock_order = getattr(args, "dock_order", False)
         self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connection.settimeout(3)
         self.connection.connect(args.qmp)
@@ -572,6 +573,23 @@ class Harness:
                     output_samples.append(screenshot_region(
                         self.output / (name + '.ppm'), x, y, 30, 20))
             assert len(set(output_samples)) == 3, 'empty echo, j and k must have distinct output'
+            if self.dock_order:
+                # Close every other app before controlling the real Home
+                # keyboard focus. Home's initial selection is Terminal (0),
+                # so DOWN selects Files (app=2), then SHIFT+RIGHT moves it
+                # from Dock position 2 to position 3 through the real UI.
+                for app in (terminal, files):
+                    start = self.mark()
+                    self.control(app, 0)
+                    self.wait(start, 'close', app=app['app'], window=app['id'])
+                self.key('down')
+                marker = '[DOCK] order_saved_app=2 position=3'
+                previous = self.serial.read_text(errors='replace').count(marker)
+                self.key('shift', 'right')
+                self.wait_marker(marker, previous)
+                self.screenshot('dock-order-reordered')
+                print('[lifecycle] Flux Dock reorder saved through guest keyboard: PASS',
+                      flush=True)
         (self.output / 'lifecycle.json').write_text(json.dumps(self.results, indent=2) + '\n')
         self.read()  # Fail even if a fault follows the last accepted transition.
         print('[lifecycle] PASS: minimize/restore/maximize/move/resize/focus/close/reopen/settings-keyboard', flush=True)
@@ -586,11 +604,15 @@ def main():
                         help='also activate and save themes; requires writable root')
     parser.add_argument('--settings-session', action='store_true',
                         help='click a color and exercise temporary UI scale on a Live ISO')
+    parser.add_argument('--dock-order', action='store_true',
+                        help='reorder the real Home Dock and save its profile on installed media')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')
     if args.settings_write and args.settings_session:
         parser.error('settings storage modes are mutually exclusive')
+    if args.dock_order and not args.settings_write:
+        parser.error('Dock order verification requires --settings-write')
     harness = Harness(args)
     try:
         harness.run()
