@@ -14,6 +14,8 @@ struct Rect {
     int32_t height;
 };
 
+struct WindowChromeMetrics;
+
 struct Theme {
     graphics::Color desktop;
     graphics::Color panel;
@@ -72,7 +74,8 @@ void desktop(const char* title);
 void desktop_session_status(bool ready);
 void panel(const Rect& bounds, bool raised = true);
 void window(const Rect& bounds, const char* title);
-void flux_window(const Rect& bounds, const char* title, bool focused);
+void flux_window(const Rect& bounds, const char* title, bool focused,
+                 const WindowChromeMetrics& chrome);
 void flux_control(const Rect& bounds, FluxControl control, bool active = false);
 void signal_spine(const Rect& bounds, size_t window_count, size_t focused_position);
 void dock_bar(const Rect& bounds, size_t running_count);

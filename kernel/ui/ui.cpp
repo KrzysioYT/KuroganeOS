@@ -1,5 +1,6 @@
 #include "ui.hpp"
 #include "text_fit.hpp"
+#include "window_chrome.hpp"
 
 #include "../../common/version.h"
 #include <kurogane/design.h>
@@ -623,8 +624,12 @@ void panel(const Rect& bounds, bool raised) {
     if (gStyleId == KU_FLUX_STYLE_CLASSIC) corner_marks(bounds, raised ? kTheme.accent : kRedDeep);
 }
 
-void flux_window(const Rect& bounds, const char* title, bool focused) {
+void flux_window(const Rect& bounds, const char* title, bool focused,
+                 const WindowChromeMetrics& chrome) {
     if (bounds.width <= 0 || bounds.height <= 0) return;
+    const int32_t header_height = chrome.header_height(bounds.height);
+    const int32_t controls = chrome.control_right() + chrome.control_width() +
+        2 * chrome.control_spacing();
     if (gStyleId == KU_FLUX_STYLE_MODERN) {
         const bool red_theme = gThemeId == KU_FLUX_THEME_RED;
         const graphics::Color surface = red_theme
@@ -634,15 +639,18 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
         modern_surface(bounds, surface,
                        focused ? graphics::rgb(91, 95, 102) : kTheme.border);
         graphics::fill_rect(bounds.x + 1, bounds.y + 1,
-                            bounds.width - 2, 34, header);
-        graphics::fill_rect(bounds.x + 1, bounds.y + 35,
+                            bounds.width - 2, header_height - 2, header);
+        graphics::fill_rect(bounds.x + 1, bounds.y + header_height - 1,
                             bounds.width - 2, 1, kTheme.border);
-        graphics::fill_rect(bounds.x, bounds.y, 3, 29,
+        graphics::fill_rect(bounds.x, bounds.y, chrome.pixels(3),
+                            header_height - chrome.pixels(7),
                             focused ? kRedHot : kRedDeep);
-        const int32_t title_width = bounds.width - 115;
+        const int32_t title_inset = chrome.pixels(14);
+        const int32_t title_width = bounds.width - controls - title_inset - chrome.pixels(19);
         if (title_width > 0) {
             (void)graphics::draw_text_ellipsized(
-                bounds.x + 14, bounds.y + 14, title ? title : "SURFACE",
+                bounds.x + title_inset, bounds.y + header_height / 2 - chrome.pixels(4),
+                title ? title : "SURFACE",
                 static_cast<uint32_t>(title_width),
                 focused ? kTheme.text : kTheme.text_muted,
                 header, 1U, true, graphics::TextWeight::Bold);
@@ -665,14 +673,16 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
     graphics::fill_rect(bounds.x, bounds.y, 4, bounds.height, signal);
     graphics::fill_rect(bounds.x + 4, bounds.y,
                         bounds.width > 142 ? 134 : bounds.width - 8, 2, signal);
-    graphics::fill_rect(bounds.x + 12, bounds.y + 34,
+    graphics::fill_rect(bounds.x + 12, bounds.y + header_height - 2,
                         bounds.width > 162 ? 146 : bounds.width - 24, 1,
                         focused ? kTheme.accent : kTheme.border);
-    signal_node(bounds.x + 13, bounds.y + 13, signal);
-    const int32_t title_width = bounds.width - 152;
+    signal_node(bounds.x + 13, bounds.y + chrome.pixels(13), signal);
+    const int32_t title_inset = chrome.pixels(32);
+    const int32_t title_width = bounds.width - controls - title_inset - chrome.pixels(38);
     if (title_width > 0) {
         (void)graphics::draw_text_ellipsized(
-            bounds.x + 32, bounds.y + 11, title ? title : "SURFACE",
+            bounds.x + title_inset, bounds.y + header_height / 2 - chrome.pixels(7),
+            title ? title : "SURFACE",
             static_cast<uint32_t>(title_width),
             focused ? kTheme.text : kTheme.text_muted,
             background, 2U, true, graphics::TextWeight::Bold);
@@ -686,7 +696,7 @@ void flux_window(const Rect& bounds, const char* title, bool focused) {
 }
 
 void window(const Rect& bounds, const char* title) {
-    flux_window(bounds, title, false);
+    flux_window(bounds, title, false, {100U});
 }
 
 void flux_control(const Rect& bounds, FluxControl control, bool active) {

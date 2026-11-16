@@ -6,6 +6,7 @@
 namespace ui {
 uint32_t g_host_style = KU_FLUX_STYLE_MODERN;
 uint32_t desktop_style_id() { return g_host_style; }
+uint32_t desktop_text_scale_percent() { return 100U; }
 }
 
 namespace {

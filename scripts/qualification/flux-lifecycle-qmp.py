@@ -47,6 +47,7 @@ class Harness:
         self.settings_session = getattr(args, "settings_session", False)
         self.dock_order = getattr(args, "dock_order", False)
         self.geometry_verify = getattr(args, "geometry_verify", None)
+        self.scale = 100
         self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connection.settimeout(3)
         self.connection.connect(args.qmp)
@@ -123,9 +124,16 @@ class Harness:
                 for down in (True, False)]})
             time.sleep(.07)
 
-    def control(self, info, index):
-        # Production chrome: 22px controls, 4px gaps, 8px right inset, 36px header.
-        self.pointer(info, info['x'] + info['w'] - 19 - index * 26, info['y'] + 18)
+    def pixels(self, logical):
+        return (logical * self.scale + 99) // 100
+
+    def control(self, info, index, last_pixel=False):
+        width, height = self.pixels(22), self.pixels(20)
+        x = info['x'] + info['w'] - self.pixels(8) - width - index * (width + self.pixels(4))
+        header = min(self.pixels(36), max(height, info['h'] - self.pixels(4) - self.pixels(52)))
+        y = info['y'] + (header - height) // 2
+        self.pointer(info, x + (width - 1 if last_pixel else width // 2),
+                     y + (height - 1 if last_pixel else height // 2))
         self.button(True)
         self.button(False)
 
@@ -151,7 +159,7 @@ class Harness:
             self.screenshot('wallpaper-before')
         # At 200% the initial viewport starts at the two stacked metric
         # cards. Click the shortcut below them without scrolling.
-        y = settings['y'] + 36 + 2 * (16 + 2 * 66 + 17)
+        y = settings['y'] + self.pixels(36 + 16 + 2 * 66 + 17)
         for wallpaper in ((1, 2, 0) if session_only else (1,)):
             self.pointer(settings, settings['x'] + 100, y)
             self.button(True)
@@ -191,6 +199,7 @@ class Harness:
             self.key('shift', 'tab')
         self.key('ret')
         self.wait_marker('[TEST] flux_settings_profile_reset: PASS')
+        self.scale = 100
         self.screenshot('profile-after-reset')
         initial, changed, reset = (
             self.output / (name + '.ppm') for name in
@@ -217,10 +226,10 @@ class Harness:
         # sent that pixel to the first logical row below the tile.
         tile_x = 16 + 12
         tile_bottom = 16 + (38 + 6) + (22 + 6) + 68
-        x = files['x'] + 4 + 2 * (tile_x + 40)
-        y = files['y'] + 36 + 2 * tile_bottom - 1
-        assert x < files['x'] + files['w'] - 4
-        assert y < files['y'] + files['h'] - 4
+        x = files['x'] + self.pixels(4 + tile_x + 40)
+        y = files['y'] + self.pixels(36 + tile_bottom) - 1
+        assert x < files['x'] + files['w'] - self.pixels(4)
+        assert y < files['y'] + files['h'] - self.pixels(4)
         self.pointer(files, x, y)
         self.button(True)
         self.button(False)
@@ -247,16 +256,16 @@ class Harness:
 
         # Scroll at the left margin, outside the directory tiles. The last
         # page ends with the two mutation buttons followed by a status label.
-        button_rows = ((files['h'] - 40) // 2 - 16 - 22) // 40
+        button_rows = ((files['h'] - self.pixels(40)) // 2 - 16 - 22) // 40
         assert 2 <= button_rows <= 8
 
         def click_mutation(rows_from_end):
             previous_scrolls = self.serial.read_text(errors='replace').count(
                 '[TEST] flux_files_controls_scroll: PASS')
-            self.scroll_down(files, files['x'] + 12, files['y'] + 90, 16)
+            self.scroll_down(files, files['x'] + 12, files['y'] + self.pixels(36) + 54, 16)
             self.wait_marker('[TEST] flux_files_controls_scroll: PASS', previous_scrolls)
             row_y = 16 + (button_rows - rows_from_end) * 40 + 17
-            self.pointer(files, files['x'] + 100, files['y'] + 36 + 2 * row_y)
+            self.pointer(files, files['x'] + 100, files['y'] + self.pixels(36 + row_y))
             self.button(True)
             self.button(False)
 
@@ -267,8 +276,7 @@ class Harness:
         self.wait_marker('[TEST] flux_files_mkdir: PASS')
         for key in 'flx8qa':
             self.key(key)
-        self.pointer(files, files['x'] + 4 + 2 * (tile_x + 40),
-                     files['y'] + 36 + 2 * (tile_bottom - 30))
+        self.pointer(files, x, files['y'] + self.pixels(36 + tile_bottom - 30))
         for down in (True, False):
             self.execute('input-send-event', {'events': [
                 {'type': 'btn', 'data': {'button': 'right', 'down': down}}]})
@@ -473,9 +481,10 @@ class Harness:
             self.wait_marker('[SETTINGS] text_scale_session=150', 1)
             self.key('ret')
             self.wait_marker('[SETTINGS] text_scale_session=200', 2)
+            self.scale = 200
             assert '[SETTINGS] theme_saved=' not in self.serial.read_text(errors='replace')
             start = self.mark()
-            self.control(settings, 0)
+            self.control(settings, 0, last_pixel=True)
             self.wait(start, 'close', app=6, window=settings['id'])
             # Reveal the Home scene after the change. It was already open
             # before Settings, as were Files and Terminal.
@@ -496,7 +505,7 @@ class Harness:
             self.wait_marker('[TEST] flux_notification_center_public_record: PASS')
             # Refresh sits before the notices so it remains reachable at 200%.
             self.pointer(notifications, notifications['x'] + 70,
-                         notifications['y'] + 36 + 2 * (16 + 44 + 28 + 17))
+                         notifications['y'] + self.pixels(36 + 16 + 44 + 28 + 17))
             self.button(True)
             self.button(False)
             self.wait_marker('[NOTIFY] refreshed=')
@@ -515,8 +524,8 @@ class Harness:
             self.screenshot('09-monitor-uptime')
             time.sleep(1.2)
             self.screenshot('10-monitor-uptime')
-            x = monitor['x'] + 4 + 2 * 16
-            y = monitor['y'] + 36 + 2 * (16 + 44) + 6
+            x = monitor['x'] + self.pixels(4 + 16)
+            y = monitor['y'] + self.pixels(36 + 16 + 44) + 6
             assert screenshot_region(self.output / '09-monitor-uptime.ppm', x, y, 250, 20) != \
                 screenshot_region(self.output / '10-monitor-uptime.ppm', x, y, 250, 20)
             start = self.mark()
@@ -559,6 +568,7 @@ class Harness:
             self.key('ret')
             self.wait_marker('[TEST] flux_text_scale_persistence: PASS')
             self.wait_marker('[SETTINGS] text_scale_saved=200')
+            self.scale = 200
             start = self.mark()
             x = settings['x'] + settings['w'] - 5
             y = settings['y'] + settings['h'] - 5
@@ -602,8 +612,8 @@ class Harness:
                     self.screenshot('10-terminal-input-200-percent')
                     # The selected input border is Crimson after the installed
                     # Settings sequence, and fits below three output rows.
-                    x = terminal['x'] + 4 + 2 * 16 + 24
-                    y = terminal['y'] + 36 + 2 * (16 + 44 + 3 * 28)
+                    x = terminal['x'] + self.pixels(4 + 16) + 24
+                    y = terminal['y'] + self.pixels(36 + 16 + 44 + 3 * 28)
                     assert screenshot_pixel(self.output / '10-terminal-input-200-percent.ppm',
                                             x, y) == 'bd2849'
                 self.key('ret')
@@ -612,8 +622,8 @@ class Harness:
                 else:
                     name = f'terminal-echo-{index}'
                     self.screenshot(name)
-                    x = terminal['x'] + 4 + 2 * 16
-                    y = terminal['y'] + 36 + 2 * (16 + 44 + 2 * 28) + 6
+                    x = terminal['x'] + self.pixels(4 + 16)
+                    y = terminal['y'] + self.pixels(36 + 16 + 44 + 2 * 28) + 6
                     output_samples.append(screenshot_region(
                         self.output / (name + '.ppm'), x, y, 30, 20))
             assert len(set(output_samples)) == 3, 'empty echo, j and k must have distinct output'

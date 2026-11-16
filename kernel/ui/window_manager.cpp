@@ -1,4 +1,5 @@
 #include "window_manager.hpp"
+#include "window_chrome.hpp"
 #include "app_identity.hpp"
 #include "../../sdk/include/kurogane/flux_app_catalog.h"
 #include "../../sdk/include/kurogane/design.h"
@@ -15,7 +16,6 @@
 namespace windowing {
 namespace {
 
-constexpr int32_t HEADER_HEIGHT = 36;
 constexpr int32_t MINIMUM_WIDTH = 260;
 constexpr int32_t MINIMUM_HEIGHT = 160;
 constexpr int32_t WORKSPACE_LEFT = 34;
@@ -28,10 +28,6 @@ constexpr int32_t DOCK_BOTTOM = 12;
 constexpr int32_t WORKSPACE_BOTTOM = 18;
 constexpr int32_t SPINE_X = 8;
 constexpr int32_t SPINE_WIDTH = 18;
-constexpr int32_t CONTROL_WIDTH = 22;
-constexpr int32_t CONTROL_HEIGHT = 20;
-constexpr int32_t CONTROL_GAP = 4;
-constexpr int32_t CONTROL_RIGHT = 8;
 constexpr int32_t DOCK_PADDING = 12;
 constexpr int32_t DOCK_PIN_SIZE = 42;
 constexpr int32_t DOCK_HOME_WIDTH = 78;
@@ -528,27 +524,35 @@ WorkspaceGeometry calculate_workspace() {
     return geometry;
 }
 
-ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
+ChromeGeometry calculate_chrome(const ui::Rect& bounds, ui::WindowChromeMetrics metrics) {
     ChromeGeometry geometry{};
-    geometry.header = {bounds.x, bounds.y, bounds.width, HEADER_HEIGHT};
-    const int32_t control_y = bounds.y + (HEADER_HEIGHT - CONTROL_HEIGHT) / 2;
+    const int32_t header = metrics.header_height(bounds.height);
+    geometry.header = {bounds.x, bounds.y, bounds.width, header};
+    const int32_t width = metrics.control_width();
+    const int32_t height = metrics.control_height();
+    const int32_t control_y = bounds.y + (header - height) / 2;
     const int32_t dismiss_x =
-        bounds.x + bounds.width - CONTROL_RIGHT - CONTROL_WIDTH;
-    const int32_t expand_x = dismiss_x - CONTROL_GAP - CONTROL_WIDTH;
-    const int32_t minimize_x = expand_x - CONTROL_GAP - CONTROL_WIDTH;
+        bounds.x + bounds.width - metrics.control_right() - width;
+    const int32_t expand_x = dismiss_x - metrics.control_spacing();
+    const int32_t minimize_x = expand_x - metrics.control_spacing();
     geometry.minimize_control = {
-        minimize_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        minimize_x, control_y, width, height};
     geometry.expand_control = {
-        expand_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        expand_x, control_y, width, height};
     geometry.dismiss_control = {
-        dismiss_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        dismiss_x, control_y, width, height};
+    const int32_t grip = metrics.resize_grip();
     geometry.resize_grip = {
-        bounds.x + bounds.width - 18,
-        bounds.y + bounds.height - 18,
-        18,
-        18,
+        bounds.x + bounds.width - grip,
+        bounds.y + bounds.height - grip,
+        grip,
+        grip,
     };
     return geometry;
+}
+
+ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
+    return calculate_chrome(bounds, {ui::desktop_text_scale_percent()});
 }
 
 ui::Rect calculate_content(const Slot& slot) {
@@ -560,11 +564,14 @@ ui::Rect calculate_content(const Slot& slot) {
         };
     }
     const ui::Rect& bounds = slot.info.bounds;
+    const ui::WindowChromeMetrics metrics{ui::desktop_text_scale_percent()};
+    const int32_t inset = metrics.content_inset();
+    const int32_t header = metrics.header_height(bounds.height);
     return {
-        bounds.x + 4,
-        bounds.y + HEADER_HEIGHT,
-        bounds.width - 8,
-        bounds.height - HEADER_HEIGHT - 4,
+        bounds.x + inset,
+        bounds.y + header,
+        bounds.width - 2 * inset,
+        bounds.height - header - inset,
     };
 }
 
@@ -970,8 +977,9 @@ void draw_window_slot(Slot& slot) {
         return;
     }
 
-    const ChromeGeometry chrome = calculate_chrome(bounds);
-    ui::flux_window(bounds, slot.info.title, slot.info.focused);
+    const ui::WindowChromeMetrics metrics{ui::desktop_text_scale_percent()};
+    const ChromeGeometry chrome = calculate_chrome(bounds, metrics);
+    ui::flux_window(bounds, slot.info.title, slot.info.focused, metrics);
     ui::flux_control(chrome.minimize_control, ui::FluxControl::Minimize, slot.info.focused);
     ui::flux_control(
         chrome.expand_control,
@@ -980,10 +988,10 @@ void draw_window_slot(Slot& slot) {
     ui::flux_control(chrome.dismiss_control, ui::FluxControl::Dismiss, slot.info.focused);
     if (slot.info.state == WindowState::Normal) {
         graphics::draw_rect(
-            chrome.resize_grip.x + 6,
-            chrome.resize_grip.y + 6,
-            8,
-            8,
+            chrome.resize_grip.x + metrics.pixels(6),
+            chrome.resize_grip.y + metrics.pixels(6),
+            metrics.pixels(8),
+            metrics.pixels(8),
             graphics::rgb(224, 26, 48),
             1U);
     }

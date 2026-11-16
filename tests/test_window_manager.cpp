@@ -3,7 +3,11 @@
 
 // Real style state lives in the graphics module; host-only WM tests have no
 // framebuffer, so supply the default modern style explicitly.
-namespace ui { uint32_t desktop_style_id() { return KU_FLUX_STYLE_MODERN; } }
+namespace ui {
+uint32_t host_scale = 100U;
+uint32_t desktop_style_id() { return KU_FLUX_STYLE_MODERN; }
+uint32_t desktop_text_scale_percent() { return host_scale; }
+}
 
 namespace {
 size_t g_draws = 0U;
@@ -979,6 +983,35 @@ int main() {
     event.type = input::EventType::MouseButtonUp;
     event.buttons = 0U;
     if (dispatch(event) != Status::Ok || self_closing.ups != 0U) return 154;
+
+    if (initialize(1024U, 768U) != Status::Ok) return 170;
+    const uint32_t scales[] = {100U, 125U, 150U, 200U};
+    for (const uint32_t scale : scales) {
+        ui::host_scale = scale;
+        WindowId scaled = INVALID_WINDOW;
+        if (create_window("Scaled controls", 204U, {110, 100, 400, 280},
+                          draw, receive, nullptr, &scaled) != Status::Ok ||
+            chrome_geometry(scaled, &chrome) != Status::Ok ||
+            content_geometry(scaled, &content) != Status::Ok) return 171;
+        if (chrome.header.height != static_cast<int32_t>(36U * scale / 100U) ||
+            chrome.dismiss_control.width != static_cast<int32_t>((22U * scale + 99U) / 100U) ||
+            content.y != chrome.header.y + chrome.header.height ||
+            content.x != chrome.header.x + static_cast<int32_t>(4U * scale / 100U)) return 172;
+        event = {};
+        event.type = input::EventType::MouseButtonDown;
+        event.button = drivers::mouse::Left;
+        event.buttons = drivers::mouse::Left;
+        event.x = chrome.dismiss_control.x + chrome.dismiss_control.width - 1;
+        event.y = chrome.dismiss_control.y + chrome.dismiss_control.height - 1;
+        if (dispatch(event) != Status::Ok || query(scaled, &info) != Status::NotFound)
+            return 173;
+    }
+    WindowId compact = INVALID_WINDOW;
+    if (create_window("Compact", 204U, {110, 100, 260, 160},
+                      draw, receive, nullptr, &compact) != Status::Ok ||
+        chrome_geometry(compact, &chrome) != Status::Ok ||
+        content_geometry(compact, &content) != Status::Ok ||
+        chrome.header.height != 48 || content.height != 104) return 174;
 
     return 0;
 }
