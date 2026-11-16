@@ -1,10 +1,29 @@
 name: Qualify 8.0 Flux desktop foundation
 
 on:
+  pull_request:
+    branches:
+      - integration/flux8-reconciliation
+    paths:
+      - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
   push:
     branches:
       - codex/road-to-15-stability
       - integration/flux8-reconciliation
+      - agent/window-profile-readback-20261117
     paths:
       - '.github/workflows/qualify-8.0-flux-desktop-foundation.yml'
       - '.gitmodules'
