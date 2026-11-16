@@ -1,4 +1,5 @@
 #include "../common.h"
+#include "../window_profile.h"
 #include <kurogane/design.h>
 #include <kurogane/flux_app_catalog.h>
 #include "../../common/terminal_shell.h"
@@ -160,7 +161,10 @@ static void input_insert(
 }
 
 int main(void) {
-    const ku_window_t window = gui_open(KU_FLUX_TITLE_TERMINAL, 235, 155, 760, 430);
+    gui_window_profile window_profile;
+    const ku_window_t window = gui_window_profile_open(
+        &window_profile, "window.terminal", KU_FLUX_TITLE_TERMINAL,
+        235, 155, 760, 430);
     if (window == KU_INVALID_WINDOW) return 1;
 
     ku_shell_initialize(&g_shell);
@@ -181,6 +185,7 @@ int main(void) {
 
     for (;;) {
         ku_ui_event event;
+        gui_window_profile_tick(&window_profile, window);
         const ku_result_t height = ku_ui_native_height(window);
         if (height > 0 && height <= UINT32_MAX && g_viewport_height != (uint32_t)height) {
             g_viewport_height = (uint32_t)height;
@@ -276,6 +281,7 @@ int main(void) {
         render(window, input, length, cursor);
     }
 
+    gui_window_profile_flush(&window_profile);
     (void)ku_ui_close(window);
     return 0;
 }
