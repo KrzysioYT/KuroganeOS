@@ -104,6 +104,16 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
     return KU_STATUS_INVALID_ARGUMENT;
 }
 
+/* Host libc on Linux does not provide the Kurogane userspace strlcpy. */
+static size_t strlcpy(char* out, const char* in, size_t capacity) {
+    const size_t length = strlen(in);
+    if (capacity != 0U) {
+        const size_t size = length < capacity - 1U ? length : capacity - 1U;
+        memcpy(out, in, size);
+        out[size] = 0;
+    }
+    return length;
+}
 #define ku_file_stat_path fake_stat
 #define ku_file_create fake_create
 #define ku_file_unlink fake_unlink
