@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -33,6 +33,7 @@ require_network=false
 require_tls=false
 flux_settings_write=false
 flux_dock_order=false
+flux_geometry_verify=""
 flux_settings_session=false
 flux_lifecycle=false
 flux_lifecycle_done=false
@@ -90,6 +91,9 @@ while (($#)); do
         --flux-lifecycle) flux_lifecycle=true; shift ;;
         --flux-settings-write) flux_settings_write=true; shift ;;
         --flux-dock-order) flux_dock_order=true; shift ;;
+        --flux-geometry-verify)
+            [[ $# -ge 2 && "$2" =~ ^[0-9]+,[0-9]+,[0-9]+,[0-9]+$ ]] || usage
+            flux_geometry_verify="$2"; shift 2 ;;
         --flux-settings-session) flux_settings_session=true; shift ;;
         --send-key-after-marker)
             [[ $# -ge 3 && -n "$2" && -n "$3" ]] || usage
@@ -159,6 +163,12 @@ if $flux_settings_write && { ! $flux_lifecycle || [[ "$media_kind" != disk ]]; }
 fi
 if $flux_dock_order && { ! $flux_lifecycle || ! $flux_settings_write || [[ "$media_kind" != disk ]]; }; then
     echo "--flux-dock-order requires --flux-lifecycle --flux-settings-write --disk" >&2
+    exit 2
+fi
+if [[ -n "$flux_geometry_verify" ]] && {
+    ! $flux_lifecycle || [[ "$media_kind" != disk ]] ||
+    $flux_settings_write || $flux_dock_order || $flux_settings_session; }; then
+    echo "--flux-geometry-verify requires installed --disk --flux-lifecycle without other settings modes" >&2
     exit 2
 fi
 if $flux_settings_session && { ! $flux_lifecycle || [[ "$media_kind" != iso ]]; }; then
@@ -1004,6 +1014,9 @@ while ((SECONDS < deadline)); do
             lifecycle_options=(--timeout "$((deadline - SECONDS))")
             if $flux_settings_write; then lifecycle_options+=(--settings-write); fi
             if $flux_dock_order; then lifecycle_options+=(--dock-order); fi
+            if [[ -n "$flux_geometry_verify" ]]; then
+                lifecycle_options+=(--geometry-verify "$flux_geometry_verify")
+            fi
             if $flux_settings_session; then lifecycle_options+=(--settings-session); fi
             python3 "$(dirname "${BASH_SOURCE[0]}")/qualification/flux-lifecycle-qmp.py" \
                 --qmp "$qmp" --serial "$serial" --output "$log_dir" \
