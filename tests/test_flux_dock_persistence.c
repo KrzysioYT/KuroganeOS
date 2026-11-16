@@ -157,11 +157,11 @@ int main(void) {
     storage[0].bytes[2] = 8U;
     assert(load_pin_state());
     assert(g_dock_recovered_from_backup == 1);
-    assert(order[1] == 1);
+    assert(order[1] == 2);
 
     fail_publish = 1;
     assert(!save_pin_state());
-    assert(storage[2].exists && storage[2].bytes[2] == 1U);
+    assert(storage[2].exists && storage[2].bytes[2] == 2U);
     assert(load_pin_state());
     assert(g_dock_recovered_from_backup == 1);
     fail_publish = 0;
