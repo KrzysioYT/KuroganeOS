@@ -15,6 +15,8 @@ static size_t write_chunk_limit;
 static int fail_write_after_chunk;
 static size_t read_chunk_limit;
 static int fail_read_after_chunk;
+static uint32_t fail_pin_set_once_app;
+static uint32_t fail_pin_order_set_once_app;
 static uint8_t pinned[8] = {1U};
 static uint8_t order[8] = {0,1,2,3,4,5,6,7};
 
@@ -86,6 +88,10 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
         r->pinned = pinned[id]; return KU_STATUS_OK;
     }
     if (r->action == KU_DESKTOP_PIN_SET) {
+        if (id != 0U && fail_pin_set_once_app == id) {
+            fail_pin_set_once_app = 0U;
+            return KU_STATUS_IO_ERROR;
+        }
         pinned[id] = id == 0 ? 1U : r->value != 0U;
         r->pinned = pinned[id]; return KU_STATUS_OK;
     }
@@ -99,6 +105,10 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
         }
         if (id == 0 || r->value == 0 || r->value >= 8)
             return KU_STATUS_INVALID_ARGUMENT;
+        if (fail_pin_order_set_once_app == id) {
+            fail_pin_order_set_once_app = 0U;
+            return KU_STATUS_IO_ERROR;
+        }
         const uint32_t target = r->value;
         if (target < current) {
             for (uint32_t p = current; p > target; --p)
@@ -167,6 +177,22 @@ int main(void) {
     assert(storage[2].exists && storage[2].size == FLUX_DOCK_RECORD_BYTES);
     order[1] = 1; order[2] = 2;
     pinned[2] = 0U; pinned[3] = 0U;
+    /* If a pin write fails after an earlier write succeeded, the previous
+     * live pin mask and order must be restored, never half-applied. */
+    fail_pin_set_once_app = 3U;
+    assert(!load_pin_state());
+    assert(fail_pin_set_once_app == 0U);
+    assert(order[1] == 1U && order[2] == 2U);
+    assert(pinned[2] == 0U && pinned[3] == 0U);
+
+    /* Fail after the first order move, leaving a temporarily reordered
+     * desktop. Transaction rollback must put both apps back. */
+    fail_pin_order_set_once_app = 1U;
+    assert(!load_pin_state());
+    assert(fail_pin_order_set_once_app == 0U);
+    assert(order[1] == 1U && order[2] == 2U);
+    assert(pinned[2] == 0U && pinned[3] == 0U);
+
     assert(load_pin_state());
     assert(order[1] == 2 && order[2] == 1);
     assert(pinned[2] == 1U && pinned[3] == 1U);
