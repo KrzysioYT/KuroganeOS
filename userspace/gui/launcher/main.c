@@ -614,10 +614,9 @@ static uint8_t collect_pin_mask(void) {
     return mask;
 }
 
-/* desktop.cfg v1 stores one pin-mask byte. The new format appends a
- * versioned permutation of IDs 1..7; HOME stays at position zero. */
-/* v1: one pin-mask byte; v2: mask followed by tagged ID permutation.
- * Refuse truncated/invalid records before touching the live desktop. */
+/* desktop.cfg v1: one mask byte; v2: mask + tagged permutation;
+ * v3: v2 followed by four checksum bytes. HOME stays at position zero.
+ * Reject malformed records before modifying the live desktop. */
 static int g_dock_recovered_from_backup = 0;
 static ku_status_t read_pin_file(const char* path, size_t length,
                                  uint8_t* mask, uint8_t order[8],
@@ -626,10 +625,11 @@ static ku_status_t read_pin_file(const char* path, size_t length,
     ku_status_t status = ku_file_stat_path(path, length, &info);
     if (status != KU_STATUS_OK) return status;
     if (info.type != KU_FILE_TYPE_REGULAR ||
-        (info.size != 1U && info.size != 9U)) return KU_STATUS_CORRUPT_DATA;
+        (info.size != 1U && info.size != 9U &&
+         info.size != FLUX_DOCK_RECORD_BYTES)) return KU_STATUS_CORRUPT_DATA;
     const ku_result_t opened = ku_file_open(path, length);
     if (opened <= 0) return (ku_status_t)opened;
-    uint8_t bytes[9] = {0};
+    uint8_t bytes[FLUX_DOCK_RECORD_BYTES] = {0};
     /* Filesystems may return short positive reads. Assemble the entire
      * record before validating it; never apply a truncated desktop state. */
     size_t received = 0U;
@@ -650,10 +650,13 @@ static ku_status_t read_pin_file(const char* path, size_t length,
     const ku_status_t closed = ku_file_close((ku_file_t)opened);
     if (read_status != KU_STATUS_OK || closed != KU_STATUS_OK)
         return KU_STATUS_IO_ERROR;
-    if (info.size == 9U && !flux_dock_order_valid(bytes + 1U))
+    if ((bytes[0] & UINT8_C(1)) == 0U ||
+        (info.size >= 9U && !flux_dock_order_valid(bytes + 1U)) ||
+        (info.size == FLUX_DOCK_RECORD_BYTES &&
+         !flux_dock_record_valid(bytes)))
         return KU_STATUS_CORRUPT_DATA;
     *mask = bytes[0];
-    *have_order = info.size == 9U;
+    *have_order = info.size >= 9U;
     if (*have_order)
         for (size_t index = 0U; index < 8U; ++index)
             order[index] = bytes[index + 1U];
@@ -664,7 +667,7 @@ static int save_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
     const char temporary[] = "/home/desktop.tmp";
     const char backup[] = "/home/desktop.bak";
-    uint8_t state[9] = {0};
+    uint8_t state[FLUX_DOCK_RECORD_BYTES] = {0};
     state[0] = collect_pin_mask();
     state[1] = FLUX_DOCK_ORDER_TAG;
     for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
@@ -679,6 +682,8 @@ static int save_pin_state(void) {
         state[query.value + 1U] = (uint8_t)app;
     }
     if (!flux_dock_order_valid(state + 1U)) return 0;
+    flux_dock_record_seal(state);
+    if (!flux_dock_record_valid(state)) return 0;
 
     // Write and sync the new generation without opening the published file.
     ku_status_t status = ku_file_unlink(temporary, sizeof(temporary) - 1U);
