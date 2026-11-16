@@ -778,6 +778,15 @@ static int load_pin_state(void) {
             if (ku_desktop_pin(&move) != KU_STATUS_OK) return 0;
         }
     }
+    if (have_order) {
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = KU_DESKTOP_APP_FILES;
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK) return 0;
+        printf("[DOCK] order_restored_files_position=%u\n", (unsigned)query.value);
+    }
     return 1;
 }
 
@@ -838,8 +847,13 @@ static void move_selected_dock(int direction) {
         return;
     }
     (void)strlcpy(g_status, "DOCK ORDER UPDATED", sizeof(g_status));
-    append_text(g_status, sizeof(g_status),
-                save_pin_state() ? " / SAVED" : " / SESSION ONLY");
+    if (save_pin_state()) {
+        append_text(g_status, sizeof(g_status), " / SAVED");
+        printf("[DOCK] order_saved_app=%u position=%u\n",
+               (unsigned)request.app_id, (unsigned)request.value);
+    } else {
+        append_text(g_status, sizeof(g_status), " / SESSION ONLY");
+    }
 }
 
 static void build_scene(ku_window_t window, kui_scene* scene) {
@@ -1114,6 +1128,12 @@ int main(void) {
                     launch_selected();
                     changed = 1;
                 }
+            } else if ((event.key == KU_UI_KEY_ARROW_LEFT ||
+                        event.key == KU_UI_KEY_ARROW_RIGHT) &&
+                       (event.modifiers & KU_UI_MOD_SHIFT) != 0U) {
+                // Accessible reordering without reaching offscreen controls.
+                move_selected_dock(event.key == KU_UI_KEY_ARROW_LEFT ? -1 : 1);
+                changed = 1;
             } else if (event.key == KU_UI_KEY_ARROW_DOWN ||
                        event.key == KU_UI_KEY_ARROW_UP ||
                        event.key == KU_UI_KEY_TAB) {
