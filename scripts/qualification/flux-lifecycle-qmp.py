@@ -591,7 +591,18 @@ class Harness:
                 marker = '[DOCK] order_saved_app=2 position=3'
                 previous = self.serial.read_text(errors='replace').count(marker)
                 self.key('shift', 'right')
-                self.wait_marker(marker, previous)
+                try:
+                    self.wait_marker(marker, previous)
+                except TimeoutError as error:
+                    # Show only relevant public Dock state, not passwords or
+                    # unrelated guest serial data, when this step regresses.
+                    dock_events = [
+                        line for line in self.serial.read_text(errors='replace').splitlines()
+                        if line.startswith('[DOCK] ')
+                    ]
+                    raise RuntimeError(
+                        f'Dock reorder not saved; recent events: {dock_events[-20:]!r}'
+                    ) from error
                 self.screenshot('dock-order-reordered')
                 print('[lifecycle] Flux Dock reorder saved through guest keyboard: PASS',
                       flush=True)
