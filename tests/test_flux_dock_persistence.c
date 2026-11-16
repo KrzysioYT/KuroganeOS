@@ -11,6 +11,8 @@ typedef struct model_file {
 } model_file;
 static model_file storage[3];
 static int fail_write, fail_publish;
+static size_t write_chunk_limit;
+static int fail_write_after_chunk;
 static size_t read_chunk_limit;
 static int fail_read_after_chunk;
 static uint8_t pinned[8] = {1U};
@@ -57,7 +59,10 @@ static ku_result_t fake_read(ku_file_t h, void* dst, size_t n) {
 }
 static ku_result_t fake_write(ku_file_t h, const void* src, size_t n) {
     model_file* f = &storage[h - 1U];
-    if (fail_write) return KU_STATUS_IO_ERROR;
+    if (fail_write || (fail_write_after_chunk && f->cursor != 0U))
+        return KU_STATUS_IO_ERROR;
+    if (write_chunk_limit != 0U && n > write_chunk_limit)
+        n = write_chunk_limit;
     assert(f->cursor + n <= sizeof(f->bytes));
     memcpy(f->bytes + f->cursor, src, n);
     f->cursor += n; f->size = f->cursor;
@@ -138,6 +143,18 @@ int main(void) {
     assert(!load_pin_state());
     assert(save_pin_state());
     assert(storage[0].exists && storage[0].size == FLUX_DOCK_RECORD_BYTES);
+
+    /* Short positive writes must assemble the full sealed record. A later
+     * write failure must not replace an already published generation. */
+    write_chunk_limit = 3U;
+    assert(save_pin_state());
+    assert(flux_dock_record_valid(storage[0].bytes));
+    fail_write_after_chunk = 1;
+    assert(!save_pin_state());
+    fail_write_after_chunk = 0;
+    write_chunk_limit = 0U;
+    assert(load_pin_state());
+    assert(flux_dock_record_valid(storage[0].bytes));
 
     ku_desktop_pin_request move = {0};
     move.structure_size = sizeof(move);
