@@ -582,7 +582,12 @@ class Harness:
                     start = self.mark()
                     self.control(app, 0)
                     self.wait(start, 'close', app=app['app'], window=app['id'])
-                self.key('down')
+                # Dock focus shortcuts do not guarantee a selected Home tile.
+                # Search exactly for Files to select app 2 independently of
+                # whichever application shortcut was used last.
+                self.key('esc')
+                for char in 'files':
+                    self.key(char)
                 marker = '[DOCK] order_saved_app=2 position=3'
                 previous = self.serial.read_text(errors='replace').count(marker)
                 self.key('shift', 'right')
