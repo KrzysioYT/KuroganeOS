@@ -45,6 +45,8 @@ typedef struct settingsd_disk_record {
 static settingsd_client clients[SETTINGSD_MAX_CLIENTS];
 static settingsd_record records[SETTINGSD_MAX_RECORDS];
 static int session_only;
+/* Keep the last verified generation until a repaired primary is durable. */
+static int recovered_from_backup;
 
 static void clear_bytes(void* memory, size_t size) {
     size_t index;
@@ -220,7 +222,17 @@ static ku_status_t persist_records(void) {
         sizeof(SETTINGSD_TMP_PATH) - 1U,
         SETTINGSD_DB_PATH,
         sizeof(SETTINGSD_DB_PATH) - 1U);
-    if (status == KU_STATUS_ALREADY_EXISTS) {
+    if (status == KU_STATUS_ALREADY_EXISTS && recovered_from_backup) {
+        /* The primary was corrupt, so the backup is the only verified copy.
+         * Never move the corrupt primary over that good backup. */
+        status = ku_file_unlink(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+        if (status == KU_STATUS_OK) status = ku_file_sync();
+        if (status == KU_STATUS_OK) {
+            status = ku_file_rename(
+                SETTINGSD_TMP_PATH, sizeof(SETTINGSD_TMP_PATH) - 1U,
+                SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U);
+        }
+    } else if (status == KU_STATUS_ALREADY_EXISTS) {
         /* FAT32 rename does not replace a destination. Preserve the old
          * database until the new one has been published and synchronized. */
         status = ku_file_unlink(SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U);
@@ -251,8 +263,8 @@ static ku_status_t persist_records(void) {
         return status;
     }
     status = ku_file_sync();
-    /* Leave the synchronized previous generation as a recovery copy. A later
-     * successful replacement removes it only while the current DB exists. */
+    /* A verified primary is now durable; a future update may rotate backups. */
+    if (status == KU_STATUS_OK) recovered_from_backup = 0;
     return status;
 }
 
@@ -324,6 +336,7 @@ static ku_status_t load_records(void) {
     ku_status_t status;
     ku_status_t backup_status;
 
+    recovered_from_backup = 0;
     clear_bytes(records, sizeof(records));
     status = load_records_from(SETTINGSD_DB_PATH);
     if (status == KU_STATUS_OK) return KU_STATUS_OK;
@@ -334,7 +347,10 @@ static ku_status_t load_records(void) {
 
     clear_bytes(records, sizeof(records));
     backup_status = load_records_from(SETTINGSD_BACKUP_PATH);
-    if (backup_status == KU_STATUS_OK) return KU_STATUS_OK;
+    if (backup_status == KU_STATUS_OK) {
+        recovered_from_backup = 1;
+        return KU_STATUS_OK;
+    }
     clear_bytes(records, sizeof(records));
     if (backup_status == KU_STATUS_NOT_FOUND) {
         return status == KU_STATUS_NOT_FOUND ? KU_STATUS_OK : KU_STATUS_CORRUPT_DATA;
