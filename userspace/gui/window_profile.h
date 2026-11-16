@@ -101,8 +101,11 @@ static inline ku_status_t gui_window_settings_request(
     const char* key, uint32_t operation,
     const char* value, ku_settings_response* response) {
     if (key == NULL || response == NULL ||
-        strlen(key) >= KU_SETTINGS_KEY_CAPACITY ||
+        (operation != KU_SETTINGS_GET && operation != KU_SETTINGS_SET) ||
         (operation == KU_SETTINGS_SET && value == NULL))
+        return KU_STATUS_INVALID_ARGUMENT;
+    const size_t key_size = strlen(key);
+    if (key_size == 0U || key_size >= KU_SETTINGS_KEY_CAPACITY)
         return KU_STATUS_INVALID_ARGUMENT;
     const ku_result_t result = ku_settings_connect();
     if (result <= 0) return (ku_status_t)result;
@@ -112,7 +115,7 @@ static inline ku_status_t gui_window_settings_request(
     request.operation = operation;
     request.type = operation == KU_SETTINGS_SET
         ? KU_SETTINGS_TYPE_STRING : KU_SETTINGS_TYPE_NONE;
-    (void)strlcpy(request.key, key, sizeof(request.key));
+    memcpy(request.key, key, key_size + 1U);
     if (operation == KU_SETTINGS_SET) {
         request.value_size = GUI_WINDOW_PROFILE_LENGTH;
         memcpy(request.value, value, GUI_WINDOW_PROFILE_LENGTH);
