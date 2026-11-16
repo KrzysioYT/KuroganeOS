@@ -592,14 +592,14 @@ static int pin_state(uint32_t app_id) {
     return request.pinned != 0U;
 }
 
-static void set_pin_state(uint32_t app_id, int pinned) {
+static ku_status_t set_pin_state(uint32_t app_id, int pinned) {
     ku_desktop_pin_request request;
     memset(&request, 0, sizeof(request));
     request.structure_size = sizeof(request);
     request.app_id = app_id;
     request.action = KU_DESKTOP_PIN_SET;
     request.value = pinned != 0 ? 1U : 0U;
-    (void)ku_desktop_pin(&request);
+    return ku_desktop_pin(&request);
 }
 
 static uint8_t collect_pin_mask(void) {
@@ -761,11 +761,33 @@ static int load_pin_state(void) {
     }
     if (status != KU_STATUS_OK) return 0;
 
+    /* Applying a verified disk record still takes several kernel calls. Save
+     * the live state first so a partial failure never leaves a mixed desktop.
+     * Do not start modifying anything until every snapshot query succeeds. */
+    uint8_t previous_mask = UINT8_C(1);
+    uint8_t previous_order[KU_DESKTOP_APP_COUNT] = {0};
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app;
+        query.action = KU_DESKTOP_PIN_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK) return 0;
+        if (query.pinned != 0U)
+            previous_mask |= (uint8_t)(UINT8_C(1) << app);
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            query.value == 0U || query.value >= KU_DESKTOP_APP_COUNT ||
+            previous_order[query.value] != 0U) return 0;
+        previous_order[query.value] = (uint8_t)app;
+    }
+
     for (size_t index = 0U; index < APP_COUNT; ++index) {
         const uint32_t app_id = g_apps[index].desktop_id;
         if (!g_apps[index].pinnable) continue;
-        set_pin_state(app_id,
-            (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
+        if (set_pin_state(app_id,
+                (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U) != KU_STATUS_OK)
+            goto rollback;
     }
     if (have_order) {
         for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
@@ -775,19 +797,35 @@ static int load_pin_state(void) {
             move.app_id = order[position];
             move.action = KU_DESKTOP_PIN_ORDER_SET;
             move.value = position;
-            if (ku_desktop_pin(&move) != KU_STATUS_OK) return 0;
+            if (ku_desktop_pin(&move) != KU_STATUS_OK) goto rollback;
         }
-    }
-    if (have_order) {
         ku_desktop_pin_request query;
         memset(&query, 0, sizeof(query));
         query.structure_size = sizeof(query);
         query.app_id = KU_DESKTOP_APP_FILES;
         query.action = KU_DESKTOP_PIN_ORDER_QUERY;
-        if (ku_desktop_pin(&query) != KU_STATUS_OK) return 0;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK) goto rollback;
         printf("[DOCK] order_restored_files_position=%u\n", (unsigned)query.value);
     }
     return 1;
+
+rollback:
+    /* Best effort rollback on kernel IPC failure. Retain the last good disk
+     * generation so a later session can retry the complete restore. */
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app)
+        (void)set_pin_state(app,
+            (previous_mask & (uint8_t)(UINT8_C(1) << app)) != 0U);
+    for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+        ku_desktop_pin_request move;
+        memset(&move, 0, sizeof(move));
+        move.structure_size = sizeof(move);
+        move.app_id = previous_order[position];
+        move.action = KU_DESKTOP_PIN_ORDER_SET;
+        move.value = position;
+        (void)ku_desktop_pin(&move);
+    }
+    puts("[DOCK] restore_rollback");
+    return 0;
 }
 
 static void toggle_selected_pin(void) {
