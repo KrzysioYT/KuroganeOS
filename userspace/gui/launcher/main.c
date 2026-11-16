@@ -843,10 +843,13 @@ static void build_scene(ku_window_t window, kui_scene* scene) {
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
-    // New actions come after the established Home controls so existing
-    // input coordinates and keyboard rescue workflows do not shift.
-    (void)kui_flow_button(&root, 32U, "DOCK / MOVE LEFT OR UP");
-    (void)kui_flow_button(&root, 33U, "DOCK / MOVE RIGHT OR DOWN");
+    // Reordering is an unfiltered catalog action. Keep the filtered Home
+    // scene (including the logout control at the end of its last page)
+    // stable for keyboard navigation and existing QEMU/VirtualBox journeys.
+    if (g_search_query[0] == '\0') {
+        (void)kui_flow_button(&root, 32U, "DOCK / MOVE LEFT OR UP");
+        (void)kui_flow_button(&root, 33U, "DOCK / MOVE RIGHT OR DOWN");
+    }
     if (g_selected < APP_COUNT && app_matches_search(g_selected))
         (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
     scene->scroll_offset = g_scroll_offset;
