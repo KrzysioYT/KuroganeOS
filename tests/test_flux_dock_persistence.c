@@ -11,6 +11,8 @@ typedef struct model_file {
 } model_file;
 static model_file storage[3];
 static int fail_write, fail_publish;
+static size_t read_chunk_limit;
+static int fail_read_after_chunk;
 static uint8_t pinned[8] = {1U};
 static uint8_t order[8] = {0,1,2,3,4,5,6,7};
 
@@ -47,7 +49,9 @@ static ku_result_t fake_open_ex(const char* p, size_t n, uint64_t flags) {
 }
 static ku_result_t fake_read(ku_file_t h, void* dst, size_t n) {
     model_file* f = &storage[h - 1U];
+    if (fail_read_after_chunk && f->cursor != 0U) return KU_STATUS_IO_ERROR;
     if (n > f->size - f->cursor) n = f->size - f->cursor;
+    if (read_chunk_limit != 0U && n > read_chunk_limit) n = read_chunk_limit;
     memcpy(dst, f->bytes + f->cursor, n); f->cursor += n;
     return (ku_result_t)n;
 }
@@ -149,6 +153,19 @@ int main(void) {
     assert(load_pin_state());
     assert(order[1] == 2 && order[2] == 1);
     assert(pinned[2] == 1U && pinned[3] == 1U);
+
+    /* Positive short reads are normal; a truncated second chunk is not. */
+    read_chunk_limit = 2U;
+    order[1] = 1U; order[2] = 2U;
+    pinned[2] = 0U;
+    assert(load_pin_state());
+    assert(order[1] == 2U && order[2] == 1U && pinned[2] == 1U);
+    read_chunk_limit = 2U;
+    fail_read_after_chunk = 1;
+    assert(!load_pin_state());
+    fail_read_after_chunk = 0;
+    read_chunk_limit = 0U;
+    assert(load_pin_state() && order[1] == 2U);
 
     fail_write = 1;
     assert(!save_pin_state());
