@@ -97,5 +97,25 @@ int main(void) {
     assert(find_record("theme")->value[0] == 0);
     assert(delete_record("theme") == KU_STATUS_OK);
     assert(load_records() == KU_STATUS_OK && find_record("theme") == NULL);
+
+    /* A valid previous generation must survive corruption of the current DB. */
+    assert(files[0].exists && files[2].exists);
+    const size_t checksum_byte = sizeof(settingsd_disk_header) - 1U;
+    files[0].bytes[checksum_byte] ^= 1U;
+    assert(load_records() == KU_STATUS_OK);
+    assert(find_record("theme") != NULL && find_record("theme")->value[0] == 0);
+
+    /* Two damaged generations are an error, not an empty/default profile. */
+    files[2].bytes[checksum_byte] ^= 1U;
+    assert(load_records() == KU_STATUS_CORRUPT_DATA);
+    assert(find_record("theme") == NULL);
+
+    /* The older generation also covers an interrupted publish with no DB. */
+    files[2].bytes[checksum_byte] ^= 1U;
+    assert(fake_unlink(SETTINGSD_DB_PATH, sizeof(SETTINGSD_DB_PATH) - 1U) == KU_STATUS_OK);
+    assert(load_records() == KU_STATUS_OK);
+    assert(find_record("theme") != NULL && find_record("theme")->value[0] == 0);
+    assert(fake_unlink(SETTINGSD_BACKUP_PATH, sizeof(SETTINGSD_BACKUP_PATH) - 1U) == KU_STATUS_OK);
+    assert(load_records() == KU_STATUS_OK && find_record("theme") == NULL);
     return 0;
 }
