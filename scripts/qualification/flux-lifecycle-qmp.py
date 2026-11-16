@@ -46,6 +46,7 @@ class Harness:
         self.settings_write = getattr(args, "settings_write", False)
         self.settings_session = getattr(args, "settings_session", False)
         self.dock_order = getattr(args, "dock_order", False)
+        self.geometry_verify = getattr(args, "geometry_verify", None)
         self.connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.connection.settimeout(3)
         self.connection.connect(args.qmp)
@@ -283,6 +284,22 @@ class Harness:
         print('[lifecycle] Files created and renamed a directory at 200%: PASS', flush=True)
 
     def run(self):
+        if self.geometry_verify is not None:
+            # On the cold installed-disk boot, launch Terminal with real USB
+            # key input and check the exact previously persisted WM geometry.
+            time.sleep(2)
+            start = self.mark()
+            self.key('ctrl', 'alt', 'f2')
+            actual = self.wait(start, 'present', app=1)
+            expected = dict(zip(('x', 'y', 'w', 'h'), self.geometry_verify))
+            if any(actual[k] != value for k, value in expected.items()):
+                raise RuntimeError(
+                    f'Terminal geometry after cold reboot differs: '
+                    f'expected={expected}, actual={actual}')
+            self.read()
+            print('[lifecycle] Terminal geometry restored after cold disk reboot: PASS',
+                  flush=True)
+            return
         time.sleep(2)  # Let Home's normal autostart finish before resource checks.
         start = self.mark()
         self.key('ctrl', 'alt', 'f2')
@@ -637,6 +654,8 @@ def main():
                         help='click a color and exercise temporary UI scale on a Live ISO')
     parser.add_argument('--dock-order', action='store_true',
                         help='reorder the real Home Dock and save its profile on installed media')
+    parser.add_argument('--geometry-verify',
+                        help='only verify Terminal x,y,w,h after installed cold reboot')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('timeout must be positive')
@@ -644,6 +663,17 @@ def main():
         parser.error('settings storage modes are mutually exclusive')
     if args.dock_order and not args.settings_write:
         parser.error('Dock order verification requires --settings-write')
+    if args.geometry_verify is not None:
+        if args.settings_write or args.settings_session or args.dock_order:
+            parser.error('geometry reboot check cannot modify settings')
+        parts = args.geometry_verify.split(',')
+        if len(parts) != 4 or not all(part.isdecimal() for part in parts):
+            parser.error('--geometry-verify must be x,y,w,h decimal integers')
+        args.geometry_verify = tuple(int(part) for part in parts)
+        x, y, w, h = args.geometry_verify
+        if not (0 <= x <= 16384 and 0 <= y <= 16384 and
+                260 <= w <= 16384 and 160 <= h <= 16384):
+            parser.error('invalid window geometry for reboot verification')
     harness = Harness(args)
     try:
         harness.run()
