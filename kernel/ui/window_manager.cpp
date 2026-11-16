@@ -572,6 +572,25 @@ ui::Rect dock_pin_rect(size_t app_id) {
     const size_t position = dock_position(app_id);
     if (position >= DOCK_PIN_COUNT) return {};
     if (modern_rail_layout()) {
+        // Preserve the existing Modern reference layout for the unmodified
+        // classic/default permutation. Moving any app enables custom order.
+        bool customized = false;
+        for (size_t slot = 0U; slot < DOCK_PIN_COUNT; ++slot) {
+            if (g_dock_order[slot] != slot) { customized = true; break; }
+        }
+        if (!customized) {
+            size_t rail_position = MODERN_RAIL_COUNT;
+            for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index)
+                if (kModernRailApps[index] == app_id) rail_position = index;
+            if (rail_position == MODERN_RAIL_COUNT) return {};
+            return {
+                workspace.signal_spine.x + 6,
+                workspace.signal_spine.y + 6 +
+                    static_cast<int32_t>(rail_position) * MODERN_RAIL_ITEM_HEIGHT,
+                workspace.signal_spine.width - 12,
+                MODERN_RAIL_ITEM_HEIGHT,
+            };
+        }
         // Map only the visible rail apps, respecting their saved order.
         size_t rail_position = 0U;
         bool found = false;
