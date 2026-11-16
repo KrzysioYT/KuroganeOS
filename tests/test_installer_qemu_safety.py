@@ -30,6 +30,12 @@ class SafetyTests(unittest.TestCase):
         ]
         bad_records[2][9] ^= 1
         bad_records[3][3], bad_records[3][4] = bad_records[3][4], bad_records[3][3]
+        # Recalculate the digest to prove the order contract is checked
+        # independently from checksum integrity.
+        swapped_checksum = 2166136261
+        for byte in bad_records[3][:9]:
+            swapped_checksum = ((swapped_checksum ^ byte) * 16777619) & 0xFFFFFFFF
+        bad_records[3][9:] = swapped_checksum.to_bytes(4, 'little')
         bad_records[4][0] &= ~1
         for bad in bad_records:
             with self.subTest(data=bytes(bad).hex()):
