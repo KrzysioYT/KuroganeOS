@@ -153,6 +153,9 @@ Status desktop_pin(
     uint32_t action,
     bool value,
     bool* out_pinned);
+// Internal order helper: HOME stays first; SDK app IDs and shortcuts are stable.
+Status desktop_dock_order(
+    uint32_t app_id, uint32_t action, uint32_t* in_out_position);
 
 void invalidate();
 void invalidate_window(WindowId id);

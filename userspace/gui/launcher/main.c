@@ -613,15 +613,43 @@ static uint8_t collect_pin_mask(void) {
     return mask;
 }
 
+/* desktop.cfg v1 stores one pin-mask byte. The new format appends a
+ * versioned permutation of IDs 1..7; HOME stays at position zero. */
+static int valid_dock_order_state(const uint8_t order[8]) {
+    uint8_t seen = UINT8_C(1);
+    if (order[0] != UINT8_C(0xD8)) return 0;
+    for (size_t pos = 1U; pos < KU_DESKTOP_APP_COUNT; ++pos) {
+        const uint8_t app = order[pos];
+        if (app == 0U || app >= KU_DESKTOP_APP_COUNT ||
+            (seen & (uint8_t)(UINT8_C(1) << app)) != 0U) return 0;
+        seen = (uint8_t)(seen | (uint8_t)(UINT8_C(1) << app));
+    }
+    return seen == UINT8_MAX;
+}
+
 static int save_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
     ku_result_t opened;
-    const uint8_t mask = collect_pin_mask();
+    uint8_t state[9] = {0};
+    state[0] = collect_pin_mask();
+    state[1] = UINT8_C(0xD8);
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app;
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            query.value == 0U || query.value >= KU_DESKTOP_APP_COUNT)
+            return 0;
+        state[query.value + 1U] = (uint8_t)app;
+    }
+    if (!valid_dock_order_state(state + 1U)) return 0;
     ku_status_t status = ku_file_create(path, sizeof(path) - 1U);
     if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
     opened = ku_file_open_ex(path, sizeof(path) - 1U, KU_FILE_OPEN_WRITE);
     if (opened < 0) return 0;
-    if (ku_file_write((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
+    if (ku_file_write((ku_file_t)opened, state, sizeof(state)) != (ku_result_t)sizeof(state)) {
         (void)ku_file_close((ku_file_t)opened);
         return 0;
     }
@@ -633,6 +661,7 @@ static int save_pin_state(void) {
 static int load_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
     uint8_t mask = 0U;
+    uint8_t order[8] = {0};
     size_t index;
     ku_result_t opened = ku_file_open(path, sizeof(path) - 1U);
     if (opened < 0) return 0;
@@ -640,12 +669,26 @@ static int load_pin_state(void) {
         (void)ku_file_close((ku_file_t)opened);
         return 0;
     }
+    const int have_order =
+        ku_file_read((ku_file_t)opened, order, sizeof(order)) ==
+            (ku_result_t)sizeof(order) && valid_dock_order_state(order);
     if (ku_file_close((ku_file_t)opened) != KU_STATUS_OK) return 0;
 
     for (index = 0U; index < APP_COUNT; ++index) {
         const uint32_t app_id = g_apps[index].desktop_id;
         if (!g_apps[index].pinnable) continue;
         set_pin_state(app_id, (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
+    }
+    if (have_order) {
+        for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+            ku_desktop_pin_request move;
+            memset(&move, 0, sizeof(move));
+            move.structure_size = sizeof(move);
+            move.app_id = order[position];
+            move.action = KU_DESKTOP_PIN_ORDER_SET;
+            move.value = position;
+            if (ku_desktop_pin(&move) != KU_STATUS_OK) return 0;
+        }
     }
     return 1;
 }
@@ -677,6 +720,38 @@ static void toggle_selected_pin(void) {
     } else {
         append_text(g_status, sizeof(g_status), " / SESSION ONLY");
     }
+}
+
+static void move_selected_dock(int direction) {
+    if (g_selected >= APP_COUNT || !app_matches_search(g_selected) ||
+        !g_apps[g_selected].pinnable) {
+        (void)strlcpy(g_status, "SELECT A PINNABLE APP", sizeof(g_status));
+        return;
+    }
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = g_apps[g_selected].desktop_id;
+    request.action = KU_DESKTOP_PIN_ORDER_QUERY;
+    if (ku_desktop_pin(&request) != KU_STATUS_OK ||
+        request.value == 0U || request.value >= KU_DESKTOP_APP_COUNT) {
+        (void)strlcpy(g_status, "DOCK ORDER QUERY FAILED", sizeof(g_status));
+        return;
+    }
+    const int target = (int)request.value + direction;
+    if (target < 1 || target >= (int)KU_DESKTOP_APP_COUNT) {
+        (void)strlcpy(g_status, "DOCK ORDER LIMIT", sizeof(g_status));
+        return;
+    }
+    request.action = KU_DESKTOP_PIN_ORDER_SET;
+    request.value = (uint32_t)target;
+    if (ku_desktop_pin(&request) != KU_STATUS_OK) {
+        (void)strlcpy(g_status, "DOCK REORDER FAILED", sizeof(g_status));
+        return;
+    }
+    (void)strlcpy(g_status, "DOCK ORDER UPDATED", sizeof(g_status));
+    append_text(g_status, sizeof(g_status),
+                save_pin_state() ? " / SAVED" : " / SESSION ONLY");
 }
 
 static void build_scene(ku_window_t window, kui_scene* scene) {
@@ -778,6 +853,8 @@ static void build_scene(ku_window_t window, kui_scene* scene) {
         (void)kui_flow_label(&root, 9U, "NO MATCH / BACKSPACE OR ESC TO CLEAR");
     }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
+    (void)kui_flow_button(&root, 32U, "DOCK / MOVE LEFT OR UP");
+    (void)kui_flow_button(&root, 33U, "DOCK / MOVE RIGHT OR DOWN");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
     if (g_selected < APP_COUNT && app_matches_search(g_selected))
         (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
@@ -918,6 +995,8 @@ int main(void) {
                 select_and_launch((size_t)(target - 10U));
             } else if (target == 30U) {
                 toggle_selected_pin();
+            } else if (target == 32U || target == 33U) {
+                move_selected_dock(target == 32U ? -1 : 1);
             } else if (target == 31U) {
                 puts("[TEST] desktop_logout_requested: PASS");
                 break;

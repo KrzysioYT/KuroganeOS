@@ -125,6 +125,26 @@ int main() {
     if (initialize(0U, 0U) != Status::InvalidArgument ||
         initialize(800U, 600U) != Status::Ok) return 1;
 
+    // Reordering cannot alter SDK IDs, or displace HOME from position zero.
+    uint32_t dock_pos = UINT32_MAX;
+    if (desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok || dock_pos != 2U)
+        return 160;
+    dock_pos = 1U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::Ok ||
+        desktop_dock_order(1U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 2U) return 161;
+    dock_pos = 0U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::InvalidArgument ||
+        desktop_dock_order(0U, 7U, &dock_pos) != Status::InvalidArgument)
+        return 162;
+    dock_pos = 7U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::Ok ||
+        desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 7U) return 163;
+    if (initialize(800U, 600U) != Status::Ok ||
+        desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 2U) return 164;
+
     const WorkspaceGeometry workspace = workspace_geometry();
     if (workspace.work_area.x <= 0 || workspace.work_area.y <= 0 ||
         workspace.work_area.width >= 800 || workspace.work_area.height >= 600 ||

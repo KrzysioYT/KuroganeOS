@@ -1731,11 +1731,12 @@ void syscall_handler(
                 static_cast<uintptr_t>(frame.rdi));
             if (request->structure_size != sizeof(*request) || request->reserved != 0U ||
                 request->app_id >= KU_DESKTOP_APP_COUNT ||
-                request->action > KU_DESKTOP_PIN_APP_READY) {
+                request->action > KU_DESKTOP_PIN_ORDER_SET) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
-            if (request->action == KU_DESKTOP_PIN_FOCUS_RUNNING) {
+            if (request->action == KU_DESKTOP_PIN_FOCUS_RUNNING ||
+                request->action == KU_DESKTOP_PIN_ORDER_SET) {
                 windowing::WindowInfo caller_window{};
                 if (!context->ui.active ||
                     windowing::query(context->ui.window, &caller_window) !=
@@ -1745,6 +1746,24 @@ void syscall_handler(
                     frame.rax = static_cast<uint64_t>(KU_STATUS_ACCESS_DENIED);
                     return;
                 }
+            }
+            if (request->action == KU_DESKTOP_PIN_ORDER_QUERY ||
+                request->action == KU_DESKTOP_PIN_ORDER_SET) {
+                uint32_t position = request->value;
+                const windowing::Status order_status = windowing::desktop_dock_order(
+                    request->app_id, request->action, &position);
+                if (order_status == windowing::Status::Ok) {
+                    request->value = position;
+                    bool actual_pinned = false;
+                    if (windowing::desktop_pin(
+                            request->app_id, KU_DESKTOP_PIN_QUERY, false,
+                            &actual_pinned) == windowing::Status::Ok)
+                        request->pinned = actual_pinned ? 1U : 0U;
+                }
+                frame.rax = order_status == windowing::Status::Ok
+                    ? static_cast<uint64_t>(KU_STATUS_OK)
+                    : static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
+                return;
             }
             bool pinned = false;
             const windowing::Status status = windowing::desktop_pin(

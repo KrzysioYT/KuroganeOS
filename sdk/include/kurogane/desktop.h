@@ -36,7 +36,11 @@ enum ku_desktop_pin_action {
     // Read-only: app window has presented a native/legacy UI surface.
     // A minimized app is still ready. "pinned" is the returned readiness
     // flag; the on-disk pin state is untouched.
-    KU_DESKTOP_PIN_APP_READY = 5
+    KU_DESKTOP_PIN_APP_READY = 5,
+    // Backward-compatible extension: request.value is a display position.
+    // ORDER_SET may only be requested by the authenticated Home process.
+    KU_DESKTOP_PIN_ORDER_QUERY = 6,
+    KU_DESKTOP_PIN_ORDER_SET = 7
 };
 
 typedef struct ku_desktop_pin_request {

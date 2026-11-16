@@ -41,6 +41,9 @@ int main() {
     static_assert(KU_SYS_DESKTOP_PIN == 19);
     static_assert(KU_DESKTOP_PIN_FOCUS_RUNNING == 4);
     static_assert(KU_DESKTOP_PIN_APP_READY == 5);
+    static_assert(KU_DESKTOP_PIN_ORDER_QUERY == 6);
+    static_assert(KU_DESKTOP_PIN_ORDER_SET == 7);
+    static_assert(sizeof(ku_desktop_pin_request) == 24);
     static_assert(KU_SYS_NET_STATUS == 20);
     static_assert(KU_SYS_HTTP_GET == 21);
     static_assert(KU_SYS_AUDIO_STATUS == 22);

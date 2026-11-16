@@ -118,6 +118,7 @@ constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
 Slot g_slots[MAX_WINDOWS]{};
 uint8_t g_order[MAX_WINDOWS]{};
 bool g_desktop_pinned[DOCK_PIN_COUNT]{};
+uint8_t g_dock_order[DOCK_PIN_COUNT]{};  // display positions, stable app IDs
 size_t g_count = 0U;
 int32_t g_screen_width = 0;
 int32_t g_screen_height = 0;
@@ -370,6 +371,12 @@ int32_t clamp_size(int32_t value, int32_t lower, int32_t upper) {
     return value;
 }
 
+size_t dock_position(size_t app_id) {
+    for (size_t position = 0U; position < DOCK_PIN_COUNT; ++position)
+        if (g_dock_order[position] == app_id) return position;
+    return DOCK_PIN_COUNT;
+}
+
 bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
     return x >= rectangle.x && y >= rectangle.y &&
         x < rectangle.x + rectangle.width &&
@@ -559,15 +566,25 @@ ui::Rect calculate_content(const Slot& slot) {
     };
 }
 
-ui::Rect dock_pin_rect(size_t position) {
+ui::Rect dock_pin_rect(size_t app_id) {
     const WorkspaceGeometry workspace = calculate_workspace();
+    if (app_id >= DOCK_PIN_COUNT) return {};
+    const size_t position = dock_position(app_id);
     if (position >= DOCK_PIN_COUNT) return {};
     if (modern_rail_layout()) {
-        size_t rail_position = MODERN_RAIL_COUNT;
-        for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index) {
-            if (kModernRailApps[index] == position) rail_position = index;
+        // Map only the visible rail apps, respecting their saved order.
+        size_t rail_position = 0U;
+        bool found = false;
+        for (size_t slot = 0U; slot < DOCK_PIN_COUNT; ++slot) {
+            const size_t candidate = g_dock_order[slot];
+            bool visible = false;
+            for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index)
+                if (kModernRailApps[index] == candidate) { visible = true; break; }
+            if (!visible) continue;
+            if (candidate == app_id) { found = true; break; }
+            ++rail_position;
         }
-        if (rail_position == MODERN_RAIL_COUNT) return {};
+        if (!found) return {};
         return {
             workspace.signal_spine.x + 6,
             workspace.signal_spine.y + 6 +
@@ -598,8 +615,9 @@ ui::Rect desktop_shortcut_rect(size_t app_id) {
     if (app_id >= DOCK_PIN_COUNT || !g_desktop_pinned[app_id]) return {};
     const WorkspaceGeometry workspace = calculate_workspace();
     size_t ordinal = 0U;
-    for (size_t index = 0U; index < app_id; ++index) {
-        if (g_desktop_pinned[index]) ++ordinal;
+    const size_t current = dock_position(app_id);
+    for (size_t position = 0U; position < current; ++position) {
+        if (g_desktop_pinned[g_dock_order[position]]) ++ordinal;
     }
     int32_t rows = workspace.work_area.height / DESKTOP_SHORTCUT_STEP_Y;
     if (rows < 1) rows = 1;
@@ -1088,6 +1106,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     }
     for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         g_desktop_pinned[index] = false;
+        g_dock_order[index] = static_cast<uint8_t>(index);
     }
     g_desktop_pinned[0U] = true;
     g_desktop_pinned[3U] = true;
@@ -1516,6 +1535,35 @@ Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     if (out_bounds == nullptr) return Status::InvalidArgument;
     if (position >= exposed_window_count()) return Status::NotFound;
     *out_bounds = ribbon_item_rect(position);
+    return Status::Ok;
+}
+
+Status desktop_dock_order(
+    uint32_t app_id, uint32_t action, uint32_t* in_out_position) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (in_out_position == nullptr || app_id >= DOCK_PIN_COUNT)
+        return Status::InvalidArgument;
+    const size_t original = dock_position(app_id);
+    if (original >= DOCK_PIN_COUNT) return Status::InvalidState;
+    if (action == 6U) {
+        *in_out_position = static_cast<uint32_t>(original);
+        return Status::Ok;
+    }
+    if (action != 7U || app_id == 0U || *in_out_position == 0U ||
+        *in_out_position >= DOCK_PIN_COUNT) return Status::InvalidArgument;
+    const size_t target = *in_out_position;
+    if (target != original) {
+        if (target < original) {
+            for (size_t p = original; p > target; --p)
+                g_dock_order[p] = g_dock_order[p - 1U];
+        } else {
+            for (size_t p = original; p < target; ++p)
+                g_dock_order[p] = g_dock_order[p + 1U];
+        }
+        g_dock_order[target] = static_cast<uint8_t>(app_id);
+        mark_full_dirty();
+    }
+    *in_out_position = static_cast<uint32_t>(target);
     return Status::Ok;
 }
 
