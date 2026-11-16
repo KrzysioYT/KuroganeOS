@@ -121,6 +121,23 @@ typedef struct ku_ui_window_options {
     int32_t height;
 } ku_ui_window_options;
 
+/* Report the last unmaximized bounds, suitable for per-application window
+ * persistence. The kernel only permits querying the caller's own window. */
+enum ku_ui_window_state {
+    KU_UI_WINDOW_NORMAL = 0,
+    KU_UI_WINDOW_MINIMIZED = 1,
+    KU_UI_WINDOW_MAXIMIZED = 2
+};
+typedef struct ku_ui_window_geometry {
+    uint32_t structure_size;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    uint32_t state;
+    uint32_t reserved;
+} ku_ui_window_geometry;
+
 typedef struct ku_ui_frame {
     uint32_t structure_size;
     uint32_t background_rgb;
@@ -224,6 +241,15 @@ static inline ku_result_t ku_ui_native_width(ku_window_t window) {
     return ku_syscall3(KU_SYS_UI_NATIVE_WIDTH, window, 0U, 0U);
 }
 
+/* Uses an append-only v1 ABI; never reveals another process's window. */
+static inline ku_status_t ku_ui_get_geometry(
+    ku_window_t window, ku_ui_window_geometry* out_geometry) {
+    if (out_geometry == NULL) return KU_STATUS_INVALID_ARGUMENT;
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_UI_WINDOW_GEOMETRY, window,
+        (uint64_t)(uintptr_t)out_geometry, sizeof(*out_geometry));
+}
+
 static inline ku_status_t ku_ui_poll(
     ku_window_t window,
     ku_ui_event* event) {
@@ -238,10 +264,12 @@ static inline ku_status_t ku_ui_close(ku_window_t window) {
 
 #if defined(__cplusplus)
 static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
+static_assert(sizeof(ku_ui_window_geometry) == 28, "UI geometry ABI mismatch");
 static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
 static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
 #else
 _Static_assert(sizeof(ku_ui_window_options) == 20, "UI window ABI mismatch");
+_Static_assert(sizeof(ku_ui_window_geometry) == 28, "UI geometry ABI mismatch");
 _Static_assert(sizeof(ku_ui_event) == 32, "UI event ABI mismatch");
 _Static_assert(sizeof(ku_ui_frame) == 800, "UI frame ABI mismatch");
 #endif
