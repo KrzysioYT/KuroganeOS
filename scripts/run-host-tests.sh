@@ -63,6 +63,11 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_settings_persistence"
 
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_gui_window_profile.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_gui_window_profile"
+"$OUT_DIR/test_gui_window_profile"
+
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_theme_failure.c \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_theme_failure"
 "$OUT_DIR/test_flux_theme_failure"
