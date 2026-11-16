@@ -127,11 +127,14 @@ class Harness:
     def pixels(self, logical):
         return (logical * self.scale + 99) // 100
 
+    def header_height(self, info):
+        return min(self.pixels(36), max(
+            self.pixels(20), info['h'] - self.pixels(4) - self.pixels(52)))
+
     def control(self, info, index, last_pixel=False):
         width, height = self.pixels(22), self.pixels(20)
         x = info['x'] + info['w'] - self.pixels(8) - width - index * (width + self.pixels(4))
-        header = min(self.pixels(36), max(height, info['h'] - self.pixels(4) - self.pixels(52)))
-        y = info['y'] + (header - height) // 2
+        y = info['y'] + (self.header_height(info) - height) // 2
         self.pointer(info, x + (width - 1 if last_pixel else width // 2),
                      y + (height - 1 if last_pixel else height // 2))
         self.button(True)
@@ -157,9 +160,14 @@ class Harness:
         settings = self.open_settings()
         if session_only:
             self.screenshot('wallpaper-before')
-        # At 200% the initial viewport starts at the two stacked metric
-        # cards. Click the shortcut below them without scrolling.
-        y = settings['y'] + self.pixels(36 + 16 + 2 * 66 + 17)
+        # Settings reveals Previous Color on open. Two metrics, a button,
+        # a label and the selected button consume 250 logical pixels.
+        # At 200% the taller chrome leaves room for one metric above the
+        # shortcut. Click it in the initial viewport, without scrolling.
+        header = self.header_height(settings)
+        viewport = settings['h'] - header - self.pixels(4)
+        metrics = 2 if viewport >= self.pixels(250) else 1
+        y = settings['y'] + header + self.pixels(16 + metrics * 66 + 17)
         for wallpaper in ((1, 2, 0) if session_only else (1,)):
             self.pointer(settings, settings['x'] + 100, y)
             self.button(True)
