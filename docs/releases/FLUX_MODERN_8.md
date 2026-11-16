@@ -66,6 +66,19 @@ trwałej geometrii okien, pełnej skali pulpitu, odzyskiwania usług na końcowy
 ISO i widocznego VirtualBox dla finalnego obrazu. Kwalifikacja docelowego
 `8.0.0` i całej roadmapy do `15.0.0 Stable` nadal **BLOCKED**.
 
+## Poprawki geometrii okien i odzyskiwania ustawień
+
+Files i Terminal odczytują końcową pozycję i rozmiar okna po zamknięciu.
+Dopasowanie zapisanego układu do mniejszego ekranu zachowuje oryginalny
+profil do chwili, gdy użytkownik zmieni geometrię. Scenariusz QEMU sprawdza
+dokładne granice Terminala po ponownym otwarciu i zimnym starcie z dysku.
+
+Jeśli główna baza ustawień i jej kopia są uszkodzone, Settings zgłasza
+problem, a usługa pozwala uruchomić pulpit i zachowuje oba pliki.
+Scenariusz QEMU sprawdza logowanie, otwarcie Settings i zawartość obu
+plików na oddzielnej kopii zainstalowanego dysku. Wyniki kwalifikacji
+dotyczą wyłącznie SHA i sumy ISO z danego przebiegu.
+
 ## Co obejmuje kandydat
 
 - Natywny pulpit Modern z Home, Dockiem, wyszukiwaniem i zachowanym trybem
@@ -111,7 +124,7 @@ Kopia różniła się od dysku kwalifikacyjnego dodanym plikiem aplikacji.
 | --- | --- |
 | P0, kwalifikacja | Końcowe ISO z runtime `8.0.0` wymaga osobnej kwalifikacji. Wyniki powyżej odnoszą się do SHA i sumy kandydata `7.0.0-dev`. |
 | P1, kontrakt | Skala obejmuje tekst i geometrię natywnych kontrolek. Trzy rozdzielczości GOP sprawdzono w osobnych startach. Pełne skalowanie pulpitu i zmiana rozdzielczości podczas sesji pozostają otwarte. |
-| P1, kontrakt | Zmiana kolejności Docka, zabezpieczony zapis i próba zimnego restartu przeszły na `ed25f832` w QEMU, ale kolejne poprawki odtwarzania/IPC wymagają kwalifikacji własnego SHA. Odtwarzanie pozycji i rozmiarów okien po restarcie nadal wymaga implementacji i kwalifikacji. |
+| P1, kontrakt | Zmiana kolejności Docka, zabezpieczony zapis i próba zimnego restartu przeszły na `ed25f832` w QEMU. Kolejne poprawki odtwarzania/IPC i trwała geometria Files i Terminala wymagają kwalifikacji na końcowym ISO. |
 | P1, dowód | Testy hosta obejmują awarie IPC, zapisu i przywracanie stanu. Przebieg na końcowym ISO musi potwierdzić wymagany zakres odzyskiwania sesji i Settings po awarii usługi. |
 | P2, ograniczenia | Ustawienia wyglądu są globalne. Renderowanie używa ograniczonego atlasu znaków i kerningu par. Kwalifikacja fizycznego sprzętu i szeroka zgodność aplikacji pozostają w późniejszych zakresach roadmapy. |
 

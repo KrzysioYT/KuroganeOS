@@ -45,6 +45,7 @@ typedef struct settingsd_disk_record {
 static settingsd_client clients[SETTINGSD_MAX_CLIENTS];
 static settingsd_record records[SETTINGSD_MAX_RECORDS];
 static int session_only;
+static ku_status_t store_status;
 /* Keep the last verified generation until a repaired primary is durable. */
 static int recovered_from_backup;
 
@@ -510,6 +511,10 @@ static void handle_request(settingsd_client* client, const ku_service_message* m
         queue_response(client, KU_STATUS_ACCESS_DENIED, (const settingsd_record*)0);
         return;
     }
+    if (store_status != KU_STATUS_OK) {
+        queue_response(client, store_status, NULL);
+        return;
+    }
 
     switch (request->operation) {
         case KU_SETTINGS_GET:
@@ -596,14 +601,15 @@ __attribute__((noreturn)) void _start(void) {
     ku_file_stat root = {0};
     session_only = ku_file_stat_path("/", 1U, &root) == KU_STATUS_OK &&
         (root.flags & KU_FILE_FLAG_READ_ONLY_MOUNT) != 0U;
-    const ku_status_t load_status = load_records();
+    store_status = load_records();
     ku_result_t endpoint;
-    if (load_status != KU_STATUS_OK) {
-        (void)u_puts("settingsd: persistent store invalid\n");
-        (void)u_puts("[TEST] settings_service_store_load: FAIL\n");
-        ku_exit(1);
+    if (store_status == KU_STATUS_OK) {
+        (void)u_puts("[TEST] settings_service_store_load: PASS\n");
+    } else {
+        /* Keep the desktop online and preserve both disk generations. A
+         * client must see the load error instead of an empty writable DB. */
+        (void)u_puts("[SETTINGS] persistent_store_unavailable\n");
     }
-    (void)u_puts("[TEST] settings_service_store_load: PASS\n");
 
     endpoint = ku_service_register(KU_SETTINGS_SERVICE_NAME, KU_SETTINGS_SERVICE_NAME_SIZE);
     if (endpoint <= 0) {

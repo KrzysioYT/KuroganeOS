@@ -102,14 +102,21 @@ def validate_dock_record(payload):
         raise RuntimeError('Dock profile: on-disk checksum is invalid')
 
 
-def verify_dock_profile(disk, env):
-    """Independently inspect the binary Dock record on the installed FAT32."""
+def installed_root_image(disk, env):
     partition = subprocess.check_output(
         ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
     match = re.search(r'^First sector: (\d+)\b', partition, re.M)
     if not match or "Partition name: 'Kurogane Root'" not in partition:
-        raise RuntimeError('Dock profile: missing installed FAT32 root partition')
-    image = f'{disk}@@{int(match[1]) * 512}'
+        raise RuntimeError('missing installed FAT32 root partition')
+    offset = int(match[1]) * 512
+    if not 0 < offset < disk.stat().st_size:
+        raise RuntimeError('invalid installed root partition offset')
+    return f'{disk}@@{offset}'
+
+
+def verify_dock_profile(disk, env):
+    """Independently inspect the binary Dock record on the installed FAT32."""
+    image = installed_root_image(disk, env)
     payload = subprocess.check_output(
         ['mtype', '-i', image, '::/home/desktop.cfg'], env=env)
     validate_dock_record(payload)
@@ -136,16 +143,8 @@ def verify_missing_profile(disk, output, env, timeout):
     original_hash = digest(disk)
     with disk.open('rb') as source, damaged.open('xb') as copy:
         shutil.copyfileobj(source, copy)
-    partition = subprocess.check_output(
-        ['sgdisk', '--info=2', str(damaged)], text=True, env=dict(env, LC_ALL='C'))
-    match = re.search(r'^First sector: (\d+)\b', partition, re.M)
-    if not match or "Partition name: 'Kurogane Root'" not in partition:
-        raise RuntimeError('disposable disk does not contain expected FAT32 root partition')
-    offset = int(match[1]) * 512
-    if not 0 < offset < damaged.stat().st_size:
-        raise RuntimeError('invalid root partition offset in disposable disk')
     subprocess.run(
-        ['mdel', '-i', f'{damaged}@@{offset}', '::/etc/user.cfg', '::/etc/locale.cfg'],
+        ['mdel', '-i', installed_root_image(damaged, env), '::/etc/user.cfg', '::/etc/locale.cfg'],
         check=True, env=env)
     log_dir = output / 'missing-profile-boot'
     cmd = disk_boot_command(damaged, log_dir, timeout)
@@ -166,6 +165,54 @@ def verify_missing_profile(disk, output, env, timeout):
     if digest(disk) != original_hash:
         raise RuntimeError('successful installation disk changed during profile fault test')
     print('[installer-qemu] missing installed profile: Login refused the session: PASS',
+          flush=True)
+
+
+def verify_damaged_settings(disk, output, env, timeout, password_profile):
+    damaged = output / 'damaged-settings.img'
+    with disk.open('rb') as source, damaged.open('xb') as copy:
+        shutil.copyfileobj(source, copy)
+    image = installed_root_image(damaged, env)
+    overwritten = {}
+    with tempfile.TemporaryDirectory(prefix='kuro-settings-') as scratch:
+        fixture = Path(scratch) / 'damaged.db'
+        for name in ('settings.db', 'settings.bak'):
+            guest_path = f'::/{name}'
+            original = subprocess.check_output(['mtype', '-i', image, guest_path], env=env)
+            if original[:4] != b'1TSK':
+                raise RuntimeError(f'expected a Settings DB generation at {guest_path}')
+            payload = bytes([original[0] ^ 1]) + original[1:]
+            overwritten[guest_path] = payload
+            fixture.write_bytes(payload)
+            subprocess.run(['mcopy', '-o', '-i', image, str(fixture), guest_path],
+                           check=True, env=env)
+
+    log_dir = output / 'damaged-settings-boot'
+    cmd = disk_boot_command(damaged, log_dir, timeout)
+    send_keys_after(cmd, INSTALLED_PROFILE, [*FIXTURE_PASSWORD, 'ret'] if password_profile else ['ret'])
+    cmd.extend([
+        '--click-after-marker', DESKTOP, '42', '246',
+        '--require-marker', '[SETTINGS] persistent_store_unavailable',
+        '--require-marker', '[TEST] settings_service_online: PASS',
+        '--require-marker', HOME_FRAME,
+        '--require-marker', DESKTOP,
+        '--require-marker', '[SETTINGS] damaged_store_notice',
+        '--require-marker', '[TEST] desktop_settings_real: PASS',
+        '--screendump-after-marker', '[TEST] desktop_settings_real: PASS',
+        str(output / 'damaged-settings.ppm'),
+    ])
+    if password_profile:
+        cmd.extend(['--require-marker', GOOD_PASSWORD])
+    with (output / 'damaged-settings-runner.log').open('wb') as log:
+        subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    text = (log_dir / 'serial.log').read_text(errors='replace')
+    if re.search(r'PANIC_BEGIN|FATAL ERROR|\[(?:TEST|SESSION)\][^\n]*: FAIL', text):
+        raise RuntimeError('damaged Settings store stopped the desktop')
+    for guest_path, expected in overwritten.items():
+        actual = subprocess.check_output(['mtype', '-i', image, guest_path], env=env)
+        if actual != expected:
+            raise RuntimeError(f'damaged Settings generation was overwritten: {guest_path}')
+    print('[installer-qemu] damaged Settings: desktop usable and both generations preserved: PASS',
           flush=True)
 
 
@@ -489,17 +536,13 @@ def main():
     if args.dock_order_reboot:
         verify_dock_profile(disk, env)
     if args.desktop_lifecycle:
-        partition = subprocess.check_output(
-            ['sgdisk', '--info=2', str(disk)], text=True, env=dict(env, LC_ALL='C'))
-        match = re.search(r'^First sector: (\d+)\b', partition, re.M)
-        if not match or "Partition name: 'Kurogane Root'" not in partition:
-            raise RuntimeError('cannot verify Files mutation on the installed root partition')
-        image = f'{disk}@@{int(match[1]) * 512}'
+        image = installed_root_image(disk, env)
         listing = subprocess.check_output(['mdir', '-i', image, '::/'], text=True, env=env)
         if not re.search(r'^flx8ok\s+<DIR>', listing, re.I | re.M) or re.search(
                 r'^flx8qa\s+<DIR>', listing, re.I | re.M):
             raise RuntimeError('Files mkdir/rename did not persist exactly one final directory')
         print('[installer-qemu] Files mkdir/rename persisted after reboot: PASS', flush=True)
+        verify_damaged_settings(disk, output, env, args.timeout, args.password_profile)
     manifest = {'iso': str(iso), 'iso_sha256': digest(iso), 'disk_sha256': digest(disk),
                 'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'harness_sha256': digest(Path(__file__)), 'restored_theme': expected_theme,
@@ -507,6 +550,7 @@ def main():
                 'restored_wallpaper': 1 if args.desktop_lifecycle else None,
                 'password_profile': args.password_profile,
                 'dock_order_reboot': args.dock_order_reboot,
+                'damaged_settings_recovery': args.desktop_lifecycle,
                 'result': 'PASS'}
     (output / 'result.json').write_text(json.dumps(manifest, indent=2) + '\n')
     print('[installer-qemu] ISO -> new disk -> first boot -> persistent reboot: PASS', flush=True)

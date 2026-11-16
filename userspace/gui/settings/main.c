@@ -669,6 +669,7 @@ int main(void) {
     uint32_t text_scale_percent = 100U;
     const char* feedback = "TAB / ARROWS FOCUS  ENTER / SPACE APPLY";
     int restored = 0;
+    int damaged_store = 0;
     if (window == KU_INVALID_WINDOW) return 1;
 
     (void)active_desktop_theme(&theme_id);
@@ -682,7 +683,12 @@ int main(void) {
             if (settings.connection != 0U) (void)ku_service_close(settings.connection);
             settings.connection = 0U;
             settings.connected = 0;
-            feedback = "SETTINGS SERVICE / READ FAILED";
+            if (status == KU_STATUS_CORRUPT_DATA) {
+                feedback = "SAVED SETTINGS / DAMAGED";
+                damaged_store = 1;
+            } else {
+                feedback = "SETTINGS SERVICE / READ FAILED";
+            }
         }
         if (settings.connected) {
             uint32_t stored_theme = KU_FLUX_THEME_RED;
@@ -728,6 +734,7 @@ int main(void) {
     }
 
     puts("[TEST] desktop_settings_real: PASS");
+    if (damaged_store) puts("[SETTINGS] damaged_store_notice");
     puts("[TEST] flux_scene_settings: PASS");
     puts("[TEST] desktop_settings_mouse_navigation: PASS");
     puts("[TEST] flux_settings_keyboard_ready: PASS");

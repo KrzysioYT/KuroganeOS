@@ -34,17 +34,26 @@ static ku_status_t fake_close(ku_service_connection_t connection) {
 #undef _start
 #define CHECK(condition) assert(condition)
 
-static void enqueue(size_t index, uint64_t pid) {
+static void enqueue_request(size_t index, uint64_t pid, uint32_t operation) {
     ku_settings_request request;
     clear_bytes(&request, sizeof(request));
     request.structure_size = sizeof(request);
-    request.operation = KU_SETTINGS_GET;
+    request.operation = operation;
+    if (operation == KU_SETTINGS_SET) {
+        request.type = KU_SETTINGS_TYPE_BOOL;
+        request.value_size = 1;
+        request.value[0] = 1;
+    }
     key_copy(request.key, "theme");
     clear_bytes(&inbox[index], sizeof(inbox[index]));
     inbox[index].sender_pid = pid;
     inbox[index].data_size = sizeof(request);
     copy_bytes(inbox[index].data, &request, sizeof(request));
     queued[index] = 1;
+}
+
+static void enqueue(size_t index, uint64_t pid) {
+    enqueue_request(index, pid, KU_SETTINGS_GET);
 }
 
 int main(void) {
@@ -82,5 +91,14 @@ int main(void) {
     enqueue(0, 10);
     service_clients();
     CHECK(!clients[0].active && closes[0] == 1);
+
+    store_status = KU_STATUS_CORRUPT_DATA;
+    for (uint32_t operation = KU_SETTINGS_GET; operation <= KU_SETTINGS_DELETE; ++operation) {
+        enqueue_request(1, 11, operation);
+        service_clients();
+        CHECK(delivered[1].status == KU_STATUS_CORRUPT_DATA);
+        CHECK(delivered[1].type == KU_SETTINGS_TYPE_NONE && delivered[1].value_size == 0);
+    }
+    CHECK(records[0].active && records[0].value[0] == 0);
     return 0;
 }
