@@ -42,6 +42,30 @@ i naprawić przed zamknięciem tego punktu. Przechowywanie pozycji/rozmiarów
 okien po restarcie także pozostaje otwarte. Wydanie nadal **BLOCKED**.
 Nie wolno przenosić PASS z tego SHA na przyszłą wersję `8.0.0`.
 
+## Aktualna kwalifikacja Docka — 2026-11-16
+
+Dokładny commit `ed25f832c17d137b8c8ff26363ece96fe46496ae` ma
+**5/5 zakończonych kontroli GitHub Actions — PASS**:
+[Flux USB/QEMU, instalacja i zimny restart](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43927864024),
+[ISO/UEFI](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43927874583),
+[reliable-file](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43927874572),
+[credential](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43927874552)
+oraz [CLA](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43927874589).
+
+W tym zakresie Home zmienia kolejność Docka przez faktyczne zdarzenia
+klawiatury USB, zapisuje wersjonowany rekord `/home/desktop.cfg` z sumą
+kontrolną i kopią awaryjną, po czym QEMU wykonuje zimny restart z dysku.
+Test sprawdza przywróconą kolejność i niezależnie odczytuje bajty profilu
+z zainstalowanego FAT32. Hostowe regresje obejmują uszkodzenia rekordu,
+krótkie odczyty/zapisy i przerwany zapis.
+
+**Granica dowodu:** PASS dotyczy wyłącznie wskazanego SHA i jego obrazu.
+Późniejsze poprawki przywracania stanu po awarii IPC i walidacji odczytu
+zwrotnego muszą przejść własne testy. W dalszym ciągu brak kwalifikacji
+trwałej geometrii okien, pełnej skali pulpitu, odzyskiwania usług na końcowym
+ISO i widocznego VirtualBox dla finalnego obrazu. Kwalifikacja docelowego
+`8.0.0` i całej roadmapy do `15.0.0 Stable` nadal **BLOCKED**.
+
 ## Co obejmuje kandydat
 
 - Natywny pulpit Modern z Home, Dockiem, wyszukiwaniem i zachowanym trybem
@@ -87,7 +111,7 @@ Kopia różniła się od dysku kwalifikacyjnego dodanym plikiem aplikacji.
 | --- | --- |
 | P0, kwalifikacja | Końcowe ISO z runtime `8.0.0` wymaga osobnej kwalifikacji. Wyniki powyżej odnoszą się do SHA i sumy kandydata `7.0.0-dev`. |
 | P1, kontrakt | Skala obejmuje tekst i geometrię natywnych kontrolek. Trzy rozdzielczości GOP sprawdzono w osobnych startach. Pełne skalowanie pulpitu i zmiana rozdzielczości podczas sesji pozostają otwarte. |
-| P1, kontrakt | Zmiana kolejności Docka została zaimplementowana i przeszła testy hostowe, ale wymaga osobnej próby zmiana → zimny restart → przywrócenie oraz ochrony przed przerwanym zapisem. Odtwarzanie pozycji i rozmiarów okien po restarcie nadal wymaga implementacji i kwalifikacji. |
+| P1, kontrakt | Zmiana kolejności Docka, zabezpieczony zapis i próba zimnego restartu przeszły na `ed25f832` w QEMU, ale kolejne poprawki odtwarzania/IPC wymagają kwalifikacji własnego SHA. Odtwarzanie pozycji i rozmiarów okien po restarcie nadal wymaga implementacji i kwalifikacji. |
 | P1, dowód | Testy hosta obejmują awarie IPC, zapisu i przywracanie stanu. Przebieg na końcowym ISO musi potwierdzić wymagany zakres odzyskiwania sesji i Settings po awarii usługi. |
 | P2, ograniczenia | Ustawienia wyglądu są globalne. Renderowanie używa ograniczonego atlasu znaków i kerningu par. Kwalifikacja fizycznego sprzętu i szeroka zgodność aplikacji pozostają w późniejszych zakresach roadmapy. |
 
