@@ -377,6 +377,7 @@ def main():
     env = dict(os.environ, OVMF_CODE=code, OVMF_VARS=variables)
     expected_theme = None
     expected_text_scale = None
+    expected_geometry = None
     for phase, marker in (('first-boot', 'installed_first_boot'), ('second-boot', 'installed_persistence')):
         cmd = disk_boot_command(disk, output / phase, args.timeout)
         cmd.extend([
@@ -400,6 +401,11 @@ def main():
             cmd.extend(['--flux-lifecycle', '--flux-settings-write'])
             if args.dock_order_reboot:
                 cmd.append('--flux-dock-order')
+        if args.desktop_lifecycle and phase == 'second-boot':
+            if expected_geometry is None:
+                raise RuntimeError('missing exact Terminal geometry from first installed boot')
+            cmd.extend(['--flux-lifecycle', '--flux-geometry-verify',
+                        ','.join(str(value) for value in expected_geometry)])
         if expected_theme is not None:
             cmd.extend(['--require-marker', f'[SETTINGS] theme_restored={expected_theme}'])
         if expected_text_scale is not None:
@@ -441,11 +447,28 @@ def main():
             print('[installer-qemu] Dock order restored after cold disk reboot: PASS',
                   flush=True)
         if args.desktop_lifecycle and phase == 'first-boot':
+            lifecycle = json.loads(
+                (output / phase / 'lifecycle.json').read_text(encoding='utf-8'))
+            resizes = [
+                event for event in lifecycle
+                if event.get('action') == 'resize' and event.get('app') == 1
+            ]
+            if len(resizes) != 1:
+                raise RuntimeError('expected one Terminal resize event from first boot')
+            expected_geometry = tuple(
+                resizes[0][field] for field in ('x', 'y', 'w', 'h'))
+            if not all(isinstance(value, int) and value >= 0
+                       for value in expected_geometry):
+                raise RuntimeError('invalid Terminal resize evidence')
             expected_theme = saved_theme(text)
             expected_text_scale = saved_text_scale(text)
             if re.findall(r'^\[SETTINGS\] wallpaper_saved=(\d+)\r?$', text, re.M) != ['1']:
                 raise RuntimeError('expected the wallpaper shortcut to save Graphite Grid')
         if expected_theme is not None and phase == 'second-boot':
+            if '[lifecycle] Terminal geometry restored after cold disk reboot: PASS' not in runner_log.read_text(errors='replace'):
+                raise RuntimeError('Terminal geometry did not survive installed cold reboot')
+            print('[installer-qemu] Terminal exact geometry restored after reboot: PASS',
+                  flush=True)
             restored = re.findall(r'^\[SETTINGS\] theme_restored=(\d+)\r?$', text, re.M)
             if restored != [str(expected_theme)]:
                 raise RuntimeError('reboot restored a different or ambiguous theme')
