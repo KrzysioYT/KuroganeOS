@@ -1,4 +1,14 @@
 #include "../kernel/ui/window_manager.hpp"
+#include "../sdk/include/kurogane/design.h"
+
+// Real style state lives in the graphics module; host-only WM tests have no
+// framebuffer, so supply the default modern style explicitly.
+namespace ui {
+uint32_t host_scale = 100U;
+uint32_t host_style = KU_FLUX_STYLE_MODERN;
+uint32_t desktop_style_id() { return host_style; }
+uint32_t desktop_text_scale_percent() { return host_scale; }
+}
 
 namespace {
 size_t g_draws = 0U;
@@ -45,6 +55,17 @@ void mutate_during_draw(windowing::WindowId id, const ui::Rect&, bool, void* con
 }
 
 void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
+
+struct CloseFixture {
+    windowing::WindowInfo info{};
+    unsigned calls = 0;
+};
+
+void record_close(const windowing::WindowInfo& info, void* context) {
+    auto& fixture = *static_cast<CloseFixture*>(context);
+    fixture.info = info;
+    ++fixture.calls;
+}
 
 struct WindowListFixture {
     windowing::WindowId first = windowing::INVALID_WINDOW;
@@ -119,6 +140,26 @@ int main() {
     if (set_screen_size(640, 480) != Status::NotInitialized) return 126;
     if (initialize(0U, 0U) != Status::InvalidArgument ||
         initialize(800U, 600U) != Status::Ok) return 1;
+
+    // Reordering cannot alter SDK IDs, or displace HOME from position zero.
+    uint32_t dock_pos = UINT32_MAX;
+    if (desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok || dock_pos != 2U)
+        return 160;
+    dock_pos = 1U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::Ok ||
+        desktop_dock_order(1U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 2U) return 161;
+    dock_pos = 0U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::InvalidArgument ||
+        desktop_dock_order(0U, 7U, &dock_pos) != Status::InvalidArgument)
+        return 162;
+    dock_pos = 7U;
+    if (desktop_dock_order(2U, 7U, &dock_pos) != Status::Ok ||
+        desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 7U) return 163;
+    if (initialize(800U, 600U) != Status::Ok ||
+        desktop_dock_order(2U, 6U, &dock_pos) != Status::Ok ||
+        dock_pos != 2U) return 164;
 
     const WorkspaceGeometry workspace = workspace_geometry();
     if (workspace.work_area.x <= 0 || workspace.work_area.y <= 0 ||
@@ -786,7 +827,8 @@ int main() {
     const auto smaller = workspace_geometry().work_area;
     if (info.bounds.x < smaller.x || info.bounds.y < smaller.y ||
         info.bounds.x + info.bounds.width > smaller.x + smaller.width ||
-        info.bounds.y + info.bounds.height > smaller.y + smaller.height) return 118;
+        info.bounds.y + info.bounds.height > smaller.y + smaller.height ||
+        info.restore_bounds.x != 600 || info.restore_bounds.y != 400) return 118;
     SurfaceView kept{};
     if (read_surface(normal, &kept) != Status::Ok || kept.size != 16 ||
         kept.data[0] != 71 || query(large, &info) != Status::Ok ||
@@ -799,7 +841,9 @@ int main() {
     if (set_screen_size(0, 480) != Status::InvalidArgument ||
         workspace_geometry().work_area.width != smaller.width) return 122;
     if (set_screen_size(1280, 720) != Status::Ok ||
-        damage_snapshot(&damage) != Status::Ok || !damage.full) return 123;
+        damage_snapshot(&damage) != Status::Ok || !damage.full ||
+        query(normal, &info) != Status::Ok ||
+        info.bounds.x != 600 || info.bounds.y != 400) return 123;
     if (!render_if_needed() || set_screen_size(1280, 720) != Status::Ok ||
         render_if_needed()) return 124;
     if (set_screen_size(320, 200) != Status::Ok || query(normal, &info) != Status::Ok ||
@@ -813,6 +857,19 @@ int main() {
         invalidate_during_draw, nullptr, &nested_resize, &resize_callback) != Status::Ok ||
         !render_if_needed() || nested_resize.resize_status != Status::InvalidState ||
         workspace_geometry().work_area.width != 754) return 129;
+
+    CloseFixture dismissed{};
+    WindowId closing = INVALID_WINDOW;
+    if (create_window("Profile Window", 54U, {60, 70, 300, 220},
+            draw, receive, &dismissed, &closing, record_close) != Status::Ok ||
+        move(closing, 125, 110) != Status::Ok ||
+        maximize(closing) != Status::Ok ||
+        dismiss(closing) != Status::Ok || dismissed.calls != 1U ||
+        dismissed.info.id != closing || dismissed.info.owner_pid != 54U ||
+        dismissed.info.state != WindowState::Maximized ||
+        dismissed.info.restore_bounds.x != 125 || dismissed.info.restore_bounds.y != 110 ||
+        dismissed.info.restore_bounds.width != 300 || dismissed.info.restore_bounds.height != 220 ||
+        dismiss(closing) != Status::NotFound || dismissed.calls != 1U) return 169;
 
     // A window-list callback may destroy its own window and reuse its slot.
     // Listing must still enumerate survivors exactly once with metadata from
@@ -930,6 +987,69 @@ int main() {
     event.type = input::EventType::MouseButtonUp;
     event.buttons = 0U;
     if (dispatch(event) != Status::Ok || self_closing.ups != 0U) return 154;
+
+    if (initialize(1024U, 768U) != Status::Ok) return 170;
+    const uint32_t scales[] = {100U, 125U, 150U, 200U};
+    for (const uint32_t scale : scales) {
+        ui::host_scale = scale;
+        WindowId scaled = INVALID_WINDOW;
+        if (create_window("Scaled controls", 204U, {110, 100, 400, 280},
+                          draw, receive, nullptr, &scaled) != Status::Ok ||
+            chrome_geometry(scaled, &chrome) != Status::Ok ||
+            content_geometry(scaled, &content) != Status::Ok) return 171;
+        if (chrome.header.height != static_cast<int32_t>(36U * scale / 100U) ||
+            chrome.dismiss_control.width != static_cast<int32_t>((22U * scale + 99U) / 100U) ||
+            content.y != chrome.header.y + chrome.header.height ||
+            content.x != chrome.header.x + static_cast<int32_t>(4U * scale / 100U)) return 172;
+        event = {};
+        event.type = input::EventType::MouseButtonDown;
+        event.button = drivers::mouse::Left;
+        event.buttons = drivers::mouse::Left;
+        event.x = chrome.dismiss_control.x + chrome.dismiss_control.width - 1;
+        event.y = chrome.dismiss_control.y + chrome.dismiss_control.height - 1;
+        if (dispatch(event) != Status::Ok || query(scaled, &info) != Status::NotFound)
+            return 173;
+    }
+    WindowId compact = INVALID_WINDOW;
+    if (create_window("Compact", 204U, {110, 100, 260, 160},
+                      draw, receive, nullptr, &compact) != Status::Ok ||
+        chrome_geometry(compact, &chrome) != Status::Ok ||
+        content_geometry(compact, &content) != Status::Ok ||
+        chrome.header.height != 48 || content.height != 104) return 174;
+
+    ui::host_scale = 100U;
+    ui::host_style = KU_FLUX_STYLE_CLASSIC;
+    if (initialize(1280U, 800U) != Status::Ok) return 175;
+    WindowId reflowed = INVALID_WINDOW;
+    PointerRoutingProbe held{};
+    if (create_window("Reflow", 205U, {40, 52, 300, 240},
+                      draw, receive_pointer_route, &held, &reflowed) != Status::Ok) return 176;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = 48;
+    event.y = 104;
+    if (dispatch(event) != Status::Ok || held.downs != 1U) return 177;
+    ui::host_style = KU_FLUX_STYLE_MODERN;
+    reflow_workspace();
+    const auto modern_area = workspace_geometry().work_area;
+    if (query(reflowed, &info) != Status::Ok ||
+        info.bounds.x != modern_area.x || info.bounds.y != modern_area.y ||
+        info.restore_bounds.x != 40 || info.restore_bounds.y != 52) return 178;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || held.ups != 1U) return 179;
+
+    if (maximize(reflowed) != Status::Ok || minimize(reflowed) != Status::Ok) return 180;
+    ui::host_style = KU_FLUX_STYLE_CLASSIC;
+    reflow_workspace();
+    const auto classic_area = workspace_geometry().work_area;
+    if (restore(reflowed) != Status::Ok || query(reflowed, &info) != Status::Ok ||
+        info.state != WindowState::Maximized || info.bounds.width != classic_area.width ||
+        info.bounds.height != classic_area.height || restore(reflowed) != Status::Ok ||
+        query(reflowed, &info) != Status::Ok || info.bounds.x != 40 ||
+        info.bounds.y != 52 || focused_window() != reflowed) return 181;
 
     return 0;
 }

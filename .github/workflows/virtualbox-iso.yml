@@ -72,6 +72,7 @@ jobs:
           foreach ($file in @(
             'scripts/smoke-virtualbox-iso.ps1',
             'scripts/smoke-virtualbox-try.ps1',
+            'scripts/run-flux8-virtualbox.ps1',
             'scripts/qualify-virtualbox-3.3.4.ps1'
           )) {
             $tokens = $null

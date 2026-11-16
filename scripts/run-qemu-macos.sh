@@ -90,7 +90,9 @@ serial="$root/build/logs/qemu-macos-serial.log"
 stdout_log="$root/build/logs/qemu-macos-stdout.log"
 stderr_log="$root/build/logs/qemu-macos-stderr.log"
 vars_copy="$root/build/qemu-macos/edk2-vars.fd"
+qmp_socket="$root/build/qemu-macos/qmp.sock"
 cp "$vars" "$vars_copy"
+rm -f -- "$qmp_socket"
 : > "$serial"; : > "$stdout_log"; : > "$stderr_log"
 
 args=(
@@ -102,6 +104,7 @@ args=(
     -drive "if=pflash,format=raw,unit=1,file=$vars_copy"
     -drive "if=none,id=kurogane_system,format=raw,file=$image,snapshot=on,cache=writeback"
     -device ide-hd,drive=kurogane_system,bus=ide.0,bootindex=1
+    -qmp "unix:$qmp_socket,server=on,wait=off"
     -serial "file:$serial"
     -netdev "user,id=kurogane_net,ipv4=on,ipv6=off,net=10.0.2.0/24,host=10.0.2.2,dhcpstart=10.0.2.15,dns=10.0.2.3"
     -device e1000,netdev=kurogane_net,mac=52:54:00:4b:55:01
@@ -130,6 +133,7 @@ cleanup() {
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
     fi
+    rm -f -- "$qmp_socket"
 }
 trap cleanup EXIT INT TERM
 
@@ -158,8 +162,66 @@ if $display; then
 fi
 
 success=false
+try_selected=false
+try_login_activated=false
+qmp_key() {
+    python3 - "$qmp_socket" "$1" <<'PY'
+import json
+import socket
+import sys
+import time
+
+path, key = sys.argv[1:3]
+deadline = time.monotonic() + 10
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(3)
+while True:
+    try:
+        connection.connect(path)
+        break
+    except OSError:
+        if time.monotonic() >= deadline:
+            raise
+        time.sleep(0.1)
+
+def command(stream, identifier, name, arguments=None):
+    request = {"execute": name, "id": identifier}
+    if arguments is not None:
+        request["arguments"] = arguments
+    stream.write((json.dumps(request) + "\r\n").encode("utf-8"))
+    while True:
+        response = json.loads(stream.readline())
+        if response.get("id") != identifier:
+            continue
+        if "error" in response:
+            raise RuntimeError(f"QMP {name} failed: {response['error']}")
+        return response
+
+with connection, connection.makefile("rwb", buffering=0) as stream:
+    greeting = json.loads(stream.readline())
+    if "QMP" not in greeting:
+        raise RuntimeError("QMP greeting is missing")
+    command(stream, 1, "qmp_capabilities")
+    command(stream, 2, "send-key", {
+        "keys": [{"type": "qcode", "data": key}],
+        "hold-time": 100,
+    })
+PY
+}
 for ((elapsed=0; elapsed<timeout_seconds*10; ++elapsed)); do
-    if grep -Eq '^\[TEST\].*: FAIL\r?$|KERNEL PANIC|fatal:' "$serial" 2>/dev/null; then
+    if ! $try_selected &&
+       grep -Fq 'installer: select setup mode:' "$serial" 2>/dev/null; then
+        echo "[qemu-macos] setup media detected; selecting the non-destructive Try session"
+        qmp_key ret
+        try_selected=true
+    fi
+    if $try_selected && ! $try_login_activated &&
+       grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial" 2>/dev/null; then
+        echo "[qemu-macos] live Login is visible; activating the non-password Try profile"
+        qmp_key ret
+        try_login_activated=true
+    fi
+    if grep -Eq '^\[(TEST|SESSION)\].*: FAIL\r?$|KERNEL PANIC|fatal:' "$serial" 2>/dev/null; then
         echo "[qemu-macos] runtime failure detected" >&2
         tail -n 100 "$serial" >&2 || true
         exit 1
@@ -172,8 +234,16 @@ for ((elapsed=0; elapsed<timeout_seconds*10; ++elapsed)); do
     if grep -Fq '[TEST] userspace_init_spawn: PASS' "$serial" 2>/dev/null &&
        grep -Fq '[TEST] ALL_REQUIRED_TESTS_PASSED' "$serial" 2>/dev/null &&
        grep -Fq '[TEST] desktop_session: PASS' "$serial" 2>/dev/null &&
+       grep -Fq '[TEST] red_flux_login_surface: PASS' "$serial" 2>/dev/null &&
        grep -Fq '[TEST] desktop_userspace_apps: PASS' "$serial" 2>/dev/null &&
-       grep -Fq '[TEST] userspace_desktop_session: PASS' "$serial" 2>/dev/null; then
+       grep -Fq '[TEST] userspace_desktop_session: PASS' "$serial" 2>/dev/null &&
+       { ! $try_selected ||
+           { $try_login_activated &&
+             grep -Fq '[TEST] live_package_root: PASS' "$serial" 2>/dev/null &&
+             grep -Fq '[TEST] setup_try_mode: PASS' "$serial" 2>/dev/null &&
+             grep -Fq '[TEST] red_flux_owned_session: PASS' "$serial" 2>/dev/null &&
+             grep -Fq '[SESSION] flux_home_first_frame: PASS' "$serial" 2>/dev/null &&
+             grep -Fq '[TEST] red_flux_home_surface: PASS' "$serial" 2>/dev/null; }; }; then
         success=true
         break
     fi
@@ -194,8 +264,14 @@ fi
 echo "[qemu-macos] userspace_init_spawn: PASS"
 echo "[qemu-macos] ALL_REQUIRED_TESTS_PASSED"
 echo "[qemu-macos] desktop_session: PASS"
+echo "[qemu-macos] red_flux_login_surface: PASS"
 echo "[qemu-macos] desktop_userspace_apps: PASS"
 echo "[qemu-macos] userspace_desktop_session: PASS"
+if $try_selected; then
+    echo "[qemu-macos] red_flux_owned_session: PASS"
+    echo "[qemu-macos] flux_home_first_frame: PASS"
+    echo "[qemu-macos] red_flux_home_surface: PASS"
+fi
 if $keep; then
     trap - EXIT INT TERM
     echo "[qemu-macos] leaving QEMU running (PID $pid)"

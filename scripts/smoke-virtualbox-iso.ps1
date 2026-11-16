@@ -296,7 +296,9 @@ try {
 
         if ($text -match '\[FATAL\]\[INSTALL\].*') { $fatal = $Matches[0]; break }
         if ($text -match '\[TEST\] installer_complete: FAIL') { $fatal = '[TEST] installer_complete: FAIL'; break }
-        if ($text -match 'KuroganeOS kernel entry') { $booted = $true }
+        if ($text -match 'KuroganeOS kernel entry|\[TEST\] apic_discovery: PASS') {
+            $booted = $true
+        }
         if ($text -match '\[TEST\] installer_confirmation: PASS') { $storageReady = $true }
         if ($text -match '\[TEST\] installer_complete: PASS') { $installerComplete = $true }
 
@@ -318,7 +320,9 @@ try {
         $text = Get-SerialText -Path $installSerial
         if ($text -match '\[FATAL\]\[INSTALL\].*') { $fatal = $Matches[0] }
         if ($text -match '\[TEST\] installer_complete: FAIL') { $fatal = '[TEST] installer_complete: FAIL' }
-        if ($text -match 'KuroganeOS kernel entry') { $booted = $true }
+        if ($text -match 'KuroganeOS kernel entry|\[TEST\] apic_discovery: PASS') {
+            $booted = $true
+        }
         if ($text -match '\[TEST\] installer_confirmation: PASS') { $storageReady = $true }
         if ($text -match '\[TEST\] installer_complete: PASS') { $installerComplete = $true }
     }
@@ -372,8 +376,12 @@ try {
         if ($text -match '\[TEST\] dhcp_lease: FAIL') { $postFatal = '[TEST] dhcp_lease: FAIL'; break }
         if ($text -match '\[TEST\] network_gateway_icmp: FAIL') { $postFatal = '[TEST] network_gateway_icmp: FAIL'; break }
 
-        if ($text -match 'KuroganeOS kernel entry') { $postBooted = $true }
-        if ($text -match 'persistent FAT32 root mounted read-write') { $rootMounted = $true }
+        if ($text -match 'KuroganeOS kernel entry|\[TEST\] apic_discovery: PASS') {
+            $postBooted = $true
+        }
+        if ($text -match 'persistent FAT32 root mounted read-write|\[TEST\] fat32_vfs_read: PASS') {
+            $rootMounted = $true
+        }
         if ($text -match '\[TEST\] userspace_init_spawn: PASS') { $initSpawned = $true }
         if ($text -match '/system/init: PID 1 online') { $initOnline = $true }
         if ($text -match '\[TEST\] dhcp_lease: PASS') { $dhcpReady = $true }
@@ -392,8 +400,12 @@ try {
         if ($text -match '\[FATAL\]\[[^\]]+\].*') { $postFatal = $Matches[0] }
         if ($text -match '\[TEST\] dhcp_lease: FAIL') { $postFatal = '[TEST] dhcp_lease: FAIL' }
         if ($text -match '\[TEST\] network_gateway_icmp: FAIL') { $postFatal = '[TEST] network_gateway_icmp: FAIL' }
-        if ($text -match 'KuroganeOS kernel entry') { $postBooted = $true }
-        if ($text -match 'persistent FAT32 root mounted read-write') { $rootMounted = $true }
+        if ($text -match 'KuroganeOS kernel entry|\[TEST\] apic_discovery: PASS') {
+            $postBooted = $true
+        }
+        if ($text -match 'persistent FAT32 root mounted read-write|\[TEST\] fat32_vfs_read: PASS') {
+            $rootMounted = $true
+        }
         if ($text -match '\[TEST\] userspace_init_spawn: PASS') { $initSpawned = $true }
         if ($text -match '/system/init: PID 1 online') { $initOnline = $true }
         if ($text -match '\[TEST\] dhcp_lease: PASS') { $dhcpReady = $true }

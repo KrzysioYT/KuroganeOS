@@ -37,6 +37,7 @@ static inline int ku_dev_profile_copy_value(
     size_t capacity) {
     size_t key_length;
     size_t start;
+    int found = 0;
     if (config == 0 || key == 0 || output == 0 || capacity == 0U) return 0;
     key_length = ku_dev_profile_strlen(key);
     for (start = 0U; config[start] != '\0'; ++start) {
@@ -46,6 +47,11 @@ static inline int ku_dev_profile_copy_value(
         if (start != 0U && config[start - 1U] != '\n') continue;
         while (index < key_length && config[start + index] == key[index]) ++index;
         if (index != key_length || config[start + index] != '=') continue;
+        /* Duplicate fields indicate an ambiguous or damaged profile. */
+        if (found) {
+            output[0] = '\0';
+            return 0;
+        }
         source = start + key_length + 1U;
         while (config[source] != '\0' && config[source] != '\n' &&
                written + 1U < capacity) {
@@ -56,10 +62,10 @@ static inline int ku_dev_profile_copy_value(
             return 0;
         }
         output[written] = '\0';
-        return 1;
+        found = 1;
     }
-    output[0] = '\0';
-    return 0;
+    if (!found) output[0] = '\0';
+    return found;
 }
 
 static inline int ku_dev_profile_valid_username(const char* value) {

@@ -130,6 +130,13 @@ or other materials remain governed by their own licenses and notices. If a file
 or component carries its own license notice, that notice controls for that file
 or component.
 
+The kernel text atlas is generated from unmodified DejaVu Sans regular and bold
+font files. The source fonts, generation provenance, and applicable copyright
+notice are in [`third_party/fonts/dejavu`](../third_party/fonts/dejavu/README.md);
+the notice is also included in the system image at
+`/usr/share/lic/DEJAVU/COPYING.TXT`. The font files are governed by
+the Bitstream Vera license, not KSAL-2.0.
+
 ## Public repository hosting
 
 A public repository may be viewable and forkable through platform functionality

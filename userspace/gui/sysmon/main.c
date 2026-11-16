@@ -1,7 +1,7 @@
 #include "../common.h"
 #include <kurogane/flux_app_catalog.h>
 
-static void build_scene(kui_scene* scene, uint32_t heartbeat) {
+static void build_scene(ku_window_t window, kui_scene* scene, const ku_system_snapshot* snapshot) {
     kui_flow root;
     kui_flow metrics;
     char pid[24];
@@ -15,21 +15,24 @@ static void build_scene(kui_scene* scene, uint32_t heartbeat) {
     (void)strlcpy(identity + strlen(identity), tid, sizeof(identity) - strlen(identity));
 
     kui_scene_initialize(scene);
-    kui_scene_set_palette(
-        scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "SYSTEM MONITOR / RUNTIME");
+    if (snapshot != NULL) {
+        char uptime[64] = "UPTIME / ";
+        char seconds[24];
+        gui_u64(seconds, sizeof(seconds), ku_system_uptime_seconds(snapshot));
+        (void)strlcpy(uptime + strlen(uptime), seconds, sizeof(uptime) - strlen(uptime));
+        (void)strlcpy(uptime + strlen(uptime), " S", sizeof(uptime) - strlen(uptime));
+        (void)kui_flow_label(&root, 4U, uptime);
+    } else {
+        (void)kui_flow_label(&root, 4U, "SYSTEM SNAPSHOT / UNAVAILABLE");
+    }
     (void)kui_flow_label(&root, 2U, identity);
-    (void)kui_flow_separator(&root, 3U);
 
     kui_flow_begin(&metrics, scene, 1U);
     (void)kui_flow_label(&metrics, 10U, "SCHEDULER / ACTIVE");
     (void)kui_flow_label(&metrics, 11U, "RING 3 ISOLATION / ACTIVE");
-    (void)kui_flow_progress(&metrics, 12U, "SESSION HEARTBEAT", heartbeat, 100U);
-    (void)kui_flow_label(&metrics, 13U, "SESSION AND PROCESS LIFECYCLE ONLINE");
+    (void)gui_update_scene_viewport(window, scene);
 }
 
 int main(void) {
@@ -37,11 +40,14 @@ int main(void) {
     if (window == KU_INVALID_WINDOW) return 1;
     puts("[TEST] desktop_sysmon_ring3: PASS");
 
-    uint32_t heartbeat = 0U;
     int scene_reported = 0;
     kui_scene scene;
     for (;;) {
-        build_scene(&scene, heartbeat);
+        ku_system_snapshot snapshot = {0};
+        snapshot.structure_size = sizeof(snapshot);
+        const int valid = ku_system_get_snapshot(&snapshot) == KU_STATUS_OK &&
+            snapshot.version == KU_SYSTEM_SNAPSHOT_VERSION;
+        build_scene(window, &scene, valid ? &snapshot : NULL);
         if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
             (void)ku_ui_close(window);
             return 2;
@@ -49,6 +55,7 @@ int main(void) {
         if (!scene_reported) {
             puts("[TEST] flux_scene_sysmon: PASS");
             puts("[TEST] red_flux_sysmon: PASS");
+            if (valid) puts("[TEST] flux_sysmon_snapshot: PASS");
             scene_reported = 1;
         }
 
@@ -60,11 +67,10 @@ int main(void) {
             return 0;
         }
 
-        /* One scheduler wakeup per heartbeat instead of 100 wakeups/sec. */
+        /* Sample once a second instead of polling the scheduler every tick. */
         if (kuro_sleep_seconds(UINT64_C(1)) != KU_STATUS_OK) {
             (void)ku_ui_close(window);
             return 3;
         }
-        heartbeat = (heartbeat + 5U) % 101U;
     }
 }

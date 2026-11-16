@@ -36,7 +36,11 @@ enum ku_desktop_pin_action {
     // Read-only: app window has presented a native/legacy UI surface.
     // A minimized app is still ready. "pinned" is the returned readiness
     // flag; the on-disk pin state is untouched.
-    KU_DESKTOP_PIN_APP_READY = 5
+    KU_DESKTOP_PIN_APP_READY = 5,
+    // Backward-compatible extension: request.value is a display position.
+    // ORDER_SET may only be requested by the authenticated Home process.
+    KU_DESKTOP_PIN_ORDER_QUERY = 6,
+    KU_DESKTOP_PIN_ORDER_SET = 7
 };
 
 typedef struct ku_desktop_pin_request {
@@ -82,6 +86,44 @@ static inline ku_status_t ku_desktop_theme(ku_desktop_theme_request* request) {
         KU_SYS_DESKTOP_THEME,
         (uint64_t)(uintptr_t)request,
         (uint64_t)sizeof(ku_desktop_theme_request), 0U);
+}
+
+enum ku_desktop_background_action {
+    KU_DESKTOP_BACKGROUND_QUERY = 0,
+    KU_DESKTOP_BACKGROUND_SET = 1
+};
+typedef struct ku_desktop_background_request {
+    uint32_t structure_size;
+    uint32_t action;
+    uint32_t background_id;
+    uint32_t reserved;
+} ku_desktop_background_request;
+
+static inline ku_status_t ku_desktop_background(
+    ku_desktop_background_request* request) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_DESKTOP_BACKGROUND,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(*request), 0U);
+}
+
+enum ku_desktop_text_scale_action {
+    KU_DESKTOP_TEXT_SCALE_QUERY = 0,
+    KU_DESKTOP_TEXT_SCALE_SET = 1
+};
+typedef struct ku_desktop_text_scale_request {
+    uint32_t structure_size;
+    uint32_t action;
+    uint32_t percent;
+    uint32_t reserved;
+} ku_desktop_text_scale_request;
+
+static inline ku_status_t ku_desktop_text_scale(
+    ku_desktop_text_scale_request* request) {
+    return (ku_status_t)ku_syscall3(
+        KU_SYS_DESKTOP_TEXT_SCALE,
+        (uint64_t)(uintptr_t)request,
+        (uint64_t)sizeof(*request), 0U);
 }
 
 #ifdef __cplusplus

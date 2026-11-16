@@ -3,6 +3,7 @@
 
 #include "../runtime/user.h"
 #include "../../common/version.h"
+#include <kurogane/filesystem.h>
 
 /*
  * Generic Ring-3 command shell core.
@@ -448,40 +449,100 @@ static inline void flux_shell_cat(
 }
 
 static inline void flux_shell_cd(flux_shell_state* state, const char* path) {
+    char candidate[FLUX_SHELL_PATH_CAPACITY];
+    ku_result_t directory;
     if (path == (const char*)0 || path[0] == '\0' || flux_shell_streq(path, "/")) {
-        (void)flux_shell_copy(state->cwd, sizeof(state->cwd), "/");
-        state->last_status = 0;
-        return;
-    }
-    if (flux_shell_streq(path, ".")) {
-        state->last_status = 0;
-        return;
-    }
-    if (flux_shell_streq(path, "..")) {
-        size_t length = flux_shell_strlen(state->cwd);
+        (void)flux_shell_copy(candidate, sizeof(candidate), "/");
+    } else if (flux_shell_streq(path, ".")) {
+        (void)flux_shell_copy(candidate, sizeof(candidate), state->cwd);
+    } else if (flux_shell_streq(path, "..")) {
+        size_t length;
+        (void)flux_shell_copy(candidate, sizeof(candidate), state->cwd);
+        length = flux_shell_strlen(candidate);
         if (length <= 1U) {
-            (void)flux_shell_copy(state->cwd, sizeof(state->cwd), "/");
+            (void)flux_shell_copy(candidate, sizeof(candidate), "/");
         } else {
-            while (length > 1U && state->cwd[length - 1U] != '/') --length;
-            if (length <= 1U) (void)flux_shell_copy(state->cwd, sizeof(state->cwd), "/");
-            else state->cwd[length - 1U] = '\0';
+            while (length > 1U && candidate[length - 1U] != '/') --length;
+            if (length <= 1U) (void)flux_shell_copy(candidate, sizeof(candidate), "/");
+            else candidate[length - 1U] = '\0';
         }
-        state->last_status = 0;
+    } else if (!(path[0] == '/'
+                 ? flux_shell_copy(candidate, sizeof(candidate), path)
+                 : flux_shell_make_path(state, path, candidate, sizeof(candidate)))) {
+        state->last_status = 2;
         return;
     }
-    if (path[0] == '/') {
-        state->last_status = flux_shell_copy(state->cwd, sizeof(state->cwd), path) ? 0 : 2;
-    } else {
-        char resolved[FLUX_SHELL_PATH_CAPACITY];
-        state->last_status =
-            flux_shell_make_path(state, path, resolved, sizeof(resolved)) &&
-            flux_shell_copy(state->cwd, sizeof(state->cwd), resolved) ? 0 : 2;
+    directory = ku_file_open_ex(candidate, flux_shell_strlen(candidate),
+                                KU_FILE_OPEN_READ | KU_FILE_OPEN_DIRECTORY);
+    if (directory < 0) {
+        state->last_status = 1;
+        return;
     }
+    (void)ku_file_close((ku_file_t)directory);
+    (void)flux_shell_copy(state->cwd, sizeof(state->cwd), candidate);
+    state->last_status = 0;
+}
+
+/* The directory ABI is available to regular Ring-3 apps (Files uses it too).
+ * Do not route this command through privileged kernel-console handlers. */
+static inline void flux_shell_ls(
+    flux_shell_state* state, const flux_shell_io* io, const char* argument) {
+    char path[FLUX_SHELL_PATH_CAPACITY];
+    ku_result_t opened;
+    size_t listed = 0U;
+    if (argument == (const char*)0 || argument[0] == '\0' ||
+        flux_shell_streq(argument, ".")) {
+        if (!flux_shell_copy(path, sizeof(path), state->cwd)) goto invalid_path;
+    } else if (!flux_shell_make_path(state, argument, path, sizeof(path))) {
+        goto invalid_path;
+    }
+    opened = ku_file_open_ex(
+        path, flux_shell_strlen(path), KU_FILE_OPEN_READ | KU_FILE_OPEN_DIRECTORY);
+    if (opened < 0) {
+        flux_shell_emit(io, "ls: cannot open directory");
+        state->last_status = 1;
+        return;
+    }
+    for (;;) {
+        ku_directory_entry entry;
+        const ku_status_t result = ku_file_readdir((ku_file_t)opened, &entry);
+        if (result == KU_STATUS_END_OF_STREAM) break;
+        if (result != KU_STATUS_OK) {
+            flux_shell_emit(io, "ls: cannot read directory");
+            state->last_status = 1;
+            (void)ku_file_close((ku_file_t)opened);
+            return;
+        }
+        if (entry.name_length == 0U || entry.name_length >= KU_FILE_NAME_CAPACITY) {
+            continue;
+        }
+        entry.name[entry.name_length] = '\0';
+        if (flux_shell_streq(entry.name, ".") ||
+            flux_shell_streq(entry.name, "..")) continue;
+        char display[FLUX_SHELL_OUTPUT_CAPACITY];
+        (void)flux_shell_copy(display, sizeof(display),
+            entry.type == KU_FILE_TYPE_DIRECTORY ||
+            entry.type == KU_FILE_TYPE_MOUNT_POINT ? "[DIR] " : "      ");
+        (void)flux_shell_append(display, sizeof(display), entry.name);
+        flux_shell_emit(io, display);
+        ++listed;
+        if (listed == 4096U) {
+            flux_shell_emit(io, "ls: listing limited to 4096 entries");
+            break;
+        }
+    }
+    (void)ku_file_close((ku_file_t)opened);
+    if (listed == 0U) flux_shell_emit(io, "(empty directory)");
+    state->last_status = 0;
+    return;
+invalid_path:
+    flux_shell_emit(io, "ls: path too long");
+    state->last_status = 2;
 }
 
 static inline void flux_shell_help(const flux_shell_io* io) {
     flux_shell_emit(io, "workspace: help clear version uname pid whoami status");
-    flux_shell_emit(io, "history jobs wait pwd cd cat read which apps");
+    flux_shell_emit(io, "history jobs wait pwd cd ls cat read which apps");
     flux_shell_emit(io, "execute: run <app|/path> open <app|/path>");
     flux_shell_emit(io, "utility: echo calc sleep yield true false exit");
 }
@@ -604,7 +665,7 @@ static inline int flux_shell_requires_capability(const char* command) {
         flux_shell_streq(command, "ifconfig") || flux_shell_streq(command, "route") ||
         flux_shell_streq(command, "arp") || flux_shell_streq(command, "ping") ||
         flux_shell_streq(command, "nslookup") || flux_shell_streq(command, "date") ||
-        flux_shell_streq(command, "uptime") || flux_shell_streq(command, "ls") ||
+        flux_shell_streq(command, "uptime") ||
         flux_shell_streq(command, "stat") || flux_shell_streq(command, "touch") ||
         flux_shell_streq(command, "mkdir") || flux_shell_streq(command, "rmdir") ||
         flux_shell_streq(command, "write") || flux_shell_streq(command, "cp") ||
@@ -698,7 +759,10 @@ static inline flux_shell_action flux_shell_execute(
         state->last_status = 0;
     } else if (flux_shell_streq(command, "cd")) {
         flux_shell_cd(state, arguments);
-        if (state->last_status != 0) flux_shell_emit(io, "cd: path too long");
+        if (state->last_status == 1) flux_shell_emit(io, "cd: directory unavailable");
+        if (state->last_status == 2) flux_shell_emit(io, "cd: path too long");
+    } else if (flux_shell_streq(command, "ls")) {
+        flux_shell_ls(state, io, arguments);
     } else if (flux_shell_streq(command, "cat") || flux_shell_streq(command, "read")) {
         if (arguments[0] == '\0') {
             flux_shell_emit(io, "usage: cat <path>");

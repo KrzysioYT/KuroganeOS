@@ -1,7 +1,6 @@
 #include "../kernel/storage/device_registry.hpp"
 
 #include <cassert>
-#include <cstdint>
 #include <iostream>
 
 namespace {
@@ -29,7 +28,7 @@ int main() {
     block::Device sata{
         &context_a, 512U, 4096U, read_stub, write_stub, flush_stub};
     block::Device nvme{
-        &context_b, 4096U, 2048U, read_stub, write_stub, flush_stub};
+        &context_b, 4096U, 2048U, read_stub, write_stub, flush_stub, true};
 
     assert(device_registry::register_device(
         device_registry::Backend::Ahci, 0U, &sata, "SATA test"));
@@ -42,6 +41,10 @@ int main() {
     assert(entry.device == &sata);
     assert(entry.backend == device_registry::Backend::Ahci);
     assert(device_registry::device_at(1U) == &nvme);
+    assert(device_registry::writable_device_count() == 1U);
+    assert(device_registry::writable_entry_at(0U, &entry));
+    assert(entry.device == &sata);
+    assert(!device_registry::writable_entry_at(1U, &entry));
 
     // Re-registering the same device updates metadata but never duplicates it.
     assert(device_registry::register_device(
@@ -54,6 +57,7 @@ int main() {
     assert(device_registry::unregister_device(&sata));
     assert(device_registry::device_count() == 1U);
     assert(device_registry::device_at(0U) == &nvme);
+    assert(device_registry::writable_device_count() == 0U);
     assert(!device_registry::unregister_device(&sata));
 
     block::Device invalid{};
@@ -64,6 +68,7 @@ int main() {
 
     device_registry::reset();
     assert(device_registry::device_count() == 0U);
+    assert(device_registry::writable_device_count() == 0U);
     std::cout << "Generic storage device registry: PASS\n";
     return 0;
 }

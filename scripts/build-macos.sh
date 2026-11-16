@@ -59,7 +59,8 @@ ld="${KUROGANE_LD:-x86_64-elf-ld}"
 ar="${KUROGANE_AR:-x86_64-elf-ar}"
 objcopy="${KUROGANE_OBJCOPY:-x86_64-elf-objcopy}"
 readelf="${KUROGANE_READELF:-x86_64-elf-readelf}"
-for tool in "$cc" "$cxx" "$ld" "$ar" "$objcopy" "$readelf" python3 make; do
+objdump="${KUROGANE_OBJDUMP:-x86_64-elf-objdump}"
+for tool in "$cc" "$cxx" "$ld" "$ar" "$objcopy" "$readelf" "$objdump" python3 make; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing build tool: $tool" >&2
         echo "run ./scripts/setup-macos.sh --install" >&2
@@ -135,13 +136,36 @@ applications=(
     "init|userspace/system/init/main.c|system/init|c"
     "deviceprobe|userspace/system/device-probe/main.c|system/devprobe|c"
     "statusprobe|userspace/system/status-probe/main.c|system/stprobe|c"
+    "eventd|userspace/system/eventd/main.c|system/eventd|c"
+    "evprobe|userspace/system/event-probe/main.c|system/evprobe|c"
+    "settingsd|userspace/system/settingsd/main.c|system/setd|c"
+    "setprobe|userspace/system/settings-probe/main.c|system/setprobe|c"
+    "notificationd|userspace/system/notificationd/main.c|system/notifd|c"
+    "notifprobe|userspace/system/notification-probe/main.c|system/ntfprobe|c"
+    "accountd|userspace/system/accountd/main.c|system/accountd|c"
+    "accountprobe|userspace/system/account-probe/main.c|system/acctprb|c"
+    "sessiond|userspace/system/sessiond/main.c|system/sessiond|c"
+    "sessionprobe|userspace/system/session-probe/main.c|system/sesprobe|c"
+    "settingschangeprobe|userspace/system/settings-change-probe/main.c|system/setchprb|c"
+    "clipboardd|userspace/system/clipboardd/main.c|system/clipd|c"
+    "networkeventd|userspace/system/network-eventd/main.c|system/netevtd|c"
+    "dnsd|userspace/system/dnsd/main.c|system/dnsd|c"
+    "appregistryd|userspace/system/app-registryd/main.c|system/appregd|c"
+    "audiod|userspace/system/audiod/main.c|system/audiod|c"
+    "clipboardprobe|userspace/system/clipboard-probe/main.c|system/clipprb|c"
+    "kurofsprobe|userspace/system/kurofs-probe/main.c|system/kfsprb|c"
+    "socketprobe|userspace/system/socket-probe/main.c|system/sockprb|c"
+    "socketwake|userspace/system/socket-wake-worker/main.c|system/sockwake|c"
+    "socketexit|userspace/system/socket-exit-worker/main.c|system/sockexit|c"
+    "tcpexit|userspace/system/tcp-exit-worker/main.c|system/tcpexit|c"
 )
 for spec in "${applications[@]}"; do
     IFS='|' read -r name source output kind <<<"$spec"
     object="build/userspace/$name.o"
     target="build/userspace/rootfs/$output"
     mkdir -p "$(dirname "$target")"
-    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone -Wa,--noexecstack \
+    common=(-ffreestanding -fno-stack-protector -m64 -mno-red-zone \
+        -mno-mmx -mno-sse -msoft-float -Wa,--noexecstack \
         -I sdk/include -I userspace/runtime -I common)
     if [[ "$kind" == asm ]]; then
         "$cc" "${common[@]}" -c -x assembler-with-cpp "$source" -o "$object"
@@ -157,6 +181,15 @@ for spec in "${applications[@]}"; do
         echo "invalid x86-64 userspace image: $name" >&2; exit 1; }
     if "$readelf" -lW "$target" | grep -Eq '^[[:space:]]*(LOAD|GNU_STACK).*RWE'; then
         echo "userspace image has W+X segment/stack: $name" >&2; exit 1
+    fi
+    # The scheduler does not preserve SIMD/FPU state for this Ring-3 ABI.
+    # Check the linked ELF, not only compiler arguments (including asm apps).
+    if ! disassembly="$("$objdump" -d "$target")"; then
+        echo "cannot inspect userspace instructions: $name" >&2; exit 1
+    fi
+    if grep -Eq '%(xmm|ymm|zmm|mm)[0-9]+' <<<"$disassembly"; then
+        echo "userspace ELF uses unsupported SIMD/FPU registers: $name" >&2
+        exit 1
     fi
     echo "[userspace] /$output"
 done
@@ -190,6 +223,11 @@ if [[ -d state/macos-apps ]]; then
         echo "[userspace] /apps/$name (macOS development app)"
     done < <(find state/macos-apps -maxdepth 1 -type f -print0)
 fi
+
+# Reject incomplete native runtimes BEFORE emitting install media.
+# GUI images are supplied by build-sdk.sh, while this pipeline supplies the
+# 33 platform processes. Both need to exist in the SAME overlay.
+python3 "$root/scripts/verify-userspace-overlay.py" --overlay "$root/build/userspace/rootfs"
 
 # Standalone UEFI loader. Keep flags/layout identical to scripts/build.ps1.
 "$cc" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \

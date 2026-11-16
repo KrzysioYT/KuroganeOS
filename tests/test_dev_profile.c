@@ -71,6 +71,22 @@ static void expect_malformed_profiles_fail_closed(void) {
         "PASSWORD_HASH=57FF0F93FF125DDB\n"
         "HASH_SCHEME=FNV1A64-DEV\n",
         &profile));
+
+    assert(!ku_dev_profile_parse_user_config(
+        "USERNAME=user\n"
+        "PASSWORD_REQUIRED=0\n"
+        "PASSWORD_HASH=0000000000000000\n"
+        "HASH_SCHEME=FNV1A64-DEV\n"
+        "PASSWORD_REQUIRED=1\n"
+        "PASSWORD_HASH=57FF0F93FF125DDB\n",
+        &profile));
+    assert(!ku_dev_profile_parse_user_config(
+        "USERNAME=user\n"
+        "PASSWORD_REQUIRED=1\n"
+        "PASSWORD_HASH=57FF0F93FF125DDB\n"
+        "HASH_SCHEME=FNV1A64-DEV\n"
+        "PASSWORD_REQUIRED=0\n",
+        &profile));
 }
 
 static void expect_locale_validation(void) {
@@ -81,6 +97,7 @@ static void expect_locale_validation(void) {
     assert(strcmp(locale, "pl-PL") == 0);
     assert(!ku_dev_profile_parse_locale("LANG=xx-XX\n", locale));
     assert(!ku_dev_profile_parse_locale("BROKEN=pl-PL\n", locale));
+    assert(!ku_dev_profile_parse_locale("LANG=en-US\nLANG=pl-PL\n", locale));
 }
 
 int main(void) {

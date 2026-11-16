@@ -1,4 +1,5 @@
 #include <kurogane/libui.h>
+#include "../userspace/gui/settings/keyboard.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -231,6 +232,107 @@ int main(void) {
         native.commands[0].type != KU_UI_NATIVE_PANEL ||
         kui_scene_scroll(&scene, -100) != KU_STATUS_OK ||
         scene.scroll_offset != 0U) return 19;
+    {
+        kui_scene form;
+        ku_ui_event key = {0};
+        uint32_t target = 999U;
+        kui_scene_initialize(&form);
+        form.visible_rows = 2U;
+        kui_flow_begin(&root, &form, 0U);
+        (void)kui_flow_label(&root, 1U, "LABEL");
+        (void)kui_flow_button(&root, 2U, "FIRST");
+        (void)kui_flow_button(&root, 3U, "DISABLED");
+        (void)kui_scene_set_flags(&form, 3U, KUI_VIEW_DISABLED);
+        (void)kui_flow_button(&root, 4U, "HIDDEN");
+        (void)kui_scene_set_flags(&form, 4U, KUI_VIEW_HIDDEN);
+        (void)kui_flow_toggle(&root, 5U, "LAST", 0);
+        key.type = KU_UI_EVENT_KEY;
+        key.key = KU_UI_KEY_ENTER;
+        if (flux_settings_key(&form, &key, &target) != 0) return 30;
+        key.key = KU_UI_KEY_TAB;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 2U || form.scroll_offset != 0U) return 31;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 5U || form.scroll_offset != 2U) return 32;
+        key.key = KU_UI_KEY_ENTER;
+        if (flux_settings_key(&form, &key, &target) != 2 || target != 5U) return 33;
+        key.key = KU_UI_KEY_UNKNOWN;
+        key.character = ' ';
+        if (flux_settings_key(&form, &key, &target) != 2 || target != 5U) return 34;
+        key.character = 0U;
+        key.key = KU_UI_KEY_TAB;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 2U || form.scroll_offset != 1U) return 35;
+        key.modifiers = KU_UI_MOD_SHIFT;
+        if (flux_settings_key(&form, &key, &target) != 1 ||
+            form.selected_id != 5U || form.scroll_offset != 2U) return 36;
+        key.modifiers = KU_UI_MOD_CONTROL;
+        if (flux_settings_key(&form, &key, &target) != 0 ||
+            form.selected_id != 5U) return 37;
+        key.modifiers = KU_UI_MOD_ALT;
+        if (flux_settings_key(&form, &key, &target) != 0) return 38;
+        key.type = KU_UI_EVENT_POINTER;
+        if (flux_settings_key(&form, &key, &target) != 0) return 39;
+    }
+    {
+        kui_scene form;
+        kui_flow fields;
+        ku_ui_native_frame frame;
+        kui_scene_initialize(&form);
+        kui_flow_begin(&fields, &form, 0U);
+        (void)kui_flow_panel(&fields, 1U, "Appearance");
+        (void)kui_flow_metric(&fields, 2U, "STATUS", 1U, 1U);
+        (void)kui_flow_button(&fields, 3U, "TEXT SIZE");
+        (void)kui_flow_toggle(&fields, 4U, "HIGH CONTRAST", 0);
+        (void)kui_scene_select(&form, 4U);
+        form.viewport_height = 120U;
+        if (kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 2U ||
+            kui_scene_hit_test(&form, 24, 195) != 0U) return 40;
+        kui_scene_reveal_selection(&form);
+        if (!kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 2U ||
+            kui_scene_hit_test(&form, 24, center_y(&frame, 1U)) != 4U) return 41;
+        form.viewport_height = 72U; /* After shrinking, only the toggle fits. */
+        kui_scene_reveal_selection(&form);
+        if (!kui_scene_selection_visible(&form) ||
+            kui_scene_build_native(&form, &frame) != KU_STATUS_OK ||
+            frame.command_count != 1U ||
+            kui_scene_hit_test(&form, 24, center_y(&frame, 0U)) != 4U) return 42;
+        (void)kui_scene_scroll(&form, INT32_MIN);
+        if (kui_scene_selection_visible(&form)) return 43;
+        (void)kui_scene_scroll(&form, INT32_MAX);
+        if (!kui_scene_selection_visible(&form)) return 44;
+    }
+    {
+        kui_scene grid;
+        kui_flow cards;
+        kui_scene_initialize(&grid);
+        kui_flow_begin(&cards, &grid, 0U);
+        for (uint32_t i = 0U; i < 3U; ++i)
+            (void)kui_flow_metric(&cards, 1U + i, "METRIC", 1U, 2U);
+        for (uint32_t i = 0U; i < 3U; ++i)
+            (void)kui_flow_tile(&cards, 4U + i, "APPLICATION", 0U);
+        const uint32_t widths[] = {620U, 315U, 126U};
+        for (size_t size = 0U; size < sizeof(widths) / sizeof(widths[0]); ++size) {
+            grid.viewport_width = widths[size];
+            if (kui_scene_build_native(&grid, &native) != KU_STATUS_OK || native.command_count != 6U)
+                return 45;
+            for (uint32_t i = 0U; i < native.command_count; ++i) {
+                const ku_ui_native_command* card = &native.commands[i];
+                if (card->width <= 0 || (uint32_t)(card->x + card->width) >= grid.viewport_width)
+                    return 46;
+                if (i >= 3U && (kui_scene_hit_test(&grid, card->x + card->width - 1,
+                        center_y(&native, i)) != i + 1U ||
+                    kui_scene_hit_test(&grid, card->x + card->width, center_y(&native, i)) != 0U))
+                    return 47;
+            }
+            if (size == 0U && native.commands[3].y != native.commands[5].y) return 48;
+            if (size != 0U && native.commands[3].y >= native.commands[4].y) return 49;
+        }
+    }
     puts("libui native packet + mouse hit-test + scroll ABI tests passed");
     return 0;
 }

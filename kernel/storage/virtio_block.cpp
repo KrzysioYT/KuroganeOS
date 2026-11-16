@@ -968,6 +968,7 @@ Status initialize() {
         read_blocks_callback,
         write_blocks_callback,
         flush_callback,
+        g_controller.geometry.read_only,
     };
     g_controller.ready = true;
     g_controller.status = Status::Ok;

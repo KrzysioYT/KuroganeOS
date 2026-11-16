@@ -5,6 +5,8 @@
 #include <kurogane/settings.h>
 #include <kurogane/desktop.h>
 #include <kurogane/flux_app_lifecycle.h>
+#include "search.h"
+#include "dock_order_state.h"
 
 #define APP_COUNT 8U
 #define CHILD_CAPACITY 10U
@@ -12,6 +14,8 @@
 #define DESKTOP_PIN_STATE_PATH "/home/desktop.cfg"
 #define DESKTOP_THEME_STATE_KEY "ui.theme"
 #define DESKTOP_STYLE_STATE_KEY "ui.style"
+#define DESKTOP_BACKGROUND_STATE_KEY "ui.background"
+#define DESKTOP_TEXT_SCALE_STATE_KEY "ui.text_scale"
 
 typedef struct launcher_app {
     const char* label;
@@ -83,7 +87,13 @@ static int restore_desktop_theme(void) {
         apply.structure_size = sizeof(apply);
         apply.action = KU_DESKTOP_THEME_SET;
         apply.theme_id = (uint32_t)saved_theme;
-        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK;
+        const int success = ku_desktop_theme(&apply) == KU_STATUS_OK &&
+            apply.theme_id == (uint32_t)saved_theme;
+        if (success) {
+            char value[24];
+            gui_u64(value, sizeof(value), apply.theme_id);
+            printf("[SETTINGS] theme_restored=%s\n", value);
+        }
         (void)ku_service_close(connection);
         return success;
     }
@@ -145,13 +155,162 @@ static int restore_desktop_style(void) {
     return 0;
 }
 
+/* Restore the user-selected code-drawn wallpaper after Home has presented
+ * its first frame. Missing/corrupt preferences keep the safe forged default. */
+static int restore_desktop_background(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_background = KU_FLUX_BACKGROUND_FORGED;
+    ku_desktop_background_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_BACKGROUND_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_background)) break;
+        memcpy(&saved_background, response.value, sizeof(saved_background));
+        if (saved_background >= KU_FLUX_BACKGROUND_COUNT) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_BACKGROUND_SET;
+        apply.background_id = (uint32_t)saved_background;
+        const int success = ku_desktop_background(&apply) == KU_STATUS_OK &&
+            apply.background_id == saved_background;
+        if (success) {
+            printf("[SETTINGS] wallpaper_restored=%u\n", (unsigned)apply.background_id);
+        }
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
+
+static int restore_desktop_text_scale(void) {
+    uint32_t attempt = 0U;
+    ku_result_t connected = KU_STATUS_NOT_FOUND;
+    ku_settings_request request;
+    ku_settings_response response;
+    ku_service_connection_t connection;
+    ku_status_t status;
+    uint64_t saved_percent = 100U;
+    ku_desktop_text_scale_request apply;
+    while (attempt++ < 300U) {
+        connected = ku_settings_connect();
+        if (connected > 0) break;
+        if (connected != KU_STATUS_WOULD_BLOCK &&
+            connected != KU_STATUS_NOT_FOUND) return 0;
+        (void)kuro_sleep(1U);
+    }
+    if (connected <= 0) return 0;
+    connection = (ku_service_connection_t)connected;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.operation = KU_SETTINGS_GET;
+    (void)strlcpy(request.key, DESKTOP_TEXT_SCALE_STATE_KEY, sizeof(request.key));
+    status = ku_service_send(connection, &request, sizeof(request));
+    if (status != KU_STATUS_OK) {
+        (void)ku_service_close(connection);
+        return 0;
+    }
+    for (attempt = 0U; attempt < 300U; ++attempt) {
+        ku_service_message message;
+        status = ku_service_receive(connection, &message);
+        if (status == KU_STATUS_WOULD_BLOCK) {
+            (void)kuro_sleep(1U);
+            continue;
+        }
+        if (status != KU_STATUS_OK || message.data_size != sizeof(response)) break;
+        memcpy(&response, message.data, sizeof(response));
+        if (response.structure_size != sizeof(response) ||
+            response.status != KU_STATUS_OK ||
+            response.type != KU_SETTINGS_TYPE_U64 ||
+            response.value_size != sizeof(saved_percent)) break;
+        memcpy(&saved_percent, response.value, sizeof(saved_percent));
+        if (saved_percent != 100U && saved_percent != 125U &&
+            saved_percent != 150U && saved_percent != 200U) break;
+        memset(&apply, 0, sizeof(apply));
+        apply.structure_size = sizeof(apply);
+        apply.action = KU_DESKTOP_TEXT_SCALE_SET;
+        apply.percent = (uint32_t)saved_percent;
+        const int success = ku_desktop_text_scale(&apply) == KU_STATUS_OK &&
+            apply.percent == (uint32_t)saved_percent;
+        if (success) {
+            char value[24];
+            gui_u64(value, sizeof(value), apply.percent);
+            printf("[SETTINGS] text_scale_restored=%s\n", value);
+        }
+        (void)ku_service_close(connection);
+        return success;
+    }
+    (void)ku_service_close(connection);
+    return 0;
+}
+
 static uint64_t g_children[CHILD_CAPACITY];
 static uint32_t g_child_apps[CHILD_CAPACITY];
 static uint64_t g_child_spawned_at[CHILD_CAPACITY];
 static uint8_t g_child_ready_logged[CHILD_CAPACITY];
 static size_t g_selected = 0U;
+static char g_search_query[FLUX_LAUNCHER_SEARCH_CAPACITY] = "";
+static uint32_t g_scroll_offset = 0U;
 static char g_status[64] = "FLUX DECK / READY";
 static ku_service_connection_t g_notification_connection = 0U;
+
+static int app_matches_search(size_t index) {
+    if (index >= APP_COUNT) return 0;
+    return flux_search_matches(g_apps[index].label, g_apps[index].subtitle,
+                               g_apps[index].path, g_search_query);
+}
+
+static size_t next_matching_app(size_t start, int direction) {
+    size_t attempt;
+    if (direction == 0) direction = 1;
+    for (attempt = 0U; attempt < APP_COUNT; ++attempt) {
+        const size_t index = direction > 0
+            ? (start + attempt + 1U) % APP_COUNT
+            : (start + APP_COUNT - (attempt + 1U) % APP_COUNT) % APP_COUNT;
+        if (app_matches_search(index)) return index;
+    }
+    return APP_COUNT;
+}
+
+static void search_changed(void) {
+    g_scroll_offset = 0U;
+    // Prefer an exact/current result if still visible; otherwise select the
+    // first real matching application. Never launch a stale hidden tile.
+    if (app_matches_search(g_selected)) return;
+    g_selected = next_matching_app(APP_COUNT - 1U, 1);
+}
 
 static void append_text(char* destination, size_t capacity, const char* source) {
     const size_t used = strlen(destination);
@@ -433,14 +592,14 @@ static int pin_state(uint32_t app_id) {
     return request.pinned != 0U;
 }
 
-static void set_pin_state(uint32_t app_id, int pinned) {
+static ku_status_t set_pin_state(uint32_t app_id, int pinned) {
     ku_desktop_pin_request request;
     memset(&request, 0, sizeof(request));
     request.structure_size = sizeof(request);
     request.app_id = app_id;
     request.action = KU_DESKTOP_PIN_SET;
     request.value = pinned != 0 ? 1U : 0U;
-    (void)ku_desktop_pin(&request);
+    return ku_desktop_pin(&request);
 }
 
 static uint8_t collect_pin_mask(void) {
@@ -455,45 +614,255 @@ static uint8_t collect_pin_mask(void) {
     return mask;
 }
 
+/* desktop.cfg v1: one mask byte; v2: mask + tagged permutation;
+ * v3: v2 followed by four checksum bytes. HOME stays at position zero.
+ * Reject malformed records before modifying the live desktop. */
+static int g_dock_recovered_from_backup = 0;
+static ku_status_t read_pin_file(const char* path, size_t length,
+                                 uint8_t* mask, uint8_t order[8],
+                                 int* have_order) {
+    ku_file_stat info = {0};
+    ku_status_t status = ku_file_stat_path(path, length, &info);
+    if (status != KU_STATUS_OK) return status;
+    if (info.type != KU_FILE_TYPE_REGULAR ||
+        (info.size != 1U && info.size != 9U &&
+         info.size != FLUX_DOCK_RECORD_BYTES)) return KU_STATUS_CORRUPT_DATA;
+    const ku_result_t opened = ku_file_open(path, length);
+    if (opened <= 0) return (ku_status_t)opened;
+    uint8_t bytes[FLUX_DOCK_RECORD_BYTES] = {0};
+    /* Filesystems may return short positive reads. Assemble the entire
+     * record before validating it; never apply a truncated desktop state. */
+    size_t received = 0U;
+    ku_status_t read_status = KU_STATUS_OK;
+    while (received < (size_t)info.size) {
+        const ku_result_t count = ku_file_read(
+            (ku_file_t)opened, bytes + received, (size_t)info.size - received);
+        if (count <= 0) {
+            read_status = KU_STATUS_IO_ERROR;
+            break;
+        }
+        if ((size_t)count > (size_t)info.size - received) {
+            read_status = KU_STATUS_IO_ERROR;
+            break;
+        }
+        received += (size_t)count;
+    }
+    const ku_status_t closed = ku_file_close((ku_file_t)opened);
+    if (read_status != KU_STATUS_OK || closed != KU_STATUS_OK)
+        return KU_STATUS_IO_ERROR;
+    if ((bytes[0] & UINT8_C(1)) == 0U ||
+        (info.size >= 9U && !flux_dock_order_valid(bytes + 1U)) ||
+        (info.size == FLUX_DOCK_RECORD_BYTES &&
+         !flux_dock_record_valid(bytes)))
+        return KU_STATUS_CORRUPT_DATA;
+    *mask = bytes[0];
+    *have_order = info.size >= 9U;
+    if (*have_order)
+        for (size_t index = 0U; index < 8U; ++index)
+            order[index] = bytes[index + 1U];
+    return KU_STATUS_OK;
+}
+
 static int save_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
-    ku_result_t opened;
-    const uint8_t mask = collect_pin_mask();
-    ku_status_t status = ku_file_create(path, sizeof(path) - 1U);
-    if (status != KU_STATUS_OK && status != KU_STATUS_ALREADY_EXISTS) return 0;
-    opened = ku_file_open_ex(path, sizeof(path) - 1U, KU_FILE_OPEN_WRITE);
-    if (opened < 0) return 0;
-    if (ku_file_write((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
-        (void)ku_file_close((ku_file_t)opened);
-        return 0;
+    const char temporary[] = "/home/desktop.tmp";
+    const char backup[] = "/home/desktop.bak";
+    uint8_t state[FLUX_DOCK_RECORD_BYTES] = {0};
+    state[0] = collect_pin_mask();
+    state[1] = FLUX_DOCK_ORDER_TAG;
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app;
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            query.value == 0U || query.value >= KU_DESKTOP_APP_COUNT)
+            return 0;
+        state[query.value + 1U] = (uint8_t)app;
     }
-    status = ku_file_close((ku_file_t)opened);
+    if (!flux_dock_order_valid(state + 1U)) return 0;
+    flux_dock_record_seal(state);
+    if (!flux_dock_record_valid(state)) return 0;
+
+    // Write and sync the new generation without opening the published file.
+    ku_status_t status = ku_file_unlink(temporary, sizeof(temporary) - 1U);
+    if (status != KU_STATUS_OK && status != KU_STATUS_NOT_FOUND) return 0;
+    status = ku_file_create(temporary, sizeof(temporary) - 1U);
     if (status != KU_STATUS_OK) return 0;
-    return ku_file_sync() == KU_STATUS_OK;
+    const ku_result_t opened = ku_file_open_ex(
+        temporary, sizeof(temporary) - 1U, KU_FILE_OPEN_WRITE);
+    if (opened <= 0) return 0;
+    /* A successful filesystem write may be short. Commit only after the
+     * complete record reaches the temporary file. */
+    size_t written = 0U;
+    int write_failed = 0;
+    while (written < sizeof(state)) {
+        const ku_result_t count = ku_file_write(
+            (ku_file_t)opened, state + written, sizeof(state) - written);
+        if (count <= 0 || (size_t)count > sizeof(state) - written) {
+            write_failed = 1;
+            break;
+        }
+        written += (size_t)count;
+    }
+    const ku_status_t closed = ku_file_close((ku_file_t)opened);
+    if (write_failed || closed != KU_STATUS_OK) return 0;
+    if (ku_file_sync() != KU_STATUS_OK) return 0;
+
+    status = ku_file_rename(
+        temporary, sizeof(temporary) - 1U, path, sizeof(path) - 1U);
+    if (status == KU_STATUS_ALREADY_EXISTS && g_dock_recovered_from_backup) {
+        // Primary was corrupt. Do not replace the only verified backup with it.
+        status = ku_file_unlink(path, sizeof(path) - 1U);
+        if (status == KU_STATUS_OK) status = ku_file_sync();
+        if (status == KU_STATUS_OK)
+            status = ku_file_rename(
+                temporary, sizeof(temporary) - 1U, path, sizeof(path) - 1U);
+    } else if (status == KU_STATUS_ALREADY_EXISTS) {
+        // FAT32 does not support replace-on-rename. Keep the old primary as a
+        // recovery generation across a failed or interrupted publication.
+        status = ku_file_unlink(backup, sizeof(backup) - 1U);
+        if (status == KU_STATUS_OK || status == KU_STATUS_NOT_FOUND)
+            status = ku_file_rename(
+                path, sizeof(path) - 1U, backup, sizeof(backup) - 1U);
+        if (status == KU_STATUS_OK) {
+            status = ku_file_sync();
+            if (status == KU_STATUS_OK)
+                status = ku_file_rename(
+                    temporary, sizeof(temporary) - 1U,
+                    path, sizeof(path) - 1U);
+            if (status != KU_STATUS_OK) {
+                (void)ku_file_rename(
+                    backup, sizeof(backup) - 1U, path, sizeof(path) - 1U);
+                (void)ku_file_sync();
+            }
+        }
+    }
+    if (status != KU_STATUS_OK || ku_file_sync() != KU_STATUS_OK) return 0;
+    g_dock_recovered_from_backup = 0;
+    return 1;
 }
 
 static int load_pin_state(void) {
     const char path[] = DESKTOP_PIN_STATE_PATH;
+    const char backup[] = "/home/desktop.bak";
     uint8_t mask = 0U;
-    size_t index;
-    ku_result_t opened = ku_file_open(path, sizeof(path) - 1U);
-    if (opened < 0) return 0;
-    if (ku_file_read((ku_file_t)opened, &mask, sizeof(mask)) != (ku_result_t)sizeof(mask)) {
-        (void)ku_file_close((ku_file_t)opened);
-        return 0;
+    uint8_t order[8] = {0};
+    int have_order = 0;
+    g_dock_recovered_from_backup = 0;
+    ku_status_t status = read_pin_file(
+        path, sizeof(path) - 1U, &mask, order, &have_order);
+    if (status != KU_STATUS_OK &&
+        (status == KU_STATUS_NOT_FOUND || status == KU_STATUS_CORRUPT_DATA)) {
+        status = read_pin_file(
+            backup, sizeof(backup) - 1U, &mask, order, &have_order);
+        if (status == KU_STATUS_OK) g_dock_recovered_from_backup = 1;
     }
-    if (ku_file_close((ku_file_t)opened) != KU_STATUS_OK) return 0;
+    if (status != KU_STATUS_OK) return 0;
 
-    for (index = 0U; index < APP_COUNT; ++index) {
+    /* Applying a verified disk record still takes several kernel calls. Save
+     * the live state first so a partial failure never leaves a mixed desktop.
+     * Do not start modifying anything until every snapshot query succeeds. */
+    uint8_t previous_mask = UINT8_C(1);
+    uint8_t previous_order[KU_DESKTOP_APP_COUNT] = {0};
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app) {
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app;
+        query.action = KU_DESKTOP_PIN_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK) return 0;
+        if (query.pinned != 0U)
+            previous_mask |= (uint8_t)(UINT8_C(1) << app);
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            query.value == 0U || query.value >= KU_DESKTOP_APP_COUNT ||
+            previous_order[query.value] != 0U) return 0;
+        previous_order[query.value] = (uint8_t)app;
+    }
+
+    for (size_t index = 0U; index < APP_COUNT; ++index) {
         const uint32_t app_id = g_apps[index].desktop_id;
         if (!g_apps[index].pinnable) continue;
-        set_pin_state(app_id, (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U);
+        if (set_pin_state(app_id,
+                (mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U) != KU_STATUS_OK)
+            goto rollback;
+    }
+    if (have_order) {
+        for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+            ku_desktop_pin_request move;
+            memset(&move, 0, sizeof(move));
+            move.structure_size = sizeof(move);
+            move.app_id = order[position];
+            move.action = KU_DESKTOP_PIN_ORDER_SET;
+            move.value = position;
+            if (ku_desktop_pin(&move) != KU_STATUS_OK) goto rollback;
+        }
+    }
+
+    /* A successful IPC response is not proof that all multi-step changes
+     * took effect. Verify every pinnable bit and each restored position
+     * before acknowledging recovery. An inconsistent result rolls back. */
+    for (size_t index = 0U; index < APP_COUNT; ++index) {
+        const uint32_t app_id = g_apps[index].desktop_id;
+        if (!g_apps[index].pinnable) continue;
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = app_id;
+        query.action = KU_DESKTOP_PIN_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+            (query.pinned != 0U) !=
+                ((mask & (uint8_t)(UINT8_C(1) << app_id)) != 0U))
+            goto rollback;
+    }
+    if (have_order) {
+        for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+            ku_desktop_pin_request query;
+            memset(&query, 0, sizeof(query));
+            query.structure_size = sizeof(query);
+            query.app_id = order[position];
+            query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+            if (ku_desktop_pin(&query) != KU_STATUS_OK ||
+                query.value != position)
+                goto rollback;
+        }
+        ku_desktop_pin_request query;
+        memset(&query, 0, sizeof(query));
+        query.structure_size = sizeof(query);
+        query.app_id = KU_DESKTOP_APP_FILES;
+        query.action = KU_DESKTOP_PIN_ORDER_QUERY;
+        if (ku_desktop_pin(&query) != KU_STATUS_OK) goto rollback;
+        printf("[DOCK] order_restored_files_position=%u\n", (unsigned)query.value);
     }
     return 1;
+
+rollback:
+    /* Best effort rollback on kernel IPC failure. Retain the last good disk
+     * generation so a later session can retry the complete restore. */
+    for (uint32_t app = 1U; app < KU_DESKTOP_APP_COUNT; ++app)
+        (void)set_pin_state(app,
+            (previous_mask & (uint8_t)(UINT8_C(1) << app)) != 0U);
+    for (uint32_t position = 1U; position < KU_DESKTOP_APP_COUNT; ++position) {
+        ku_desktop_pin_request move;
+        memset(&move, 0, sizeof(move));
+        move.structure_size = sizeof(move);
+        move.app_id = previous_order[position];
+        move.action = KU_DESKTOP_PIN_ORDER_SET;
+        move.value = position;
+        (void)ku_desktop_pin(&move);
+    }
+    puts("[DOCK] restore_rollback");
+    return 0;
 }
 
 static void toggle_selected_pin(void) {
     ku_desktop_pin_request request;
+    if (g_selected >= APP_COUNT || !app_matches_search(g_selected)) {
+        (void)strlcpy(g_status, "SELECT AN APP FIRST", sizeof(g_status));
+        return;
+    }
     const launcher_app* app = &g_apps[g_selected];
     if (!app->pinnable) {
         (void)strlcpy(g_status, "SYSTEM APP / NOT PINNABLE", sizeof(g_status));
@@ -517,7 +886,51 @@ static void toggle_selected_pin(void) {
     }
 }
 
-static void build_scene(kui_scene* scene) {
+static void move_selected_dock(int direction) {
+    if (g_selected >= APP_COUNT || !app_matches_search(g_selected) ||
+        !g_apps[g_selected].pinnable) {
+        (void)strlcpy(g_status, "SELECT A PINNABLE APP", sizeof(g_status));
+        puts("[DOCK] reorder_no_selection");
+        return;
+    }
+    ku_desktop_pin_request request;
+    memset(&request, 0, sizeof(request));
+    request.structure_size = sizeof(request);
+    request.app_id = g_apps[g_selected].desktop_id;
+    request.action = KU_DESKTOP_PIN_ORDER_QUERY;
+    if (ku_desktop_pin(&request) != KU_STATUS_OK ||
+        request.value == 0U || request.value >= KU_DESKTOP_APP_COUNT) {
+        (void)strlcpy(g_status, "DOCK ORDER QUERY FAILED", sizeof(g_status));
+        puts("[DOCK] order_query_failed");
+        return;
+    }
+    const int target = (int)request.value + direction;
+    if (target < 1 || target >= (int)KU_DESKTOP_APP_COUNT) {
+        (void)strlcpy(g_status, "DOCK ORDER LIMIT", sizeof(g_status));
+        puts("[DOCK] reorder_limit");
+        return;
+    }
+    request.action = KU_DESKTOP_PIN_ORDER_SET;
+    request.value = (uint32_t)target;
+    printf("[DOCK] reorder_requested_app=%u position=%u\n",
+           (unsigned)request.app_id, (unsigned)target);
+    if (ku_desktop_pin(&request) != KU_STATUS_OK) {
+        (void)strlcpy(g_status, "DOCK REORDER FAILED", sizeof(g_status));
+        puts("[DOCK] reorder_set_failed");
+        return;
+    }
+    (void)strlcpy(g_status, "DOCK ORDER UPDATED", sizeof(g_status));
+    if (save_pin_state()) {
+        append_text(g_status, sizeof(g_status), " / SAVED");
+        printf("[DOCK] order_saved_app=%u position=%u\n",
+               (unsigned)request.app_id, (unsigned)request.value);
+    } else {
+        append_text(g_status, sizeof(g_status), " / SESSION ONLY");
+        puts("[DOCK] order_save_failed");
+    }
+}
+
+static void build_scene(ku_window_t window, kui_scene* scene) {
     kui_flow root;
     kui_flow apps;
     ku_system_snapshot system;
@@ -533,6 +946,7 @@ static void build_scene(kui_scene* scene) {
     char sound[64] = "AUDIO\n";
     uint32_t net_value = 0U;
     uint32_t audio_value = 0U;
+    size_t shown = 0U;
     size_t index;
 
     if (system_valid) {
@@ -572,10 +986,17 @@ static void build_scene(kui_scene* scene) {
 
     kui_scene_initialize(scene);
     scene->visible_rows = 16U;
+    (void)gui_update_scene_viewport(window, scene);
     kui_scene_apply_flux_theme(scene);
 
     kui_flow_begin(&root, scene, 0U);
     (void)kui_flow_panel(&root, 1U, "FLUX HOME / SYSTEM PULSE");
+    {
+        char search_label[64] = "SEARCH APPS / ";
+        append_text(search_label, sizeof(search_label),
+                    g_search_query[0] == '\0' ? "TYPE TO FILTER" : g_search_query);
+        (void)kui_flow_input(&root, 8U, search_label);
+    }
     (void)kui_flow_metric(&root, 2U, cpu,
                           system_valid ? system.cpu_percent : 0U, 100U);
     (void)kui_flow_metric(&root, 3U, ram,
@@ -589,6 +1010,8 @@ static void build_scene(kui_scene* scene) {
     for (index = 0U; index < APP_COUNT; ++index) {
         char label[64] = "";
         uint32_t flags = 0U;
+        if (!app_matches_search(index)) continue;
+        ++shown;
         append_text(label, sizeof(label), g_apps[index].label);
         append_text(label, sizeof(label), "\n");
         append_text(label, sizeof(label), g_apps[index].subtitle);
@@ -602,9 +1025,23 @@ static void build_scene(kui_scene* scene) {
             flags |= KUI_VIEW_RUNNING;
         (void)kui_scene_set_flags(scene, 10U + (uint32_t)index, flags);
     }
+    if (shown == 0U) {
+        (void)kui_flow_label(&root, 9U, "NO MATCH / BACKSPACE OR ESC TO CLEAR");
+    }
     (void)kui_flow_button(&root, 30U, "PIN / UNPIN SELECTED");
     (void)kui_flow_button(&root, 31U, "LOG OUT");
-    (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
+    // Reordering is an unfiltered catalog action. Keep the filtered Home
+    // scene (including the logout control at the end of its last page)
+    // stable for keyboard navigation and existing QEMU/VirtualBox journeys.
+    if (g_search_query[0] == '\0') {
+        (void)kui_flow_button(&root, 32U, "DOCK / MOVE LEFT OR UP");
+        (void)kui_flow_button(&root, 33U, "DOCK / MOVE RIGHT OR DOWN");
+    }
+    if (g_selected < APP_COUNT && app_matches_search(g_selected))
+        (void)kui_scene_select(scene, 10U + (uint32_t)g_selected);
+    scene->scroll_offset = g_scroll_offset;
+    (void)kui_scene_scroll(scene, 0);
+    g_scroll_offset = scene->scroll_offset;
 }
 
 int main(void) {
@@ -630,7 +1067,7 @@ int main(void) {
     // The first Home frame is the authenticated desktop handoff contract.
     // Never block this milestone on settingsd, notifd or persistent pin IO.
     // Live services can load after the window is already displayed.
-    build_scene(&scene);
+    build_scene(window, &scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         puts("[SESSION] flux_home_ui_present: FAIL");
         (void)ku_ui_close(window);
@@ -650,6 +1087,16 @@ int main(void) {
         puts("[TEST] flux_style_restore: PASS");
     } else {
         puts("[TEST] flux_style_restore: DEFAULT");
+    }
+    if (restore_desktop_background()) {
+        puts("[TEST] flux_background_restore: PASS");
+    } else {
+        puts("[TEST] flux_background_restore: DEFAULT");
+    }
+    if (restore_desktop_text_scale()) {
+        puts("[TEST] flux_text_scale_restore: PASS");
+    } else {
+        puts("[TEST] flux_text_scale_restore: DEFAULT");
     }
     if (load_pin_state()) {
         (void)strlcpy(g_status, "APPS MENU / DESKTOP STATE RESTORED", sizeof(g_status));
@@ -674,7 +1121,7 @@ int main(void) {
 
     // Optional services might be temporarily unavailable; Home must remain
     // alive and allow Dock/keyboard commands even if this refresh fails.
-    build_scene(&scene);
+    build_scene(window, &scene);
     if (kui_scene_present(window, &scene) != KU_STATUS_OK) {
         puts("[SESSION] flux_home_optional_refresh: FAIL");
     }
@@ -683,6 +1130,10 @@ int main(void) {
         ku_ui_event event;
         int available;
         reap_children();
+        if (gui_update_scene_viewport(window, &scene)) {
+            g_scroll_offset = scene.scroll_offset;
+            if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+        }
         available = kui_next_event(window, &event);
         if (available < 0) break;
         if (available == 0) {
@@ -690,13 +1141,26 @@ int main(void) {
             if (refresh_ticks >= KU_SYSTEM_TICKS_PER_SECOND) {
                 refresh_ticks = 0U;
                 report_ready_apps();
-                build_scene(&scene);
+                build_scene(window, &scene);
                 if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
             }
             (void)kuro_sleep(1U);
             continue;
         }
         if (event.type == KU_UI_EVENT_CLOSE) break;
+
+        if (event.type == KU_UI_EVENT_SCROLL) {
+            if (event.wheel_y != 0) {
+                const uint32_t previous = scene.scroll_offset;
+                (void)kui_scene_scroll(&scene, event.wheel_y > 0 ? -1 : 1);
+                if (scene.scroll_offset != previous) {
+                    g_scroll_offset = scene.scroll_offset;
+                    if (kui_scene_present(window, &scene) == KU_STATUS_OK)
+                        puts("[TEST] flux_home_wheel_navigation: PASS");
+                }
+            }
+            continue;
+        }
 
         if (event.type == KU_UI_EVENT_POINTER) {
             const uint32_t previous_buttons = pointer_buttons;
@@ -712,14 +1176,63 @@ int main(void) {
                 select_and_launch((size_t)(target - 10U));
             } else if (target == 30U) {
                 toggle_selected_pin();
+            } else if (target == 32U || target == 33U) {
+                move_selected_dock(target == 32U ? -1 : 1);
             } else if (target == 31U) {
                 puts("[TEST] desktop_logout_requested: PASS");
                 break;
             } else {
                 continue;
             }
-            build_scene(&scene);
+            build_scene(window, &scene);
             (void)kui_scene_present(window, &scene);
+            continue;
+        }
+
+        // Home owns a real, keyboard-driven app search. The core's private
+        // UNKNOWN-key messages still use the existing Dock command broker
+        // below, so physical typing cannot spoof an app-launch shortcut.
+        if (event.type == KU_UI_EVENT_KEY && event.key != KU_UI_KEY_UNKNOWN) {
+            const int modified = (event.modifiers &
+                (KU_UI_MOD_CONTROL | KU_UI_MOD_ALT)) != 0U;
+            int changed = 0;
+            if (modified) continue;
+            if (event.key == KU_UI_KEY_ENTER) {
+                if (g_selected < APP_COUNT && app_matches_search(g_selected)) {
+                    launch_selected();
+                    changed = 1;
+                }
+            } else if ((event.key == KU_UI_KEY_ARROW_LEFT ||
+                        event.key == KU_UI_KEY_ARROW_RIGHT) &&
+                       (event.modifiers & KU_UI_MOD_SHIFT) != 0U) {
+                // Accessible reordering without reaching offscreen controls.
+                puts("[DOCK] shift_arrow_received");
+                move_selected_dock(event.key == KU_UI_KEY_ARROW_LEFT ? -1 : 1);
+                changed = 1;
+            } else if (event.key == KU_UI_KEY_ARROW_DOWN ||
+                       event.key == KU_UI_KEY_ARROW_UP ||
+                       event.key == KU_UI_KEY_TAB) {
+                const int direction = event.key == KU_UI_KEY_ARROW_UP ? -1 : 1;
+                const size_t start = g_selected < APP_COUNT
+                    ? g_selected : (direction > 0 ? APP_COUNT - 1U : 0U);
+                const size_t next = next_matching_app(start, direction);
+                if (next < APP_COUNT) {
+                    g_selected = next;
+                    changed = 1;
+                }
+            } else if (flux_search_edit(
+                    g_search_query, sizeof(g_search_query), event.character,
+                    event.key == KU_UI_KEY_BACKSPACE,
+                    event.key == KU_UI_KEY_ESCAPE, 0)) {
+                search_changed();
+                changed = 1;
+            }
+            if (changed) {
+                build_scene(window, &scene);
+                kui_scene_reveal_selection(&scene);
+                g_scroll_offset = scene.scroll_offset;
+                if (kui_scene_present(window, &scene) != KU_STATUS_OK) break;
+            }
             continue;
         }
 
@@ -750,7 +1263,7 @@ int main(void) {
         } else {
             continue;
         }
-        build_scene(&scene);
+        build_scene(window, &scene);
         (void)kui_scene_present(window, &scene);
     }
 

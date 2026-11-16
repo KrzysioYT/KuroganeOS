@@ -58,6 +58,30 @@ bool entry_at(size_t index, Entry* output) {
     return output->device != nullptr;
 }
 
+size_t writable_device_count() {
+    size_t writable_count = 0U;
+    for (size_t index = 0U; index < g_count; ++index) {
+        const block::Device* const device = g_entries[index].device;
+        if (device != nullptr && !device->read_only) ++writable_count;
+    }
+    return writable_count;
+}
+
+bool writable_entry_at(size_t index, Entry* output) {
+    if (output == nullptr) return false;
+    size_t writable_index = 0U;
+    for (size_t entry_index = 0U; entry_index < g_count; ++entry_index) {
+        const Entry& entry = g_entries[entry_index];
+        if (entry.device == nullptr || entry.device->read_only) continue;
+        if (writable_index == index) {
+            *output = entry;
+            return true;
+        }
+        ++writable_index;
+    }
+    return false;
+}
+
 const block::Device* device_at(size_t index) {
     return index < g_count ? g_entries[index].device : nullptr;
 }

@@ -25,7 +25,8 @@ enum ku_file_type {
 
 enum ku_file_flags {
     KU_FILE_FLAG_NONE = 0,
-    KU_FILE_FLAG_SEEKABLE = UINT32_C(1) << 0
+    KU_FILE_FLAG_SEEKABLE = UINT32_C(1) << 0,
+    KU_FILE_FLAG_READ_ONLY_MOUNT = UINT32_C(1) << 1
 };
 
 enum ku_file_seek_origin {

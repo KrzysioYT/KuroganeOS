@@ -1,10 +1,9 @@
 #include "../../runtime/user.h"
 
 #include <kurogane/account.h>
-#include "dev_profile.h"
+#include "../../runtime/dev_login_profile.h"
 
 #define ACCOUNTD_MAX_CLIENTS 8U
-#define ACCOUNT_CONFIG_CAPACITY 384U
 
 typedef struct accountd_client {
     ku_service_connection_t connection;
@@ -59,56 +58,28 @@ static int bounded_text_valid(const char* text, size_t capacity, int allow_empty
     return 0;
 }
 
-static int read_small_file(const char* path, char* output, size_t capacity) {
-    const ku_result_t opened = ku_open(path, u_strlen(path), KU_OPEN_READ);
-    ku_result_t result;
-    ku_handle_t handle;
-    if (output == (char*)0 || capacity < 2U || opened <= 0) return 0;
-    handle = (ku_handle_t)opened;
-    result = ku_read(handle, output, capacity - 1U);
-    (void)ku_close(handle);
-    if (result < 0) return 0;
-    output[(size_t)result] = '\0';
-    return 1;
-}
-
 static void load_profile(void) {
-    char user_config[ACCOUNT_CONFIG_CAPACITY];
-    char locale_config[64];
-    char locale[KU_DEV_PROFILE_LOCALE_CAPACITY];
-    struct ku_dev_profile_data parsed;
-    const int installed = read_small_file("/etc/user.cfg", user_config, sizeof(user_config));
-    const int locale_read = read_small_file("/etc/locale.cfg", locale_config, sizeof(locale_config));
-    int locale_valid = 0;
-
+    ku_dev_login_profile local;
+    ku_dev_login_load_profile(&local);
     clear_bytes(&profile, sizeof(profile));
-    clear_bytes(&parsed, sizeof(parsed));
-    clear_bytes(locale, sizeof(locale));
     profile.account_id = UINT64_C(1);
-
-    if (!installed) {
-        profile.flags = KU_ACCOUNT_FLAG_LIVE | KU_ACCOUNT_FLAG_PROFILE_VALID;
-        copy_text(profile.username, sizeof(profile.username), "developer");
-        copy_text(profile.locale, sizeof(profile.locale), "en-US");
-        profile.available = 1;
-        (void)u_puts("[ACCOUNTD] profile_live_ready: PASS\n");
-        return;
-    }
-
-    if (locale_read) locale_valid = ku_dev_profile_parse_locale(locale_config, locale);
-    if (!locale_valid || !ku_dev_profile_parse_user_config(user_config, &parsed)) {
+    if (local.kind == KU_DEV_LOGIN_BLOCKED) {
         profile.flags = KU_ACCOUNT_FLAG_INSTALLED;
-        profile.available = 0;
         (void)u_puts("[ACCOUNTD] installed_profile_invalid: FAIL\n");
         return;
     }
-
-    profile.flags = KU_ACCOUNT_FLAG_INSTALLED | KU_ACCOUNT_FLAG_PROFILE_VALID;
-    if (parsed.password_required) profile.flags |= KU_ACCOUNT_FLAG_PASSWORD_REQUIRED;
-    copy_text(profile.username, sizeof(profile.username), parsed.username);
-    copy_text(profile.locale, sizeof(profile.locale), locale);
+    profile.flags = KU_ACCOUNT_FLAG_PROFILE_VALID |
+        (local.kind == KU_DEV_LOGIN_INSTALLED
+            ? KU_ACCOUNT_FLAG_INSTALLED : KU_ACCOUNT_FLAG_LIVE);
+    if (local.credentials.password_required) {
+        profile.flags |= KU_ACCOUNT_FLAG_PASSWORD_REQUIRED;
+    }
+    copy_text(profile.username, sizeof(profile.username), local.credentials.username);
+    copy_text(profile.locale, sizeof(profile.locale), local.locale);
     profile.available = 1;
-    (void)u_puts("[ACCOUNTD] profile_installed_ready: PASS\n");
+    (void)u_puts(local.kind == KU_DEV_LOGIN_INSTALLED
+        ? "[ACCOUNTD] profile_installed_ready: PASS\n"
+        : "[ACCOUNTD] profile_live_ready: PASS\n");
 }
 
 static ku_status_t send_response(

@@ -16,11 +16,6 @@ int main(void) {
         sizeof(version_line) - strlen(version_line));
 
     kui_scene_initialize(&scene);
-    kui_scene_set_palette(
-        &scene,
-        UINT32_C(0x090A0C),
-        UINT32_C(0xECEEF1),
-        UINT32_C(0xDE192D));
     kui_flow_begin(&root, &scene, 0U);
     (void)kui_flow_panel(&root, 1U, "ABOUT / KUROGANEOS");
     (void)kui_flow_label(&root, 2U, version_line);

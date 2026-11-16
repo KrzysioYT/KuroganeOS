@@ -32,3 +32,15 @@ Rebuild media from the repaired source before testing Windows. Existing installe
 roots need their system files updated through the installation/repair process;
 attaching a new ISO alone does not replace an installed root. Preserve user data.
 The 8.0 completion checklist remains open; do not label the candidate stable.
+
+## macOS parity correction, 2026-10-25
+
+The 2026-10-25 macOS build reported by a developer produced valid bootable
+IMG/ISO but skipped the same 22 runtime programs previously omitted on
+Windows. The macOS `build-macos.sh` inventory still included only 11 entries,
+whereas the Linux and repaired Windows inventories contain 33. The build now
+includes the full inventory, uses the same no-SIMD userspace flags, inspects
+linked assembly with cross-objdump, and performs a mandatory overlay check.
+The installer also checks reused staging under `--no-build`, rejecting an
+incomplete image instead of packaging missing services. Runtime interaction
+must still be verified on real Apple Silicon/Intel macOS with QEMU.

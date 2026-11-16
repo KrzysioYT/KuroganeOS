@@ -29,6 +29,25 @@ bool add_valid(uint64_t left, uint64_t right, uint64_t* result) {
     return true;
 }
 
+uint8_t fold_case(uint8_t value) {
+    return value >= 'a' && value <= 'z'
+        ? static_cast<uint8_t>(value - ('a' - 'A')) : value;
+}
+
+// FAT32 has case-insensitive 8.3 names. For two files on the SAME target
+// volume, a file cannot also be another file's parent directory.
+bool colliding_install_paths(const uint8_t* left, const uint8_t* right) {
+    for (size_t index = 0U; index < PATH_FIELD_SIZE; ++index) {
+        const uint8_t a = fold_case(left[index]);
+        const uint8_t b = fold_case(right[index]);
+        if (a != b) {
+            return (a == 0U && b == '/') || (b == 0U && a == '/');
+        }
+        if (a == 0U) return true;
+    }
+    return true;  // both unterminated; separately rejected by valid_path
+}
+
 bool valid_short_character(uint8_t value) {
     if (value >= 'a' && value <= 'z') {
         value = static_cast<uint8_t>(value - ('a' - 'A'));
@@ -167,13 +186,10 @@ Status parse(const void* bytes, size_t size, View* output) {
         for (size_t earlier = 0U; earlier < index; ++earlier) {
             const uint8_t* candidate =
                 raw + entries_offset + earlier * ENTRY_SIZE;
-            bool same = read_u32(candidate + 148U) == file.destination;
-            for (size_t character = 0U;
-                 same && character < PATH_FIELD_SIZE;
-                 ++character) {
-                if (candidate[character] != entry[character]) same = false;
+            if (read_u32(candidate + 148U) == file.destination &&
+                colliding_install_paths(candidate, entry)) {
+                return Status::InvalidPath;
             }
-            if (same) return Status::InvalidPath;
         }
     }
     *output = result;
@@ -189,7 +205,7 @@ const char* status_message(Status status) {
         case Status::InvalidLayout: return "invalid package layout";
         case Status::TooManyFiles: return "too many package files";
         case Status::InvalidManifestChecksum: return "manifest checksum mismatch";
-        case Status::InvalidPath: return "invalid, duplicate, or non-FAT83 package path";
+        case Status::InvalidPath: return "invalid, colliding, or non-FAT83 package path";
         case Status::InvalidDestination: return "invalid package destination";
         case Status::InvalidFileRange: return "invalid package file range";
         case Status::InvalidFileChecksum: return "package file checksum mismatch";

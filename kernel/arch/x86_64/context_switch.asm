@@ -1,8 +1,16 @@
 /* SysV x86-64 cooperative kernel-thread context switch. */
 
+/* Mach-O host tests execute the same switch instructions under Rosetta.
+ * Production ELF symbol names/sections are unchanged. */
+#if defined(__APPLE__) && defined(KUROGANE_HOST_TEST)
+#define x86_64_thread_context_switch _x86_64_thread_context_switch
+    .text
+    .global x86_64_thread_context_switch
+#else
     .section .text.context_switch, "ax"
     .global x86_64_thread_context_switch
     .type x86_64_thread_context_switch, @function
+#endif
 x86_64_thread_context_switch:
     pushq %rbp
     pushq %rbx
@@ -19,7 +27,9 @@ x86_64_thread_context_switch:
     popq %rbx
     popq %rbp
     ret
+#if !defined(__APPLE__) || !defined(KUROGANE_HOST_TEST)
     .size x86_64_thread_context_switch, .-x86_64_thread_context_switch
+#endif
 
 #if !defined(KUROGANE_HOST_TEST)
     .extern x86_64_interrupt_restore_frame
@@ -70,4 +80,6 @@ x86_64_thread_return_from_preemptive_run:
     .size x86_64_thread_return_from_preemptive_run, .-x86_64_thread_return_from_preemptive_run
 #endif
 
+#if !defined(__APPLE__) || !defined(KUROGANE_HOST_TEST)
     .section .note.GNU-stack, "", @progbits
+#endif

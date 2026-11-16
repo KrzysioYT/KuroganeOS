@@ -1,17 +1,21 @@
 #include "window_manager.hpp"
+#include "window_chrome.hpp"
+#include "app_identity.hpp"
 #include "../../sdk/include/kurogane/flux_app_catalog.h"
+#include "../../sdk/include/kurogane/design.h"
 
 #ifndef KUROGANE_HOST_TEST
 #include "../drivers/framebuffer.hpp"
 #include "../task/process.hpp"
 #include "cursor_sprite.hpp"
 #include "session_owner_policy.hpp"
+#include "../drivers/serial.hpp"
+#include "../libk/format.hpp"
 #endif
 
 namespace windowing {
 namespace {
 
-constexpr int32_t HEADER_HEIGHT = 36;
 constexpr int32_t MINIMUM_WIDTH = 260;
 constexpr int32_t MINIMUM_HEIGHT = 160;
 constexpr int32_t WORKSPACE_LEFT = 34;
@@ -24,10 +28,6 @@ constexpr int32_t DOCK_BOTTOM = 12;
 constexpr int32_t WORKSPACE_BOTTOM = 18;
 constexpr int32_t SPINE_X = 8;
 constexpr int32_t SPINE_WIDTH = 18;
-constexpr int32_t CONTROL_WIDTH = 22;
-constexpr int32_t CONTROL_HEIGHT = 20;
-constexpr int32_t CONTROL_GAP = 4;
-constexpr int32_t CONTROL_RIGHT = 8;
 constexpr int32_t DOCK_PADDING = 12;
 constexpr int32_t DOCK_PIN_SIZE = 42;
 constexpr int32_t DOCK_HOME_WIDTH = 78;
@@ -40,6 +40,23 @@ constexpr int32_t DESKTOP_SHORTCUT_STEP_Y = 84;
 constexpr int32_t RIBBON_GAP = 6;
 constexpr int32_t RIBBON_ITEM_MAX = 96;
 constexpr int32_t RIBBON_ITEM_MIN = 48;
+constexpr int32_t MODERN_RAIL_WIDTH = 79;
+constexpr int32_t MODERN_RAIL_X = 8;
+constexpr int32_t MODERN_RAIL_Y = 66;
+constexpr int32_t MODERN_RAIL_ITEM_HEIGHT = 72;
+constexpr int32_t MODERN_RAIL_PADDING = 6;
+constexpr int32_t MODERN_TASKBAR_HEIGHT = 49;
+constexpr size_t MODERN_RAIL_COUNT = 6U;
+// Sidebar order follows the web Red Flux desktop; public app IDs and the
+// Ctrl+Alt+F1..F8 ABI keep their existing order and meaning.
+constexpr size_t kModernRailApps[MODERN_RAIL_COUNT] = {0U, 2U, 6U, 1U, 4U, 3U};
+constexpr const char* kModernRailLabels[MODERN_RAIL_COUNT] = {
+    "HOME", "VAULT", "SYSTEM", "TERMINAL", "DOCS", "TOOLS",
+};
+constexpr ui::DockIcon kModernRailIcons[MODERN_RAIL_COUNT] = {
+    ui::DockIcon::Home, ui::DockIcon::Files, ui::DockIcon::Settings,
+    ui::DockIcon::Terminal, ui::DockIcon::Docs, ui::DockIcon::Tools,
+};
 constexpr size_t DOCK_PIN_COUNT = 8U;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;
@@ -68,14 +85,17 @@ struct Slot {
     SurfaceState surface;
     DrawCallback draw;
     InputCallback input_callback;
+    CloseCallback on_close;
     void* context;
     uint16_t generation;
+    uint8_t dock_app;
     bool occupied;
     WindowState state_before_minimize;
 };
 
 struct DockPin {
     const char* title;
+    const char* executable;
     char command;
     ui::DockIcon icon;
     const char* shortcut_label;
@@ -83,19 +103,20 @@ struct DockPin {
 
 // Order is the public ku_desktop_app_id ABI.
 constexpr DockPin kDockPins[DOCK_PIN_COUNT] = {
-    {KU_FLUX_TITLE_HOME, 0, ui::DockIcon::Home, "HOME"},
-    {KU_FLUX_TITLE_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
-    {KU_FLUX_TITLE_FILES, 'f', ui::DockIcon::Files, "FILES"},
-    {KU_FLUX_TITLE_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
-    {KU_FLUX_TITLE_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
-    {KU_FLUX_TITLE_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
-    {KU_FLUX_TITLE_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
-    {KU_FLUX_TITLE_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
+    {KU_FLUX_TITLE_HOME, KU_FLUX_EXEC_HOME, 0, ui::DockIcon::Home, "HOME"},
+    {KU_FLUX_TITLE_TERMINAL, KU_FLUX_EXEC_TERMINAL, 't', ui::DockIcon::Terminal, "TERM"},
+    {KU_FLUX_TITLE_FILES, KU_FLUX_EXEC_FILES, 'f', ui::DockIcon::Files, "FILES"},
+    {KU_FLUX_TITLE_PERFORMANCE, KU_FLUX_EXEC_PERFORMANCE, 'v', ui::DockIcon::Monitor, "CTRL"},
+    {KU_FLUX_TITLE_BROWSER, KU_FLUX_EXEC_BROWSER, 'b', ui::DockIcon::Files, "WEB"},
+    {KU_FLUX_TITLE_MONITOR, KU_FLUX_EXEC_MONITOR, 'm', ui::DockIcon::Monitor, "MON"},
+    {KU_FLUX_TITLE_SETTINGS, KU_FLUX_EXEC_SETTINGS, 's', ui::DockIcon::Settings, "SET"},
+    {KU_FLUX_TITLE_ABOUT, KU_FLUX_EXEC_ABOUT, 'a', ui::DockIcon::About, "ABOUT"},
 };
 
 Slot g_slots[MAX_WINDOWS]{};
 uint8_t g_order[MAX_WINDOWS]{};
 bool g_desktop_pinned[DOCK_PIN_COUNT]{};
+uint8_t g_dock_order[DOCK_PIN_COUNT]{};  // display positions, stable app IDs
 size_t g_count = 0U;
 int32_t g_screen_width = 0;
 int32_t g_screen_height = 0;
@@ -143,7 +164,9 @@ void release_slot(Slot& slot) {
     slot.info = {};
     slot.draw = nullptr;
     slot.input_callback = nullptr;
+    slot.on_close = nullptr;
     slot.context = nullptr;
+    slot.dock_app = static_cast<uint8_t>(DOCK_PIN_COUNT);
     slot.occupied = false;
 }
 
@@ -164,6 +187,61 @@ bool text_equals(const char* left, const char* right) {
     size_t index = 0U;
     while (left[index] != '\0' && left[index] == right[index]) ++index;
     return left[index] == right[index];
+}
+
+// Observe completed lifecycle changes, never fabricate input-test success.
+// This runs in the serialized compositor context and does not expose titles,
+// application contents or credentials. app is diagnostic metadata only.
+void trace_transition(const char* action, const WindowInfo& info) {
+#ifndef KUROGANE_HOST_TEST
+    if (info.owner_pid == 0U) return;
+    unsigned app = static_cast<unsigned>(DOCK_PIN_COUNT);
+    for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+        if (text_equals(info.title, kDockPins[index].title)) {
+            app = static_cast<unsigned>(index);
+            break;
+        }
+    }
+    ResourceSnapshot resources{};
+    if (resource_snapshot(&resources) != Status::Ok) return;
+    char line[384];
+    const int length = k_snprintf(line, sizeof(line),
+        "[WM] action=%s id=%u pid=%llu app=%u state=%u x=%d y=%d w=%d h=%d "
+        "focus=%u windows=%zu surfaces=%zu bytes=%zu sw=%d sh=%d\n",
+        action, static_cast<unsigned>(info.id),
+        static_cast<unsigned long long>(info.owner_pid), app,
+        static_cast<unsigned>(info.state), info.bounds.x, info.bounds.y,
+        info.bounds.width, info.bounds.height, static_cast<unsigned>(g_focused),
+        resources.windows, resources.retained_surfaces, resources.retained_bytes,
+        g_screen_width, g_screen_height);
+    if (length > 0 && static_cast<size_t>(length) < sizeof(line)) serial::write(line);
+#else
+    (void)action;
+    (void)info;
+#endif
+}
+
+// An application title alone cannot claim a pinned Dock identity. Match the
+// creating process's executable as well, then cache the result per window slot.
+uint8_t dock_app_for_window(const char* title, uint64_t owner_pid) {
+#ifdef KUROGANE_HOST_TEST
+    static_cast<void>(owner_pid);
+#endif
+    for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
+        const DockPin& pin = kDockPins[app];
+        if (!text_equals(title, pin.title)) continue;
+#ifndef KUROGANE_HOST_TEST
+        process::Stat owner{};
+        if (owner_pid == 0U ||
+            process::stat(owner_pid, &owner) != process::Status::Ok ||
+            !app_identity::matches(title, pin.title,
+                                   owner.executable, pin.executable)) {
+            return static_cast<uint8_t>(DOCK_PIN_COUNT);
+        }
+#endif
+        return static_cast<uint8_t>(app);
+    }
+    return static_cast<uint8_t>(DOCK_PIN_COUNT);
 }
 
 void copy_title(char* destination, const char* title) {
@@ -211,6 +289,14 @@ Slot* find_by_title(const char* title) {
     for (size_t index = 0U; index < MAX_WINDOWS; ++index) {
         Slot& slot = g_slots[index];
         if (exposed(slot) && text_equals(slot.info.title, title)) return &slot;
+    }
+    return nullptr;
+}
+
+Slot* find_dock_window(size_t app_id) {
+    if (app_id >= DOCK_PIN_COUNT) return nullptr;
+    for (Slot& slot : g_slots) {
+        if (exposed(slot) && slot.dock_app == app_id) return &slot;
     }
     return nullptr;
 }
@@ -282,6 +368,12 @@ int32_t clamp_size(int32_t value, int32_t lower, int32_t upper) {
     if (value < lower) return lower;
     if (value > upper) return upper;
     return value;
+}
+
+size_t dock_position(size_t app_id) {
+    for (size_t position = 0U; position < DOCK_PIN_COUNT; ++position)
+        if (g_dock_order[position] == app_id) return position;
+    return DOCK_PIN_COUNT;
 }
 
 bool rect_contains(const ui::Rect& rectangle, int32_t x, int32_t y) {
@@ -370,9 +462,31 @@ int32_t pinned_section_width() {
         static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * DOCK_PIN_GAP;
 }
 
+bool modern_rail_layout() {
+    // At compact resolutions keep the legacy dock accessible; the sidebar
+    // needs enough height for all six navigation groups and its brand footer.
+    return ui::desktop_style_id() == KU_FLUX_STYLE_MODERN &&
+           g_screen_width >= 1024 && g_screen_height >= 720;
+}
+
 WorkspaceGeometry calculate_workspace() {
     WorkspaceGeometry geometry{};
     if (!g_initialized) return geometry;
+
+    if (modern_rail_layout()) {
+        geometry.work_area = {
+            95, 66, g_screen_width - 103, g_screen_height - 124,
+        };
+        geometry.signal_spine = {
+            MODERN_RAIL_X, MODERN_RAIL_Y, MODERN_RAIL_WIDTH,
+            g_screen_height - MODERN_RAIL_Y - 58,
+        };
+        geometry.pulse_ribbon = {
+            0, g_screen_height - MODERN_TASKBAR_HEIGHT,
+            g_screen_width, MODERN_TASKBAR_HEIGHT,
+        };
+        return geometry;
+    }
 
     const int32_t work_width = g_screen_width - WORKSPACE_LEFT - WORKSPACE_RIGHT;
     const int32_t work_height = g_screen_height - WORKSPACE_TOP - WORKSPACE_BOTTOM;
@@ -411,27 +525,66 @@ WorkspaceGeometry calculate_workspace() {
     return geometry;
 }
 
-ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
+int32_t modern_rail_item_height(const ui::Rect& rail) {
+    const int32_t available = (rail.height - ui::kSideDockFooterHeight - MODERN_RAIL_PADDING) /
+        static_cast<int32_t>(MODERN_RAIL_COUNT);
+    const int32_t scaled = static_cast<int32_t>(
+        (MODERN_RAIL_ITEM_HEIGHT * ui::desktop_text_scale_percent() + 99U) / 100U);
+    return scaled < available ? scaled : available;
+}
+
+struct FloatingDockPins {
+    int32_t home;
+    int32_t pin;
+    int32_t gap;
+
+    int32_t width() const {
+        return home + static_cast<int32_t>(DOCK_PIN_COUNT - 1U) * (pin + gap);
+    }
+};
+
+FloatingDockPins floating_dock_pins(const ui::Rect& dock, size_t tasks) {
+    const int32_t total = dock.width - 2 * DOCK_PADDING - DOCK_SEPARATOR;
+    const int32_t task_space = clamp_size(
+        static_cast<int32_t>(tasks) * (RIBBON_ITEM_MIN + RIBBON_GAP),
+        0, (dock.width - 2 * DOCK_PADDING) / 3);
+    const int32_t space = total - task_space;
+    const int32_t rest_count = static_cast<int32_t>(DOCK_PIN_COUNT - 1U);
+    const int32_t home = clamp_size(space / 4, 1, DOCK_HOME_WIDTH);
+    const int32_t gap = clamp_size((space - home) / (2 * rest_count) - 8, 2, DOCK_PIN_GAP);
+    const int32_t pin = clamp_size((space - home) / rest_count - gap, 1, DOCK_PIN_SIZE);
+    return {home, pin, gap};
+}
+
+ChromeGeometry calculate_chrome(const ui::Rect& bounds, ui::WindowChromeMetrics metrics) {
     ChromeGeometry geometry{};
-    geometry.header = {bounds.x, bounds.y, bounds.width, HEADER_HEIGHT};
-    const int32_t control_y = bounds.y + (HEADER_HEIGHT - CONTROL_HEIGHT) / 2;
+    const int32_t header = metrics.header_height(bounds.height);
+    geometry.header = {bounds.x, bounds.y, bounds.width, header};
+    const int32_t width = metrics.control_width();
+    const int32_t height = metrics.control_height();
+    const int32_t control_y = bounds.y + (header - height) / 2;
     const int32_t dismiss_x =
-        bounds.x + bounds.width - CONTROL_RIGHT - CONTROL_WIDTH;
-    const int32_t expand_x = dismiss_x - CONTROL_GAP - CONTROL_WIDTH;
-    const int32_t minimize_x = expand_x - CONTROL_GAP - CONTROL_WIDTH;
+        bounds.x + bounds.width - metrics.control_right() - width;
+    const int32_t expand_x = dismiss_x - metrics.control_spacing();
+    const int32_t minimize_x = expand_x - metrics.control_spacing();
     geometry.minimize_control = {
-        minimize_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        minimize_x, control_y, width, height};
     geometry.expand_control = {
-        expand_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        expand_x, control_y, width, height};
     geometry.dismiss_control = {
-        dismiss_x, control_y, CONTROL_WIDTH, CONTROL_HEIGHT};
+        dismiss_x, control_y, width, height};
+    const int32_t grip = metrics.resize_grip();
     geometry.resize_grip = {
-        bounds.x + bounds.width - 18,
-        bounds.y + bounds.height - 18,
-        18,
-        18,
+        bounds.x + bounds.width - grip,
+        bounds.y + bounds.height - grip,
+        grip,
+        grip,
     };
     return geometry;
+}
+
+ChromeGeometry calculate_chrome(const ui::Rect& bounds) {
+    return calculate_chrome(bounds, {ui::desktop_text_scale_percent()});
 }
 
 ui::Rect calculate_content(const Slot& slot) {
@@ -443,31 +596,79 @@ ui::Rect calculate_content(const Slot& slot) {
         };
     }
     const ui::Rect& bounds = slot.info.bounds;
+    const ui::WindowChromeMetrics metrics{ui::desktop_text_scale_percent()};
+    const int32_t inset = metrics.content_inset();
+    const int32_t header = metrics.header_height(bounds.height);
     return {
-        bounds.x + 4,
-        bounds.y + HEADER_HEIGHT,
-        bounds.width - 8,
-        bounds.height - HEADER_HEIGHT - 4,
+        bounds.x + inset,
+        bounds.y + header,
+        bounds.width - 2 * inset,
+        bounds.height - header - inset,
     };
 }
 
-ui::Rect dock_pin_rect(size_t position) {
+ui::Rect dock_pin_rect(size_t app_id) {
     const WorkspaceGeometry workspace = calculate_workspace();
+    if (app_id >= DOCK_PIN_COUNT) return {};
+    const size_t position = dock_position(app_id);
     if (position >= DOCK_PIN_COUNT) return {};
+    if (modern_rail_layout()) {
+        const int32_t height = modern_rail_item_height(workspace.signal_spine);
+        // Preserve the existing Modern reference layout for the unmodified
+        // classic/default permutation. Moving any app enables custom order.
+        bool customized = false;
+        for (size_t slot = 0U; slot < DOCK_PIN_COUNT; ++slot) {
+            if (g_dock_order[slot] != slot) { customized = true; break; }
+        }
+        if (!customized) {
+            size_t rail_position = MODERN_RAIL_COUNT;
+            for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index)
+                if (kModernRailApps[index] == app_id) rail_position = index;
+            if (rail_position == MODERN_RAIL_COUNT) return {};
+            return {
+                workspace.signal_spine.x + MODERN_RAIL_PADDING,
+                workspace.signal_spine.y + MODERN_RAIL_PADDING +
+                    static_cast<int32_t>(rail_position) * height,
+                workspace.signal_spine.width - 2 * MODERN_RAIL_PADDING,
+                height,
+            };
+        }
+        // Map only the visible rail apps, respecting their saved order.
+        size_t rail_position = 0U;
+        bool found = false;
+        for (size_t slot = 0U; slot < DOCK_PIN_COUNT; ++slot) {
+            const size_t candidate = g_dock_order[slot];
+            bool visible = false;
+            for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index)
+                if (kModernRailApps[index] == candidate) { visible = true; break; }
+            if (!visible) continue;
+            if (candidate == app_id) { found = true; break; }
+            ++rail_position;
+        }
+        if (!found) return {};
+        return {
+            workspace.signal_spine.x + MODERN_RAIL_PADDING,
+            workspace.signal_spine.y + MODERN_RAIL_PADDING +
+                static_cast<int32_t>(rail_position) * height,
+            workspace.signal_spine.width - 2 * MODERN_RAIL_PADDING,
+            height,
+        };
+    }
+    const FloatingDockPins pins = floating_dock_pins(workspace.pulse_ribbon, exposed_window_count());
     const int32_t base_x = workspace.pulse_ribbon.x + DOCK_PADDING;
     if (position == 0U) {
         return {
             base_x,
             workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
-            DOCK_HOME_WIDTH,
+            pins.home,
             DOCK_PIN_SIZE,
         };
     }
     return {
-        base_x + DOCK_HOME_WIDTH + DOCK_PIN_GAP +
-            static_cast<int32_t>(position - 1U) * (DOCK_PIN_SIZE + DOCK_PIN_GAP),
+        base_x + pins.home + pins.gap +
+            static_cast<int32_t>(position - 1U) * (pins.pin + pins.gap),
         workspace.pulse_ribbon.y + (DOCK_HEIGHT - DOCK_PIN_SIZE) / 2,
-        DOCK_PIN_SIZE,
+        pins.pin,
         DOCK_PIN_SIZE,
     };
 }
@@ -476,8 +677,9 @@ ui::Rect desktop_shortcut_rect(size_t app_id) {
     if (app_id >= DOCK_PIN_COUNT || !g_desktop_pinned[app_id]) return {};
     const WorkspaceGeometry workspace = calculate_workspace();
     size_t ordinal = 0U;
-    for (size_t index = 0U; index < app_id; ++index) {
-        if (g_desktop_pinned[index]) ++ordinal;
+    const size_t current = dock_position(app_id);
+    for (size_t position = 0U; position < current; ++position) {
+        if (g_desktop_pinned[g_dock_order[position]]) ++ordinal;
     }
     int32_t rows = workspace.work_area.height / DESKTOP_SHORTCUT_STEP_Y;
     if (rows < 1) rows = 1;
@@ -491,31 +693,24 @@ ui::Rect desktop_shortcut_rect(size_t app_id) {
     };
 }
 
-int32_t ribbon_item_width(const WorkspaceGeometry& workspace) {
-    const size_t tasks = exposed_window_count();
-    if (tasks == 0U) return 0;
-    const int32_t task_start = DOCK_PADDING + pinned_section_width() +
-        DOCK_SEPARATOR;
-    const int32_t usable = workspace.pulse_ribbon.width - task_start -
-        DOCK_PADDING - static_cast<int32_t>(tasks - 1U) * RIBBON_GAP;
-    return clamp_size(
-        usable / static_cast<int32_t>(tasks),
-        RIBBON_ITEM_MIN,
-        RIBBON_ITEM_MAX);
-}
-
 ui::Rect ribbon_item_rect(size_t position) {
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
     if (position >= tasks) return {};
-    const int32_t width = ribbon_item_width(workspace);
-    const int32_t task_start = workspace.pulse_ribbon.x + DOCK_PADDING +
-        pinned_section_width() + DOCK_SEPARATOR;
+    const bool modern = modern_rail_layout();
+    const int32_t task_start = modern ? 78 :
+        DOCK_PADDING + floating_dock_pins(workspace.pulse_ribbon, tasks).width() + DOCK_SEPARATOR;
+    const int32_t tail = modern ? 8 : DOCK_PADDING;
+    const int32_t count = static_cast<int32_t>(tasks);
+    const int32_t space = workspace.pulse_ribbon.width - task_start - tail;
+    const int32_t gap = clamp_size(space / (2 * count), 0, RIBBON_GAP);
+    const int32_t width = clamp_size((space - (count - 1) * gap) / count,
+                                    1, modern ? 145 : RIBBON_ITEM_MAX);
+    const int32_t inset = modern ? 6 : 12;
     return {
-        task_start + static_cast<int32_t>(position) * (width + RIBBON_GAP),
-        workspace.pulse_ribbon.y + 12,
-        width,
-        workspace.pulse_ribbon.height - 24,
+        workspace.pulse_ribbon.x + task_start + static_cast<int32_t>(position) * (width + gap),
+        workspace.pulse_ribbon.y + inset, width,
+        workspace.pulse_ribbon.height - 2 * inset,
     };
 }
 
@@ -529,6 +724,14 @@ bool valid_bounds(const ui::Rect& bounds) {
         bounds.y >= workspace.work_area.y &&
         bounds.x <= workspace.work_area.x + workspace.work_area.width - bounds.width &&
         bounds.y <= workspace.work_area.y + workspace.work_area.height - bounds.height;
+}
+
+ui::Rect fit_to_workspace(ui::Rect bounds, const ui::Rect& area) {
+    if (bounds.width > area.width) bounds.width = area.width;
+    if (bounds.height > area.height) bounds.height = area.height;
+    bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
+    bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
+    return bounds;
 }
 
 ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requested) {
@@ -668,7 +871,7 @@ Status activate_ribbon_item(size_t position) {
 Status activate_dock_pin(size_t position) {
     if (position >= DOCK_PIN_COUNT) return Status::NotFound;
     const DockPin& pin = kDockPins[position];
-    Slot* existing = find_by_title(pin.title);
+    Slot* existing = find_dock_window(position);
     if (existing != nullptr) {
         if (existing->info.state == WindowState::Minimized) {
             return restore(existing->info.id);
@@ -699,14 +902,17 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
         workspace.work_area.x + workspace.work_area.width - slot.info.bounds.x;
     const int32_t maximum_height =
         workspace.work_area.y + workspace.work_area.height - slot.info.bounds.y;
-    slot.info.bounds.width = clamp_size(
+    const int32_t width = clamp_size(
         pointer_x - slot.info.bounds.x + 1,
         maximum_width < MINIMUM_WIDTH ? maximum_width : MINIMUM_WIDTH,
         maximum_width);
-    slot.info.bounds.height = clamp_size(
+    const int32_t height = clamp_size(
         pointer_y - slot.info.bounds.y + 1,
         maximum_height < MINIMUM_HEIGHT ? maximum_height : MINIMUM_HEIGHT,
         maximum_height);
+    if (slot.info.bounds.width == width && slot.info.bounds.height == height) return;
+    slot.info.bounds.width = width;
+    slot.info.bounds.height = height;
     slot.info.restore_bounds = slot.info.bounds;
     mark_full_dirty();
 }
@@ -796,8 +1002,9 @@ void draw_window_slot(Slot& slot) {
         return;
     }
 
-    const ChromeGeometry chrome = calculate_chrome(bounds);
-    ui::flux_window(bounds, slot.info.title, slot.info.focused);
+    const ui::WindowChromeMetrics metrics{ui::desktop_text_scale_percent()};
+    const ChromeGeometry chrome = calculate_chrome(bounds, metrics);
+    ui::flux_window(bounds, slot.info.title, slot.info.focused, metrics);
     ui::flux_control(chrome.minimize_control, ui::FluxControl::Minimize, slot.info.focused);
     ui::flux_control(
         chrome.expand_control,
@@ -806,10 +1013,10 @@ void draw_window_slot(Slot& slot) {
     ui::flux_control(chrome.dismiss_control, ui::FluxControl::Dismiss, slot.info.focused);
     if (slot.info.state == WindowState::Normal) {
         graphics::draw_rect(
-            chrome.resize_grip.x + 6,
-            chrome.resize_grip.y + 6,
-            8,
-            8,
+            chrome.resize_grip.x + metrics.pixels(6),
+            chrome.resize_grip.y + metrics.pixels(6),
+            metrics.pixels(8),
+            metrics.pixels(8),
             graphics::rgb(224, 26, 48),
             1U);
     }
@@ -836,6 +1043,7 @@ void render_layers() {
     }
 
     ui::desktop("KUROGANE / RED FLUX");
+    ui::desktop_session_status(find_by_title("RED FLUX HOME") != nullptr);
     // Do not imply a healthy session when neither Login nor its Home app is
     // present. This is deliberately shown only in the failure state, so
     // users can distinguish a missing Ring-3 launcher from a dead pointer.
@@ -850,7 +1058,8 @@ void render_layers() {
     }
     const WorkspaceGeometry workspace = calculate_workspace();
     const size_t tasks = exposed_window_count();
-    ui::signal_spine(workspace.signal_spine, tasks, focused_position());
+    if (!modern_rail_layout())
+        ui::signal_spine(workspace.signal_spine, tasks, focused_position());
 
     const ui::Theme& theme = ui::default_theme();
     for (size_t app = 0U; app < DOCK_PIN_COUNT; ++app) {
@@ -862,7 +1071,7 @@ void render_layers() {
             DOCK_PIN_SIZE,
             DOCK_PIN_SIZE,
         };
-        const Slot* running = find_by_title(kDockPins[app].title);
+        const Slot* running = find_dock_window(app);
         ui::dock_item(
             shortcut_icon,
             kDockPins[app].icon,
@@ -882,10 +1091,29 @@ void render_layers() {
         if (slot != nullptr) draw_window_slot(*slot);
     }
 
-    if (g_dock_visible) {
+    if (modern_rail_layout()) {
+        // Exact topology of the Red Flux reference: a fixed application rail
+        // and a bottom task switcher. Each visible tile has a matching hitbox.
+        ui::side_dock(workspace.signal_spine);
+        for (size_t index = 0U; index < MODERN_RAIL_COUNT; ++index) {
+            const size_t app = kModernRailApps[index];
+            const Slot* running = find_dock_window(app);
+            ui::side_dock_item(dock_pin_rect(app), kModernRailIcons[index],
+                kModernRailLabels[index],
+                running != nullptr, running != nullptr && running->info.focused);
+        }
+        ui::dock_bar(workspace.pulse_ribbon, tasks);
+        for (size_t position = 0U; position < tasks; ++position) {
+            const Slot* slot = exposed_at(position);
+            if (slot == nullptr) continue;
+            ui::dock_task(ribbon_item_rect(position), slot->info.title,
+                          slot->info.focused,
+                          slot->info.state == WindowState::Minimized);
+        }
+    } else if (g_dock_visible) {
         ui::dock_bar(workspace.pulse_ribbon, tasks);
         for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
-            const Slot* running = find_by_title(kDockPins[index].title);
+            const Slot* running = find_dock_window(index);
             const bool active = running != nullptr && running->info.focused;
             if (index == 0U) {
                 // HOME is the session application broker: APPS always focuses
@@ -932,6 +1160,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height) {
     }
     for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
         g_desktop_pinned[index] = false;
+        g_dock_order[index] = static_cast<uint8_t>(index);
     }
     g_desktop_pinned[0U] = true;
     g_desktop_pinned[3U] = true;
@@ -976,30 +1205,32 @@ Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
 #endif
     g_screen_width = static_cast<int32_t>(screen_width);
     g_screen_height = static_cast<int32_t>(screen_height);
-    const ui::Rect area = calculate_workspace().work_area;
-    const auto fit = [&area](ui::Rect bounds) {
-        if (bounds.width > area.width) bounds.width = area.width;
-        if (bounds.height > area.height) bounds.height = area.height;
-        bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
-        bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
-        return bounds;
-    };
-    for (Slot& slot : g_slots) {
-        if (!slot.occupied) continue;
-        if (is_login_surface(slot)) {
-            slot.info.bounds = {0, 0, g_screen_width, g_screen_height};
-            slot.info.restore_bounds = slot.info.bounds;
-        } else {
-            slot.info.restore_bounds = fit(slot.info.restore_bounds);
-            const bool maximized = slot.info.state == WindowState::Maximized ||
-                (slot.info.state == WindowState::Minimized &&
-                 slot.state_before_minimize == WindowState::Maximized);
-            slot.info.bounds = maximized ? area : fit(slot.info.bounds);
-        }
+    if (Slot* login = login_surface(); login != nullptr) {
+        login->info.bounds = {0, 0, g_screen_width, g_screen_height};
+        login->info.restore_bounds = login->info.bounds;
     }
-    g_dragged = g_resized = g_hovered = g_pointer_capture = INVALID_WINDOW;
-    mark_full_dirty();
+    reflow_workspace();
     return Status::Ok;
+}
+
+void reflow_workspace() {
+    if (!g_initialized || g_rendering) return;
+    const ui::Rect area = calculate_workspace().work_area;
+    for (Slot& slot : g_slots) {
+        if (!slot.occupied || is_login_surface(slot)) continue;
+        const bool maximized = slot.info.state == WindowState::Maximized ||
+            (slot.info.state == WindowState::Minimized &&
+             slot.state_before_minimize == WindowState::Maximized);
+        const ui::Rect fitted = maximized ? area : fit_to_workspace(slot.info.restore_bounds, area);
+        const ui::Rect previous = slot.info.bounds;
+        slot.info.bounds = fitted;
+        if (fitted.x != previous.x || fitted.y != previous.y ||
+            fitted.width != previous.width || fitted.height != previous.height)
+            trace_transition("workspace", slot.info);
+    }
+    // Client gestures still own their release event after the layout changes.
+    g_dragged = g_resized = g_hovered = INVALID_WINDOW;
+    mark_full_dirty();
 }
 
 Status create_window(
@@ -1009,7 +1240,8 @@ Status create_window(
     DrawCallback draw,
     InputCallback input_callback,
     void* context,
-    WindowId* out_id) {
+    WindowId* out_id,
+    CloseCallback on_close) {
     if (!g_initialized) return Status::NotInitialized;
     if (title == nullptr || out_id == nullptr || text_length(title, 33U) == 0U ||
         text_length(title, 33U) > 32U) {
@@ -1071,7 +1303,11 @@ Status create_window(
     copy_title(slot.info.title, title);
     slot.draw = draw;
     slot.input_callback = input_callback;
+    slot.on_close = on_close;
     slot.context = context;
+    // Resolve the immutable process image once. No process-table walks are
+    // needed in every compositor frame to display the running Dock state.
+    slot.dock_app = dock_app_for_window(title, owner_pid);
     clear_surface(slot.surface);
     g_order[g_count++] = static_cast<uint8_t>(selected);
 #ifndef KUROGANE_HOST_TEST
@@ -1091,6 +1327,9 @@ Status close(WindowId id) {
     Slot* slot = find(id, &slot_index);
     if (slot == nullptr) return Status::NotFound;
 
+    const WindowInfo closed_info = slot->info;
+    const CloseCallback on_close = slot->on_close;
+    void* const context = slot->context;
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     for (size_t index = position + 1U; index < g_count; ++index) {
@@ -1102,6 +1341,8 @@ Status close(WindowId id) {
     cancel_capture(id);
     choose_top_focus();
     mark_full_dirty();
+    trace_transition("close", closed_info);
+    if (on_close != nullptr) on_close(closed_info, context);
     return Status::Ok;
 }
 
@@ -1166,12 +1407,14 @@ Status present_surface(
     for (size_t index = required; index < slot->surface.size; ++index) {
         slot->surface.payload[index] = 0U;
     }
+    const bool first_frame = !slot->surface.valid;
     slot->surface.width = width;
     slot->surface.height = height;
     slot->surface.stride = stride;
     slot->surface.size = required;
     slot->surface.valid = true;
     invalidate_window(id);
+    if (first_frame) trace_transition("present", slot->info);
     return Status::Ok;
 }
 
@@ -1211,6 +1454,7 @@ Status focus(WindowId id) {
     g_focused = id;
     update_z_order();
     mark_full_dirty();
+    trace_transition("focus", slot->info);
     return Status::Ok;
 }
 
@@ -1222,14 +1466,17 @@ Status move(WindowId id, int32_t x, int32_t y) {
         return Status::InvalidState;
     }
     const WorkspaceGeometry workspace = calculate_workspace();
-    slot->info.bounds.x = clamp_position(
+    x = clamp_position(
         x,
         workspace.work_area.x,
         workspace.work_area.x + workspace.work_area.width - slot->info.bounds.width);
-    slot->info.bounds.y = clamp_position(
+    y = clamp_position(
         y,
         workspace.work_area.y,
         workspace.work_area.y + workspace.work_area.height - slot->info.bounds.height);
+    if (slot->info.bounds.x == x && slot->info.bounds.y == y) return Status::Ok;
+    slot->info.bounds.x = x;
+    slot->info.bounds.y = y;
     slot->info.restore_bounds = slot->info.bounds;
     mark_full_dirty();
     return Status::Ok;
@@ -1248,6 +1495,7 @@ Status minimize(WindowId id) {
     slot->info.state = WindowState::Minimized;
     if (g_focused == id) choose_top_focus();
     mark_full_dirty();
+    trace_transition("minimize", slot->info);
     return Status::Ok;
 }
 
@@ -1259,12 +1507,12 @@ Status maximize(WindowId id) {
         return Status::InvalidState;
     }
     cancel_capture(id);
-    if (slot->info.state == WindowState::Normal) slot->info.restore_bounds = slot->info.bounds;
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
     slot->info.bounds = workspace.work_area;
     static_cast<void>(focus(id));
     mark_full_dirty();
+    trace_transition("maximize", slot->info);
     return Status::Ok;
 }
 
@@ -1279,10 +1527,11 @@ Status restore(WindowId id) {
     const bool restore_maximized = slot->info.state == WindowState::Minimized &&
         slot->state_before_minimize == WindowState::Maximized;
     slot->info.state = restore_maximized ? WindowState::Maximized : WindowState::Normal;
-    slot->info.bounds = restore_maximized
-        ? calculate_workspace().work_area : slot->info.restore_bounds;
+    const ui::Rect area = calculate_workspace().work_area;
+    slot->info.bounds = restore_maximized ? area : fit_to_workspace(slot->info.restore_bounds, area);
     static_cast<void>(focus(id));
     mark_full_dirty();
+    trace_transition("restore", slot->info);
     return Status::Ok;
 }
 
@@ -1324,7 +1573,7 @@ bool home_surface_ready() {
         home->info.state != WindowState::Minimized &&
         home->surface.valid && home->draw != nullptr;
 }
-bool dock_visible() { return g_dock_visible; }
+bool dock_visible() { return modern_rail_layout() || g_dock_visible; }
 
 Status chrome_geometry(WindowId id, ChromeGeometry* out_geometry) {
     if (!g_initialized) return Status::NotInitialized;
@@ -1352,6 +1601,35 @@ Status pulse_item_geometry(size_t position, ui::Rect* out_bounds) {
     return Status::Ok;
 }
 
+Status desktop_dock_order(
+    uint32_t app_id, uint32_t action, uint32_t* in_out_position) {
+    if (!g_initialized) return Status::NotInitialized;
+    if (in_out_position == nullptr || app_id >= DOCK_PIN_COUNT)
+        return Status::InvalidArgument;
+    const size_t original = dock_position(app_id);
+    if (original >= DOCK_PIN_COUNT) return Status::InvalidState;
+    if (action == 6U) {
+        *in_out_position = static_cast<uint32_t>(original);
+        return Status::Ok;
+    }
+    if (action != 7U || app_id == 0U || *in_out_position == 0U ||
+        *in_out_position >= DOCK_PIN_COUNT) return Status::InvalidArgument;
+    const size_t target = *in_out_position;
+    if (target != original) {
+        if (target < original) {
+            for (size_t p = original; p > target; --p)
+                g_dock_order[p] = g_dock_order[p - 1U];
+        } else {
+            for (size_t p = original; p < target; ++p)
+                g_dock_order[p] = g_dock_order[p + 1U];
+        }
+        g_dock_order[target] = static_cast<uint8_t>(app_id);
+        mark_full_dirty();
+    }
+    *in_out_position = static_cast<uint32_t>(target);
+    return Status::Ok;
+}
+
 Status desktop_pin(
     uint32_t app_id,
     uint32_t action,
@@ -1367,7 +1645,7 @@ Status desktop_pin(
         return Status::Ok;
     }
     if (action == DESKTOP_PIN_APP_READY) {
-        const Slot* existing = find_by_title(kDockPins[app_id].title);
+        const Slot* existing = find_dock_window(app_id);
         *out_pinned = existing != nullptr && existing->surface.valid;
         return Status::Ok;
     }
@@ -1375,7 +1653,7 @@ Status desktop_pin(
         // The caller's Home-process identity is checked at the syscall
         // boundary. This action never sends a synthetic command back to
         // itself and cannot spawn a process.
-        Slot* existing = find_by_title(kDockPins[app_id].title);
+        Slot* existing = find_dock_window(app_id);
         if (existing == nullptr) return Status::NotFound;
         *out_pinned = g_desktop_pinned[app_id];
         return existing->info.state == WindowState::Minimized
@@ -1442,7 +1720,8 @@ Status dispatch(const input::Event& event) {
         }
     }
 
-    if (event.type == input::EventType::MouseMove && login_surface() == nullptr) {
+    if (event.type == input::EventType::MouseMove &&
+        login_surface() == nullptr && !modern_rail_layout()) {
         const bool visible = rect_contains(
             calculate_workspace().pulse_ribbon, event.x, event.y);
         if (visible != g_dock_visible) {
@@ -1463,6 +1742,28 @@ Status dispatch(const input::Event& event) {
         g_resized = INVALID_WINDOW;
         g_pointer_capture = INVALID_WINDOW;
         const WorkspaceGeometry workspace = calculate_workspace();
+        if (login_surface() == nullptr && modern_rail_layout()) {
+            if (rect_contains(workspace.signal_spine, event.x, event.y)) {
+                for (size_t index = 0U; index < DOCK_PIN_COUNT; ++index) {
+                    if (rect_contains(dock_pin_rect(index), event.x, event.y))
+                        return activate_dock_pin(index);
+                }
+                return Status::Ok;
+            }
+            if (rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
+                if (event.x >= 8 && event.x < 60 &&
+                    event.y >= workspace.pulse_ribbon.y + 6 &&
+                    event.y < workspace.pulse_ribbon.y +
+                                   workspace.pulse_ribbon.height - 6)
+                    return activate_dock_pin(0U);
+                const size_t tasks = exposed_window_count();
+                for (size_t position = 0U; position < tasks; ++position) {
+                    if (rect_contains(ribbon_item_rect(position), event.x, event.y))
+                        return activate_ribbon_item(position);
+                }
+                return Status::Ok;
+            }
+        }
         if (login_surface() == nullptr &&
             rect_contains(workspace.pulse_ribbon, event.x, event.y)) {
             if (!g_dock_visible) {
@@ -1543,6 +1844,10 @@ Status dispatch(const input::Event& event) {
         }
     } else if (event.type == input::EventType::MouseButtonUp &&
                event.button == drivers::mouse::Left) {
+        const Slot* changed = find(g_dragged != INVALID_WINDOW ? g_dragged : g_resized);
+        if (changed != nullptr) {
+            trace_transition(g_dragged != INVALID_WINDOW ? "move" : "resize", changed->info);
+        }
         g_dragged = INVALID_WINDOW;
         g_resized = INVALID_WINDOW;
     }

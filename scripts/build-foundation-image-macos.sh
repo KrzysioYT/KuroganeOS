@@ -51,7 +51,6 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/kurogane-macos.XXXXXX")"
 disk="$tmp/KuroganeOS.img"
 esp="$tmp/esp.img"
 root="$tmp/root.img"
-root_test="$tmp/root-volume-image-test"
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT
 mkdir -p "$(dirname "$output")"
@@ -123,21 +122,8 @@ dd if="$root" of="$disk" bs=1048576 seek=65 conv=notrunc 2>/dev/null
 sgdisk --verify "$disk" >/dev/null
 
 echo "[macos] validating Foundation image through KuroganeOS FAT32/VFS..."
-"$host_cxx" -std=c++17 -O2 -Wall -Wextra -Wpedantic \
-    "$repo_root/tests/test_root_volume_image.cpp" \
-    "$repo_root/tests/host_system_metrics_stub.cpp" \
-    "$repo_root/tests/host_process_path_stub.cpp" \
-    "$repo_root/kernel/fs/root_volume.cpp" \
-    "$repo_root/kernel/fs/fat32.cpp" \
-    "$repo_root/kernel/fs/fat32_vfs.cpp" \
-    "$repo_root/kernel/fs/vfs.cpp" \
-    "$repo_root/kernel/install/package.cpp" \
-    "$repo_root/kernel/install/package_vfs.cpp" \
-    "$repo_root/kernel/libk/crc.cpp" \
-    "$repo_root/kernel/storage/gpt.cpp" \
-    "$repo_root/kernel/storage/partition_device.cpp" \
-    -o "$root_test"
-"$root_test" "$disk"
+HOST_CXX="$host_cxx" \
+    bash "$repo_root/scripts/validate-foundation-root-image.sh" "$disk"
 echo "[macos] Foundation root FAT32/VFS validation: PASS"
 
 cp "$disk" "$output"

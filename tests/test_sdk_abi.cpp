@@ -41,6 +41,9 @@ int main() {
     static_assert(KU_SYS_DESKTOP_PIN == 19);
     static_assert(KU_DESKTOP_PIN_FOCUS_RUNNING == 4);
     static_assert(KU_DESKTOP_PIN_APP_READY == 5);
+    static_assert(KU_DESKTOP_PIN_ORDER_QUERY == 6);
+    static_assert(KU_DESKTOP_PIN_ORDER_SET == 7);
+    static_assert(sizeof(ku_desktop_pin_request) == 24);
     static_assert(KU_SYS_NET_STATUS == 20);
     static_assert(KU_SYS_HTTP_GET == 21);
     static_assert(KU_SYS_AUDIO_STATUS == 22);
@@ -94,6 +97,19 @@ int main() {
     static_assert(KU_SYS_DISPLAY_INFO == 70);
     static_assert(KU_SYS_TERMINATE_CHILD == 71);
     static_assert(KU_SYS_CONSOLE_FALLBACK == 72);
+    static_assert(KU_SYS_DESKTOP_BACKGROUND == 73);
+    static_assert(KU_SYS_DESKTOP_TEXT_SCALE == 74);
+    static_assert(KU_SYS_UI_NATIVE_HEIGHT == 75);
+    static_assert(KU_SYS_UI_NATIVE_WIDTH == 76);
+    static_assert(KU_SYS_UI_WINDOW_GEOMETRY == 77);
+    static_assert(KU_UI_WINDOW_NORMAL == 0U);
+    static_assert(KU_UI_WINDOW_MINIMIZED == 1U);
+    static_assert(KU_UI_WINDOW_MAXIMIZED == 2U);
+    static_assert(sizeof(ku_ui_window_geometry) == 28);
+    static_assert(offsetof(ku_ui_window_geometry, state) == 20U);
+    static_assert(offsetof(ku_ui_window_geometry, reserved) == 24U);
+    static_assert(KU_DESKTOP_TEXT_SCALE_QUERY == 0);
+    static_assert(KU_DESKTOP_TEXT_SCALE_SET == 1);
     static_assert(sizeof(ku_ui_event) == 32);
     static_assert(KU_UI_MOD_SHIFT == 1U);
     static_assert(KU_UI_MOD_CONTROL == 2U);
@@ -103,6 +119,9 @@ int main() {
     static_assert(sizeof(ku_display_info) == 32);
     static_assert(sizeof(ku_desktop_style_request) == 16);
     static_assert(sizeof(ku_desktop_theme_request) == 16);
+    static_assert(sizeof(ku_desktop_background_request) == 16);
+    static_assert(sizeof(ku_desktop_text_scale_request) == 16);
+    static_assert(KU_FLUX_BACKGROUND_COUNT == 3);
     static_assert(KU_FLUX_THEME_COUNT == 6);
 
     static_assert(KU_DEVICE_MAX_DEVICES == 192U);

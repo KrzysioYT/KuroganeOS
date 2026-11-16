@@ -128,6 +128,17 @@ def serialize_package(
         if destination not in {DEST_ESP, DEST_ROOT}:
             raise ValueError(f"invalid package destination: {destination}")
         key = (destination, checked_path(path))
+        # FAT 8.3 is case-insensitive; avoid aliasing and a file acting as
+        # another file's parent directory on the target volume.
+        folded = key[1].upper()
+        for (previous_destination, previous_path) in records:
+            if previous_destination != destination:
+                continue
+            earlier = previous_path.upper()
+            if (folded == earlier or folded.startswith(earlier + "/")
+                    or earlier.startswith(folded + "/")):
+                raise ValueError(
+                    f"colliding package path: {previous_path} and {path}")
         if key in records:
             raise ValueError(f"duplicate package path: {path}")
         if not isinstance(contents, bytes):

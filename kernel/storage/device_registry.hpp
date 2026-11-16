@@ -34,6 +34,8 @@ void reset();
 
 size_t device_count();
 bool entry_at(size_t index, Entry* output);
+size_t writable_device_count();
+bool writable_entry_at(size_t index, Entry* output);
 const block::Device* device_at(size_t index);
 const char* backend_name(Backend backend);
 

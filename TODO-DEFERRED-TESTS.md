@@ -2,6 +2,75 @@
 
 Per the Road to 15 development policy adopted on 2026-08-30, implementation proceeds with compile/build gates while runtime and regression verification is collected here for a later single qualification pass.
 
+## Current exact-SHA qualification checkpoint — `64577459`
+
+Source commit `6457745962fde73c81a7004bce13cea6992a85c1`; runtime
+`7.0.0-dev`; published in Draft PR #58.
+
+- PASS: full optimized host regression and all 11 core UBSan groups.
+- PASS: exact-SHA Debug and Release kernel/userspace/SDK/installer builds,
+  Release ISO and 20 structure validations.
+- PASS: QEMU/OVMF read-only-disk recovery, nondestructive cancellation,
+  installation, two installed-disk boots, and persistence of theme `2` and
+  125% scale.
+- PASS: QEMU USB-only Try without disk or PS/2, USB HID keyboard/tablet,
+  Login and Home.
+- PASS: automated VirtualBox 7.2.20 Try/Login/Desktop and EFI/AHCI
+  installation/disk-only boot.
+- PASS: Actions `reliable-file` `41352989065`, `iso-qualification`
+  `41352989006` and CLA `41352989090` on this exact SHA.
+- ISO SHA-256:
+  `0b8b0b197bf0455a7e06939597cb94c769bed331174cb675af3320deced63531`.
+- UNVERIFIED: visible/manual VirtualBox mouse/keyboard and scaled-control
+  hit-testing. Password authentication, physical hardware, crash/recovery and
+  the remaining Flux 8 matrix remain open.
+
+## Historical exact-SHA qualification checkpoint — `5c319946` (2026-11-01)
+
+Source commit `5c3199467b0a1cf726761dadd1ad66c782fa99ae`; runtime
+`7.0.0-dev`; included in published PR #58.
+
+- PASS: full host regression and all 11 core UBSan groups.
+- PASS: Release build, SDK build, and 20 ISO structure validations.
+- PASS: QEMU/OVMF read-only-disk recovery, nondestructive install cancellation,
+  fresh installation, two installed-disk boots, authenticated Home and theme
+  restoration (`2`).
+- PASS: Actions `reliable-file` `41337504861`, `iso-qualification` `41337504951`
+  and CLA `41337504885`, all on this exact head.
+- ISO SHA-256: `b50362b48544f26db7b321fcae43a32e3dfe0e795f50e5fc31035372e9811015`.
+- NOT RUN: Debug host/kernel profile on this exact head.
+- UNVERIFIED: VirtualBox on this exact image and visible/manual mouse/keyboard;
+  automated VirtualBox evidence is from prior SHA `0c708fea`. Password
+  authentication, physical hardware, old-image recovery, crash/recovery and
+  the remaining Flux 8 matrix are also unverified.
+
+## Historical exact-SHA qualification checkpoint — `ac0d122` (2026-11-01)
+
+Source commit `ac0d1220046d35b194e2a6a38de8135258232522`; runtime
+`7.0.0-dev`.
+
+The test-runner-only follow-up is `7c2171a1ca5e985334276a955e3ceaf879748d92`;
+the installed system payload and ISO are unchanged.
+
+- PASS: full host regression in Release (`-O2`) and Debug (`-O0 -g3`), plus
+  all 11 core UBSan groups, on the follow-up test commit.
+- PASS: Debug and Release kernel builds.
+- PASS: QEMU/OVMF Try without a target disk, install cancellation without
+  changing the blank target, installation, two installed boots, default
+  no-password account/Home, Terminal/Files window lifecycle, and theme
+  restoration after reboot.
+- PASS: GitHub Actions run `41324279554` (host, IMG/ISO, FAT32/VFS, ISO x20,
+  OVMF, E1000/PCnet/VirtIO NAT).
+- PASS: GitHub Actions run `41331938452` on test/harness commit `7c2171a1`
+  (host/ABI/SDK, full regression, IMG/ISO, FAT32/VFS, ISO x20, OVMF and three
+  NAT profiles).
+- PASS: VirtualBox 7.2.20 automated Try/Login/Desktop and EFI/AHCI installation,
+  installed-disk boot, FAT32, init, PCnet NAT/DHCP/gateway/DNS on the exact ISO.
+- UNVERIFIED: manual visible VirtualBox mouse/keyboard interaction, password
+  authentication, old installed-image recovery, physical hardware, complete
+  crash/recovery and the full Flux 8 acceptance matrix.
+- ISO SHA-256: `13d0b1c445aadfbc1a075cec4fb97d4a69487bcae8a6214bf0f2735cc722a8f6`.
+
 ## 3.5 Connected Userspace
 - UDP socket host regressions: ownership, stale handles, bind collisions, generation reuse, bounded receive queue, BufferTooSmall, ephemeral bind, process cleanup.
 - UDP loopback regressions: self-loopback, cross-process loopback, queue saturation, unused loopback destination, no 127/8 physical-NIC leakage.
@@ -47,11 +116,15 @@ run with echo, close, refused, timeout and reset endpoint services.
 - KuroFS v1 metadata core: format/mount on bounded block devices, redundant superblock fallback/disagreement, CRC corruption, geometry overflow/rejection, root inode validation, bitmap metadata reservation, flush/write failure propagation.
 
 ## Existing deferred qualification
-- Full host regression suite.
-- QEMU/OVMF runtime smoke and integration qualification.
-- Filesystem/network/service regression sweeps.
-- Fatal diagnostic regression sweep.
-- VirtualBox remains an optional external target and is not a release gate.
+- Full host regression under separate Debug and Release host-test profiles.
+- Remaining filesystem/network/service and fatal-diagnostic regression sweeps.
+- Full Flux app, clipboard, accessibility, HiDPI, settings, crash and recovery
+  matrix; the exact-SHA QEMU evidence above is scoped to the listed scenarios.
+- The 3.3.3-dev notes that treated VirtualBox as optional are historical and do
+  not apply to Flux 8.0. Flux 8 requires visible mouse/keyboard acceptance in
+  x86-64 VirtualBox on a compatible host; QEMU and headless scripted VBox runs
+  are not substitutes. Missing VirtualBox is BLOCKED; the present manual test
+  is UNVERIFIED.
 
 ## Final pre-15.0 qualification pass
 - Execute every deferred item above together with milestone-specific tests accumulated here.

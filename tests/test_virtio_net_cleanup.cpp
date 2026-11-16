@@ -83,6 +83,7 @@ void add_live_queue() {
 }
 
 namespace pci {
+uint8_t read8(Address, uint8_t) { return 0U; }
 uint32_t read32(Address, uint8_t) { return 0U; }
 uint16_t read16(Address, uint8_t offset) {
     if (offset == 0x42U) return fixture::msix_control;

@@ -63,6 +63,8 @@ internal_iso="$images/KuroganeOS-installer.iso"
 [[ -f "$kernel" ]] || { echo "missing installer kernel: $kernel" >&2; exit 1; }
 [[ -f "$efi" ]] || { echo "missing installer EFI loader: $efi" >&2; exit 1; }
 [[ -d "$overlay" ]] || { echo "missing userspace overlay: $overlay" >&2; exit 1; }
+# --no-build may reuse a stale overlay. Block unusable installer payloads.
+python3 "$root/scripts/verify-userspace-overlay.py" --overlay "$overlay"
 
 version="$(bash "$root/scripts/read-version.sh")"
 release_name="KuroganeOS-$version-x86_64.iso"

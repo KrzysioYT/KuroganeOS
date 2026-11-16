@@ -1,7 +1,7 @@
 # Bieżąca wersja i wydanie
 
 Wersja kompilowana: **7.0.0-dev**, źródło: `common/version.h`.
-Gałąź: `codex/road-to-15-stability`. Priorytet: **Flux Modern 8.0**.
+Gałąź: `integration/flux8-reconciliation`. Priorytet: **Flux Modern 8.0**.
 Docelowe pierwsze wydanie produktowe stable: **15.0.0**.
 
 Nie wydano na tej podstawie 8.0 stable. Pełny status, SHA, dowody i blokery
