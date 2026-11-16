@@ -5,7 +5,8 @@
 // framebuffer, so supply the default modern style explicitly.
 namespace ui {
 uint32_t host_scale = 100U;
-uint32_t desktop_style_id() { return KU_FLUX_STYLE_MODERN; }
+uint32_t host_style = KU_FLUX_STYLE_MODERN;
+uint32_t desktop_style_id() { return host_style; }
 uint32_t desktop_text_scale_percent() { return host_scale; }
 }
 
@@ -826,7 +827,8 @@ int main() {
     const auto smaller = workspace_geometry().work_area;
     if (info.bounds.x < smaller.x || info.bounds.y < smaller.y ||
         info.bounds.x + info.bounds.width > smaller.x + smaller.width ||
-        info.bounds.y + info.bounds.height > smaller.y + smaller.height) return 118;
+        info.bounds.y + info.bounds.height > smaller.y + smaller.height ||
+        info.restore_bounds.x != 600 || info.restore_bounds.y != 400) return 118;
     SurfaceView kept{};
     if (read_surface(normal, &kept) != Status::Ok || kept.size != 16 ||
         kept.data[0] != 71 || query(large, &info) != Status::Ok ||
@@ -839,7 +841,9 @@ int main() {
     if (set_screen_size(0, 480) != Status::InvalidArgument ||
         workspace_geometry().work_area.width != smaller.width) return 122;
     if (set_screen_size(1280, 720) != Status::Ok ||
-        damage_snapshot(&damage) != Status::Ok || !damage.full) return 123;
+        damage_snapshot(&damage) != Status::Ok || !damage.full ||
+        query(normal, &info) != Status::Ok ||
+        info.bounds.x != 600 || info.bounds.y != 400) return 123;
     if (!render_if_needed() || set_screen_size(1280, 720) != Status::Ok ||
         render_if_needed()) return 124;
     if (set_screen_size(320, 200) != Status::Ok || query(normal, &info) != Status::Ok ||
@@ -1012,6 +1016,40 @@ int main() {
         chrome_geometry(compact, &chrome) != Status::Ok ||
         content_geometry(compact, &content) != Status::Ok ||
         chrome.header.height != 48 || content.height != 104) return 174;
+
+    ui::host_scale = 100U;
+    ui::host_style = KU_FLUX_STYLE_CLASSIC;
+    if (initialize(1280U, 800U) != Status::Ok) return 175;
+    WindowId reflowed = INVALID_WINDOW;
+    PointerRoutingProbe held{};
+    if (create_window("Reflow", 205U, {40, 52, 300, 240},
+                      draw, receive_pointer_route, &held, &reflowed) != Status::Ok) return 176;
+    event = {};
+    event.type = input::EventType::MouseButtonDown;
+    event.button = drivers::mouse::Left;
+    event.buttons = drivers::mouse::Left;
+    event.x = 48;
+    event.y = 104;
+    if (dispatch(event) != Status::Ok || held.downs != 1U) return 177;
+    ui::host_style = KU_FLUX_STYLE_MODERN;
+    reflow_workspace();
+    const auto modern_area = workspace_geometry().work_area;
+    if (query(reflowed, &info) != Status::Ok ||
+        info.bounds.x != modern_area.x || info.bounds.y != modern_area.y ||
+        info.restore_bounds.x != 40 || info.restore_bounds.y != 52) return 178;
+    event.type = input::EventType::MouseButtonUp;
+    event.buttons = 0U;
+    if (dispatch(event) != Status::Ok || held.ups != 1U) return 179;
+
+    if (maximize(reflowed) != Status::Ok || minimize(reflowed) != Status::Ok) return 180;
+    ui::host_style = KU_FLUX_STYLE_CLASSIC;
+    reflow_workspace();
+    const auto classic_area = workspace_geometry().work_area;
+    if (restore(reflowed) != Status::Ok || query(reflowed, &info) != Status::Ok ||
+        info.state != WindowState::Maximized || info.bounds.width != classic_area.width ||
+        info.bounds.height != classic_area.height || restore(reflowed) != Status::Ok ||
+        query(reflowed, &info) != Status::Ok || info.bounds.x != 40 ||
+        info.bounds.y != 52 || focused_window() != reflowed) return 181;
 
     return 0;
 }

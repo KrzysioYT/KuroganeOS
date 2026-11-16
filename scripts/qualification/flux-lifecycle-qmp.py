@@ -189,6 +189,12 @@ class Harness:
         self.wait(start, 'close', app=6, window=settings['id'])
 
     def verify_profile_reset(self):
+        start = self.mark()
+        self.key('ctrl', 'alt', 'f2')
+        terminal = self.wait(start, 'present', app=1)
+        start = self.mark()
+        self.control(terminal, 1)
+        maximized = self.wait(start, 'maximize', window=terminal['id'])
         settings = self.open_settings()
         # Shift+Tab from Previous Color reaches Next Wallpaper. A second
         # Shift+Tab from there wraps to Reset Interface Profile.
@@ -197,8 +203,16 @@ class Harness:
         self.wait_marker('[SETTINGS] wallpaper_session=1', 1)
         for _ in range(8):
             self.key('tab')
+        start = self.mark()
         self.key('ret')
         self.wait_marker('[SETTINGS] style_session')
+        classic = self.wait(start, 'workspace', window=maximized['id'])
+        assert classic['state'] == 2 and classic['x'] < maximized['x']
+        assert classic['w'] > maximized['w'] and classic['h'] > maximized['h']
+        start = self.mark()
+        self.control(classic, 0)
+        self.wait(start, 'close', window=classic['id'])
+        print('[lifecycle] Classic switch reflows a maximized Terminal: PASS', flush=True)
         self.key('tab')
         self.key('ret')
         self.wait_marker('[SETTINGS] contrast_session')

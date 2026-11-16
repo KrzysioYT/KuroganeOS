@@ -726,6 +726,14 @@ bool valid_bounds(const ui::Rect& bounds) {
         bounds.y <= workspace.work_area.y + workspace.work_area.height - bounds.height;
 }
 
+ui::Rect fit_to_workspace(ui::Rect bounds, const ui::Rect& area) {
+    if (bounds.width > area.width) bounds.width = area.width;
+    if (bounds.height > area.height) bounds.height = area.height;
+    bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
+    bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
+    return bounds;
+}
+
 ui::Rect normalize_new_window_bounds(const char* title, const ui::Rect& requested) {
     if (!is_performance_surface(title)) return requested;
     const WorkspaceGeometry workspace = calculate_workspace();
@@ -894,14 +902,17 @@ void resize_window(Slot& slot, int32_t pointer_x, int32_t pointer_y) {
         workspace.work_area.x + workspace.work_area.width - slot.info.bounds.x;
     const int32_t maximum_height =
         workspace.work_area.y + workspace.work_area.height - slot.info.bounds.y;
-    slot.info.bounds.width = clamp_size(
+    const int32_t width = clamp_size(
         pointer_x - slot.info.bounds.x + 1,
         maximum_width < MINIMUM_WIDTH ? maximum_width : MINIMUM_WIDTH,
         maximum_width);
-    slot.info.bounds.height = clamp_size(
+    const int32_t height = clamp_size(
         pointer_y - slot.info.bounds.y + 1,
         maximum_height < MINIMUM_HEIGHT ? maximum_height : MINIMUM_HEIGHT,
         maximum_height);
+    if (slot.info.bounds.width == width && slot.info.bounds.height == height) return;
+    slot.info.bounds.width = width;
+    slot.info.bounds.height = height;
     slot.info.restore_bounds = slot.info.bounds;
     mark_full_dirty();
 }
@@ -1194,30 +1205,32 @@ Status set_screen_size(uint32_t screen_width, uint32_t screen_height) {
 #endif
     g_screen_width = static_cast<int32_t>(screen_width);
     g_screen_height = static_cast<int32_t>(screen_height);
-    const ui::Rect area = calculate_workspace().work_area;
-    const auto fit = [&area](ui::Rect bounds) {
-        if (bounds.width > area.width) bounds.width = area.width;
-        if (bounds.height > area.height) bounds.height = area.height;
-        bounds.x = clamp_position(bounds.x, area.x, area.x + area.width - bounds.width);
-        bounds.y = clamp_position(bounds.y, area.y, area.y + area.height - bounds.height);
-        return bounds;
-    };
-    for (Slot& slot : g_slots) {
-        if (!slot.occupied) continue;
-        if (is_login_surface(slot)) {
-            slot.info.bounds = {0, 0, g_screen_width, g_screen_height};
-            slot.info.restore_bounds = slot.info.bounds;
-        } else {
-            slot.info.restore_bounds = fit(slot.info.restore_bounds);
-            const bool maximized = slot.info.state == WindowState::Maximized ||
-                (slot.info.state == WindowState::Minimized &&
-                 slot.state_before_minimize == WindowState::Maximized);
-            slot.info.bounds = maximized ? area : fit(slot.info.bounds);
-        }
+    if (Slot* login = login_surface(); login != nullptr) {
+        login->info.bounds = {0, 0, g_screen_width, g_screen_height};
+        login->info.restore_bounds = login->info.bounds;
     }
-    g_dragged = g_resized = g_hovered = g_pointer_capture = INVALID_WINDOW;
-    mark_full_dirty();
+    reflow_workspace();
     return Status::Ok;
+}
+
+void reflow_workspace() {
+    if (!g_initialized || g_rendering) return;
+    const ui::Rect area = calculate_workspace().work_area;
+    for (Slot& slot : g_slots) {
+        if (!slot.occupied || is_login_surface(slot)) continue;
+        const bool maximized = slot.info.state == WindowState::Maximized ||
+            (slot.info.state == WindowState::Minimized &&
+             slot.state_before_minimize == WindowState::Maximized);
+        const ui::Rect fitted = maximized ? area : fit_to_workspace(slot.info.restore_bounds, area);
+        const ui::Rect previous = slot.info.bounds;
+        slot.info.bounds = fitted;
+        if (fitted.x != previous.x || fitted.y != previous.y ||
+            fitted.width != previous.width || fitted.height != previous.height)
+            trace_transition("workspace", slot.info);
+    }
+    // Client gestures still own their release event after the layout changes.
+    g_dragged = g_resized = g_hovered = INVALID_WINDOW;
+    mark_full_dirty();
 }
 
 Status create_window(
@@ -1453,14 +1466,17 @@ Status move(WindowId id, int32_t x, int32_t y) {
         return Status::InvalidState;
     }
     const WorkspaceGeometry workspace = calculate_workspace();
-    slot->info.bounds.x = clamp_position(
+    x = clamp_position(
         x,
         workspace.work_area.x,
         workspace.work_area.x + workspace.work_area.width - slot->info.bounds.width);
-    slot->info.bounds.y = clamp_position(
+    y = clamp_position(
         y,
         workspace.work_area.y,
         workspace.work_area.y + workspace.work_area.height - slot->info.bounds.height);
+    if (slot->info.bounds.x == x && slot->info.bounds.y == y) return Status::Ok;
+    slot->info.bounds.x = x;
+    slot->info.bounds.y = y;
     slot->info.restore_bounds = slot->info.bounds;
     mark_full_dirty();
     return Status::Ok;
@@ -1491,7 +1507,6 @@ Status maximize(WindowId id) {
         return Status::InvalidState;
     }
     cancel_capture(id);
-    if (slot->info.state == WindowState::Normal) slot->info.restore_bounds = slot->info.bounds;
     const WorkspaceGeometry workspace = calculate_workspace();
     slot->info.state = WindowState::Maximized;
     slot->info.bounds = workspace.work_area;
@@ -1512,8 +1527,8 @@ Status restore(WindowId id) {
     const bool restore_maximized = slot->info.state == WindowState::Minimized &&
         slot->state_before_minimize == WindowState::Maximized;
     slot->info.state = restore_maximized ? WindowState::Maximized : WindowState::Normal;
-    slot->info.bounds = restore_maximized
-        ? calculate_workspace().work_area : slot->info.restore_bounds;
+    const ui::Rect area = calculate_workspace().work_area;
+    slot->info.bounds = restore_maximized ? area : fit_to_workspace(slot->info.restore_bounds, area);
     static_cast<void>(focus(id));
     mark_full_dirty();
     trace_transition("restore", slot->info);

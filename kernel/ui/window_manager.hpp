@@ -37,6 +37,7 @@ enum class WindowState : uint8_t {
 struct WindowInfo {
     WindowId id;
     ui::Rect bounds;
+    // Normal geometry requested by the user, before automatic workspace fitting.
     ui::Rect restore_bounds;
     uint64_t owner_pid;
     WindowState state;
@@ -102,6 +103,7 @@ Status initialize(uint32_t screen_width, uint32_t screen_height);
 // Apply the dimensions of an already configured display backend, preserving
 // window identities/surfaces. Serialized compositor context; no hardware mode set.
 Status set_screen_size(uint32_t screen_width, uint32_t screen_height);
+void reflow_workspace();
 Status create_window(
     const char* title,
     uint64_t owner_pid,

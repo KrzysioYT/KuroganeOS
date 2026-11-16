@@ -1875,11 +1875,12 @@ void syscall_handler(
                 return;
             }
             if (request->action == KU_DESKTOP_STYLE_SET) {
+                const uint32_t previous = ui::desktop_style_id();
                 if (!ui::set_desktop_style(request->style_id)) {
                     frame.rax = static_cast<uint64_t>(KU_STATUS_INVALID_ARGUMENT);
                     return;
                 }
-                windowing::invalidate();
+                if (request->style_id != previous) windowing::reflow_workspace();
             }
             request->style_id = ui::desktop_style_id();
             frame.rax = KU_STATUS_OK;
