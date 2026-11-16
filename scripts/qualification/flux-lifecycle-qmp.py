@@ -335,6 +335,15 @@ class Harness:
         self.button(False)
         resized = self.wait(start, 'resize', window=ident)
         assert resized['w'] > moved['w'] and resized['h'] > moved['h']
+        if self.settings_write:
+            # Await an actual Settings Service SET, not merely the compositor
+            # notification: only the expected exact geometry qualifies.
+            marker = ('[WINDOW] geometry_saved key=window.terminal '
+                      f"x={resized['x']} y={resized['y']} "
+                      f"w={resized['w']} h={resized['h']}")
+            self.wait_marker(marker)
+            print('[lifecycle] Terminal exact geometry persisted: PASS',
+                  flush=True)
         self.screenshot('03-resized')
 
         start = self.mark()
@@ -357,6 +366,12 @@ class Harness:
         reopened = self.wait(start, 'present')
         assert reopened['id'] != ident and reopened['pid'] != terminal['pid']
         assert reopened['windows'] == files['windows']
+        if self.settings_write:
+            assert all(reopened[k] == resized[k] for k in ('x', 'y', 'w', 'h')), (
+                'Terminal did not restore the exact Settings profile on reopen',
+                reopened, resized)
+            print('[lifecycle] Terminal geometry restored on reopen: PASS',
+                  flush=True)
         self.screenshot('04-reopened')
         for cycle in range(3):
             start = self.mark()
