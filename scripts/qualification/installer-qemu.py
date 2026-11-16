@@ -191,7 +191,7 @@ def verify_damaged_settings(disk, output, env, timeout, password_profile):
     cmd = disk_boot_command(damaged, log_dir, timeout)
     send_keys_after(cmd, INSTALLED_PROFILE, [*FIXTURE_PASSWORD, 'ret'] if password_profile else ['ret'])
     cmd.extend([
-        '--click-after-marker', DESKTOP, '42', '246',
+        '--send-key-after-marker', '[TEST] desktop_launcher_ring3: PASS', 'ctrl+alt+f7',
         '--require-marker', '[SETTINGS] persistent_store_unavailable',
         '--require-marker', '[TEST] settings_service_online: PASS',
         '--require-marker', HOME_FRAME,
@@ -203,8 +203,13 @@ def verify_damaged_settings(disk, output, env, timeout, password_profile):
     ])
     if password_profile:
         cmd.extend(['--require-marker', GOOD_PASSWORD])
-    with (output / 'damaged-settings-runner.log').open('wb') as log:
-        subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    runner_log = output / 'damaged-settings-runner.log'
+    try:
+        with runner_log.open('wb') as log:
+            subprocess.run(cmd, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+    except subprocess.CalledProcessError:
+        print('\n'.join(runner_log.read_text(errors='replace').splitlines()[-100:]), flush=True)
+        raise
     text = (log_dir / 'serial.log').read_text(errors='replace')
     if re.search(r'PANIC_BEGIN|FATAL ERROR|\[(?:TEST|SESSION)\][^\n]*: FAIL', text):
         raise RuntimeError('damaged Settings store stopped the desktop')

@@ -340,6 +340,7 @@ import time
 
 path, key = sys.argv[1], sys.argv[2]
 last_error = None
+keys = [{"type": "qcode", "data": code} for code in key.split("+")]
 
 
 def receive_object(stream, operation):
@@ -377,7 +378,7 @@ for _ in range(40):
         stream.write(json.dumps({
             "execute": "send-key",
             "arguments": {
-                "keys": [{"type": "qcode", "data": key}],
+                "keys": keys,
                 "hold-time": 80,
             },
         }).encode("utf-8") + b"\r\n")
