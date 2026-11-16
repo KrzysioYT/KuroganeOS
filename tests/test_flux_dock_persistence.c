@@ -152,6 +152,10 @@ int main(void) {
     fail_publish = 0;
     assert(load_pin_state());
     assert(order[1] == 2);
+    // A failed publish may restore the only backup into the primary path.
+    // Make a new verified backup before injecting primary corruption.
+    assert(save_pin_state());
+    assert(storage[2].exists);
 
     /* Corrupt current permutation; recover verified backup generation. */
     storage[0].bytes[2] = 8U;
