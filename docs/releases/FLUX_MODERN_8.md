@@ -16,6 +16,32 @@ właściciela projektu. Kwalifikacja fizycznego sprzętu i widoczny VirtualBox
 z USB pozostają poza obowiązkową macierzą tego wydania. Pokrycie wejścia to
 widoczny VirtualBox z PS/2 oraz osobny QEMU z USB HID.
 
+## Kontrola rozwoju po kandydacie — 2026-11-16
+
+Zintegrowana gałąź zawiera nowe porządkowanie Docka i zachowuje stabilne
+identyfikatory aplikacji oraz skróty klawiaturowe. Home umożliwia przesuwanie
+pozycji i zapisuje wersjonowaną permutację, zachowując odczyt starszego
+jednobajtowego pliku `desktop.cfg`. Wprowadzono hostowe testy kolejności,
+odrzucania nieprawidłowych permutacji oraz zgodności ABI. Nowe przyciski
+nie naruszają filtrowanego widoku Home ani jego opcji wylogowania.
+
+Dokładny commit z kompletem zielonych kontroli automatycznych:
+[`b02547cdace922d00fbd4ae80527b3ef6a7c0498`](https://github.com/KrzysioYT/KuroganeOS/commit/b02547cdace922d00fbd4ae80527b3ef6a7c0498).
+Przebiegi: [Flux host/UBSan + QEMU](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43906695706),
+[ISO/UEFI](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43906708769),
+[reliable-file](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43906707586),
+[credential](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43906707179) i
+[CLA](https://github.com/KrzysioYT/KuroganeOS/actions/runs/43906707341) — PASS.
+
+**Granice dowodu:** QEMU kwalifikuje istniejące wejście, cykl życia aplikacji,
+Settings, instalację i odtworzenie profilu, ale nie wykonuje jeszcze osobnego
+scenariusza: kliknij przycisk zmiany kolejności Docka → zimny restart →
+porównaj kolejność. Obecny zapis `/home/desktop.cfg` nie zapewnia jeszcze
+publikacji transakcyjnej z kopią awaryjną; przerwanie zapisu należy przetestować
+i naprawić przed zamknięciem tego punktu. Przechowywanie pozycji/rozmiarów
+okien po restarcie także pozostaje otwarte. Wydanie nadal **BLOCKED**.
+Nie wolno przenosić PASS z tego SHA na przyszłą wersję `8.0.0`.
+
 ## Co obejmuje kandydat
 
 - Natywny pulpit Modern z Home, Dockiem, wyszukiwaniem i zachowanym trybem
@@ -61,7 +87,7 @@ Kopia różniła się od dysku kwalifikacyjnego dodanym plikiem aplikacji.
 | --- | --- |
 | P0, kwalifikacja | Końcowe ISO z runtime `8.0.0` wymaga osobnej kwalifikacji. Wyniki powyżej odnoszą się do SHA i sumy kandydata `7.0.0-dev`. |
 | P1, kontrakt | Skala obejmuje tekst i geometrię natywnych kontrolek. Trzy rozdzielczości GOP sprawdzono w osobnych startach. Pełne skalowanie pulpitu i zmiana rozdzielczości podczas sesji pozostają otwarte. |
-| P1, kontrakt | Piny Docka i ustawienia wyglądu są trwałe. Zmiana kolejności Docka oraz odtwarzanie pozycji i rozmiarów okien po restarcie wymagają implementacji i próby. |
+| P1, kontrakt | Zmiana kolejności Docka została zaimplementowana i przeszła testy hostowe, ale wymaga osobnej próby zmiana → zimny restart → przywrócenie oraz ochrony przed przerwanym zapisem. Odtwarzanie pozycji i rozmiarów okien po restarcie nadal wymaga implementacji i kwalifikacji. |
 | P1, dowód | Testy hosta obejmują awarie IPC, zapisu i przywracanie stanu. Przebieg na końcowym ISO musi potwierdzić wymagany zakres odzyskiwania sesji i Settings po awarii usługi. |
 | P2, ograniczenia | Ustawienia wyglądu są globalne. Renderowanie używa ograniczonego atlasu znaków i kerningu par. Kwalifikacja fizycznego sprzętu i szeroka zgodność aplikacji pozostają w późniejszych zakresach roadmapy. |
 
