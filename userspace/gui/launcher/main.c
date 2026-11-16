@@ -823,6 +823,7 @@ static void move_selected_dock(int direction) {
     if (g_selected >= APP_COUNT || !app_matches_search(g_selected) ||
         !g_apps[g_selected].pinnable) {
         (void)strlcpy(g_status, "SELECT A PINNABLE APP", sizeof(g_status));
+        puts("[DOCK] reorder_no_selection");
         return;
     }
     ku_desktop_pin_request request;
@@ -833,17 +834,22 @@ static void move_selected_dock(int direction) {
     if (ku_desktop_pin(&request) != KU_STATUS_OK ||
         request.value == 0U || request.value >= KU_DESKTOP_APP_COUNT) {
         (void)strlcpy(g_status, "DOCK ORDER QUERY FAILED", sizeof(g_status));
+        puts("[DOCK] order_query_failed");
         return;
     }
     const int target = (int)request.value + direction;
     if (target < 1 || target >= (int)KU_DESKTOP_APP_COUNT) {
         (void)strlcpy(g_status, "DOCK ORDER LIMIT", sizeof(g_status));
+        puts("[DOCK] reorder_limit");
         return;
     }
     request.action = KU_DESKTOP_PIN_ORDER_SET;
     request.value = (uint32_t)target;
+    printf("[DOCK] reorder_requested_app=%u position=%u\n",
+           (unsigned)request.app_id, (unsigned)target);
     if (ku_desktop_pin(&request) != KU_STATUS_OK) {
         (void)strlcpy(g_status, "DOCK REORDER FAILED", sizeof(g_status));
+        puts("[DOCK] reorder_set_failed");
         return;
     }
     (void)strlcpy(g_status, "DOCK ORDER UPDATED", sizeof(g_status));
@@ -853,6 +859,7 @@ static void move_selected_dock(int direction) {
                (unsigned)request.app_id, (unsigned)request.value);
     } else {
         append_text(g_status, sizeof(g_status), " / SESSION ONLY");
+        puts("[DOCK] order_save_failed");
     }
 }
 
@@ -1132,6 +1139,7 @@ int main(void) {
                         event.key == KU_UI_KEY_ARROW_RIGHT) &&
                        (event.modifiers & KU_UI_MOD_SHIFT) != 0U) {
                 // Accessible reordering without reaching offscreen controls.
+                puts("[DOCK] shift_arrow_received");
                 move_selected_dock(event.key == KU_UI_KEY_ARROW_LEFT ? -1 : 1);
                 changed = 1;
             } else if (event.key == KU_UI_KEY_ARROW_DOWN ||
