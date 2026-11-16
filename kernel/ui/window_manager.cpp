@@ -88,6 +88,7 @@ struct Slot {
     SurfaceState surface;
     DrawCallback draw;
     InputCallback input_callback;
+    CloseCallback on_close;
     void* context;
     uint16_t generation;
     uint8_t dock_app;
@@ -166,6 +167,7 @@ void release_slot(Slot& slot) {
     slot.info = {};
     slot.draw = nullptr;
     slot.input_callback = nullptr;
+    slot.on_close = nullptr;
     slot.context = nullptr;
     slot.dock_app = static_cast<uint8_t>(DOCK_PIN_COUNT);
     slot.occupied = false;
@@ -1203,7 +1205,8 @@ Status create_window(
     DrawCallback draw,
     InputCallback input_callback,
     void* context,
-    WindowId* out_id) {
+    WindowId* out_id,
+    CloseCallback on_close) {
     if (!g_initialized) return Status::NotInitialized;
     if (title == nullptr || out_id == nullptr || text_length(title, 33U) == 0U ||
         text_length(title, 33U) > 32U) {
@@ -1265,6 +1268,7 @@ Status create_window(
     copy_title(slot.info.title, title);
     slot.draw = draw;
     slot.input_callback = input_callback;
+    slot.on_close = on_close;
     slot.context = context;
     // Resolve the immutable process image once. No process-table walks are
     // needed in every compositor frame to display the running Dock state.
@@ -1289,6 +1293,8 @@ Status close(WindowId id) {
     if (slot == nullptr) return Status::NotFound;
 
     const WindowInfo closed_info = slot->info;
+    const CloseCallback on_close = slot->on_close;
+    void* const context = slot->context;
     size_t position = 0U;
     while (position < g_count && g_order[position] != slot_index) ++position;
     for (size_t index = position + 1U; index < g_count; ++index) {
@@ -1301,6 +1307,7 @@ Status close(WindowId id) {
     choose_top_focus();
     mark_full_dirty();
     trace_transition("close", closed_info);
+    if (on_close != nullptr) on_close(closed_info, context);
     return Status::Ok;
 }
 

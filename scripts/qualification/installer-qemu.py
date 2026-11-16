@@ -449,17 +449,17 @@ def main():
         if args.desktop_lifecycle and phase == 'first-boot':
             lifecycle = json.loads(
                 (output / phase / 'lifecycle.json').read_text(encoding='utf-8'))
-            resizes = [
+            closes = [
                 event for event in lifecycle
-                if event.get('action') == 'resize' and event.get('app') == 1
+                if event.get('action') == 'close' and event.get('app') == 1
             ]
-            if len(resizes) != 1:
-                raise RuntimeError('expected one Terminal resize event from first boot')
+            if not closes or closes[0].get('state') != 0:
+                raise RuntimeError('missing normal Terminal close evidence from first boot')
             expected_geometry = tuple(
-                resizes[0][field] for field in ('x', 'y', 'w', 'h'))
+                closes[0][field] for field in ('x', 'y', 'w', 'h'))
             if not all(isinstance(value, int) and value >= 0
                        for value in expected_geometry):
-                raise RuntimeError('invalid Terminal resize evidence')
+                raise RuntimeError('invalid Terminal close geometry')
             expected_theme = saved_theme(text)
             expected_text_scale = saved_text_scale(text)
             if re.findall(r'^\[SETTINGS\] wallpaper_saved=(\d+)\r?$', text, re.M) != ['1']:

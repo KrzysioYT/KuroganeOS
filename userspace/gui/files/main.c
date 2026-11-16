@@ -838,7 +838,7 @@ int main(void) {
         (void)present_files(window, &scene);
     }
 
-    gui_window_profile_flush(&window_profile);
+    gui_window_profile_flush(&window_profile, window);
     (void)ku_ui_close(window);
     return 0;
 }

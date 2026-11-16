@@ -51,6 +51,17 @@ void mutate_during_draw(windowing::WindowId id, const ui::Rect&, bool, void* con
 
 void receive(windowing::WindowId, const input::Event&, void*) { ++g_inputs; }
 
+struct CloseFixture {
+    windowing::WindowInfo info{};
+    unsigned calls = 0;
+};
+
+void record_close(const windowing::WindowInfo& info, void* context) {
+    auto& fixture = *static_cast<CloseFixture*>(context);
+    fixture.info = info;
+    ++fixture.calls;
+}
+
 struct WindowListFixture {
     windowing::WindowId first = windowing::INVALID_WINDOW;
     windowing::WindowId second = windowing::INVALID_WINDOW;
@@ -838,6 +849,19 @@ int main() {
         invalidate_during_draw, nullptr, &nested_resize, &resize_callback) != Status::Ok ||
         !render_if_needed() || nested_resize.resize_status != Status::InvalidState ||
         workspace_geometry().work_area.width != 754) return 129;
+
+    CloseFixture dismissed{};
+    WindowId closing = INVALID_WINDOW;
+    if (create_window("Profile Window", 54U, {60, 70, 300, 220},
+            draw, receive, &dismissed, &closing, record_close) != Status::Ok ||
+        move(closing, 125, 110) != Status::Ok ||
+        maximize(closing) != Status::Ok ||
+        dismiss(closing) != Status::Ok || dismissed.calls != 1U ||
+        dismissed.info.id != closing || dismissed.info.owner_pid != 54U ||
+        dismissed.info.state != WindowState::Maximized ||
+        dismissed.info.restore_bounds.x != 125 || dismissed.info.restore_bounds.y != 110 ||
+        dismissed.info.restore_bounds.width != 300 || dismissed.info.restore_bounds.height != 220 ||
+        dismiss(closing) != Status::NotFound || dismissed.calls != 1U) return 169;
 
     // A window-list callback may destroy its own window and reuse its slot.
     // Listing must still enumerate survivors exactly once with metadata from

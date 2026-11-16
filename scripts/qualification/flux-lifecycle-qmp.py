@@ -370,8 +370,20 @@ class Harness:
         start = self.mark()
         self.key('ctrl', 'alt', 'f2')
         assert self.wait(start, 'focus', window=ident)['focus'] == ident
+        final_bounds = resized
+        if self.settings_write:
+            # Move once more after the first save, then close without
+            # waiting for the periodic geometry write.
+            start = self.mark()
+            x, y = resized['x'] + 100, resized['y'] + 18
+            self.pointer(resized, x, y)
+            self.button(True)
+            self.pointer(resized, x - 30, y - 25)
+            self.button(False)
+            final_bounds = self.wait(start, 'move', window=ident)
+            assert final_bounds['x'] < resized['x'] and final_bounds['y'] < resized['y']
         start = self.mark()
-        self.control(resized, 0)
+        self.control(final_bounds, 0)
         closed = self.wait(start, 'close', window=ident)
         assert closed['focus'] != ident
         assert closed['windows'] == files['windows'] - 1
@@ -384,9 +396,9 @@ class Harness:
         assert reopened['id'] != ident and reopened['pid'] != terminal['pid']
         assert reopened['windows'] == files['windows']
         if self.settings_write:
-            assert all(reopened[k] == resized[k] for k in ('x', 'y', 'w', 'h')), (
+            assert all(reopened[k] == final_bounds[k] for k in ('x', 'y', 'w', 'h')), (
                 'Terminal did not restore the exact Settings profile on reopen',
-                reopened, resized)
+                reopened, final_bounds)
             print('[lifecycle] Terminal geometry restored on reopen: PASS',
                   flush=True)
         self.screenshot('04-reopened')

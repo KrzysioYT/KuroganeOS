@@ -281,7 +281,7 @@ int main(void) {
         render(window, input, length, cursor);
     }
 
-    gui_window_profile_flush(&window_profile);
+    gui_window_profile_flush(&window_profile, window);
     (void)ku_ui_close(window);
     return 0;
 }

@@ -81,6 +81,8 @@ struct UiState {
     ku_ui_frame frame;
     ui_event_queue::Queue events;
     windowing::WindowId window;
+    windowing::WindowId closed_window;
+    ku_ui_window_geometry closed_geometry;
     bool active;
     bool native;
 };
@@ -401,6 +403,20 @@ void draw_user_window(
 
 void queue_user_event(Context& context, const ku_ui_event& event) {
     static_cast<void>(ui_event_queue::push(context.ui.events, event));
+}
+
+ku_ui_window_geometry user_window_geometry(const windowing::WindowInfo& info) {
+    const ui::Rect& bounds = info.restore_bounds;
+    return {sizeof(ku_ui_window_geometry), bounds.x, bounds.y, bounds.width,
+            bounds.height, static_cast<uint32_t>(info.state), 0U};
+}
+
+void snapshot_closed_user_window(const windowing::WindowInfo& info, void* opaque) {
+    auto& context = *static_cast<Context*>(opaque);
+    if (!context.active || !context.ui.active ||
+        context.pid != info.owner_pid || context.ui.window != info.id) return;
+    context.ui.closed_window = info.id;
+    context.ui.closed_geometry = user_window_geometry(info);
 }
 
 void input_user_window(
@@ -1537,24 +1553,26 @@ void syscall_handler(
                 }
                 title[index] = user_title[index];
             }
-            context->ui = {};
-            context->ui.frame.structure_size = sizeof(ku_ui_frame);
-            context->ui.frame.background_rgb = UINT32_C(0x111827);
-            context->ui.frame.foreground_rgb = UINT32_C(0xE5E7EB);
-            context->ui.frame.accent_rgb = UINT32_C(0xF97316);
+            windowing::WindowId window = windowing::INVALID_WINDOW;
             const windowing::Status status = windowing::create_window(
                 title, context->pid,
                 {options->x, options->y, options->width, options->height},
                 draw_user_window, input_user_window, context,
-                &context->ui.window);
+                &window, snapshot_closed_user_window);
             if (status != windowing::Status::Ok) {
                 frame.rax = static_cast<uint64_t>(
                     status == windowing::Status::CapacityReached
                         ? KU_STATUS_OUT_OF_MEMORY : KU_STATUS_INVALID_ARGUMENT);
                 return;
             }
+            context->ui = {};
+            context->ui.frame.structure_size = sizeof(ku_ui_frame);
+            context->ui.frame.background_rgb = UINT32_C(0x111827);
+            context->ui.frame.foreground_rgb = UINT32_C(0xE5E7EB);
+            context->ui.frame.accent_rgb = UINT32_C(0xF97316);
+            context->ui.window = window;
             context->ui.active = true;
-            frame.rax = context->ui.window;
+            frame.rax = window;
             return;
         }
         case KU_SYS_UI_PRESENT: {
@@ -1640,7 +1658,9 @@ void syscall_handler(
             return;
         }
         case KU_SYS_UI_WINDOW_GEOMETRY: {
-            if (!context->ui.active || frame.rdi != context->ui.window ||
+            const bool closed = context->ui.closed_window != windowing::INVALID_WINDOW &&
+                frame.rdi == context->ui.closed_window;
+            if ((!closed && (!context->ui.active || frame.rdi != context->ui.window)) ||
                 frame.rdx != sizeof(ku_ui_window_geometry) ||
                 !validate_user_buffer(*context, frame.rsi,
                                       sizeof(ku_ui_window_geometry), true)) {
@@ -1653,21 +1673,17 @@ void syscall_handler(
                 frame.rax = static_cast<uint64_t>(KU_STATUS_VERSION_MISMATCH);
                 return;
             }
+            if (closed) {
+                *out = context->ui.closed_geometry;
+                frame.rax = KU_STATUS_OK;
+                return;
+            }
             windowing::WindowInfo info{};
             if (windowing::query(context->ui.window, &info) != windowing::Status::Ok) {
                 frame.rax = static_cast<uint64_t>(KU_STATUS_NOT_FOUND);
                 return;
             }
-            /* A maximized window returns the user's last normal geometry,
-             * not the full-screen presentation rectangle. */
-            const ui::Rect bounds = info.restore_bounds;
-            out->structure_size = sizeof(*out);
-            out->x = bounds.x;
-            out->y = bounds.y;
-            out->width = bounds.width;
-            out->height = bounds.height;
-            out->state = static_cast<uint32_t>(info.state);
-            out->reserved = 0U;
+            *out = user_window_geometry(info);
             frame.rax = KU_STATUS_OK;
             return;
         }

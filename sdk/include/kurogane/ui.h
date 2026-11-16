@@ -121,8 +121,8 @@ typedef struct ku_ui_window_options {
     int32_t height;
 } ku_ui_window_options;
 
-/* Report the last unmaximized bounds, suitable for per-application window
- * persistence. The kernel only permits querying the caller's own window. */
+/* Report the caller's own last unmaximized bounds. After closing, its last
+ * geometry is available until the caller opens a new window. */
 enum ku_ui_window_state {
     KU_UI_WINDOW_NORMAL = 0,
     KU_UI_WINDOW_MINIMIZED = 1,

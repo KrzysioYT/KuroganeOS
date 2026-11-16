@@ -95,6 +95,7 @@ using InputCallback = void (*)(
     WindowId id,
     const input::Event& event,
     void* context);
+using CloseCallback = void (*)(const WindowInfo& window, void* context);
 using ListCallback = bool (*)(const WindowInfo& window, void* context);
 
 Status initialize(uint32_t screen_width, uint32_t screen_height);
@@ -108,7 +109,8 @@ Status create_window(
     DrawCallback draw,
     InputCallback input_callback,
     void* context,
-    WindowId* out_id);
+    WindowId* out_id,
+    CloseCallback on_close = nullptr);
 Status close(WindowId id);
 // Process-finalization cleanup: release every window and retained surface
 // owned by one non-zero PID. This is bounded by MAX_WINDOWS and uses the

@@ -10,12 +10,11 @@
 typedef struct gui_window_profile {
     const char* key;
     ku_ui_window_geometry sample;
-    ku_ui_window_geometry saved;
+    ku_ui_window_geometry baseline;
     uint32_t ticks;
     uint32_t stable_samples;
     uint32_t retry_after;
     int have_sample;
-    int have_saved;
 } gui_window_profile;
 
 static inline uint32_t gui_window_hash(const char* text, size_t length) {
@@ -161,12 +160,33 @@ static inline int gui_window_profile_load(
         (const char*)response.value, response.value_size, geometry);
 }
 static inline int gui_window_profile_save(
-    const char* key, const ku_ui_window_geometry* geometry) {
+    gui_window_profile* profile, const ku_ui_window_geometry* geometry) {
     char value[GUI_WINDOW_PROFILE_LENGTH];
     ku_settings_response response = {0};
-    return gui_window_profile_encode(geometry, value) &&
-        gui_window_settings_request(key, KU_SETTINGS_SET, value, &response) ==
-            KU_STATUS_OK;
+    if (!gui_window_profile_encode(geometry, value) ||
+        gui_window_settings_request(profile->key, KU_SETTINGS_SET, value, &response) !=
+            KU_STATUS_OK) return 0;
+    profile->baseline = *geometry;
+    printf("[WINDOW] geometry_saved key=%s x=%u y=%u w=%u h=%u\n",
+           profile->key, (unsigned)geometry->x, (unsigned)geometry->y,
+           (unsigned)geometry->width, (unsigned)geometry->height);
+    return 1;
+}
+
+static inline int gui_window_profile_read(
+    ku_window_t window, ku_ui_window_geometry* geometry) {
+    geometry->structure_size = sizeof(*geometry);
+    return ku_ui_get_geometry(window, geometry) == KU_STATUS_OK &&
+        gui_window_geometry_valid(geometry);
+}
+
+static inline void gui_window_profile_set_initial(
+    gui_window_profile* profile, const ku_ui_window_geometry* geometry) {
+    // A fitted window or a service-unavailable fallback is the starting
+    // geometry. Persist only a change from what was actually displayed.
+    profile->baseline = *geometry;
+    profile->sample = *geometry;
+    profile->have_sample = 1;
 }
 
 static inline ku_window_t gui_window_profile_open(
@@ -179,24 +199,12 @@ static inline ku_window_t gui_window_profile_open(
     if (gui_window_profile_load(key, &restored)) {
         x = restored.x; y = restored.y;
         width = restored.width; height = restored.height;
-        profile->saved = restored;
-        profile->have_saved = 1;
     }
     const ku_window_t window = gui_open(title, x, y, width, height);
     if (window != KU_INVALID_WINDOW) {
         ku_ui_window_geometry initial = {0};
-        initial.structure_size = sizeof(initial);
-        if (ku_ui_get_geometry(window, &initial) == KU_STATUS_OK &&
-            gui_window_geometry_valid(&initial)) {
-            profile->sample = initial;
-            profile->have_sample = 1;
-            /* Do not overwrite an existing profile with default geometry
-             * just because settingsd was unavailable during startup. */
-            if (!profile->have_saved) {
-                profile->saved = initial;
-                profile->have_saved = 1;
-            }
-        }
+        if (gui_window_profile_read(window, &initial))
+            gui_window_profile_set_initial(profile, &initial);
     }
     return window;
 }
@@ -207,18 +215,9 @@ static inline void gui_window_profile_tick(
         return;
     profile->ticks = 0U;
     ku_ui_window_geometry current = {0};
-    current.structure_size = sizeof(current);
-    if (ku_ui_get_geometry(window, &current) != KU_STATUS_OK ||
-        !gui_window_geometry_valid(&current)) return;
+    if (!gui_window_profile_read(window, &current)) return;
     if (!profile->have_sample) {
-        profile->sample = current;
-        profile->have_sample = 1;
-        profile->stable_samples = 0U;
-        if (!profile->have_saved) {
-            /* First observed default is not a user preference change. */
-            profile->saved = current;
-            profile->have_saved = 1;
-        }
+        gui_window_profile_set_initial(profile, &current);
         return;
     }
     if (!gui_window_same_geometry(&profile->sample, &current)) {
@@ -228,30 +227,21 @@ static inline void gui_window_profile_tick(
     }
     if (profile->stable_samples < 2U) ++profile->stable_samples;
     if (profile->stable_samples < 2U ||
-        (profile->have_saved && gui_window_same_geometry(
-            &profile->saved, &current))) return;
+        gui_window_same_geometry(&profile->baseline, &current)) return;
     if (profile->retry_after != 0U) {
         --profile->retry_after;
         return;
     }
-    if (gui_window_profile_save(profile->key, &current)) {
-        profile->saved = current;
-        profile->have_saved = 1;
-        printf("[WINDOW] geometry_saved key=%s x=%u y=%u w=%u h=%u\n",
-               profile->key, (unsigned)current.x, (unsigned)current.y,
-               (unsigned)current.width, (unsigned)current.height);
-    } else {
+    if (!gui_window_profile_save(profile, &current))
         profile->retry_after = 10U;
-    }
 }
-static inline void gui_window_profile_flush(gui_window_profile* profile) {
-    if (profile == NULL || !profile->have_sample ||
-        (profile->have_saved &&
-         gui_window_same_geometry(&profile->sample, &profile->saved))) return;
-    if (gui_window_profile_save(profile->key, &profile->sample)) {
-        profile->saved = profile->sample;
-        profile->have_saved = 1;
-    }
+static inline void gui_window_profile_flush(
+    gui_window_profile* profile, ku_window_t window) {
+    if (profile == NULL || profile->key == NULL || !profile->have_sample) return;
+    ku_ui_window_geometry current = {0};
+    if (gui_window_profile_read(window, &current) &&
+        !gui_window_same_geometry(&profile->baseline, &current))
+        (void)gui_window_profile_save(profile, &current);
 }
 
 #endif
