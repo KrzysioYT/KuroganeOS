@@ -2410,9 +2410,8 @@ void probe_usb2_hub_ports(Controller& controller, bool companion) {
             return;
         }
         if ((status.status & hub::PORT_CONNECTED) != 0U) {
-            terminal::write("[USB] USB2 hub downstream port connected: ");
-            terminal::write_u64(port);
-            terminal::println();
+            log::write_u64(log::Level::Info, "XHCI",
+                "USB2 hub downstream port connected: ", port);
         }
     }
 }
