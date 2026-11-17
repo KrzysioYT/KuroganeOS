@@ -102,6 +102,10 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_intel_gbe_model.cpp \
   -o "$OUT_DIR/test_intel_gbe_model"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_rtl81xx_detection.cpp -o "$OUT_DIR/test_rtl81xx_detection"
+"$OUT_DIR/test_rtl81xx_detection"
 "$OUT_DIR/test_intel_gbe_model"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
