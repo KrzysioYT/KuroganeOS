@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -27,6 +27,7 @@ usb_tablet=false
 usb_storage=false
 usb_controller=false
 usb_hotplug=false
+usb_root_hub=false
 usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
@@ -85,6 +86,7 @@ while (($#)); do
         --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
         --usb-storage) usb_controller=true; usb_storage=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
+        --usb-root-hub) usb_controller=true; usb_root_hub=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
@@ -820,21 +822,30 @@ PY
 fi
 
 usb_args=()
+usb_keyboard_port=""
+usb_mouse_port=""
 if $usb_controller; then
     usb_args=(-device qemu-xhci,id=kurogane_xhci)
+fi
+if $usb_root_hub; then
+    # Keep the HID fixtures on separate root ports so this profile proves
+    # isolation of an unsupported hub rather than downstream enumeration.
+    usb_args+=(-device usb-hub,bus=kurogane_xhci.0,port=1,id=kurogane_usb_hub)
+    usb_keyboard_port=",port=2"
+    usb_mouse_port=",port=3"
 fi
 if $usb_keyboard; then
     # A real emulated xHCI + HID device: guest reset, enumeration, transfer
     # rings and input decoding run unchanged. This is not a PS/2-only proof.
     usb_args+=(
-        -device usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard
+        -device "usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard$usb_keyboard_port"
     )
 fi
 if $usb_mouse; then
     # The smoke helper selects this exact QEMU USB mouse before generating
     # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
     usb_args+=(
-        -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
+        -device "usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse$usb_mouse_port"
     )
 fi
 if $usb_tablet; then

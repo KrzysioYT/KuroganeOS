@@ -49,6 +49,8 @@ constexpr uint32_t PORT_CONNECTED = UINT32_C(1) << 0U;
 constexpr uint32_t PORT_ENABLED = UINT32_C(1) << 1U;
 constexpr uint32_t PORT_RESET = UINT32_C(1) << 4U;
 constexpr uint32_t PORT_POWER = UINT32_C(1) << 9U;
+constexpr uint32_t PORT_CONNECT_CHANGED = UINT32_C(1) << 17U;
+constexpr uint8_t USB_HUB_CLASS = 0x09U;
 
 constexpr uint8_t TRB_NORMAL = 1U;
 constexpr uint8_t TRB_SETUP_STAGE = 2U;
@@ -146,6 +148,7 @@ struct Controller {
     size_t context_size;
     uint8_t maximum_slots;
     uint8_t maximum_ports;
+    bool deferred_hub_ports[256U];
     uint8_t slot_id;
     uint8_t port_id;
     uint8_t port_speed;
@@ -719,17 +722,6 @@ bool submit_command(
     return completion_ok(*completion);
 }
 
-[[maybe_unused]] uint8_t first_connected_port(const Controller& controller) {
-    // MaxPorts can be 255: a uint8_t one-based loop would wrap to zero.
-    for (size_t index = 0U; index < controller.maximum_ports; ++index) {
-        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
-             PORT_CONNECTED) != 0U) {
-            return static_cast<uint8_t>(index + 1U);
-        }
-    }
-    return 0U;
-}
-
 bool port_claimed(const Controller& controller, uint8_t port) {
     if (port == 0U) return false;
     if (controller.slot_id != 0U && controller.port_id == port) return true;
@@ -740,14 +732,23 @@ bool port_claimed(const Controller& controller, uint8_t port) {
     return controller.companion.ignored_port_id == port;
 }
 
-uint8_t first_unclaimed_connected_port(const Controller& controller) {
+bool connected_probe_candidate(Controller& controller, uint8_t port) {
+    const size_t index = static_cast<size_t>(port - 1U);
+    const uint32_t status = read32(controller.operational, OP_PORTS + index * PORT_STRIDE);
+    if (status == UINT32_MAX) return false;
+    if ((status & PORT_CONNECTED) == 0U ||
+        (status & PORT_CONNECT_CHANGED) != 0U) {
+        controller.deferred_hub_ports[port] = false;
+    }
+    return (status & PORT_CONNECTED) != 0U && !controller.deferred_hub_ports[port];
+}
+
+uint8_t first_unclaimed_connected_port(Controller& controller) {
+    // MaxPorts can be 255: keep the loop index wider than a port number.
     for (size_t index = 0U; index < controller.maximum_ports; ++index) {
         const uint8_t port = static_cast<uint8_t>(index + 1U);
         if (port_claimed(controller, port)) continue;
-        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
-             PORT_CONNECTED) != 0U) {
-            return port;
-        }
+        if (connected_probe_candidate(controller, port)) return port;
     }
     return 0U;
 }
@@ -773,16 +774,6 @@ bool reset_port(
         relax();
     }
     return false;
-}
-
-bool reset_connected_port(Controller& controller) {
-    const uint8_t port = first_unclaimed_connected_port(controller);
-    if (port == 0U) return false;
-    uint8_t speed = 0U;
-    if (!reset_port(controller, port, &speed)) return false;
-    controller.port_id = port;
-    controller.port_speed = speed;
-    return true;
 }
 
 void acknowledge_port_change(Controller& controller, uint8_t port) {
@@ -940,7 +931,7 @@ bool update_ep0_packet_size(Controller& controller, uint16_t packet_size) {
     return true;
 }
 
-bool read_descriptors(Controller& controller) {
+bool read_descriptors(Controller& controller, bool& is_hub) {
     clear_bytes(controller.data_page.virtual_address,
                 memory::virtual_memory::PAGE_SIZE);
     if (!control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 8U, true)) {
@@ -963,6 +954,8 @@ bool read_descriptors(Controller& controller) {
     }
     bytes = static_cast<const uint8_t*>(controller.data_page.virtual_address);
     if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    is_hub = bytes[4U] == USB_HUB_CLASS;
+    if (is_hub) return false;
     controller.vendor_id = static_cast<uint16_t>(bytes[8U]) |
         static_cast<uint16_t>(bytes[9U]) << 8U;
     controller.product_id = static_cast<uint16_t>(bytes[10U]) |
@@ -2401,7 +2394,7 @@ bool update_companion_ep0_packet_size(
     return true;
 }
 
-bool read_companion_descriptors(Controller& controller) {
+bool read_companion_descriptors(Controller& controller, bool& is_hub) {
     auto& companion = controller.companion;
     clear_bytes(
         companion.data_page.virtual_address,
@@ -2433,6 +2426,8 @@ bool read_companion_descriptors(Controller& controller) {
     bytes = static_cast<const uint8_t*>(
         companion.data_page.virtual_address);
     if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    is_hub = bytes[4U] == USB_HUB_CLASS;
+    if (is_hub) return false;
     companion.vendor_id = static_cast<uint16_t>(bytes[8U]) |
         static_cast<uint16_t>(bytes[9U]) << 8U;
     companion.product_id = static_cast<uint16_t>(bytes[10U]) |
@@ -2957,15 +2952,22 @@ bool attach_companion_hid(Controller& controller) {
     if (!reset_port(controller, port, &speed)) return false;
     companion.port_id = port;
     companion.port_speed = speed;
+    acknowledge_port_change(controller, port);
 
     if (!address_companion_device(controller)) {
         static_cast<void>(retire_companion_slot(controller));
         return false;
     }
-    if (!read_companion_descriptors(controller)) {
+    bool is_hub = false;
+    if (!read_companion_descriptors(controller, is_hub)) {
         const uint8_t unsupported_port = companion.port_id;
         if (!retire_companion_slot(controller)) return false;
-        companion.ignored_port_id = unsupported_port;
+        if (is_hub) {
+            controller.deferred_hub_ports[unsupported_port] = true;
+            terminal::println("[USB] external hub deferred; slot retired");
+        } else {
+            companion.ignored_port_id = unsupported_port;
+        }
         return false;
     }
     if (!configure_companion_hid_endpoint(controller) ||
@@ -3073,14 +3075,58 @@ bool progress_companion_lifecycle(Controller& controller) {
     return companion.hid_lifecycle == HidLifecycle::Active;
 }
 
-Status attach_hid_device(Controller& controller) {
-    if (!reset_connected_port(controller)) {
-        return first_unclaimed_connected_port(controller) != 0U
-            ? Status::PortResetTimeout : Status::NoDevice;
+bool disable_primary_slot(Controller& controller) {
+    if (controller.slot_id == 0U) return true;
+    Trb completion{};
+    if (!submit_command(controller, 0U, 0U,
+            static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
+            static_cast<uint32_t>(controller.slot_id) << 24U, &completion)) {
+        return false;
     }
-    log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
-    if (!address_device(controller)) return Status::CommandFailed;
-    if (!read_descriptors(controller)) return Status::HidKeyboardNotFound;
+    static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)[controller.slot_id] = 0U;
+    barrier();
+    controller.slot_id = 0U;
+    return true;
+}
+
+void reset_primary_endpoint_memory(Controller& controller) {
+    reset_ring(&controller.ep0_ring);
+    reset_ring(&controller.interrupt_ring);
+    reset_ring(&controller.bulk_in_ring);
+    reset_ring(&controller.bulk_out_ring);
+    clear_bytes(controller.device_context_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+}
+
+Status find_supported_root_device(Controller& controller) {
+    // Retry another root port only after the controller acknowledges slot
+    // retirement. Hub children still require a separate downstream path.
+    for (size_t attempt = 0U; attempt < controller.maximum_ports; ++attempt) {
+        const uint8_t port = first_unclaimed_connected_port(controller);
+        if (port == 0U) return Status::NoDevice;
+        uint8_t speed = 0U;
+        if (!reset_port(controller, port, &speed)) return Status::PortResetTimeout;
+        controller.port_id = port;
+        controller.port_speed = speed;
+        acknowledge_port_change(controller, port);
+        log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
+        if (!address_device(controller)) return Status::CommandFailed;
+        bool is_hub = false;
+        if (read_descriptors(controller, is_hub)) return Status::Ok;
+        if (!is_hub) return Status::HidKeyboardNotFound;
+        if (!disable_primary_slot(controller)) return Status::CommandFailed;
+        reset_primary_endpoint_memory(controller);
+        controller.port_id = 0U;
+        controller.port_speed = 0U;
+        controller.deferred_hub_ports[port] = true;
+        terminal::println("[USB] external hub deferred; slot retired");
+    }
+    return Status::NoDevice;
+}
+
+Status attach_hid_device(Controller& controller) {
+    const Status found = find_supported_root_device(controller);
+    if (found != Status::Ok) return found;
     log::write(log::Level::Info, "XHCI", "supported USB descriptors accepted");
 
     bool configured = false;
@@ -3213,19 +3259,9 @@ bool progress_hid_lifecycle(Controller& controller) {
     }
     if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
         if (!flush_hid_input(controller)) return false;
-        Trb completion{};
-        if (controller.slot_id != 0U) {
-            if (!submit_command(controller, 0U, 0U,
-                    static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
-                    static_cast<uint32_t>(controller.slot_id) << 24U,
-                    &completion)) {
-                fail_hotplug(controller, Status::CommandFailed);
-                return false;
-            }
-            static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)
-                [controller.slot_id] = 0U;
-            barrier();
-            controller.slot_id = 0U;
+        if (!disable_primary_slot(controller)) {
+            fail_hotplug(controller, Status::CommandFailed);
+            return false;
         }
         // Only acknowledged Disable Slot permits reuse of endpoint DMA.
         controller.report_queued = false;
@@ -3261,13 +3297,9 @@ bool progress_hid_lifecycle(Controller& controller) {
         if (first_unclaimed_connected_port(controller) == 0U) return false;
         // Command/event rings stay live. Only disabled-slot endpoint/context
         // pages are reused; no DMA allocation or global controller reset.
-        reset_ring(&controller.ep0_ring);
-        reset_ring(&controller.interrupt_ring);
-        reset_ring(&controller.bulk_in_ring);
-        reset_ring(&controller.bulk_out_ring);
-        clear_bytes(controller.device_context_page.virtual_address,
-                    memory::virtual_memory::PAGE_SIZE);
+        reset_primary_endpoint_memory(controller);
         const Status attached = attach_hid_device(controller);
+        if (attached == Status::NoDevice) return false;
         if (attached != Status::Ok) {
             fail_hotplug(controller, attached);
             return false;
@@ -3419,6 +3451,12 @@ size_t poll(size_t budget) {
                 static_cast<void>(
                     progress_companion_lifecycle(g_controller));
             } else {
+                if (port != 0U && port <= g_controller.maximum_ports &&
+                    g_controller.deferred_hub_ports[port]) {
+                    // Observe CSC before acknowledging it, or a replacement
+                    // device on this port could remain permanently deferred.
+                    static_cast<void>(connected_probe_candidate(g_controller, port));
+                }
                 acknowledge_port_change(g_controller, port);
                 if (g_controller.hid_lifecycle ==
                     HidLifecycle::WaitingForDevice) {
