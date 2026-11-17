@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-power] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -29,6 +29,7 @@ usb_controller=false
 usb_hotplug=false
 usb_root_hub=false
 usb_hub_storage=false
+usb_hub_two_storage=false
 usb_hub_power=false
 usb_hotplug_phase=0
 usb_hotplug_cycles=0
@@ -90,6 +91,7 @@ while (($#)); do
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-root-hub) usb_controller=true; usb_root_hub=true; shift ;;
         --usb-hub-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; shift ;;
+        --usb-hub-two-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_two_storage=true; shift ;;
         --usb-hub-power) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_power=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
@@ -283,7 +285,8 @@ qemu_log="$tmp/qemu.log"
 monitor="$tmp/qemu-monitor.sock"
 qmp="$tmp/qemu-qmp.sock"
 pid=""
-usb_hub_scratch_sha=""
+usb_hub_scratch_images=()
+usb_hub_scratch_sums=()
 cleanup() {
     local result=$?
     trap - EXIT INT TERM
@@ -291,20 +294,21 @@ cleanup() {
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
     fi
-    if [[ -n "$usb_hub_scratch_sha" ]]; then
-        local final_sha=""
-        if final_sha="$(sha256sum "$usb_storage_image")"; then
+    for index in "${!usb_hub_scratch_images[@]}"; do
+        local final_sha="" evidence="hub-scratch-sha256.txt"
+        if final_sha="$(sha256sum "${usb_hub_scratch_images[$index]}")"; then
             final_sha="${final_sha%% *}"
         fi
+        if ((index > 0)); then evidence="hub-scratch-$((index + 1))-sha256.txt"; fi
         if [[ -n "$log_dir" ]]; then
-            printf 'before %s\nafter  %s\n' "$usb_hub_scratch_sha" "$final_sha" \
-                > "$log_dir/hub-scratch-sha256.txt" || result=1
+            printf 'before %s\nafter  %s\n' "${usb_hub_scratch_sums[$index]}" "$final_sha" \
+                > "$log_dir/$evidence" || result=1
         fi
-        if [[ "$final_sha" != "$usb_hub_scratch_sha" ]]; then
-            echo '[uefi-qemu] USB hub scratch image changed after the guest stopped' >&2
+        if [[ "$final_sha" != "${usb_hub_scratch_sums[$index]}" ]]; then
+            echo "[uefi-qemu] USB hub scratch image $index changed after the guest stopped" >&2
             result=1
         fi
-    fi
+    done
     if [[ -n "$log_dir" ]]; then
         for log in "$serial" "$qemu_log"; do
             if [[ -f "$log" ]]; then
@@ -912,14 +916,32 @@ with open(sys.argv[1], "wb") as image:
         image.write(bytes((index * 19 + 7) & 0xFF for index in range(512)))
 PY
     if $usb_hub_storage; then
-        usb_hub_scratch_sha="$(sha256sum "$usb_storage_image")"
-        usb_hub_scratch_sha="${usb_hub_scratch_sha%% *}"
+        usb_hub_scratch_images+=("$usb_storage_image")
+        scratch_sha="$(sha256sum "$usb_storage_image")"
+        usb_hub_scratch_sums+=("${scratch_sha%% *}")
     fi
     # Use scratch media to keep storage probes away from the boot disk.
     usb_args+=(
         -drive "if=none,id=kurogane_usb_storage,format=raw,file=$usb_storage_image"
         -device "usb-storage,drive=kurogane_usb_storage,bus=kurogane_xhci.0,id=kurogane_usb_storage$usb_storage_port"
     )
+    if $usb_hub_two_storage; then
+        second_image="$tmp/usb-storage-second.img"
+        cp -- "$usb_storage_image" "$second_image"
+        # A different capacity proves that enumeration reached the second disk.
+        python3 - "$second_image" <<'PY2'
+import sys
+with open(sys.argv[1], "r+b") as image:
+    image.truncate(16 * 1024 * 1024)
+PY2
+        usb_hub_scratch_images+=("$second_image")
+        scratch_sha="$(sha256sum "$second_image")"
+        usb_hub_scratch_sums+=("${scratch_sha%% *}")
+        usb_args+=(
+            -drive "if=none,id=kurogane_usb_storage_second,format=raw,file=$second_image"
+            -device "usb-storage,drive=kurogane_usb_storage_second,bus=kurogane_xhci.0,id=kurogane_usb_storage_second,port=1.2"
+        )
+    fi
 fi
 
 media_args=()

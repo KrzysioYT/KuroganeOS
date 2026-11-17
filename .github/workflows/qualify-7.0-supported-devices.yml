@@ -236,6 +236,35 @@ jobs:
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify two downstream storage devices with distinct capacities
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/two-storage-hub
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-two-storage --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 hub downstream port connected: 2' \
+            --require-marker 'USB2 downstream block count: 16384' \
+            --require-marker 'USB2 downstream block count: 32768' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker-count '[TEST] xhci_downstream_scsi_inquiry: PASS' 2 \
+            --require-marker-count '[TEST] xhci_downstream_read10: PASS' 2 \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 2' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+          test -s "$evidence/hub-scratch-2-sha256.txt"
       - name: Verify direct USB storage after bulk transport changes
         shell: bash
         run: |

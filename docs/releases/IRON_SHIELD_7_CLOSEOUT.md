@@ -70,6 +70,13 @@ request and verifies readback. The artifact records the source SHA, patch and
 image hash.
 Physical switched-hub power behavior remains BLOCKED without suitable hardware.
 
+The first cold-boot hub probe visits every eligible descriptor port (at most
+15), retiring each child before reusing the companion slot and bulk rings. CI
+requires two downstream disks with distinct 8 MiB and 16 MiB capacities, reads
+from each, and checks both complete disk hashes after QEMU exits. Only the
+existing tagged 8 MiB scratch fixture is eligible for the write/restore probe.
+Persistent attachment and downstream hotplug remain open.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

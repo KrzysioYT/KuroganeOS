@@ -3185,6 +3185,8 @@ DownstreamStorageProbe probe_downstream_storage(Controller& controller, uint32_t
     auto* data = static_cast<uint8_t*>(controller.storage_io_page.virtual_address);
     if (read_scsi_chunk(controller, target, 0U, 1U, geometry.block_size, data) !=
         storage::block::Status::Ok) return Probe::Inquiry;
+    log::write_u64(log::Level::Info, "XHCI",
+        "USB2 downstream block count: ", geometry.block_count);
     if (geometry.block_count != UINT64_C(16384) ||
         !matches_usb_test_sector(data, geometry.block_size)) return Probe::BlockRead;
     // Only the explicitly tagged QEMU fixture reaches the write path.
@@ -3261,6 +3263,12 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
         parsed.port_count != ports) return true;
     terminal::println("[USB] USB2 hub descriptor read");
 
+    // Limit synchronous resets to the first hub seen at cold boot. Its
+    // descriptor bounds this loop to 15 ports, each visited once.
+    const bool probe_ports = !controller.initialized &&
+        !controller.hub_reset_attempted &&
+        arch::x86_64::hpet::capabilities() != nullptr;
+    if (probe_ports) controller.hub_reset_attempted = true;
     for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
         const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
             hub::ControlRequest request{};
@@ -3291,10 +3299,7 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                 "USB2 hub downstream port connected: ", port);
         }
         // Do not wait on the timer inside the normal HID polling path.
-        if (!controller.initialized && !controller.hub_reset_attempted &&
-            arch::x86_64::hpet::capabilities() != nullptr &&
-            hub::inactive_reset_candidate(status)) {
-            controller.hub_reset_attempted = true;
+        if (probe_ports && hub::inactive_reset_candidate(status)) {
             bool child_retired = true;
             const auto after_reset = [&] {
                 // This first topology has no high-speed transaction translator.

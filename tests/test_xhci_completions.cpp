@@ -241,6 +241,45 @@ int main() {
     assert(!matches_usb_test_sector(sector, sizeof(sector)));
     std::puts("xHCI known-sector check rejects truncation and corrupt payload: PASS");
 
+    // Reuse the same child slot only after each Disable Slot acknowledgement.
+    // Retired completions and data from disk one must not reach disk two.
+    alignas(4096) uint8_t input_context[4096]{};
+    alignas(4096) uint8_t device_context[4096]{};
+    g_controller.command_ring.enqueue = 0U;
+    g_controller.event_dequeue = 0U;
+    g_controller.event_cycle = true;
+    g_controller.deferred_event_count = 0U;
+    clear_bytes(events, sizeof(events));
+    auto& companion = g_controller.companion;
+    companion.allocated = true;
+    companion.child_device = device::INVALID_DEVICE_ID;
+    companion.input_context_page = {input_context, 0x90000U, true};
+    companion.device_context_page = {device_context, 0xA0000U, true};
+    companion.data_page = {report, 0x30000U, true};
+    companion.ep0_ring.page = {transfers, 0x10000U, true};
+    companion.interrupt_ring.page = {transfers, 0x10000U, true};
+    for (size_t child = 0U; child < 2U; ++child) {
+        companion.slot_id = 2U;
+        companion.port_id = 1U;
+        companion.report_queued = true;
+        companion.report_trb = 0x10000U;
+        companion.ep0_ring.enqueue = 3U;
+        report[0] = input_context[0] = device_context[0] = 0xA5U;
+        dcbaa[2] = companion.device_context_page.physical_address;
+        assert(defer_event(g_controller, {0x10000U, success,
+            (control & UINT32_C(0x00FFFFFF)) | (2U << 24U)}));
+        events[child] = {0x40000U + child * sizeof(Trb), success,
+            static_cast<uint32_t>(TRB_COMMAND_COMPLETION) << 10U | 1U};
+        assert(retire_companion_slot(g_controller));
+        assert(companion.slot_id == 0U && companion.port_id == 0U && dcbaa[2] == 0U);
+        assert(!companion.report_queued && companion.report_trb == 0U);
+        assert(companion.ep0_ring.enqueue == 0U && companion.ep0_ring.cycle);
+        assert(report[0] == 0U && input_context[0] == 0U && device_context[0] == 0U);
+        assert(g_controller.deferred_event_count == 0U);
+        assert(companion.hid_lifecycle == HidLifecycle::WaitingForDevice);
+    }
+    std::puts("xHCI repeated child retirement clears stale DMA and events: PASS");
+
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");
