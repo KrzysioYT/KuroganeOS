@@ -98,6 +98,14 @@ PHY still reports link. Each rejects TX/RX, preserves descriptors and output
 buffers, and leaves ring positions/counters unchanged. This guards against
 unexpected engine stop; active teardown and physical recovery remain open.
 
+RTL81xx readiness also validates the live PCI vendor/device identity and
+requires memory decoding plus bus mastering before reading BAR registers.
+The runtime regression supplies an inaccessible BAR with removed/replaced PCI
+identity, lost decode/DMA enable or unreadable command state; readiness and
+TX/RX reject these states before MMIO, preserving buffers and descriptors.
+These are host fault-injection results; physical removal/power recovery remains
+BLOCKED and the experimental initialization opt-in remains required.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

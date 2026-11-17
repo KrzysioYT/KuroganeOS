@@ -9,6 +9,10 @@ unsigned writes;
 }
 
 namespace pci {
+uint32_t read32(Address, uint8_t offset) {
+    assert(offset == 0U);
+    return UINT32_C(0x816810EC);
+}
 uint16_t read16(Address, uint8_t offset) {
     assert(offset == 0x04U);
     return command;
@@ -49,12 +53,23 @@ int main() {
     assert(writes == writes_before);
 
     uint8_t mmio[MMIO_BYTES]{};
+    g_device.pci_device.vendor_id = 0x10ECU;
+    g_device.pci_device.device_id = 0x8168U;
+    command = 6U;
     g_device.registers = mmio;
     g_device.started = true;
     assert(!link_up());
     mmio[REG_PHY_STATUS] = PHY_LINK_UP;
     assert(!link_up()); // Carrier cannot make a stopped DMA engine ready.
     mmio[REG_CHIP_CMD] = CMD_RX | CMD_TX;
+    assert(link_up());
+    command = 2U;
+    assert(!link_up());
+    command = 4U;
+    assert(!link_up());
+    command = UINT16_MAX;
+    assert(!link_up());
+    command = 6U;
     assert(link_up());
     mmio[REG_PHY_STATUS] = UINT8_MAX;
     assert(!link_up());

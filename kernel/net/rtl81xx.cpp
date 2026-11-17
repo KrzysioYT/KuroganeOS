@@ -367,6 +367,15 @@ Status initialize() {
 
 bool link_up() {
     if (!g_device.started || g_device.registers == nullptr) return false;
+    const uint32_t expected_identity =
+        static_cast<uint32_t>(g_device.pci_device.device_id) << 16U |
+        g_device.pci_device.vendor_id;
+    if (pci::read32(g_device.pci_device, 0x00U) != expected_identity)
+        return false;
+    const uint16_t pci_command = pci::read16(g_device.pci_device, PCI_COMMAND);
+    constexpr uint16_t required = PCI_MEMORY_SPACE | PCI_BUS_MASTER;
+    if (pci_command == UINT16_MAX || (pci_command & required) != required)
+        return false;
     const uint8_t command = read8(g_device, REG_CHIP_CMD);
     constexpr uint8_t mask = CMD_RESET | CMD_RX | CMD_TX;
     if (command == UINT8_MAX || (command & mask) != (CMD_RX | CMD_TX))

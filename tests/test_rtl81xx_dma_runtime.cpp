@@ -5,6 +5,21 @@
 #include <cstring>
 #include <cstdio>
 
+namespace {
+uint32_t pci_identity = UINT32_C(0x816810EC);
+uint16_t pci_command = 6U;
+}
+namespace pci {
+uint32_t read32(Address, uint8_t offset) {
+    assert(offset == 0U);
+    return pci_identity;
+}
+uint16_t read16(Address, uint8_t offset) {
+    assert(offset == 4U);
+    return pci_command;
+}
+}
+
 /* Driver-runtime fixture: real production transmit()/receive() logic, fake
  * MMIO registers and DMA pages. This is NOT a hardware qualification. */
 int main() {
@@ -15,6 +30,8 @@ int main() {
     alignas(16) uint8_t tx_data[DESCRIPTOR_COUNT][dma::RX_BUFFER_BYTES]{};
     alignas(16) uint8_t rx_data[DESCRIPTOR_COUNT][dma::RX_BUFFER_BYTES]{};
     g_device = {};
+    g_device.pci_device.vendor_id = 0x10ECU;
+    g_device.pci_device.device_id = 0x8168U;
     g_device.registers = mmio;
     g_device.started = true;
     g_device.tx_ring_page.virtual_address = tx_descriptors;
@@ -39,6 +56,34 @@ int main() {
            net::Status::InterfaceError);
 
     mmio[REG_PHY_STATUS] = PHY_LINK_UP;
+    const struct { uint32_t identity; uint16_t command; } unavailable_pci[] = {
+        {0x816810ECU, 0U}, {0x816810ECU, 2U}, {0x816810ECU, 4U},
+        {0x816810ECU, UINT16_MAX}, {UINT32_MAX, 6U},
+        {0x81681234U, 6U}, {0x816910ECU, 6U},
+    };
+    for (auto state : unavailable_pci) {
+        pci_identity = state.identity;
+        pci_command = state.command;
+        // An inaccessible BAR must never be touched after PCI validation fails.
+        g_device.registers = reinterpret_cast<volatile uint8_t*>(1U);
+        uint8_t output[128];
+        std::memset(output, 0x5AU, sizeof(output));
+        size_t copied = 99U;
+        assert(!ready() && interface() == nullptr);
+        assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
+               net::Status::InterfaceError);
+        assert(receive(&g_device, output, sizeof(output), &copied) ==
+               net::Status::InterfaceError);
+        assert(tx_descriptors[0].flags == 0U && g_device.next_tx == 0U);
+        assert(g_device.next_rx == 0U && copied == 0U);
+        assert(rx_descriptors[0].flags == dma::rx_rearm(false, dma::RX_BUFFER_BYTES));
+        assert(g_device.rx_frames == 0U && g_device.tx_frames == 0U);
+        for (uint8_t byte : output) assert(byte == 0x5AU);
+    }
+    pci_identity = 0x816810ECU;
+    pci_command = 6U;
+    g_device.registers = mmio;
+    std::puts("RTL81xx PCI removal, identity and DMA decode loss reject I/O before MMIO: PASS");
     const uint8_t unavailable_commands[] = {
         0U, CMD_RX, CMD_TX, CMD_RESET,
         static_cast<uint8_t>(CMD_RESET | CMD_RX | CMD_TX), UINT8_MAX,
