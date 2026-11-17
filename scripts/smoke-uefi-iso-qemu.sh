@@ -835,7 +835,13 @@ if $usb_controller; then
 fi
 if $usb_root_hub; then
     # Keep HID on separate root ports so it can prove isolation of the hub.
-    usb_args+=(-device usb-hub,bus=kurogane_xhci.0,port=1,id=kurogane_usb_hub)
+    usb_hub_ports=""
+    if $usb_hub_storage; then
+        # QEMU's default eight-port model emits a one-byte power mask,
+        # while its removable bitmap and the USB2 layout require two.
+        usb_hub_ports=",ports=4"
+    fi
+    usb_args+=(-device "usb-hub,bus=kurogane_xhci.0,port=1,id=kurogane_usb_hub$usb_hub_ports")
     usb_keyboard_port=",port=2"
     usb_mouse_port=",port=3"
 fi
