@@ -150,9 +150,25 @@ int main() {
     assert(g_controller.command_ring.enqueue == 0U && dcbaa[1] == 0x60000U);
     assert(device::resolve(old_handle) != nullptr);
     capacity = 24U;
-    events[g_controller.event_dequeue] = {0x40000U, success,
+    // A completion from the old attachment can alias the first HID TRB
+    // of its replacement. It must not survive successful slot retirement.
+    const Trb retired_report{0x10000U, success, control};
+    const Trb companion_report{
+        0x80000U, success, (control & UINT32_C(0x00FFFFFF)) | (2U << 24U)};
+    const Trb port_change{UINT64_C(1) << 24U, success,
+        static_cast<uint32_t>(TRB_PORT_STATUS_CHANGE) << 10U | 1U};
+    assert(defer_event(g_controller, retired_report));
+    assert(defer_event(g_controller, companion_report));
+    events[g_controller.event_dequeue] = port_change;
+    events[g_controller.event_dequeue + 1U] = retired_report;
+    events[g_controller.event_dequeue + 2U] = {0x40000U, success,
         static_cast<uint32_t>(TRB_COMMAND_COMPLETION) << 10U | 1U};
-    assert(poll(1U) == 0U);
+    assert(!progress_hid_lifecycle(g_controller));
+    assert(g_controller.deferred_event_count == 2U);
+    assert(g_controller.deferred_events[0].parameter == companion_report.parameter);
+    assert(g_controller.deferred_events[0].control == companion_report.control);
+    assert(g_controller.deferred_events[1].parameter == port_change.parameter);
+    assert(g_controller.deferred_events[1].control == port_change.control);
     assert(submitted == 10U && !delivered[8].pressed && !delivered[9].pressed);
     assert(g_controller.hid_lifecycle == HidLifecycle::WaitingForDevice);
     assert(g_controller.command_ring.enqueue == 1U && dcbaa[1] == 0U);
@@ -161,6 +177,7 @@ int main() {
     assert(device::resolve(old_handle) == nullptr && device::active_count() == 0U);
     assert(!g_controller.report_queued && g_controller.slot_id == 0U);
     assert(runtime_status() == Status::NoDevice && initialized());
+    assert(poll(2U) == 2U && submitted == 10U);
     assert(poll(1U) == 0U && submitted == 10U);
 
     // Empty controllers must drain status events, including ring wrap, while

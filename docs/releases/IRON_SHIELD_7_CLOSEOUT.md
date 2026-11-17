@@ -45,6 +45,13 @@ the entire 7.0 milestone.**
 | Intel HDA + AC'97 | Hardware family selection, production PCM playback and failure fallback | The QEMU gate requires HDA codec and PCM DMA, then AC'97 selection and PCM DMA in a separate boot with a codec-less HDA controller. AC'97 readiness requires completion of a silent PCM descriptor and an acknowledged stop/reset. Physical codec and playback quality remain unverified. |
 | USB hubs, multi-device hotplug, wider HID | Enumeration through a hub, detach/re-attach, device churn, simultaneous keyboard/mouse and negative report validation | **DOWNSTREAM BOOT BLOCK I/O / NOT QUALIFIED** — xHCI addresses a full-speed storage child and reads its first sector. Only the tagged QEMU scratch fixture is eligible for a write, flush, readback and restore within the boot probe. CI compares the complete scratch image after QEMU exits and verifies direct HID and direct USB storage. Persistent binding, runtime downstream block I/O, high-speed hub TT scheduling and hub hotplug remain open. Physical hub qualification is blocked without suitable hardware. |
 | Device power management | PCI D-state lifecycle, PMCSR/PME and device-specific safe recovery; system-wide suspend/resume only if part of the accepted 7.0 contract | **PARTIAL** — the PR gate boots a separately instrumented image from the exact candidate SHA and requires four pre-bind D0 → D3hot → D0 cycles followed by E1000e DHCP and ICMP. PMCSR transactions check PCI identity and preserve unrelated live controls. Active-driver recovery and physical power transitions remain unverified. |
+
+The USB gate also requires three QEMU root-port keyboard detach/reattach cycles
+on an instrumented image from the candidate SHA. Each cycle checks release of a
+held Shift key, retirement of the old device handle, and F12 press/release
+through the new attachment. The host regression checks that Disable Slot
+discards deferred transfers for the retired slot while preserving port events
+and transfers for the other slot.
 | Error isolation and hardware inventory | Unsupported hardware explained without claiming functional driver; optional-device failure does not stop boot or damage storage | Needs end-to-end evidence |
 | Closeout regression | Full host, UBSan, kernel tests, clean IMG/ISO, real QEMU/OVMF with device-matrix logs, checksums and exact SHA | **OPEN** |
 

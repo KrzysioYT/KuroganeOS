@@ -279,6 +279,31 @@ jobs:
             --require-marker '[AUDIO] backend=ac97' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|ac97_.*: FAIL|\[AUDIO\] backend=hda' "$evidence/serial.log"
+      - name: Verify three root-port keyboard detach and reattach cycles
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/usb-hotplug
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-usb-hid-runtime.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hotplug --no-ps2 --log-dir "$evidence" --timeout 180 \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_shift_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
       - name: Retain no-NIC serial evidence
         if: always()
         uses: actions/upload-artifact@v4

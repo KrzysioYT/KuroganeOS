@@ -726,6 +726,32 @@ bool submit_command(
     return completion_ok(*completion);
 }
 
+bool disable_slot(Controller& controller, uint8_t& slot) {
+    if (slot == 0U) return true;
+    Trb completion{};
+    if (!submit_command(controller, 0U, 0U,
+            static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
+            static_cast<uint32_t>(slot) << 24U, &completion)) {
+        return false;
+    }
+    // Transfers precede Disable Slot completion on the same event ring.
+    // Discard retired transfers before reusing slot IDs or TRB addresses.
+    size_t kept = 0U;
+    for (size_t index = 0U; index < controller.deferred_event_count; ++index) {
+        const Trb& event = controller.deferred_events[index];
+        if (trb_type(event) == TRB_TRANSFER_EVENT &&
+            (event.control >> 24U) == slot) {
+            continue;
+        }
+        controller.deferred_events[kept++] = event;
+    }
+    controller.deferred_event_count = kept;
+    static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)[slot] = 0U;
+    barrier();
+    slot = 0U;
+    return true;
+}
+
 bool port_claimed(const Controller& controller, uint8_t port) {
     if (port == 0U) return false;
     if (controller.slot_id != 0U && controller.port_id == port) return true;
@@ -2965,28 +2991,15 @@ void handle_companion_pointer_report(
 
 bool retire_companion_slot(Controller& controller) {
     auto& companion = controller.companion;
-    if (companion.slot_id != 0U) {
-        Trb completion{};
-        if (!submit_command(
-                controller, 0U, 0U,
-                static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
-                    static_cast<uint32_t>(
-                        companion.slot_id) << 24U,
-                &completion)) {
-            companion.hid_lifecycle = HidLifecycle::Failed;
-            return false;
-        }
-        static_cast<uint64_t*>(
-            controller.dcbaa_page.virtual_address)
-            [companion.slot_id] = 0U;
-        barrier();
+    if (!disable_slot(controller, companion.slot_id)) {
+        companion.hid_lifecycle = HidLifecycle::Failed;
+        return false;
     }
     if (remove_companion_device(&controller) != Status::Ok) {
         companion.hid_lifecycle = HidLifecycle::Failed;
         return false;
     }
 
-    companion.slot_id = 0U;
     companion.port_id = 0U;
     companion.port_speed = 0U;
     companion.interrupt_dci = 0U;
@@ -3442,20 +3455,6 @@ bool progress_companion_lifecycle(Controller& controller) {
     return companion.hid_lifecycle == HidLifecycle::Active;
 }
 
-bool disable_primary_slot(Controller& controller) {
-    if (controller.slot_id == 0U) return true;
-    Trb completion{};
-    if (!submit_command(controller, 0U, 0U,
-            static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
-            static_cast<uint32_t>(controller.slot_id) << 24U, &completion)) {
-        return false;
-    }
-    static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)[controller.slot_id] = 0U;
-    barrier();
-    controller.slot_id = 0U;
-    return true;
-}
-
 void reset_primary_endpoint_memory(Controller& controller) {
     reset_ring(&controller.ep0_ring);
     reset_ring(&controller.interrupt_ring);
@@ -3482,7 +3481,7 @@ Status find_supported_root_device(Controller& controller) {
         if (read_descriptors(controller, is_hub)) return Status::Ok;
         if (!is_hub) return Status::HidKeyboardNotFound;
         if (!probe_usb2_hub_ports(controller, false)) return Status::CommandFailed;
-        if (!disable_primary_slot(controller)) return Status::CommandFailed;
+        if (!disable_slot(controller, controller.slot_id)) return Status::CommandFailed;
         reset_primary_endpoint_memory(controller);
         controller.port_id = 0U;
         controller.port_speed = 0U;
@@ -3627,7 +3626,7 @@ bool progress_hid_lifecycle(Controller& controller) {
     }
     if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
         if (!flush_hid_input(controller)) return false;
-        if (!disable_primary_slot(controller)) {
+        if (!disable_slot(controller, controller.slot_id)) {
             fail_hotplug(controller, Status::CommandFailed);
             return false;
         }
