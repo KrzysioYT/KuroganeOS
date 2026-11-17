@@ -85,6 +85,12 @@ Host/UBSan inject failures for all 18 DMA pages, both MMIO pages and a missing
 address space. Active-device teardown and physical RTL reset/DMA qualification
 remain BLOCKED without suitable hardware; production quarantine stays enabled.
 
+RTL81xx partial BAR mapping rollback uses the same tracked cleanup. A failed
+unmap retains the installed prefix and blocks initialization from overwriting
+it. The host/UBSan regression covers second-page mapping failure with failed
+rollback, retry, collisions on either page, aligned/unaligned BARs and address
+overflow. Colliding mappings belong to their original owner and are retained.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

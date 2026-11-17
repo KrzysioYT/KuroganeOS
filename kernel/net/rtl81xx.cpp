@@ -87,8 +87,13 @@ bool configure_pci_command(const pci::Device& device, bool enable_dma) {
     return applied != UINT16_MAX && (applied & mask) == required;
 }
 
+bool cleanup_before_start(Device* device);
+
 bool map_registers(uint64_t physical, Device* device) {
-    if (device == nullptr || physical == 0U) return false;
+    if (device == nullptr || physical == 0U ||
+        physical > UINT64_MAX - (MMIO_BYTES - 1U) ||
+        device->registers != nullptr || device->mapped_pages != 0U ||
+        device->started) return false;
     auto* space = memory::kernel_virtual_memory::address_space();
     if (space == nullptr) return false;
     constexpr uint64_t page_size = memory::virtual_memory::PAGE_SIZE;
@@ -113,16 +118,15 @@ bool map_registers(uint64_t physical, Device* device) {
                 memory::virtual_memory::Status::Ok)
             break;
     }
+    // Publish only the prefix installed by this attempt. Failed rollback
+    // retains its owner and must never unmap a pre-existing collision.
+    device->mapped_pages = mapped;
+    if (mapped != 0U)
+        device->registers = reinterpret_cast<volatile uint8_t*>(MMIO_VIRTUAL_BASE + offset);
     if (mapped != pages) {
-        while (mapped != 0U) {
-            --mapped;
-            (void)memory::virtual_memory::unmap_page(space,
-                MMIO_VIRTUAL_BASE + mapped * page_size);
-        }
+        static_cast<void>(cleanup_before_start(device));
         return false;
     }
-    device->registers = reinterpret_cast<volatile uint8_t*>(MMIO_VIRTUAL_BASE + offset);
-    device->mapped_pages = pages;
     return true;
 }
 
@@ -294,7 +298,8 @@ Status initialize() {
         if (bar == 0U || io_space) return g_status = Status::InvalidBar;
     }
     if (!map_registers(bar, &g_device))
-        return g_status = Status::MappingFailed;
+        return g_status = g_device.mapped_pages == 0U
+            ? Status::MappingFailed : Status::ResourceReleaseFailed;
 
     /* Firmware may leave memory decoding off or bus mastering on. Both
      * bits must be confirmed before touching registers or allocating rings. */

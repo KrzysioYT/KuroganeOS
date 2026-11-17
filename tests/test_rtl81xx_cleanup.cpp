@@ -9,6 +9,9 @@ uint64_t failed_mapping = 0U;
 size_t released = 0U;
 size_t unmapped = 0U;
 bool missing_space = false;
+size_t map_calls = 0U;
+size_t fail_map_call = 0U;
+uint64_t collision = 0U;
 memory::virtual_memory::AddressSpace test_space{};
 uint8_t mmio[4096]{};
 }
@@ -30,8 +33,22 @@ virtual_memory::AddressSpace* address_space() {
 }
 
 namespace memory::virtual_memory {
+Status query_page(const AddressSpace* space, uint64_t address, Mapping*) {
+    assert(space == &test_space);
+    return address == collision ? Status::Ok : Status::NotMapped;
+}
+Status map_page(AddressSpace* space, uint64_t address, uint64_t physical, MapFlags flags) {
+    assert(space == &test_space);
+    assert(address == net::rtl81xx::MMIO_VIRTUAL_BASE + map_calls * PAGE_SIZE);
+    assert(physical == 0x8000U + map_calls * PAGE_SIZE);
+    assert(flags == (MapFlags::Writable | MapFlags::WriteThrough |
+                     MapFlags::CacheDisable | MapFlags::NoExecute));
+    ++map_calls;
+    return map_calls == fail_map_call ? Status::InvalidArgument : Status::Ok;
+}
 Status unmap_page(AddressSpace* space, uint64_t address, Mapping*) {
     assert(space == &test_space);
+    assert(address != collision);
     if (address == failed_mapping) return Status::InvalidArgument;
     ++unmapped;
     return Status::Ok;
@@ -112,5 +129,46 @@ int main() {
     prepare();
     assert(fail_before_start(Status::InvalidMac) == Status::InvalidMac);
     assert(last_status() == Status::InvalidMac);
+
+    // An unaligned BAR needs two pages. Fail the second mapping and its
+    // rollback, then prove that retry retains and releases only page one.
+    g_device = {};
+    released = unmapped = map_calls = 0U;
+    fail_map_call = 2U;
+    failed_mapping = MMIO_VIRTUAL_BASE;
+    assert(!map_registers(0x8001U, &g_device));
+    assert(g_device.mapped_pages == 1U && map_calls == 2U && unmapped == 0U);
+    assert(g_device.registers == reinterpret_cast<volatile uint8_t*>(MMIO_VIRTUAL_BASE + 1U));
+    assert(!map_registers(0x8001U, &g_device) && map_calls == 2U);
+    failed_mapping = 0U;
+    assert(cleanup_before_start(&g_device));
+    assert(g_device.mapped_pages == 0U && g_device.registers == nullptr && unmapped == 1U);
+
+    for (size_t page = 0U; page < 2U; ++page) {
+        g_device = {};
+        unmapped = map_calls = 0U;
+        fail_map_call = 0U;
+        collision = MMIO_VIRTUAL_BASE + page * memory::virtual_memory::PAGE_SIZE;
+        assert(!map_registers(0x8001U, &g_device));
+        assert(map_calls == page && unmapped == page);
+        assert(g_device.mapped_pages == 0U && g_device.registers == nullptr);
+    }
+    collision = 0U;
+    fail_map_call = 0U;
+    map_calls = unmapped = 0U;
+    assert(map_registers(0x8001U, &g_device));
+    assert(g_device.mapped_pages == 2U);
+    assert(cleanup_before_start(&g_device) && unmapped == 2U);
+    map_calls = unmapped = 0U;
+    fail_map_call = 1U;
+    assert(!map_registers(0x8001U, &g_device));
+    assert(g_device.registers == nullptr && g_device.mapped_pages == 0U && unmapped == 0U);
+    assert(!map_registers(UINT64_MAX, &g_device));
+    assert(map_calls == 1U);
+    fail_map_call = 0U;
+    map_calls = unmapped = 0U;
+    assert(map_registers(0x8000U, &g_device) && g_device.mapped_pages == 1U);
+    assert(cleanup_before_start(&g_device) && unmapped == 1U);
+    std::puts("RTL81xx partial MMIO rollback ownership and collision isolation: PASS");
     std::puts("RTL81xx stopped-device cleanup ownership, failure and retry: PASS");
 }
