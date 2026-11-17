@@ -1,6 +1,19 @@
 name: Qualify 7.0 supported-device integration
 
 on:
+  pull_request:
+    branches:
+      - integration/flux8-reconciliation
+    paths:
+      - '.github/workflows/qualify-7.0-supported-devices.yml'
+      - 'kernel/net/**'
+      - 'kernel/shell/**'
+      - 'kernel/drivers/**'
+      - 'kernel/storage/**'
+      - 'kernel/main.cpp'
+      - 'scripts/run-host-tests.sh'
+      - 'tests/**'
+      - 'docs/releases/IRON_SHIELD_7_CLOSEOUT.md'
   push:
     branches:
       - codex/road-to-15-stability
@@ -11,6 +24,7 @@ on:
       - 'kernel/drivers/virtio/**'
       - 'kernel/drivers/pci_power.*'
       - 'kernel/net/**'
+      - 'kernel/shell/**'
       - 'kernel/storage/**'
       - 'kernel/main.cpp'
       - 'tests/test_usb_hid_report.cpp'
