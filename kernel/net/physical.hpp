@@ -18,6 +18,7 @@ enum class Status : uint8_t {
     AlreadyInitialized,
     NotFound,
     DeviceUnavailable,
+    UnsupportedRealtek,
 };
 
 Status initialize();
