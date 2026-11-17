@@ -183,6 +183,9 @@ net::Status transmit(void* context, const uint8_t* data, size_t count) {
     if (data == nullptr || count < dma::MIN_ETHERNET_FRAME)
         return net::Status::InvalidArgument;
     if (count > dma::MAX_ETHERNET_FRAME) return net::Status::FrameTooLarge;
+    /* The controller may lose carrier or disappear after initialization.
+     * Never offer fresh DMA descriptors when PHY status is down/invalid. */
+    if (!link_up()) return net::Status::InterfaceError;
     if (__atomic_test_and_set(&g_device.tx_busy, __ATOMIC_ACQUIRE))
         return net::Status::QueueFull;
     const size_t index = g_device.next_tx;
