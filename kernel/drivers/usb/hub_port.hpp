@@ -27,6 +27,7 @@ enum class PortRequest : uint8_t {
     ClearSuspendChange,
     ClearOverCurrentChange,
     ClearResetChange,
+    Disable,
 };
 
 inline bool make_port_request(
@@ -53,6 +54,11 @@ inline bool make_port_request(
             result.request_type = 0x23U;
             result.request = 3U;
             result.value = 4U;           // PORT_RESET
+            break;
+        case PortRequest::Disable:
+            result.request_type = 0x23U;
+            result.request = 1U;         // CLEAR_FEATURE
+            result.value = 1U;           // PORT_ENABLE
             break;
         case PortRequest::ClearConnectionChange:
         case PortRequest::ClearEnableChange:
@@ -157,5 +163,52 @@ inline PortAction next_port_action(const PortStatus& port) {
     if ((port.status & PORT_SUSPENDED) != 0U)
         return PortAction::Suspended;
     return PortAction::Ready;
+}
+
+inline bool inactive_reset_candidate(const PortStatus& port) {
+    constexpr uint16_t required = PORT_CONNECTED | PORT_POWERED;
+    constexpr uint16_t blocked = PORT_ENABLED | PORT_SUSPENDED |
+        PORT_OVER_CURRENT | PORT_RESET;
+    constexpr uint16_t clearable = CHANGE_CONNECTION | CHANGE_RESET;
+    return (port.status & required) == required && (port.status & blocked) == 0U &&
+        (port.changed & ~clearable) == 0U;
+}
+
+// Probe one powered, inactive port during controller initialization. The
+// temporary hub slot has no child to address; disable the port again before
+// retirement. The caller owns the slot for this entire exchange.
+template<typename Exchange, typename Wait>
+bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us) {
+    if (!inactive_reset_candidate(port)) return false;
+    if ((port.changed & CHANGE_CONNECTION) != 0U &&
+        !exchange(PortRequest::ClearConnectionChange, nullptr)) return false;
+    if ((port.changed & CHANGE_RESET) != 0U &&
+        !exchange(PortRequest::ClearResetChange, nullptr)) return false;
+    if (!wait_us(100000U) || !exchange(PortRequest::GetStatus, &port) ||
+        !inactive_reset_candidate(port) || port.changed != 0U) return false;
+
+    bool completed = false;
+    if (exchange(PortRequest::Reset, nullptr)) {
+        constexpr uint16_t required = PORT_CONNECTED | PORT_POWERED;
+        for (unsigned attempt = 0U; attempt < 10U; ++attempt) {
+            if (!wait_us(10000U) || !exchange(PortRequest::GetStatus, &port) ||
+                (port.status & required) != required ||
+                (port.status & (PORT_OVER_CURRENT | PORT_SUSPENDED)) != 0U ||
+                (port.changed & (CHANGE_CONNECTION | CHANGE_OVER_CURRENT)) != 0U) break;
+            if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
+                (port.changed & CHANGE_RESET) != 0U) {
+                completed = exchange(PortRequest::ClearResetChange, nullptr);
+                break;
+            }
+        }
+    }
+    // A failed transfer may still have reached the hub; always request
+    // cleanup once a reset was attempted. Only verified cleanup earns PASS.
+    const bool disabled = exchange(PortRequest::Disable, nullptr);
+    if (!completed || !disabled || !exchange(PortRequest::GetStatus, &port)) return false;
+    if (port.changed == CHANGE_ENABLE &&
+        (!exchange(PortRequest::ClearEnableChange, nullptr) ||
+         !exchange(PortRequest::GetStatus, &port))) return false;
+    return inactive_reset_candidate(port) && port.changed == 0U;
 }
 } // namespace drivers::usb::hub

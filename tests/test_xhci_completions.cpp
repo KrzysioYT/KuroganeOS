@@ -33,6 +33,10 @@ void write16(Address, uint8_t, uint16_t) {}
 namespace terminal {
 void println(const char*) {}
 }
+namespace arch::x86_64::hpet {
+const Capabilities* capabilities() { return nullptr; }
+uint64_t counter() { return 0U; }
+}
 
 int main() {
     using namespace drivers::usb::xhci;

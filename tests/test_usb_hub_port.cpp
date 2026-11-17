@@ -4,6 +4,90 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace {
+namespace hub = drivers::usb::hub;
+using Request = hub::PortRequest;
+
+struct ResetStep {
+    Request request;
+    hub::PortStatus reply{};
+};
+
+template<size_t N>
+void check_reset_sequence(
+    hub::PortStatus initial, const ResetStep (&steps)[N],
+    size_t short_delays, bool expected, bool fail_short_delay = false) {
+    size_t next = 0U;
+    size_t waits = 0U;
+    const auto exchange = [&](Request request, hub::PortStatus* status) {
+        assert(next < N && request == steps[next].request);
+        assert((status != nullptr) == (request == Request::GetStatus));
+        if (status != nullptr) *status = steps[next].reply;
+        ++next;
+        return true;
+    };
+    const auto wait = [&](uint32_t microseconds) {
+        assert(microseconds == (waits == 0U ? 100000U : 10000U));
+        ++waits;
+        return waits == 1U || !fail_short_delay;
+    };
+    assert(hub::probe_port_reset(initial, exchange, wait) == expected);
+    assert(next == N && waits == 1U + short_delays);
+}
+
+void test_downstream_reset() {
+    constexpr uint16_t connected = hub::PORT_CONNECTED | hub::PORT_POWERED;
+    constexpr uint16_t enabled = connected | hub::PORT_ENABLED;
+    const ResetStep success[] = {
+        {Request::ClearConnectionChange},
+        {Request::ClearResetChange},
+        {Request::GetStatus, {connected, 0U}},
+        {Request::Reset},
+        {Request::GetStatus, {connected | hub::PORT_RESET, 0U}},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET | hub::CHANGE_ENABLE}},
+        {Request::ClearResetChange},
+        {Request::Disable},
+        {Request::GetStatus, {connected, hub::CHANGE_ENABLE}},
+        {Request::ClearEnableChange},
+        {Request::GetStatus, {connected, 0U}},
+    };
+    check_reset_sequence({connected, hub::CHANGE_CONNECTION | hub::CHANGE_RESET},
+        success, 2U, true);
+
+    const ResetStep replaced[] = {
+        {Request::GetStatus, {connected, hub::CHANGE_CONNECTION}},
+    };
+    check_reset_sequence({connected, 0U}, replaced, 0U, false);
+
+    const ResetStep no_timer[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset}, {Request::Disable},
+    };
+    check_reset_sequence({connected, 0U}, no_timer, 1U, false, true);
+
+    const ResetStep lost_connection[] = {
+        {Request::GetStatus, {connected, 0U}},
+        {Request::Reset},
+        {Request::GetStatus, {hub::PORT_POWERED, hub::CHANGE_CONNECTION}},
+        {Request::Disable},
+    };
+    check_reset_sequence({connected, 0U}, lost_connection, 1U, false);
+
+    const ResetStep disable_ignored[] = {
+        {Request::GetStatus, {connected, 0U}},
+        {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+        {Request::ClearResetChange},
+        {Request::Disable},
+        {Request::GetStatus, {enabled, 0U}},
+    };
+    check_reset_sequence({connected, 0U}, disable_ignored, 1U, false);
+
+    assert(!hub::inactive_reset_candidate({enabled, 0U}));
+    assert(!hub::inactive_reset_candidate({connected | hub::PORT_OVER_CURRENT, 0U}));
+    assert(!hub::inactive_reset_candidate({hub::PORT_CONNECTED, 0U}));
+}
+} // namespace
+
 int main() {
     namespace hub = drivers::usb::hub;
     hub::ControlRequest request{};
@@ -20,6 +104,9 @@ int main() {
     assert(hub::make_port_request(4U, 4U, hub::PortRequest::Reset,
                                   &request));
     assert(request.value == 4U && request.index == 4U);
+    assert(hub::make_port_request(4U, 2U, hub::PortRequest::Disable, &request));
+    assert(request.request_type == 0x23U && request.request == 1U &&
+           request.value == 1U && request.index == 2U && request.length == 0U);
     const hub::PortRequest clear_commands[] = {
         hub::PortRequest::ClearConnectionChange,
         hub::PortRequest::ClearEnableChange,
@@ -113,5 +200,6 @@ int main() {
     assert(hub::parse_port_status(ready, 4U, nullptr) ==
            hub::PortParse::InvalidArgument);
     assert(port.status == previous.status && port.changed == previous.changed);
+    test_downstream_reset();
     return 0;
 }

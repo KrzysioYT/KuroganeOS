@@ -7,6 +7,7 @@
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
 #include "xhci_route.hpp"
+#include "../../arch/x86_64/hpet.hpp"
 #include "../../core/log.hpp"
 #include "../../input/input.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
@@ -150,6 +151,7 @@ struct Controller {
     uint8_t maximum_slots;
     uint8_t maximum_ports;
     bool deferred_hub_ports[256U];
+    bool hub_reset_attempted;
     uint8_t slot_id;
     uint8_t port_id;
     uint8_t port_speed;
@@ -2365,6 +2367,23 @@ bool companion_control_transfer(
             companion.slot_id;
 }
 
+bool wait_hpet_us(uint32_t microseconds) {
+    namespace timer = arch::x86_64::hpet;
+    const auto* caps = timer::capabilities();
+    if (caps == nullptr || caps->counter_period_femtoseconds == 0U) return false;
+    const uint64_t period = caps->counter_period_femtoseconds;
+    const uint64_t ticks =
+        (static_cast<uint64_t>(microseconds) * UINT64_C(1000000000) + period - 1U) / period;
+    if (!caps->counter_64_bit && ticks > UINT32_MAX) return false;
+    const uint64_t start = timer::counter();
+    for (unsigned attempt = 0U; attempt < 20000000U; ++attempt) {
+        const uint64_t delta = timer::counter() - start;
+        if ((caps->counter_64_bit ? delta : static_cast<uint32_t>(delta)) >= ticks) return true;
+        relax();
+    }
+    return false;
+}
+
 void probe_usb2_hub_ports(Controller& controller, bool companion) {
     const uint8_t speed = companion
         ? controller.companion.port_speed : controller.port_speed;
@@ -2396,22 +2415,36 @@ void probe_usb2_hub_ports(Controller& controller, bool companion) {
         parsed.port_count != ports) return;
     terminal::println("[USB] USB2 hub descriptor read");
 
-    // The slot is temporary. Observe downstream connections without changing
-    // port power, resetting a child or claiming data endpoints on this hub.
     for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
-        hub::ControlRequest request{};
-        if (!hub::make_port_request(parsed.port_count, port,
-                hub::PortRequest::GetStatus, &request)) return;
-        for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+        const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
+            hub::ControlRequest request{};
+            if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
+            for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+            if (!transfer(controller, request.request_type, request.request,
+                    request.value, request.index, request.length, request.length != 0U)) {
+                return false;
+            }
+            return request.length == 0U ||
+                hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
+        };
         hub::PortStatus status{};
-        if (!transfer(controller, request.request_type, request.request,
-                request.value, request.index, request.length, true) ||
-            hub::parse_port_status(bytes, request.length, &status) != hub::PortParse::Ok) {
-            return;
-        }
+        if (!exchange(hub::PortRequest::GetStatus, &status)) return;
         if ((status.status & hub::PORT_CONNECTED) != 0U) {
             log::write_u64(log::Level::Info, "XHCI",
                 "USB2 hub downstream port connected: ", port);
+        }
+        // Do not wait on the timer inside the normal HID polling path.
+        if (!controller.initialized && !controller.hub_reset_attempted &&
+            arch::x86_64::hpet::capabilities() != nullptr &&
+            hub::inactive_reset_candidate(status)) {
+            controller.hub_reset_attempted = true;
+            if (hub::probe_port_reset(status, exchange, wait_hpet_us)) {
+                log::write_u64(log::Level::Info, "XHCI",
+                    "USB2 hub downstream reset and disable verified: ", port);
+            } else {
+                log::write_u64(log::Level::Warn, "XHCI",
+                    "USB2 hub downstream reset probe incomplete: ", port);
+            }
         }
     }
 }
