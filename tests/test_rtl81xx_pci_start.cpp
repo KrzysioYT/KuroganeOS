@@ -53,6 +53,8 @@ int main() {
     g_device.started = true;
     assert(!link_up());
     mmio[REG_PHY_STATUS] = PHY_LINK_UP;
+    assert(!link_up()); // Carrier cannot make a stopped DMA engine ready.
+    mmio[REG_CHIP_CMD] = CMD_RX | CMD_TX;
     assert(link_up());
     mmio[REG_PHY_STATUS] = UINT8_MAX;
     assert(!link_up());

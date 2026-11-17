@@ -183,11 +183,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           bash scripts/test-core-ubsan.sh
-          g++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
-            -fsanitize=undefined -fno-sanitize-recover=all \
-            -ffunction-sections -fdata-sections tests/test_rtl81xx_cleanup.cpp \
-            -Wl,--gc-sections -o build/tests/rtl81xx-cleanup-ubsan
-          build/tests/rtl81xx-cleanup-ubsan
+          for test in cleanup dma_runtime pci_start; do
+            g++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -ffunction-sections -fdata-sections "tests/test_rtl81xx_${test}.cpp" \
+              -Wl,--gc-sections -o "build/tests/rtl81xx-${test}-ubsan"
+            "build/tests/rtl81xx-${test}-ubsan"
+          done
           bash scripts/build-linux.sh --configuration debug --rebuild --no-image
       - name: Build release image
         run: |

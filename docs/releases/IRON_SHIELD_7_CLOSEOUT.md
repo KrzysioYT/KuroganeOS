@@ -91,6 +91,13 @@ it. The host/UBSan regression covers second-page mapping failure with failed
 rollback, retry, collisions on either page, aligned/unaligned BARs and address
 overflow. Colliding mappings belong to their original owner and are retained.
 
+RTL81xx readiness and production TX/RX now require both DMA engines enabled,
+reset deasserted and a readable command register as well as carrier. Host/UBSan
+inject stopped, RX-only, TX-only, reset and unreadable command states while
+PHY still reports link. Each rejects TX/RX, preserves descriptors and output
+buffers, and leaves ring positions/counters unchanged. This guards against
+unexpected engine stop; active teardown and physical recovery remain open.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

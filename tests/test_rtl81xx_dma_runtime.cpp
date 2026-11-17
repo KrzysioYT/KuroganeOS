@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 
 /* Driver-runtime fixture: real production transmit()/receive() logic, fake
  * MMIO registers and DMA pages. This is NOT a hardware qualification. */
@@ -38,6 +39,32 @@ int main() {
            net::Status::InterfaceError);
 
     mmio[REG_PHY_STATUS] = PHY_LINK_UP;
+    const uint8_t unavailable_commands[] = {
+        0U, CMD_RX, CMD_TX, CMD_RESET,
+        static_cast<uint8_t>(CMD_RESET | CMD_RX | CMD_TX), UINT8_MAX,
+    };
+    const uint32_t completed_rx = dma::FIRST_SEGMENT | dma::LAST_SEGMENT | 68U;
+    rx_descriptors[0].flags = completed_rx;
+    for (uint8_t command : unavailable_commands) {
+        mmio[REG_CHIP_CMD] = command;
+        uint8_t blocked_output[128];
+        std::memset(blocked_output, 0x5AU, sizeof(blocked_output));
+        size_t copied = 99U;
+        assert(!ready() && interface() == nullptr);
+        assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
+               net::Status::InterfaceError);
+        assert(receive(&g_device, blocked_output, sizeof(blocked_output), &copied) ==
+               net::Status::InterfaceError);
+        assert(tx_descriptors[0].flags == 0U && rx_descriptors[0].flags == completed_rx);
+        assert(g_device.next_rx == 0U && g_device.next_tx == 0U);
+        assert(g_device.rx_frames == 0U && g_device.tx_frames == 0U);
+        assert(mmio[REG_TX_POLL] == 0U && tx_data[0][0] == 0U && copied == 0U);
+        for (uint8_t byte : blocked_output) assert(byte == 0x5AU);
+    }
+    mmio[REG_CHIP_CMD] = CMD_RX | CMD_TX;
+    assert(ready() && interface() != nullptr);
+    rx_descriptors[0].flags = dma::rx_rearm(false, dma::RX_BUFFER_BYTES);
+    std::puts("RTL81xx stopped/reset DMA engines reject TX/RX without descriptor mutation: PASS");
     assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
            net::Status::Ok);
     assert((tx_descriptors[0].flags & dma::OWN) != 0U);

@@ -367,6 +367,10 @@ Status initialize() {
 
 bool link_up() {
     if (!g_device.started || g_device.registers == nullptr) return false;
+    const uint8_t command = read8(g_device, REG_CHIP_CMD);
+    constexpr uint8_t mask = CMD_RESET | CMD_RX | CMD_TX;
+    if (command == UINT8_MAX || (command & mask) != (CMD_RX | CMD_TX))
+        return false;
     const uint8_t phy = read8(g_device, REG_PHY_STATUS);
     return phy != UINT8_MAX && (phy & PHY_LINK_UP) != 0U;
 }
