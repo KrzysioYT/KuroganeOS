@@ -77,6 +77,14 @@ from each, and checks both complete disk hashes after QEMU exits. Only the
 existing tagged 8 MiB scratch fixture is eligible for the write/restore probe.
 Persistent attachment and downstream hotplug remain open.
 
+RTL81xx cleanup before RX/TX start now preserves ownership when a DMA page
+release or MMIO unmap fails. Successfully unmapped suffix pages are removed
+from the retained count, and retries release only the remaining resources.
+Initialization reports ResourceReleaseFailed and retains the failed device state.
+Host/UBSan inject failures for all 18 DMA pages, both MMIO pages and a missing
+address space. Active-device teardown and physical RTL reset/DMA qualification
+remain BLOCKED without suitable hardware; production quarantine stays enabled.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

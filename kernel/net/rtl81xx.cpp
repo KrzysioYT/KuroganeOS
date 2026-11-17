@@ -128,25 +128,39 @@ bool map_registers(uint64_t physical, Device* device) {
 
 /* Call before starting RX/TX and only release published DMA memory once
  * PCI bus mastering has been confirmed disabled. */
-void cleanup_before_start(Device* device) {
-    if (device == nullptr) return;
+bool cleanup_before_start(Device* device) {
+    if (device == nullptr || device->started) return false;
     for (size_t i = 0U; i < DESCRIPTOR_COUNT; ++i) {
-        if (device->rx_buffers[i].allocated)
-            (void)storage::dma::release_page(&device->rx_buffers[i]);
-        if (device->tx_buffers[i].allocated)
-            (void)storage::dma::release_page(&device->tx_buffers[i]);
+        if (device->rx_buffers[i].allocated &&
+            storage::dma::release_page(&device->rx_buffers[i]) !=
+                storage::dma::Status::Ok) return false;
+        if (device->tx_buffers[i].allocated &&
+            storage::dma::release_page(&device->tx_buffers[i]) !=
+                storage::dma::Status::Ok) return false;
     }
-    if (device->rx_ring_page.allocated)
-        (void)storage::dma::release_page(&device->rx_ring_page);
-    if (device->tx_ring_page.allocated)
-        (void)storage::dma::release_page(&device->tx_ring_page);
+    if (device->rx_ring_page.allocated &&
+        storage::dma::release_page(&device->rx_ring_page) !=
+            storage::dma::Status::Ok) return false;
+    if (device->tx_ring_page.allocated &&
+        storage::dma::release_page(&device->tx_ring_page) !=
+            storage::dma::Status::Ok) return false;
     auto* space = memory::kernel_virtual_memory::address_space();
-    if (space != nullptr) {
-        for (size_t i = 0U; i < device->mapped_pages; ++i)
-            (void)memory::virtual_memory::unmap_page(space,
-                MMIO_VIRTUAL_BASE + i * memory::virtual_memory::PAGE_SIZE);
+    if (device->mapped_pages != 0U && space == nullptr) return false;
+    // Remove the mapping suffix so a retry owns exactly the remaining prefix.
+    while (device->mapped_pages != 0U) {
+        const uint64_t address = MMIO_VIRTUAL_BASE +
+            (device->mapped_pages - 1U) * memory::virtual_memory::PAGE_SIZE;
+        if (memory::virtual_memory::unmap_page(space, address) !=
+            memory::virtual_memory::Status::Ok) return false;
+        --device->mapped_pages;
     }
     *device = {};
+    return true;
+}
+
+Status fail_before_start(Status cause) {
+    return g_status = cleanup_before_start(&g_device)
+        ? cause : Status::ResourceReleaseFailed;
 }
 
 inline dma::Descriptor* rx_ring() {
@@ -285,8 +299,7 @@ Status initialize() {
     /* Firmware may leave memory decoding off or bus mastering on. Both
      * bits must be confirmed before touching registers or allocating rings. */
     if (!configure_pci_command(*found, false)) {
-        cleanup_before_start(&g_device);
-        return g_status = Status::DeviceFault;
+        return fail_before_start(Status::DeviceFault);
     }
     write16(g_device, REG_INT_MASK, 0U);
     write16(g_device, REG_INT_STATUS, UINT16_MAX);
@@ -309,12 +322,10 @@ Status initialize() {
         g_device.mac.bytes[i] = read8(g_device, REG_MAC + i);
     if (mac_is_zero(g_device.mac) || mac_is_broadcast(g_device.mac) ||
         mac_is_multicast(g_device.mac)) {
-        cleanup_before_start(&g_device);
-        return g_status = Status::InvalidMac;
+        return fail_before_start(Status::InvalidMac);
     }
     if (!allocate_dma()) {
-        cleanup_before_start(&g_device);
-        return g_status = Status::DmaAllocationFailed;
+        return fail_before_start(Status::DmaAllocationFailed);
     }
 
     write8(g_device, REG_CONFIG_LOCK, UINT8_C(0xC0));
@@ -333,7 +344,8 @@ Status initialize() {
         /* The command write may have reached the device even if readback
          * failed. The rings are published and must stay out of the allocator
          * until bus mastering is proven disabled. */
-        if (configure_pci_command(*found, false)) cleanup_before_start(&g_device);
+        if (configure_pci_command(*found, false))
+            return fail_before_start(Status::DeviceFault);
         return g_status = Status::DeviceFault;
     }
     write8(g_device, REG_CHIP_CMD, static_cast<uint8_t>(CMD_RX | CMD_TX));
@@ -369,6 +381,7 @@ const char* status_message(Status status) {
         case Status::DmaAllocationFailed: return "RTL8111/8168 DMA allocation failed";
         case Status::LinkDown: return "RTL8111/8168 link down";
         case Status::DeviceFault: return "RTL8111/8168 device fault";
+        case Status::ResourceReleaseFailed: return "RTL8111/8168 resource release failed";
     }
     return "unknown RTL8111/8168 error";
 }

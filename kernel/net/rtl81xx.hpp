@@ -15,7 +15,8 @@ enum class Status : uint8_t {
     InvalidMac,
     DmaAllocationFailed,
     LinkDown,
-    DeviceFault
+    DeviceFault,
+    ResourceReleaseFailed
 };
 
 Status initialize();
