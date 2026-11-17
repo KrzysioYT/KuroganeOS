@@ -42,6 +42,12 @@ on:
       - 'userspace/**'
   workflow_dispatch:
 
+# Only the newest candidate on a branch needs an expensive full QEMU
+# matrix; stale queued runs cannot qualify the current release head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
