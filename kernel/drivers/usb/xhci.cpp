@@ -3291,7 +3291,7 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                     controller.companion.slot_id != 0U ||
                     (read32(controller.registers, 0U) >> 16U) < 0x0100U ||
                     !configure_full_speed_hub_slot(controller, parsed.port_count) ||
-                    !wait_hpet_us(10000U)) return;
+                    !wait_hpet_us(10000U)) return true;
                 hub::PortStatus ready{};
                 constexpr uint16_t required = hub::PORT_POWERED | hub::PORT_CONNECTED |
                     hub::PORT_ENABLED;
@@ -3299,9 +3299,10 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                     hub::PORT_RESET | hub::PORT_HIGH_SPEED;
                 if (!exchange(hub::PortRequest::GetStatus, &ready) ||
                     (ready.status & required) != required || (ready.status & blocked) != 0U ||
-                    (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return;
+                    (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return true;
                 child_retired = probe_downstream_device(controller, port,
                     (ready.status & hub::PORT_LOW_SPEED) != 0U ? 2U : 1U);
+                return child_retired;
             };
             const bool reset_verified = hub::probe_port_reset(
                 status, exchange, wait_hpet_us, after_reset);

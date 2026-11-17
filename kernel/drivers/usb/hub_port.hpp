@@ -176,7 +176,8 @@ inline bool inactive_reset_candidate(const PortStatus& port) {
 
 // Probe one powered, inactive port during controller initialization. The
 // caller may use EP0 after a verified reset. Retire any child slot in that
-// callback before this function disables the port again.
+// callback before this function disables the port again. A false callback
+// result retains the port for controller-level DMA quiescence and cleanup.
 template<typename Exchange, typename Wait, typename AfterReset>
 bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterReset after_reset) {
     if (!inactive_reset_candidate(port)) return false;
@@ -198,7 +199,7 @@ bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterRes
             if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
                 (port.changed & CHANGE_RESET) != 0U) {
                 completed = exchange(PortRequest::ClearResetChange, nullptr);
-                if (completed) after_reset();
+                if (completed && !after_reset()) return false;
                 break;
             }
         }

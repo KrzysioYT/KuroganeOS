@@ -17,7 +17,7 @@ template<size_t N>
 void check_reset_sequence(
     hub::PortStatus initial, const ResetStep (&steps)[N],
     size_t short_delays, bool expected, bool expect_callback,
-    bool fail_short_delay = false) {
+    bool fail_short_delay = false, bool child_retired = true) {
     size_t next = 0U;
     size_t waits = 0U;
     size_t callbacks = 0U;
@@ -35,8 +35,13 @@ void check_reset_sequence(
     };
     const auto after_reset = [&] {
         assert(next > 0U && steps[next - 1U].request == Request::ClearResetChange);
-        assert(next < N && steps[next].request == Request::Disable);
+        if (child_retired) {
+            assert(next < N && steps[next].request == Request::Disable);
+        } else {
+            assert(next == N);
+        }
         ++callbacks;
+        return child_retired;
     };
     assert(hub::probe_port_reset(initial, exchange, wait, after_reset) == expected);
     assert(next == N && waits == 1U + short_delays);
@@ -89,6 +94,17 @@ void test_downstream_reset() {
         {Request::GetStatus, {enabled, 0U}},
     };
     check_reset_sequence({connected, 0U}, disable_ignored, 1U, false, true);
+
+    // A live child slot can still access DMA after a failed Disable Slot.
+    // Preserve the port and stop the hub sequence for controller cleanup.
+    const ResetStep child_cleanup_failed[] = {
+        {Request::GetStatus, {connected, 0U}},
+        {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+        {Request::ClearResetChange},
+    };
+    check_reset_sequence({connected, 0U}, child_cleanup_failed,
+        1U, false, true, false, false);
 
     assert(!hub::inactive_reset_candidate({enabled, 0U}));
     assert(!hub::inactive_reset_candidate({connected | hub::PORT_OVER_CURRENT, 0U}));
