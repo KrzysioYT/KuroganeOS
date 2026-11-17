@@ -16,9 +16,11 @@ struct ResetStep {
 template<size_t N>
 void check_reset_sequence(
     hub::PortStatus initial, const ResetStep (&steps)[N],
-    size_t short_delays, bool expected, bool fail_short_delay = false) {
+    size_t short_delays, bool expected, bool expect_callback,
+    bool fail_short_delay = false) {
     size_t next = 0U;
     size_t waits = 0U;
+    size_t callbacks = 0U;
     const auto exchange = [&](Request request, hub::PortStatus* status) {
         assert(next < N && request == steps[next].request);
         assert((status != nullptr) == (request == Request::GetStatus));
@@ -31,8 +33,14 @@ void check_reset_sequence(
         ++waits;
         return waits == 1U || !fail_short_delay;
     };
-    assert(hub::probe_port_reset(initial, exchange, wait) == expected);
+    const auto after_reset = [&] {
+        assert(next > 0U && steps[next - 1U].request == Request::ClearResetChange);
+        assert(next < N && steps[next].request == Request::Disable);
+        ++callbacks;
+    };
+    assert(hub::probe_port_reset(initial, exchange, wait, after_reset) == expected);
     assert(next == N && waits == 1U + short_delays);
+    assert(callbacks == (expect_callback ? 1U : 0U));
 }
 
 void test_downstream_reset() {
@@ -52,17 +60,17 @@ void test_downstream_reset() {
         {Request::GetStatus, {connected, 0U}},
     };
     check_reset_sequence({connected, hub::CHANGE_CONNECTION | hub::CHANGE_RESET},
-        success, 2U, true);
+        success, 2U, true, true);
 
     const ResetStep replaced[] = {
         {Request::GetStatus, {connected, hub::CHANGE_CONNECTION}},
     };
-    check_reset_sequence({connected, 0U}, replaced, 0U, false);
+    check_reset_sequence({connected, 0U}, replaced, 0U, false, false);
 
     const ResetStep no_timer[] = {
         {Request::GetStatus, {connected, 0U}}, {Request::Reset}, {Request::Disable},
     };
-    check_reset_sequence({connected, 0U}, no_timer, 1U, false, true);
+    check_reset_sequence({connected, 0U}, no_timer, 1U, false, false, true);
 
     const ResetStep lost_connection[] = {
         {Request::GetStatus, {connected, 0U}},
@@ -70,7 +78,7 @@ void test_downstream_reset() {
         {Request::GetStatus, {hub::PORT_POWERED, hub::CHANGE_CONNECTION}},
         {Request::Disable},
     };
-    check_reset_sequence({connected, 0U}, lost_connection, 1U, false);
+    check_reset_sequence({connected, 0U}, lost_connection, 1U, false, false);
 
     const ResetStep disable_ignored[] = {
         {Request::GetStatus, {connected, 0U}},
@@ -80,7 +88,7 @@ void test_downstream_reset() {
         {Request::Disable},
         {Request::GetStatus, {enabled, 0U}},
     };
-    check_reset_sequence({connected, 0U}, disable_ignored, 1U, false);
+    check_reset_sequence({connected, 0U}, disable_ignored, 1U, false, true);
 
     assert(!hub::inactive_reset_candidate({enabled, 0U}));
     assert(!hub::inactive_reset_candidate({connected | hub::PORT_OVER_CURRENT, 0U}));

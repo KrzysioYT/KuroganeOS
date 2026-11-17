@@ -2278,7 +2278,7 @@ uint32_t* companion_output_context(
         index * controller.context_size);
 }
 
-bool address_companion_device(Controller& controller) {
+bool address_companion_device(Controller& controller, const route::Address& topology) {
     auto& companion = controller.companion;
     Trb completion{};
     if (!submit_command(
@@ -2302,7 +2302,7 @@ bool address_companion_device(Controller& controller) {
     companion_input_context(controller, 0U)[1U] = 3U;
     uint32_t* slot = companion_input_context(controller, 1U);
     if (!route::slot_context_words(
-            {companion.port_id, 0U, 0U}, companion.port_speed, 1U,
+            topology, companion.port_speed, 1U,
             &slot[0U], &slot[1U]))
         return false;
     companion.ep0_packet_size = initial_packet_size(companion.port_speed);
@@ -2382,71 +2382,6 @@ bool wait_hpet_us(uint32_t microseconds) {
         relax();
     }
     return false;
-}
-
-void probe_usb2_hub_ports(Controller& controller, bool companion) {
-    const uint8_t speed = companion
-        ? controller.companion.port_speed : controller.port_speed;
-    if (speed != 1U && speed != 3U) return; // USB 1.x/2.0 full or high speed.
-    const auto transfer = companion ? companion_control_transfer : control_transfer;
-    const auto& page = companion ? controller.companion.data_page : controller.data_page;
-    auto* bytes = static_cast<uint8_t*>(page.virtual_address);
-
-    clear_bytes(bytes, 9U);
-    if (!transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
-        bytes[0U] != 9U || bytes[1U] != 2U || bytes[5U] == 0U ||
-        (bytes[3U] == 0U && bytes[2U] < 9U) || (bytes[7U] & 0x80U) == 0U) return;
-    const uint8_t configuration_value = bytes[5U];
-    if (!transfer(controller, 0x00U, 9U, configuration_value, 0U, 0U, false)) return;
-
-    constexpr uint16_t descriptor = UINT16_C(0x2900);
-    clear_bytes(bytes, 7U);
-    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, 7U, true)) return;
-    const uint8_t ports = bytes[2U];
-    if (ports == 0U || ports > hub::MAX_ROUTE_PORTS) return;
-    const auto length = static_cast<uint16_t>(
-        7U + 2U * hub::descriptor_bitmap_bytes(ports));
-    if (bytes[0U] != length || bytes[1U] != hub::DESCRIPTOR_TYPE_USB2_HUB) return;
-
-    clear_bytes(bytes, length);
-    hub::Descriptor parsed{};
-    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, length, true) ||
-        hub::parse_usb2_descriptor(bytes, length, &parsed) != hub::ParseStatus::Ok ||
-        parsed.port_count != ports) return;
-    terminal::println("[USB] USB2 hub descriptor read");
-
-    for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
-        const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
-            hub::ControlRequest request{};
-            if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
-            for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
-            if (!transfer(controller, request.request_type, request.request,
-                    request.value, request.index, request.length, request.length != 0U)) {
-                return false;
-            }
-            return request.length == 0U ||
-                hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
-        };
-        hub::PortStatus status{};
-        if (!exchange(hub::PortRequest::GetStatus, &status)) return;
-        if ((status.status & hub::PORT_CONNECTED) != 0U) {
-            log::write_u64(log::Level::Info, "XHCI",
-                "USB2 hub downstream port connected: ", port);
-        }
-        // Do not wait on the timer inside the normal HID polling path.
-        if (!controller.initialized && !controller.hub_reset_attempted &&
-            arch::x86_64::hpet::capabilities() != nullptr &&
-            hub::inactive_reset_candidate(status)) {
-            controller.hub_reset_attempted = true;
-            if (hub::probe_port_reset(status, exchange, wait_hpet_us)) {
-                log::write_u64(log::Level::Info, "XHCI",
-                    "USB2 hub downstream reset and disable verified: ", port);
-            } else {
-                log::write_u64(log::Level::Warn, "XHCI",
-                    "USB2 hub downstream reset probe incomplete: ", port);
-            }
-        }
-    }
 }
 
 bool update_companion_ep0_packet_size(
@@ -3024,6 +2959,149 @@ void mark_multi_hid_if_ready(Controller& controller) {
     }
 }
 
+bool configure_full_speed_hub_slot(Controller& controller, uint8_t port_count) {
+    clear_bytes(controller.input_context_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+    input_context(controller, 0U)[1U] = 1U; // Add only the slot context.
+    uint32_t* slot = input_context(controller, 1U);
+    copy_bytes(slot, output_context(controller, 0U), controller.context_size);
+    slot[0U] |= UINT32_C(1) << 26U; // Hub
+    slot[0U] &= ~(UINT32_C(1) << 25U); // Full speed has no TT.
+    slot[1U] = (slot[1U] & UINT32_C(0x00FFFFFF)) |
+        static_cast<uint32_t>(port_count) << 24U;
+    slot[3U] = 0U; // Device address and slot state are controller-owned.
+    Trb completion{};
+    return submit_command(controller, controller.input_context_page.physical_address,
+        0U, static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
+            static_cast<uint32_t>(controller.slot_id) << 24U, &completion);
+}
+
+uint32_t read_downstream_identity(Controller& controller) {
+    auto* bytes = static_cast<uint8_t*>(controller.companion.data_page.virtual_address);
+    clear_bytes(bytes, 18U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 8U, true) ||
+        bytes[0U] != 18U || bytes[1U] != 1U) return 0U;
+    const uint8_t packet = bytes[7U];
+    if (packet != 8U && (controller.companion.port_speed == 2U ||
+        (packet != 16U && packet != 32U && packet != 64U))) return 0U;
+    if (!update_companion_ep0_packet_size(controller, packet)) return 0U;
+
+    clear_bytes(bytes, 18U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 18U, true) ||
+        bytes[0U] != 18U || bytes[1U] != 1U || bytes[7U] != packet ||
+        bytes[17U] == 0U) return 0U;
+    const uint32_t vendor = bytes[8U] | static_cast<uint32_t>(bytes[9U]) << 8U;
+    const uint32_t product = bytes[10U] | static_cast<uint32_t>(bytes[11U]) << 8U;
+    return vendor == 0U || vendor == UINT16_MAX ? 0U : (vendor << 16U) | product;
+}
+
+// Reuse the unbound companion's EP0 buffers. Publish no child device or
+// data endpoint, and retire the child before disabling its port or parent.
+bool probe_downstream_identity(Controller& controller, uint8_t port, uint8_t speed) {
+    route::Address child{};
+    if (!route::extend({controller.port_id, 0U, 0U}, port, &child)) return true;
+    auto& companion = controller.companion;
+    companion.port_id = child.root_port;
+    companion.port_speed = speed;
+    const bool addressed = address_companion_device(controller, child);
+    const uint32_t identity = addressed ? read_downstream_identity(controller) : 0U;
+    if (!retire_companion_slot(controller)) return false;
+    if (identity != 0U) {
+        log::write_u64(log::Level::Info, "XHCI",
+            "USB2 downstream descriptor read; slot retired; VID/PID: ", identity);
+    }
+    return true;
+}
+
+// A probe failure is optional unless the child slot cannot be retired.
+bool probe_usb2_hub_ports(Controller& controller, bool companion) {
+    const uint8_t speed = companion
+        ? controller.companion.port_speed : controller.port_speed;
+    if (speed != 1U && speed != 3U) return true; // USB 1.x/2.0 full or high speed.
+    const auto transfer = companion ? companion_control_transfer : control_transfer;
+    const auto& page = companion ? controller.companion.data_page : controller.data_page;
+    auto* bytes = static_cast<uint8_t*>(page.virtual_address);
+
+    clear_bytes(bytes, 9U);
+    if (!transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
+        bytes[0U] != 9U || bytes[1U] != 2U || bytes[5U] == 0U ||
+        (bytes[3U] == 0U && bytes[2U] < 9U) || (bytes[7U] & 0x80U) == 0U) return true;
+    const uint8_t configuration_value = bytes[5U];
+    if (!transfer(controller, 0x00U, 9U, configuration_value, 0U, 0U, false)) return true;
+
+    constexpr uint16_t descriptor = UINT16_C(0x2900);
+    clear_bytes(bytes, 7U);
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, 7U, true)) return true;
+    const uint8_t ports = bytes[2U];
+    if (ports == 0U || ports > hub::MAX_ROUTE_PORTS) return true;
+    const auto length = static_cast<uint16_t>(
+        7U + 2U * hub::descriptor_bitmap_bytes(ports));
+    if (bytes[0U] != length || bytes[1U] != hub::DESCRIPTOR_TYPE_USB2_HUB) return true;
+
+    clear_bytes(bytes, length);
+    hub::Descriptor parsed{};
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, length, true) ||
+        hub::parse_usb2_descriptor(bytes, length, &parsed) != hub::ParseStatus::Ok ||
+        parsed.port_count != ports) return true;
+    terminal::println("[USB] USB2 hub descriptor read");
+
+    for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
+        const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
+            hub::ControlRequest request{};
+            if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
+            for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+            if (!transfer(controller, request.request_type, request.request,
+                    request.value, request.index, request.length, request.length != 0U)) {
+                return false;
+            }
+            return request.length == 0U ||
+                hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
+        };
+        hub::PortStatus status{};
+        if (!exchange(hub::PortRequest::GetStatus, &status)) return true;
+        if ((status.status & hub::PORT_CONNECTED) != 0U) {
+            log::write_u64(log::Level::Info, "XHCI",
+                "USB2 hub downstream port connected: ", port);
+        }
+        // Do not wait on the timer inside the normal HID polling path.
+        if (!controller.initialized && !controller.hub_reset_attempted &&
+            arch::x86_64::hpet::capabilities() != nullptr &&
+            hub::inactive_reset_candidate(status)) {
+            controller.hub_reset_attempted = true;
+            bool child_retired = true;
+            const auto after_reset = [&] {
+                // This first topology has no high-speed transaction translator.
+                if (companion || speed != 1U || controller.maximum_slots < 2U ||
+                    controller.companion.slot_id != 0U ||
+                    (read32(controller.registers, 0U) >> 16U) < 0x0100U ||
+                    !configure_full_speed_hub_slot(controller, parsed.port_count) ||
+                    !wait_hpet_us(10000U)) return;
+                hub::PortStatus ready{};
+                constexpr uint16_t required = hub::PORT_POWERED | hub::PORT_CONNECTED |
+                    hub::PORT_ENABLED;
+                constexpr uint16_t blocked = hub::PORT_OVER_CURRENT | hub::PORT_SUSPENDED |
+                    hub::PORT_RESET | hub::PORT_HIGH_SPEED;
+                if (!exchange(hub::PortRequest::GetStatus, &ready) ||
+                    (ready.status & required) != required || (ready.status & blocked) != 0U ||
+                    (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return;
+                child_retired = probe_downstream_identity(controller, port,
+                    (ready.status & hub::PORT_LOW_SPEED) != 0U ? 2U : 1U);
+            };
+            const bool reset_verified = hub::probe_port_reset(
+                status, exchange, wait_hpet_us, after_reset);
+            if (!child_retired) return false;
+            if (reset_verified) {
+                log::write_u64(log::Level::Info, "XHCI",
+                    "USB2 hub downstream reset and disable verified: ", port);
+            } else {
+                log::write_u64(log::Level::Warn, "XHCI",
+                    "USB2 hub downstream reset probe incomplete: ", port);
+            }
+        }
+    }
+    return true;
+}
+
 bool attach_companion_hid(Controller& controller) {
     auto& companion = controller.companion;
     if (!companion.allocated || companion.slot_id != 0U) {
@@ -3039,7 +3117,7 @@ bool attach_companion_hid(Controller& controller) {
     companion.port_speed = speed;
     acknowledge_port_change(controller, port);
 
-    if (!address_companion_device(controller)) {
+    if (!address_companion_device(controller, {port, 0U, 0U})) {
         static_cast<void>(retire_companion_slot(controller));
         return false;
     }
@@ -3200,7 +3278,7 @@ Status find_supported_root_device(Controller& controller) {
         bool is_hub = false;
         if (read_descriptors(controller, is_hub)) return Status::Ok;
         if (!is_hub) return Status::HidKeyboardNotFound;
-        probe_usb2_hub_ports(controller, false);
+        if (!probe_usb2_hub_ports(controller, false)) return Status::CommandFailed;
         if (!disable_primary_slot(controller)) return Status::CommandFailed;
         reset_primary_endpoint_memory(controller);
         controller.port_id = 0U;

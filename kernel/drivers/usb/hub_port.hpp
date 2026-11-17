@@ -175,10 +175,10 @@ inline bool inactive_reset_candidate(const PortStatus& port) {
 }
 
 // Probe one powered, inactive port during controller initialization. The
-// temporary hub slot has no child to address; disable the port again before
-// retirement. The caller owns the slot for this entire exchange.
-template<typename Exchange, typename Wait>
-bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us) {
+// caller may use EP0 after a verified reset. Retire any child slot in that
+// callback before this function disables the port again.
+template<typename Exchange, typename Wait, typename AfterReset>
+bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterReset after_reset) {
     if (!inactive_reset_candidate(port)) return false;
     if ((port.changed & CHANGE_CONNECTION) != 0U &&
         !exchange(PortRequest::ClearConnectionChange, nullptr)) return false;
@@ -198,6 +198,7 @@ bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us) {
             if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
                 (port.changed & CHANGE_RESET) != 0U) {
                 completed = exchange(PortRequest::ClearResetChange, nullptr);
+                if (completed) after_reset();
                 break;
             }
         }
