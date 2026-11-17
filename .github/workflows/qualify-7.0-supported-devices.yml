@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/road-to-15-stability
+      - agent/iron-shield-7-closeout-20261117
     paths:
       - '.github/workflows/qualify-7.0-supported-devices.yml'
       - 'kernel/drivers/usb/**'
