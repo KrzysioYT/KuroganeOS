@@ -4,6 +4,7 @@
 #include "e1000.hpp"
 #include "pcnet.hpp"
 #include "rtl81xx_detection.hpp"
+#include "rtl81xx.hpp"
 #include "../drivers/pci.hpp"
 
 namespace net::physical {
@@ -45,6 +46,19 @@ Status initialize() {
         return g_status;
     }
 
+    /* The real RTL8168 backend is attempted before legacy Intel/PCnet.
+     * A failed or link-down Realtek must never block other supported NICs. */
+    const rtl81xx::Status realtek_status = rtl81xx::initialize();
+    if (realtek_status != rtl81xx::Status::NotFound) g_detected = true;
+    if ((realtek_status == rtl81xx::Status::Ok ||
+         realtek_status == rtl81xx::Status::AlreadyInitialized) &&
+        rtl81xx::interface() != nullptr) {
+        g_driver = Driver::Realtek;
+        g_status = Status::Ok;
+        g_initialized = true;
+        return g_status;
+    }
+
     const e1000::Status e1000_status = e1000::initialize();
     if (e1000_present(e1000_status)) g_detected = true;
     if ((e1000_status == e1000::Status::Ok ||
@@ -67,15 +81,13 @@ Status initialize() {
         return g_status;
     }
 
-    /* A detected RTL8111/8168 must be reported as unsupported, not as an
-     * operational NIC. Do not register a NetworkInterface until the actual
-     * RX/TX, reset and DMA driver has been implemented and qualified. */
+    /* Expose a recognized but non-operational Realtek to diagnostics; a
+     * failed probe does not mean the PCI bus was empty. */
     const pci::Device* realtek = pci::find(UINT16_C(0x10EC), UINT16_C(0x8168));
     const bool unsupported_realtek = realtek != nullptr &&
         rtl81xx::classify_model(realtek->vendor_id, realtek->device_id) !=
             rtl81xx::Model::Unknown;
-    /* Recognized but unsupported hardware must still count as present, so
-     * the network stack and diagnostics cannot mistake it for an empty bus. */
+    /* PCI detection also covers a backend that failed before binding. */
     if (unsupported_realtek) g_detected = true;
     g_initialized = true;
     g_status = unsupported_realtek && !virtio_present(virtio_status) &&
@@ -92,6 +104,7 @@ bool ready() {
         case Driver::VirtioNet: return virtio_net::interface() != nullptr;
         case Driver::E1000: return e1000::interface() != nullptr;
         case Driver::Pcnet: return pcnet::interface() != nullptr;
+        case Driver::Realtek: return rtl81xx::interface() != nullptr;
         case Driver::None: return false;
     }
     return false;
@@ -101,6 +114,7 @@ bool link_up() {
     if (!ready()) return false;
     switch (g_driver) {
         case Driver::E1000: return e1000::link_up();
+        case Driver::Realtek: return rtl81xx::link_up();
         case Driver::VirtioNet:
         case Driver::Pcnet: return true;
         case Driver::None: return false;
@@ -116,6 +130,7 @@ NetworkInterface* interface() {
         case Driver::VirtioNet: return virtio_net::interface();
         case Driver::E1000: return e1000::interface();
         case Driver::Pcnet: return pcnet::interface();
+        case Driver::Realtek: return rtl81xx::interface();
         case Driver::None: return nullptr;
     }
     return nullptr;
@@ -129,6 +144,7 @@ const char* name() {
                 ? "e1000e"
                 : "e1000";
         case Driver::Pcnet: return "pcnet";
+        case Driver::Realtek: return "rtl8168";
         case Driver::None: return "none";
     }
     return "none";
@@ -141,7 +157,7 @@ const char* status_message(Status status) {
         case Status::NotFound: return "no supported physical NIC was found";
         case Status::DeviceUnavailable: return "supported physical NIC detected but unavailable";
         case Status::UnsupportedRealtek:
-            return "Realtek RTL8111/8168 detected; network driver not available";
+            return "Realtek RTL8111/8168 detected; driver not operational";
     }
     return "unknown physical network status";
 }
