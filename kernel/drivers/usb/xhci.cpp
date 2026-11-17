@@ -2,6 +2,7 @@
 
 #include "protocol.hpp"
 #include "hid_report.hpp"
+#include "hub_port.hpp"
 #include "mass_storage_protocol.hpp"
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
@@ -2364,6 +2365,58 @@ bool companion_control_transfer(
             companion.slot_id;
 }
 
+void probe_usb2_hub_ports(Controller& controller, bool companion) {
+    const uint8_t speed = companion
+        ? controller.companion.port_speed : controller.port_speed;
+    if (speed != 1U && speed != 3U) return; // USB 1.x/2.0 full or high speed.
+    const auto transfer = companion ? companion_control_transfer : control_transfer;
+    const auto& page = companion ? controller.companion.data_page : controller.data_page;
+    auto* bytes = static_cast<uint8_t*>(page.virtual_address);
+
+    clear_bytes(bytes, 9U);
+    if (!transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
+        bytes[0U] != 9U || bytes[1U] != 2U || bytes[5U] == 0U ||
+        (bytes[3U] == 0U && bytes[2U] < 9U) || (bytes[7U] & 0x80U) == 0U) return;
+    const uint8_t configuration_value = bytes[5U];
+    if (!transfer(controller, 0x00U, 9U, configuration_value, 0U, 0U, false)) return;
+
+    constexpr uint16_t descriptor = UINT16_C(0x2900);
+    clear_bytes(bytes, 7U);
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, 7U, true)) return;
+    const uint8_t ports = bytes[2U];
+    if (ports == 0U || ports > hub::MAX_ROUTE_PORTS) return;
+    const auto length = static_cast<uint16_t>(
+        7U + 2U * hub::descriptor_bitmap_bytes(ports));
+    if (bytes[0U] != length || bytes[1U] != hub::DESCRIPTOR_TYPE_USB2_HUB) return;
+
+    clear_bytes(bytes, length);
+    hub::Descriptor parsed{};
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, length, true) ||
+        hub::parse_usb2_descriptor(bytes, length, &parsed) != hub::ParseStatus::Ok ||
+        parsed.port_count != ports) return;
+    terminal::println("[USB] USB2 hub descriptor read");
+
+    // The slot is temporary. Observe downstream connections without changing
+    // port power, resetting a child or claiming data endpoints on this hub.
+    for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
+        hub::ControlRequest request{};
+        if (!hub::make_port_request(parsed.port_count, port,
+                hub::PortRequest::GetStatus, &request)) return;
+        for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+        hub::PortStatus status{};
+        if (!transfer(controller, request.request_type, request.request,
+                request.value, request.index, request.length, true) ||
+            hub::parse_port_status(bytes, request.length, &status) != hub::PortParse::Ok) {
+            return;
+        }
+        if ((status.status & hub::PORT_CONNECTED) != 0U) {
+            terminal::write("[USB] USB2 hub downstream port connected: ");
+            terminal::write_u64(port);
+            terminal::println();
+        }
+    }
+}
+
 bool update_companion_ep0_packet_size(
     Controller& controller,
     uint16_t packet_size) {
@@ -2961,6 +3014,7 @@ bool attach_companion_hid(Controller& controller) {
     bool is_hub = false;
     if (!read_companion_descriptors(controller, is_hub)) {
         const uint8_t unsupported_port = companion.port_id;
+        if (is_hub) probe_usb2_hub_ports(controller, true);
         if (!retire_companion_slot(controller)) return false;
         if (is_hub) {
             controller.deferred_hub_ports[unsupported_port] = true;
@@ -3114,6 +3168,7 @@ Status find_supported_root_device(Controller& controller) {
         bool is_hub = false;
         if (read_descriptors(controller, is_hub)) return Status::Ok;
         if (!is_hub) return Status::HidKeyboardNotFound;
+        probe_usb2_hub_ports(controller, false);
         if (!disable_primary_slot(controller)) return Status::CommandFailed;
         reset_primary_endpoint_memory(controller);
         controller.port_id = 0U;

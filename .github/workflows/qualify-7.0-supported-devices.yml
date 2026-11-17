@@ -212,17 +212,19 @@ jobs:
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|dhcp_lease: PASS|network_gateway_icmp: PASS' \
             build/tests/iron-shield-no-nic/serial.log
-      - name: Keep direct HID working with an unsupported root-port hub
+      - name: Read a downstream connection and keep direct USB HID active
         shell: bash
         run: |
           set -euo pipefail
           evidence=build/tests/iron-shield-no-nic/root-hub
           bash scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
-            --usb-root-hub --usb-keyboard --usb-mouse --no-ps2 \
+            --usb-hub-storage --usb-keyboard --usb-mouse --no-ps2 \
             --log-dir "$evidence" --timeout 180 \
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
             --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker '[USB] USB2 hub downstream port connected: 1' \
             --require-marker '[USB] external hub deferred; slot retired' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \

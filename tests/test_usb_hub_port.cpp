@@ -103,6 +103,9 @@ int main() {
     const uint8_t all_ones[] = {0xFFU, 0xFFU, 0xFFU, 0xFFU};
     assert(hub::parse_port_status(all_ones, 4U, &port) ==
            hub::PortParse::InvalidStatus);
+    const uint8_t unread_tail[] = {0x01U, 0x01U, 0x01U, 0xFFU};
+    assert(hub::parse_port_status(unread_tail, sizeof(unread_tail), &port) ==
+           hub::PortParse::InvalidStatus);
     assert(hub::parse_port_status(ready, 3U, &port) ==
            hub::PortParse::Truncated);
     assert(hub::parse_port_status(nullptr, 4U, &port) ==

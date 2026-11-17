@@ -107,11 +107,11 @@ inline PortParse parse_port_status(
     const uint16_t changed = static_cast<uint16_t>(data[2U]) |
         static_cast<uint16_t>(data[3U]) << 8U;
 
-    // Both speeds at once are impossible for a USB2 port. All-one fields
-    // commonly indicate an inaccessible/disconnected MMIO/controller path.
+    // A USB2 port cannot report both speeds at once. Reject reserved change
+    // bits as well, so an unread all-one DMA tail cannot look like status.
     if ((status & (PORT_LOW_SPEED | PORT_HIGH_SPEED)) ==
             (PORT_LOW_SPEED | PORT_HIGH_SPEED) ||
-        (status == UINT16_MAX && changed == UINT16_MAX))
+        (changed & UINT16_C(0xFFC0)) != 0U)
         return PortParse::InvalidStatus;
 
     *output = {status, changed};
