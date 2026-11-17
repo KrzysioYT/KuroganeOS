@@ -442,6 +442,7 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
+  kernel/storage/scratch_test.cpp kernel/core/system_metrics.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
 python3 tests/test_usb_hotplug_qmp.py

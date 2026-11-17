@@ -14,6 +14,7 @@
 #include "../../memory/virtual_memory.hpp"
 #include "../../storage/dma.hpp"
 #include "../../storage/device_registry.hpp"
+#include "../../storage/scratch_test.hpp"
 #include "../../storage/block_device.hpp"
 #include "../../terminal.hpp"
 
@@ -1722,6 +1723,45 @@ storage::block::Status read_mass_storage_blocks(
     return storage::block::Status::Ok;
 }
 
+storage::block::Status write_scsi_chunk(
+    Controller& controller,
+    const BulkTarget& target,
+    uint32_t first_block,
+    uint16_t block_count,
+    size_t transfer_bytes,
+    const void* source) {
+    if (source == nullptr || transfer_bytes == 0U ||
+        transfer_bytes > memory::virtual_memory::PAGE_SIZE) {
+        return storage::block::Status::InvalidArgument;
+    }
+    uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_write10(
+            first_block,
+            block_count,
+            cdb,
+            sizeof(cdb))) {
+        return storage::block::Status::InvalidArgument;
+    }
+
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller, target,
+            cdb,
+            sizeof(cdb),
+            mass_storage::DataDirection::Out,
+            const_cast<void*>(source),
+            transfer_bytes,
+            nullptr,
+            &status)) {
+        return storage::block::Status::IoError;
+    }
+    if (status.status != mass_storage::CommandStatus::Passed ||
+        status.data_residue != 0U) {
+        return storage::block::Status::CommandFailed;
+    }
+    return storage::block::Status::Ok;
+}
+
 storage::block::Status write_mass_storage_blocks(
     Controller& controller,
     uint64_t first_block,
@@ -1761,45 +1801,21 @@ storage::block::Status write_mass_storage_blocks(
             return storage::block::Status::InvalidArgument;
         }
 
-        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
-        if (!mass_storage::scsi::build_write10(
-                static_cast<uint32_t>(logical_block),
-                static_cast<uint16_t>(chunk_blocks),
-                cdb,
-                sizeof(cdb))) {
-            return storage::block::Status::InvalidArgument;
-        }
-
         const size_t transfer_bytes =
-            chunk_blocks *
-            static_cast<size_t>(controller.mass_storage_block_size);
-        mass_storage::CommandStatusWrapper status{};
-        if (!execute_mass_storage_bot(
-                controller, primary_bulk_target(controller),
-                cdb,
-                sizeof(cdb),
-                mass_storage::DataDirection::Out,
-                const_cast<uint8_t*>(
-                    input +
-                    static_cast<size_t>(completed) *
-                        controller.mass_storage_block_size),
-                transfer_bytes,
-                nullptr,
-                &status)) {
-            return storage::block::Status::IoError;
-        }
-        if (status.status != mass_storage::CommandStatus::Passed ||
-            status.data_residue != 0U) {
-            return storage::block::Status::CommandFailed;
-        }
-
+            chunk_blocks * static_cast<size_t>(controller.mass_storage_block_size);
+        const auto status = write_scsi_chunk(
+            controller, primary_bulk_target(controller),
+            static_cast<uint32_t>(logical_block), static_cast<uint16_t>(chunk_blocks),
+            transfer_bytes, input + static_cast<size_t>(completed) *
+                controller.mass_storage_block_size);
+        if (status != storage::block::Status::Ok) return status;
         completed += static_cast<uint64_t>(chunk_blocks);
     }
 
     return storage::block::Status::Ok;
 }
 
-storage::block::Status synchronize_mass_storage(Controller& controller) {
+storage::block::Status synchronize_scsi_cache(Controller& controller, const BulkTarget& target) {
     uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
     if (!mass_storage::scsi::build_synchronize_cache10(cdb, sizeof(cdb))) {
         return storage::block::Status::InvalidArgument;
@@ -1807,7 +1823,7 @@ storage::block::Status synchronize_mass_storage(Controller& controller) {
 
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller, primary_bulk_target(controller),
+            controller, target,
             cdb,
             sizeof(cdb),
             mass_storage::DataDirection::None,
@@ -1821,6 +1837,10 @@ storage::block::Status synchronize_mass_storage(Controller& controller) {
         status.data_residue == 0U
         ? storage::block::Status::Ok
         : storage::block::Status::CommandFailed;
+}
+
+storage::block::Status synchronize_mass_storage(Controller& controller) {
+    return synchronize_scsi_cache(controller, primary_bulk_target(controller));
 }
 
 storage::block::Status mass_storage_block_read(
@@ -3067,9 +3087,54 @@ uint32_t read_downstream_identity(Controller& controller) {
     return vendor == 0U || vendor == UINT16_MAX ? 0U : (vendor << 16U) | product;
 }
 
-enum class DownstreamStorageProbe : uint8_t { None, Inquiry, BlockRead, KnownSector };
+enum class DownstreamStorageProbe : uint8_t {
+    None, Inquiry, BlockRead, KnownSector, ScratchFailed, ScratchRestored,
+};
 
-DownstreamStorageProbe probe_downstream_storage(Controller& controller) {
+DownstreamStorageProbe run_downstream_scratch(Controller& controller, const BulkTarget& target,
+    uint64_t sector_count) {
+    using Probe = DownstreamStorageProbe;
+    namespace block = storage::block;
+    namespace scratch = storage::scratch_test;
+    struct ScratchView {
+        Controller& controller;
+        const BulkTarget& target;
+    };
+    ScratchView view{controller, target};
+    // The unified scratch header is on physical LBA 1. The LBA 0 read probe
+    // remains intact, and the scratch runner rejects writes over its header.
+    const block::Device device{
+        &view, scratch::SCRATCH_SECTOR_SIZE, sector_count - 1U,
+        [](void* context, uint64_t first, uint64_t count, void* destination) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return read_scsi_chunk(state.controller, state.target,
+                static_cast<uint32_t>(first + 1U), static_cast<uint16_t>(count),
+                static_cast<size_t>(count) * scratch::SCRATCH_SECTOR_SIZE, destination);
+        },
+        [](void* context, uint64_t first, uint64_t count, const void* source) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return write_scsi_chunk(state.controller, state.target,
+                static_cast<uint32_t>(first + 1U), static_cast<uint16_t>(count),
+                static_cast<size_t>(count) * scratch::SCRATCH_SECTOR_SIZE, source);
+        },
+        [](void* context) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return synchronize_scsi_cache(state.controller, state.target);
+        },
+    };
+    // The bounded probe runs once during initialization, before publication.
+    static scratch::Workspace workspace{};
+    const auto result = scratch::run(&device, &workspace);
+    if (result.status == scratch::Status::NotTagged) return Probe::KnownSector;
+    if (result.status == scratch::Status::Ok && result.write_attempted && result.restored) {
+        return Probe::ScratchRestored;
+    }
+    log::write(log::Level::Warn, "XHCI", scratch::status_message(result.status));
+    log::write(log::Level::Warn, "XHCI", block::status_message(result.block_status));
+    return Probe::ScratchFailed;
+}
+
+DownstreamStorageProbe probe_downstream_storage(Controller& controller, uint32_t identity) {
     using Probe = DownstreamStorageProbe;
     auto& companion = controller.companion;
     if (companion.port_speed != 1U) return Probe::None; // Full-speed bulk only.
@@ -3107,9 +3172,12 @@ DownstreamStorageProbe probe_downstream_storage(Controller& controller) {
     auto* data = static_cast<uint8_t*>(controller.storage_io_page.virtual_address);
     if (read_scsi_chunk(controller, target, 0U, 1U, geometry.block_size, data) !=
         storage::block::Status::Ok) return Probe::Inquiry;
-    return geometry.block_count == UINT64_C(16384) &&
-        matches_usb_test_sector(data, geometry.block_size)
-        ? Probe::KnownSector : Probe::BlockRead;
+    if (geometry.block_count != UINT64_C(16384) ||
+        !matches_usb_test_sector(data, geometry.block_size)) return Probe::BlockRead;
+    // Only the explicitly tagged QEMU fixture reaches the write path.
+    constexpr uint32_t qemu_storage_identity = UINT32_C(0x46F40001);
+    if (identity != qemu_storage_identity) return Probe::KnownSector;
+    return run_downstream_scratch(controller, target, geometry.block_count);
 }
 
 // Reuse the unbound companion's buffers and the unused bulk rings during
@@ -3123,7 +3191,7 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
     const bool addressed = address_companion_device(controller, child);
     const uint32_t identity = addressed ? read_downstream_identity(controller) : 0U;
     const auto storage = identity == 0U ? DownstreamStorageProbe::None :
-        probe_downstream_storage(controller);
+        probe_downstream_storage(controller, identity);
     if (!retire_companion_slot(controller)) return false;
     reset_ring(&controller.bulk_in_ring);
     reset_ring(&controller.bulk_out_ring);
@@ -3137,8 +3205,13 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
     if (storage >= DownstreamStorageProbe::BlockRead) {
         terminal::println("[TEST] xhci_downstream_read10: PASS");
     }
-    if (storage == DownstreamStorageProbe::KnownSector) {
+    if (storage >= DownstreamStorageProbe::KnownSector) {
         terminal::println("[TEST] xhci_downstream_known_sector: PASS");
+    }
+    if (storage == DownstreamStorageProbe::ScratchRestored) {
+        terminal::println("[TEST] xhci_downstream_write_flush_readback_restore: PASS");
+    } else if (storage == DownstreamStorageProbe::ScratchFailed) {
+        terminal::println("[TEST] xhci_downstream_write_flush_readback_restore: FAIL");
     }
     return true;
 }

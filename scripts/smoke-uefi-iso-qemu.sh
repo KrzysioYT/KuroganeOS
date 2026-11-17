@@ -281,12 +281,27 @@ qemu_log="$tmp/qemu.log"
 monitor="$tmp/qemu-monitor.sock"
 qmp="$tmp/qemu-qmp.sock"
 pid=""
+usb_hub_scratch_sha=""
 cleanup() {
     local result=$?
     trap - EXIT INT TERM
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$usb_hub_scratch_sha" ]]; then
+        local final_sha=""
+        if final_sha="$(sha256sum "$usb_storage_image")"; then
+            final_sha="${final_sha%% *}"
+        fi
+        if [[ -n "$log_dir" ]]; then
+            printf 'before %s\nafter  %s\n' "$usb_hub_scratch_sha" "$final_sha" \
+                > "$log_dir/hub-scratch-sha256.txt" || result=1
+        fi
+        if [[ "$final_sha" != "$usb_hub_scratch_sha" ]]; then
+            echo '[uefi-qemu] USB hub scratch image changed after the guest stopped' >&2
+            result=1
+        fi
     fi
     if [[ -n "$log_dir" ]]; then
         for log in "$serial" "$qemu_log"; do
@@ -872,14 +887,29 @@ if $usb_storage; then
     if $usb_hub_storage; then
         usb_storage_port=",port=1.1"
     fi
-    python3 - "$usb_storage_image" <<'PY'
+    python3 - "$usb_storage_image" "$usb_hub_storage" <<'PY'
+import struct
 import sys
+
+size = 8 * 1024 * 1024
 with open(sys.argv[1], "wb") as image:
-    image.truncate(8 * 1024 * 1024)
+    image.truncate(size)
     image.seek(0)
     image.write(b"KUROGANE_USB_READ_V1")
     image.write(bytes((index * 37 + 11) & 0xFF for index in range(512 - 20)))
+    if sys.argv[2] == "true":
+        # Physical LBA 1 is LBA 0 of the driver's scratch-test view.
+        header = bytearray(512)
+        magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+        header[:len(magic)] = magic
+        struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512 - 1, 1, 1, 0x4B535431)
+        image.write(header)
+        image.write(bytes((index * 19 + 7) & 0xFF for index in range(512)))
 PY
+    if $usb_hub_storage; then
+        usb_hub_scratch_sha="$(sha256sum "$usb_storage_image")"
+        usb_hub_scratch_sha="${usb_hub_scratch_sha%% *}"
+    fi
     # Use scratch media to keep storage probes away from the boot disk.
     usb_args+=(
         -drive "if=none,id=kurogane_usb_storage,format=raw,file=$usb_storage_image"

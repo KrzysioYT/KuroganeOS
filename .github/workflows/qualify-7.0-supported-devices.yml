@@ -212,7 +212,7 @@ jobs:
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|dhcp_lease: PASS|network_gateway_icmp: PASS' \
             build/tests/iron-shield-no-nic/serial.log
-      - name: Verify downstream block data and keep direct USB HID active
+      - name: Verify downstream scratch restore and keep direct USB HID active
         shell: bash
         run: |
           set -euo pipefail
@@ -229,6 +229,7 @@ jobs:
             --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
             --require-marker '[TEST] xhci_downstream_read10: PASS' \
             --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
             --require-marker 'USB2 hub downstream reset and disable verified: 1' \
             --require-marker '[USB] external hub deferred; slot retired' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
