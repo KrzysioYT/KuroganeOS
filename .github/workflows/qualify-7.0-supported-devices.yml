@@ -6,37 +6,47 @@ on:
       - integration/flux8-reconciliation
     paths:
       - '.github/workflows/qualify-7.0-supported-devices.yml'
-      - 'kernel/net/**'
-      - 'kernel/shell/**'
-      - 'kernel/drivers/**'
-      - 'kernel/storage/**'
-      - 'kernel/main.cpp'
-      - 'scripts/run-host-tests.sh'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
       - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
       - 'docs/releases/IRON_SHIELD_7_CLOSEOUT.md'
   push:
     branches:
       - codex/road-to-15-stability
       - agent/iron-shield-7-closeout-20261117
+      - integration/flux8-reconciliation
     paths:
       - '.github/workflows/qualify-7.0-supported-devices.yml'
-      - 'kernel/drivers/usb/**'
-      - 'kernel/drivers/virtio/**'
-      - 'kernel/drivers/pci_power.*'
-      - 'kernel/net/**'
-      - 'kernel/shell/**'
-      - 'kernel/storage/**'
-      - 'kernel/main.cpp'
-      - 'tests/test_usb_hid_report.cpp'
-      - 'tests/test_virtio_pci_transport.cpp'
-      - 'tests/test_pci_power.cpp'
-      - 'scripts/run-host-tests.sh'
-      - 'scripts/smoke-uefi-iso-qemu.sh'
-      - 'scripts/build-media-linux.sh'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   integrated-hardware:
@@ -47,20 +57,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - nic: e1000
+            marker: e1000_link
           - nic: e1000e
             marker: e1000e_link
+          - nic: pcnet
+            marker: pcnet_link
           - nic: virtio
             marker: virtio_net_link
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           submodules: recursive
       - name: Verify exact dev identity and static regressions
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           git diff --check
           bash -n scripts/smoke-uefi-iso-qemu.sh
@@ -78,6 +93,11 @@ jobs:
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
+      - name: Record source and boot image identities
+        run: |
+          mkdir -p build/tests/iron-shield-integrated-${{ matrix.nic }}
+          git rev-parse HEAD > build/tests/iron-shield-integrated-${{ matrix.nic }}/source-sha.txt
+          sha256sum build/images/KuroganeOS-linux.img > build/tests/iron-shield-integrated-${{ matrix.nic }}/media-sha256.txt
       - name: Simultaneous USB HID / networking / VirtIO block / SMP
         shell: bash
         run: |
@@ -85,7 +105,7 @@ jobs:
           bash scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
             --nic "${{ matrix.nic }}" --require-network --virtio-block \
-            --usb-keyboard --usb-mouse \
+            --usb-keyboard --usb-mouse --no-ps2 \
             --log-dir build/tests/iron-shield-integrated-${{ matrix.nic }} \
             --timeout 240 \
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
@@ -100,6 +120,7 @@ jobs:
             --require-marker '[TEST] dhcp_lease: PASS' \
             --require-marker '[TEST] network_gateway_icmp: PASS' \
             --require-marker '[TEST] scheduler2_topology: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|virtio_block_.*: FAIL|dhcp_lease: FAIL' \
             build/tests/iron-shield-integrated-${{ matrix.nic }}/serial.log
@@ -107,18 +128,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: iron-shield-integrated-${{ matrix.nic }}-${{ github.sha }}
+          name: iron-shield-integrated-${{ matrix.nic }}-${{ env.SOURCE_SHA }}
           path: build/tests/iron-shield-integrated-*
           if-no-files-found: warn
 
   no-nic-fallback:
-    name: USB desktop without NIC
+    name: USB HID and loopback without NIC
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           submodules: recursive
       - name: Install build and QEMU dependencies
@@ -126,11 +147,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential binutils python3 \
             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Validate candidate, run UBSan, and build Debug kernel and userspace
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          bash scripts/test-core-ubsan.sh
+          bash scripts/build-linux.sh --configuration debug --rebuild --no-image
       - name: Build release image
         run: |
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
-      - name: Boot and operate USB-only desktop without a NIC
+      - name: Record candidate source and media identities
+        run: |
+          mkdir -p build/tests/iron-shield-no-nic
+          git rev-parse HEAD > build/tests/iron-shield-no-nic/source-sha.txt
+          sha256sum build/images/KuroganeOS-linux.img > build/tests/iron-shield-no-nic/media-sha256.txt
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+          cp dist/SHA256SUMS.txt build/tests/iron-shield-no-nic/dist-sha256.txt
+      - name: Verify USB-only input at Login without a NIC
         shell: bash
         run: |
           set -euo pipefail
@@ -143,14 +177,15 @@ jobs:
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] network_loopback: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|dhcp_lease: PASS|network_gateway_icmp: PASS' \
             build/tests/iron-shield-no-nic/serial.log
       - name: Retain no-NIC serial evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: iron-shield-no-nic-${{ github.sha }}
+          name: iron-shield-no-nic-${{ env.SOURCE_SHA }}
           path: build/tests/iron-shield-no-nic
           if-no-files-found: warn
 
@@ -168,4 +203,4 @@ jobs:
           set -euo pipefail
           test "$INTEGRATED" = success
           test "$NO_NIC" = success
-          echo "Iron Shield 7.0 supported-device integration: PASS"
+          echo "Iron Shield 7.0 QEMU supported-device subset: PASS ($SOURCE_SHA)"
