@@ -3275,6 +3275,17 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
         };
         hub::PortStatus status{};
         if (!exchange(hub::PortRequest::GetStatus, &status)) return true;
+        if (!controller.initialized &&
+            (status.status & hub::PORT_POWERED) == 0U &&
+            arch::x86_64::hpet::capabilities() != nullptr) {
+            if (!hub::power_port_for_probe(parsed, status, exchange, wait_hpet_us)) {
+                log::write_u64(log::Level::Warn, "XHCI",
+                    "USB2 hub port power unavailable: ", port);
+                continue;
+            }
+            log::write_u64(log::Level::Info, "XHCI",
+                "USB2 hub port power verified: ", port);
+        }
         if ((status.status & hub::PORT_CONNECTED) != 0U) {
             log::write_u64(log::Level::Info, "XHCI",
                 "USB2 hub downstream port connected: ", port);

@@ -3,10 +3,81 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 
 namespace {
 namespace hub = drivers::usb::hub;
 using Request = hub::PortRequest;
+
+void test_port_power() {
+    hub::Descriptor descriptor{};
+    descriptor.power_mode = hub::PowerMode::Individual;
+    for (uint8_t delay : {uint8_t{0U}, uint8_t{1U}, uint8_t{255U}}) {
+        descriptor.power_on_delay_2ms = delay;
+        size_t requests = 0U;
+        size_t waits = 0U;
+        hub::PortStatus port{};
+        const auto exchange = [&](Request request, hub::PortStatus* output) {
+            assert(request == (requests == 0U ? Request::PowerOn : Request::GetStatus));
+            assert((output != nullptr) == (requests == 1U));
+            ++requests;
+            if (output != nullptr) *output = {hub::PORT_POWERED | hub::PORT_CONNECTED,
+                                             hub::CHANGE_CONNECTION};
+            return true;
+        };
+        const auto wait = [&](uint32_t us) {
+            assert(us == (delay == 255U ? 510000U : 100000U));
+            ++waits;
+            return true;
+        };
+        assert(hub::power_port_for_probe(descriptor, port, exchange, wait));
+        assert(requests == 2U && waits == 1U);
+        assert(hub::inactive_reset_candidate(port));
+    }
+
+    // Failures at SET_FEATURE, timer, GET_STATUS and readback must stop.
+    for (unsigned failure = 0U; failure < 7U; ++failure) {
+        size_t requests = 0U;
+        size_t waits = 0U;
+        hub::PortStatus port{};
+        const auto exchange = [&](Request request, hub::PortStatus* output) {
+            assert(request == (requests == 0U ? Request::PowerOn : Request::GetStatus));
+            ++requests;
+            if (output != nullptr) {
+                *output = {hub::PORT_POWERED, 0U};
+                if (failure == 3U) output->status = 0U;
+                if (failure == 4U) output->status |= hub::PORT_OVER_CURRENT;
+                if (failure == 5U) output->changed = hub::CHANGE_OVER_CURRENT;
+                if (failure == 6U) output->status |= hub::PORT_ENABLED;
+            }
+            return failure != (request == Request::PowerOn ? 0U : 2U);
+        };
+        const auto wait = [&](uint32_t) { ++waits; return failure != 1U; };
+        assert(!hub::power_port_for_probe(descriptor, port, exchange, wait));
+        assert(requests == (failure < 2U ? 1U : 2U));
+        assert(waits == (failure == 0U ? 0U : 1U));
+    }
+
+    const auto forbidden_exchange = [](Request, hub::PortStatus*) {
+        assert(false); return false;
+    };
+    const auto forbidden_wait = [](uint32_t) { assert(false); return false; };
+    for (auto mode : {hub::PowerMode::Ganged, hub::PowerMode::AlwaysOn}) {
+        descriptor.power_mode = mode;
+        hub::PortStatus port{};
+        assert(!hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+        port.status = hub::PORT_POWERED;
+        assert(hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+    }
+    descriptor.power_mode = hub::PowerMode::Individual;
+    for (auto state : {hub::PORT_ENABLED, hub::PORT_RESET, hub::PORT_SUSPENDED,
+                       hub::PORT_OVER_CURRENT}) {
+        hub::PortStatus port{state, 0U};
+        assert(!hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+    }
+    hub::PortStatus overcurrent{0U, hub::CHANGE_OVER_CURRENT};
+    assert(!hub::power_port_for_probe(descriptor, overcurrent, forbidden_exchange, forbidden_wait));
+}
 
 struct ResetStep {
     Request request;
@@ -225,5 +296,6 @@ int main() {
            hub::PortParse::InvalidArgument);
     assert(port.status == previous.status && port.changed == previous.changed);
     test_downstream_reset();
+    test_port_power();
     return 0;
 }

@@ -60,6 +60,13 @@ The controller cleanup path must quiesce DMA before releasing its resources.
 The host regression verifies that the hub sends no further request after the
 child callback reports a retirement failure.
 
+Cold-boot hub probing now powers inactive individually switched ports, waits
+for power-good and connection detection, and verifies status before reset.
+Overcurrent, active ports and failed control/timer/readback operations stop that
+probe. Unpowered ganged hubs need a shared-power policy. CI requires the same
+downstream scratch restore and direct HID checks with QEMU port-power enabled.
+Physical switched-hub power behavior remains BLOCKED without suitable hardware.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

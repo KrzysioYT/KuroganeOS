@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-power] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -29,6 +29,7 @@ usb_controller=false
 usb_hotplug=false
 usb_root_hub=false
 usb_hub_storage=false
+usb_hub_power=false
 usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
@@ -89,6 +90,7 @@ while (($#)); do
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-root-hub) usb_controller=true; usb_root_hub=true; shift ;;
         --usb-hub-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; shift ;;
+        --usb-hub-power) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_power=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
@@ -855,6 +857,9 @@ if $usb_root_hub; then
         # QEMU's default eight-port model emits a one-byte power mask,
         # while its removable bitmap and the USB2 layout require two.
         usb_hub_ports=",ports=4"
+    fi
+    if $usb_hub_power; then
+        usb_hub_ports+=",port-power=on"
     fi
     usb_args+=(-device "usb-hub,bus=kurogane_xhci.0,port=1,id=kurogane_usb_hub$usb_hub_ports")
     usb_keyboard_port=",port=2"

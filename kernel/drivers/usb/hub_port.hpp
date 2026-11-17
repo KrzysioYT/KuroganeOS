@@ -174,6 +174,28 @@ inline bool inactive_reset_candidate(const PortStatus& port) {
         (port.changed & ~clearable) == 0U;
 }
 
+// Cold-boot only: power an unused, individually switched port before probing.
+// Ganged switching needs a hub-wide policy before changing shared power.
+template<typename Exchange, typename Wait>
+bool power_port_for_probe(
+    const Descriptor& hub, PortStatus& port, Exchange exchange, Wait wait_us) {
+    constexpr uint16_t unsafe = PORT_ENABLED | PORT_SUSPENDED |
+        PORT_OVER_CURRENT | PORT_RESET;
+    if ((port.status & PORT_OVER_CURRENT) != 0U ||
+        (port.changed & CHANGE_OVER_CURRENT) != 0U) return false;
+    if ((port.status & PORT_POWERED) != 0U) return true;
+    if (hub.power_mode != PowerMode::Individual ||
+        (port.status & unsafe) != 0U) return false;
+    if (!exchange(PortRequest::PowerOn, nullptr)) return false;
+    // Allow connection detection to settle as well as descriptor power-good.
+    const uint32_t power_good = static_cast<uint32_t>(hub.power_on_delay_2ms) * 2000U;
+    const uint32_t delay = power_good < 100000U ? 100000U : power_good;
+    if (!wait_us(delay) || !exchange(PortRequest::GetStatus, &port)) return false;
+    return (port.status & PORT_POWERED) != 0U &&
+        (port.status & unsafe) == 0U &&
+        (port.changed & CHANGE_OVER_CURRENT) == 0U;
+}
+
 // Probe one powered, inactive port during controller initialization. The
 // caller may use EP0 after a verified reset. Retire any child slot in that
 // callback before this function disables the port again. A false callback
