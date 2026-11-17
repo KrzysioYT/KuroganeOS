@@ -708,7 +708,7 @@ void command_network(bool ping) {
     if (!net::service::physical_interface() &&
         net::physical::last_status() == net::physical::Status::UnsupportedRealtek) {
         terminal::println("physical NIC: Realtek RTL8111/8168 detected; "
-                          "driver not available (loopback only)");
+                          "driver not operational (loopback only)");
     }
     terminal::write("tx=");
     terminal::write_u64(stats.frames_transmitted);
