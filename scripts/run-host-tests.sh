@@ -381,6 +381,11 @@ bash tests/test_network_smoke_state.sh
   tests/test_usb_hub_protocol.cpp -o "$OUT_DIR/test_usb_hub_protocol"
 "$OUT_DIR/test_usb_hub_protocol"
 
+# Exact xHCI slot-context routing, root ports and downstream five-tier routes.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_xhci_route.cpp -o "$OUT_DIR/test_xhci_route"
+"$OUT_DIR/test_xhci_route"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
   -o "$OUT_DIR/test_usb_hid_report"
