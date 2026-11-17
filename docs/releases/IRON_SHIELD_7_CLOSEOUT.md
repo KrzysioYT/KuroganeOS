@@ -12,6 +12,20 @@ Use the current integrated code on `integration/flux8-reconciliation`, not a
 pre-integration PR branch. The 7.0 work must preserve the 5.x hardware
 interface contracts and the 6.0 scheduler/IPC regressions.
 
+## Release-safe driver policy
+
+The RTL8111/8168 backend is **unqualified experimental code**. The default
+image only recognizes its PCI ID and reports that the driver is not operational.
+It does **not** reset the device or activate Realtek DMA. For isolated
+hardware-development builds, a developer can explicitly compile the network
+selector with `-DKUROGANE_EXPERIMENTAL_RTL81XX=1`; this is **not** a release
+feature or a hardware-acceptance claim. The host suite runs both the
+default/quarantined and experimental selector paths. Neither test replaces
+production RTL8168 RX/TX, reset and DMA failure-injection evidence.
+
+Do not remove this guard until the specific supported RTL revisions, real-device
+execution and safe resource recovery have been independently qualified.
+
 Existing supported-subset qualification:
 [`qualify-7.0-supported-devices.yml`](../../.github/workflows/qualify-7.0-supported-devices.yml)
 builds a clean release image and requires real guest interactions for
