@@ -5,6 +5,7 @@
 #include "mass_storage_protocol.hpp"
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
+#include "xhci_route.hpp"
 #include "../../core/log.hpp"
 #include "../../input/input.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
@@ -835,9 +836,10 @@ bool address_device(Controller& controller) {
                 memory::virtual_memory::PAGE_SIZE);
     input_context(controller, 0U)[1U] = 3U;
     uint32_t* slot = input_context(controller, 1U);
-    slot[0U] = static_cast<uint32_t>(controller.port_speed) << 20U |
-        UINT32_C(1) << 27U;
-    slot[1U] = static_cast<uint32_t>(controller.port_id) << 16U;
+    if (!route::slot_context_words(
+            {controller.port_id, 0U, 0U}, controller.port_speed, 1U,
+            &slot[0U], &slot[1U]))
+        return false;
     controller.ep0_packet_size = initial_packet_size(controller.port_speed);
     uint32_t* ep0 = input_context(controller, 2U);
     ep0[1U] = UINT32_C(3) << 1U | UINT32_C(4) << 3U |
@@ -2303,9 +2305,10 @@ bool address_companion_device(Controller& controller) {
         memory::virtual_memory::PAGE_SIZE);
     companion_input_context(controller, 0U)[1U] = 3U;
     uint32_t* slot = companion_input_context(controller, 1U);
-    slot[0U] = static_cast<uint32_t>(companion.port_speed) << 20U |
-        UINT32_C(1) << 27U;
-    slot[1U] = static_cast<uint32_t>(companion.port_id) << 16U;
+    if (!route::slot_context_words(
+            {companion.port_id, 0U, 0U}, companion.port_speed, 1U,
+            &slot[0U], &slot[1U]))
+        return false;
     companion.ep0_packet_size = initial_packet_size(companion.port_speed);
     uint32_t* ep0 = companion_input_context(controller, 2U);
     ep0[1U] = UINT32_C(3) << 1U | UINT32_C(4) << 3U |
