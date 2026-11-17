@@ -131,6 +131,30 @@ jobs:
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|virtio_block_.*: FAIL|dhcp_lease: FAIL' \
             build/tests/iron-shield-integrated-${{ matrix.nic }}/serial.log
+      - name: Cycle E1000e PCI power before bind and verify network recovery
+        if: matrix.nic == 'e1000e'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-integrated-e1000e/pci-power
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-pci-power-runtime.py
+          git diff --check HEAD -- kernel/net/e1000.cpp
+          git diff HEAD -- kernel/net/e1000.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000e --require-network --timeout 180 --log-dir "$evidence" \
+            --require-marker-count '[PCI-PM-TEST] D0 -> D3hot -> D0 cycle: PASS' 4 \
+            --require-marker '[TEST] pci_power_cycle: PASS' \
+            --require-marker '[TEST] e1000e_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|pci_power_cycle: FAIL' "$evidence/serial.log"
       - name: Retain serial evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -25,6 +25,8 @@ enum class Status : uint8_t {
     InvalidTransition,
     DelayUnavailable,
     DelayFailed,
+    DeviceAbsent,
+    DeviceChanged,
 };
 
 struct ConfigAccess {
@@ -52,6 +54,7 @@ struct Transaction {
     State target_state;
     bool active;
     uint32_t pending_delay_us;
+    uint32_t device_identity;
 };
 
 constexpr uint16_t PCI_COMMAND_BUS_MASTER = UINT16_C(1) << 2U;
@@ -64,6 +67,9 @@ constexpr uint16_t PMCSR_PME_STATUS = UINT16_C(1) << 15U;
 // BARs/device state, which the driver must save/restore before resuming I/O.
 // Zero-initialize Transaction. An active transaction must be restored before
 // reuse, including after a failed write verification or settling delay.
+// Callers also own hotplug serialization and must retire the token if the
+// function was physically removed. PCI IDs cannot distinguish two instances
+// of the same model at the same address.
 
 Status inspect_capability(
     Address address,
