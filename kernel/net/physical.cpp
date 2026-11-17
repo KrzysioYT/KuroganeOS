@@ -74,11 +74,18 @@ Status initialize() {
     const bool unsupported_realtek = realtek != nullptr &&
         rtl81xx::classify_model(realtek->vendor_id, realtek->device_id) !=
             rtl81xx::Model::Unknown;
+    /* Recognized but unsupported hardware must still count as present, so
+     * the network stack and diagnostics cannot mistake it for an empty bus. */
+    if (unsupported_realtek) g_detected = true;
     g_initialized = true;
-    g_status = g_detected ? Status::DeviceUnavailable :
-        unsupported_realtek ? Status::UnsupportedRealtek : Status::NotFound;
+    g_status = unsupported_realtek && !virtio_present(virtio_status) &&
+            !e1000_present(e1000_status) && !pcnet_present(pcnet_status)
+        ? Status::UnsupportedRealtek
+        : g_detected ? Status::DeviceUnavailable : Status::NotFound;
     return g_status;
 }
+
+Status last_status() { return g_status; }
 
 bool ready() {
     switch (g_driver) {
