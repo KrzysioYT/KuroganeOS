@@ -235,6 +235,10 @@ net::Status receive(void* context, uint8_t* out, size_t capacity,
 } // namespace
 
 Status initialize() {
+    /* After an unverified reset, keep the original BAR mapping and do not
+     * overwrite ownership by retrying initialization on the same device. */
+    if (g_device.registers != nullptr && !g_device.started)
+        return g_status;
     if (g_device.started) {
         g_status = link_up() ? Status::Ok : Status::LinkDown;
         return g_status;
@@ -259,6 +263,9 @@ Status initialize() {
     const uint16_t command = pci::read16(*found, 0x04U);
     pci::write16(*found, 0x04U, static_cast<uint16_t>(
         command & ~UINT16_C(0x0004)));
+    /* Avoid handing out DMA pages while the device can still be bus master. */
+    if ((pci::read16(*found, 0x04U) & UINT16_C(0x0004)) != 0U)
+        return g_status = Status::DeviceFault;
     write16(g_device, REG_INT_MASK, 0U);
     write16(g_device, REG_INT_STATUS, UINT16_MAX);
     write8(g_device, REG_CHIP_CMD, CMD_RESET);
@@ -301,6 +308,10 @@ Status initialize() {
     write8(g_device, REG_CONFIG_LOCK, 0U);
     __atomic_thread_fence(__ATOMIC_RELEASE);
     pci::enable_bus_mastering(*found);
+    if ((pci::read16(*found, 0x04U) & UINT16_C(0x0004)) == 0U) {
+        cleanup_before_start(&g_device);
+        return g_status = Status::DeviceFault;
+    }
     write8(g_device, REG_CHIP_CMD, static_cast<uint8_t>(CMD_RX | CMD_TX));
 
     g_device.interface = {&g_device, transmit, receive, g_device.mac, ETHERNET_MTU};
