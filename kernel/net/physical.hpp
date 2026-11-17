@@ -22,6 +22,7 @@ enum class Status : uint8_t {
 };
 
 Status initialize();
+Status last_status();
 bool ready();
 bool link_up();
 bool detected();
