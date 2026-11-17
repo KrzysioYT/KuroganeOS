@@ -1487,7 +1487,7 @@ bool execute_mass_storage_bot(
     return true;
 }
 
-bool request_mass_storage_sense(Controller& controller) {
+bool request_mass_storage_sense(Controller& controller, const BulkTarget& target) {
     constexpr size_t sense_length = 18U;
     uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_request_sense(
@@ -1498,7 +1498,7 @@ bool request_mass_storage_sense(Controller& controller) {
     size_t received = 0U;
     mass_storage::CommandStatusWrapper status{};
     return execute_mass_storage_bot(
-               controller, primary_bulk_target(controller), cdb, sizeof(cdb),
+               controller, target, cdb, sizeof(cdb),
                mass_storage::DataDirection::In,
                sense, sizeof(sense), &received, &status) &&
         status.status == mass_storage::CommandStatus::Passed &&
@@ -1506,14 +1506,14 @@ bool request_mass_storage_sense(Controller& controller) {
         status.data_residue == 0U;
 }
 
-bool test_mass_storage_ready(Controller& controller) {
+bool test_mass_storage_ready(Controller& controller, const BulkTarget& target) {
     uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
         return false;
     }
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller, primary_bulk_target(controller), cdb, sizeof(cdb),
+            controller, target, cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U) {
@@ -1526,11 +1526,11 @@ bool test_mass_storage_ready(Controller& controller) {
 
     terminal::println(
         "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
-    if (!request_mass_storage_sense(controller)) return false;
+    if (!request_mass_storage_sense(controller, target)) return false;
 
     status = {};
     if (!execute_mass_storage_bot(
-            controller, primary_bulk_target(controller), cdb, sizeof(cdb),
+            controller, target, cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U ||
@@ -1561,8 +1561,42 @@ bool read_scsi_inquiry(Controller& controller, const BulkTarget& target,
         inquiry_received == sizeof(inquiry);
 }
 
+bool read_scsi_capacity(Controller& controller, const BulkTarget& target,
+    mass_storage::scsi::ReadCapacity10Data& output) {
+    uint8_t capacity_cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_read_capacity10(
+            capacity_cdb, sizeof(capacity_cdb))) {
+        return false;
+    }
+    uint8_t capacity[8U]{};
+    size_t capacity_received = 0U;
+    mass_storage::CommandStatusWrapper capacity_status{};
+    if (!execute_mass_storage_bot(
+            controller, target, capacity_cdb, sizeof(capacity_cdb),
+            mass_storage::DataDirection::In,
+            capacity, sizeof(capacity), &capacity_received, &capacity_status) ||
+        capacity_status.status != mass_storage::CommandStatus::Passed ||
+        capacity_status.data_residue != 0U ||
+        capacity_received != sizeof(capacity)) {
+        return false;
+    }
+
+    mass_storage::scsi::ReadCapacity10Data geometry{};
+    if (!mass_storage::scsi::parse_read_capacity10(
+            capacity, sizeof(capacity), &geometry) ||
+        geometry.block_size < 512U ||
+        geometry.block_size > memory::virtual_memory::PAGE_SIZE ||
+        (memory::virtual_memory::PAGE_SIZE % geometry.block_size) != 0U ||
+        geometry.block_count == 0U) {
+        return false;
+    }
+
+    output = geometry;
+    return true;
+}
+
 bool probe_mass_storage_scsi_geometry(Controller& controller) {
-    if (!test_mass_storage_ready(controller)) {
+    if (!test_mass_storage_ready(controller, primary_bulk_target(controller))) {
         terminal::println("[TEST] xhci_mass_storage_test_unit_ready: FAIL");
         return false;
     }
@@ -1575,32 +1609,8 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     }
     terminal::println("[TEST] xhci_mass_storage_inquiry: PASS");
 
-    uint8_t capacity_cdb[mass_storage::scsi::CDB10_SIZE]{};
-    if (!mass_storage::scsi::build_read_capacity10(
-            capacity_cdb, sizeof(capacity_cdb))) {
-        return false;
-    }
-    uint8_t capacity[8U]{};
-    size_t capacity_received = 0U;
-    mass_storage::CommandStatusWrapper capacity_status{};
-    if (!execute_mass_storage_bot(
-            controller, primary_bulk_target(controller), capacity_cdb, sizeof(capacity_cdb),
-            mass_storage::DataDirection::In,
-            capacity, sizeof(capacity), &capacity_received, &capacity_status) ||
-        capacity_status.status != mass_storage::CommandStatus::Passed ||
-        capacity_status.data_residue != 0U ||
-        capacity_received != sizeof(capacity)) {
-        terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
-        return false;
-    }
-
     mass_storage::scsi::ReadCapacity10Data geometry{};
-    if (!mass_storage::scsi::parse_read_capacity10(
-            capacity, sizeof(capacity), &geometry) ||
-        geometry.block_size < 512U ||
-        geometry.block_size > memory::virtual_memory::PAGE_SIZE ||
-        (memory::virtual_memory::PAGE_SIZE % geometry.block_size) != 0U ||
-        geometry.block_count == 0U) {
+    if (!read_scsi_capacity(controller, primary_bulk_target(controller), geometry)) {
         terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
         return false;
     }
@@ -1616,6 +1626,47 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     terminal::println("[TEST] xhci_mass_storage_read_capacity: PASS");
     terminal::println("[TEST] xhci_mass_storage_scsi_geometry: PASS");
     return true;
+}
+
+storage::block::Status read_scsi_chunk(
+    Controller& controller,
+    const BulkTarget& target,
+    uint32_t first_block,
+    uint16_t block_count,
+    size_t transfer_bytes,
+    void* destination) {
+    if (destination == nullptr || transfer_bytes == 0U ||
+        transfer_bytes > memory::virtual_memory::PAGE_SIZE) {
+        return storage::block::Status::InvalidArgument;
+    }
+    uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_read10(
+            first_block,
+            block_count,
+            cdb,
+            sizeof(cdb))) {
+        return storage::block::Status::InvalidArgument;
+    }
+
+    size_t received = 0U;
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller, target,
+            cdb,
+            sizeof(cdb),
+            mass_storage::DataDirection::In,
+            destination,
+            transfer_bytes,
+            &received,
+            &status)) {
+        return storage::block::Status::IoError;
+    }
+    if (status.status != mass_storage::CommandStatus::Passed ||
+        status.data_residue != 0U ||
+        received != transfer_bytes) {
+        return storage::block::Status::CommandFailed;
+    }
+    return storage::block::Status::Ok;
 }
 
 storage::block::Status read_mass_storage_blocks(
@@ -1657,39 +1708,14 @@ storage::block::Status read_mass_storage_blocks(
             return storage::block::Status::InvalidArgument;
         }
 
-        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
-        if (!mass_storage::scsi::build_read10(
-                static_cast<uint32_t>(logical_block),
-                static_cast<uint16_t>(chunk_blocks),
-                cdb,
-                sizeof(cdb))) {
-            return storage::block::Status::InvalidArgument;
-        }
-
         const size_t transfer_bytes =
-            chunk_blocks *
-            static_cast<size_t>(controller.mass_storage_block_size);
-        size_t received = 0U;
-        mass_storage::CommandStatusWrapper status{};
-        if (!execute_mass_storage_bot(
-                controller, primary_bulk_target(controller),
-                cdb,
-                sizeof(cdb),
-                mass_storage::DataDirection::In,
-                output +
-                    static_cast<size_t>(completed) *
-                        controller.mass_storage_block_size,
-                transfer_bytes,
-                &received,
-                &status)) {
-            return storage::block::Status::IoError;
-        }
-        if (status.status != mass_storage::CommandStatus::Passed ||
-            status.data_residue != 0U ||
-            received != transfer_bytes) {
-            return storage::block::Status::CommandFailed;
-        }
-
+            chunk_blocks * static_cast<size_t>(controller.mass_storage_block_size);
+        const auto status = read_scsi_chunk(
+            controller, primary_bulk_target(controller),
+            static_cast<uint32_t>(logical_block), static_cast<uint16_t>(chunk_blocks),
+            transfer_bytes, output + static_cast<size_t>(completed) *
+                controller.mass_storage_block_size);
+        if (status != storage::block::Status::Ok) return status;
         completed += static_cast<uint64_t>(chunk_blocks);
     }
 
@@ -1843,6 +1869,25 @@ storage::block::Status mass_storage_block_flush(void* context) {
     return synchronize_mass_storage(*controller);
 }
 
+constexpr char USB_TEST_MAGIC[] = "KUROGANE_USB_READ_V1";
+
+bool matches_usb_test_magic(const uint8_t* bytes) {
+    for (size_t index = 0U; index < sizeof(USB_TEST_MAGIC) - 1U; ++index) {
+        if (bytes[index] != static_cast<uint8_t>(USB_TEST_MAGIC[index])) return false;
+    }
+    return true;
+}
+
+bool matches_usb_test_sector(const uint8_t* bytes, size_t length) {
+    if (length != 512U || !matches_usb_test_magic(bytes)) return false;
+    constexpr size_t prefix = sizeof(USB_TEST_MAGIC) - 1U;
+    for (size_t index = prefix; index < length; ++index) {
+        const auto expected = static_cast<uint8_t>(((index - prefix) * 37U + 11U) & 0xFFU);
+        if (bytes[index] != expected) return false;
+    }
+    return true;
+}
+
 bool initialize_mass_storage_block_device(Controller& controller) {
     if (controller.mass_storage_block_size == 0U ||
         controller.mass_storage_block_count == 0U) {
@@ -1874,16 +1919,9 @@ bool initialize_mass_storage_block_device(Controller& controller) {
     }
 
     terminal::println("[TEST] xhci_mass_storage_read10: PASS");
-    static constexpr char expected_magic[] = "KUROGANE_USB_READ_V1";
     const auto* bytes = static_cast<const uint8_t*>(
         controller.storage_io_page.virtual_address);
-    bool known = true;
-    for (size_t index = 0U; index < sizeof(expected_magic) - 1U; ++index) {
-        if (bytes[index] != static_cast<uint8_t>(expected_magic[index])) {
-            known = false;
-            break;
-        }
-    }
+    const bool known = matches_usb_test_magic(bytes);
     if (known) {
         terminal::println("[TEST] xhci_mass_storage_known_read: PASS");
     }
@@ -3029,35 +3067,49 @@ uint32_t read_downstream_identity(Controller& controller) {
     return vendor == 0U || vendor == UINT16_MAX ? 0U : (vendor << 16U) | product;
 }
 
-bool probe_downstream_storage(Controller& controller) {
+enum class DownstreamStorageProbe : uint8_t { None, Inquiry, BlockRead, KnownSector };
+
+DownstreamStorageProbe probe_downstream_storage(Controller& controller) {
+    using Probe = DownstreamStorageProbe;
     auto& companion = controller.companion;
-    if (companion.port_speed != 1U) return false; // Full-speed bulk only.
+    if (companion.port_speed != 1U) return Probe::None; // Full-speed bulk only.
     auto* bytes = static_cast<uint8_t*>(companion.data_page.virtual_address);
     clear_bytes(bytes, 9U);
     if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
-        bytes[0U] != 9U || bytes[1U] != 2U) return false;
+        bytes[0U] != 9U || bytes[1U] != 2U) return Probe::None;
     const uint16_t length = static_cast<uint16_t>(bytes[2U] |
         static_cast<uint16_t>(bytes[3U]) << 8U);
-    if (length < 9U || length > 512U) return false;
+    if (length < 9U || length > 512U) return Probe::None;
 
     clear_bytes(bytes, length);
     mass_storage::BulkOnlyInterface interface{};
     if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, length, true) ||
-        !mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface)) return false;
+        !mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface)) return Probe::None;
     const auto valid_packet = [](uint16_t packet) {
         return packet == 8U || packet == 16U || packet == 32U || packet == 64U;
     };
     if (!valid_packet(interface.bulk_in_maximum_packet_size) ||
         !valid_packet(interface.bulk_out_maximum_packet_size) ||
         !companion_control_transfer(controller, 0x00U, 9U, interface.configuration_value,
-            0U, 0U, false)) return false;
+            0U, 0U, false)) return Probe::None;
 
     BulkTarget target{companion.data_page, companion.slot_id, 0U, 0U};
     if (!configure_bulk_endpoints(controller, interface, companion.input_context_page,
-            companion_output_context(controller, 0U), target)) return false;
+            companion_output_context(controller, 0U), target)) return Probe::None;
     uint8_t inquiry[SCSI_INQUIRY_BYTES]{};
-    return read_scsi_inquiry(controller, target, inquiry) &&
-        inquiry[0U] == 0U && inquiry[4U] >= sizeof(inquiry) - 5U;
+    if (!read_scsi_inquiry(controller, target, inquiry) ||
+        inquiry[0U] != 0U || inquiry[4U] < sizeof(inquiry) - 5U) return Probe::None;
+
+    mass_storage::scsi::ReadCapacity10Data geometry{};
+    if (!test_mass_storage_ready(controller, target) ||
+        !read_scsi_capacity(controller, target, geometry)) return Probe::Inquiry;
+
+    auto* data = static_cast<uint8_t*>(controller.storage_io_page.virtual_address);
+    if (read_scsi_chunk(controller, target, 0U, 1U, geometry.block_size, data) !=
+        storage::block::Status::Ok) return Probe::Inquiry;
+    return geometry.block_count == UINT64_C(16384) &&
+        matches_usb_test_sector(data, geometry.block_size)
+        ? Probe::KnownSector : Probe::BlockRead;
 }
 
 // Reuse the unbound companion's buffers and the unused bulk rings during
@@ -3070,7 +3122,8 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
     companion.port_speed = speed;
     const bool addressed = address_companion_device(controller, child);
     const uint32_t identity = addressed ? read_downstream_identity(controller) : 0U;
-    const bool storage_inquiry = identity != 0U && probe_downstream_storage(controller);
+    const auto storage = identity == 0U ? DownstreamStorageProbe::None :
+        probe_downstream_storage(controller);
     if (!retire_companion_slot(controller)) return false;
     reset_ring(&controller.bulk_in_ring);
     reset_ring(&controller.bulk_out_ring);
@@ -3078,7 +3131,15 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
         log::write_u64(log::Level::Info, "XHCI",
             "USB2 downstream descriptor read; slot retired; VID/PID: ", identity);
     }
-    if (storage_inquiry) terminal::println("[TEST] xhci_downstream_scsi_inquiry: PASS");
+    if (storage >= DownstreamStorageProbe::Inquiry) {
+        terminal::println("[TEST] xhci_downstream_scsi_inquiry: PASS");
+    }
+    if (storage >= DownstreamStorageProbe::BlockRead) {
+        terminal::println("[TEST] xhci_downstream_read10: PASS");
+    }
+    if (storage == DownstreamStorageProbe::KnownSector) {
+        terminal::println("[TEST] xhci_downstream_known_sector: PASS");
+    }
     return true;
 }
 

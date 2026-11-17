@@ -208,6 +208,22 @@ int main() {
     events[2U] = {0x10000U, success, (downstream_control & ~(31U << 16U)) | (4U << 16U)};
     assert(!wait_bulk_transfer(g_controller, downstream, 0x10000U, 3U, 36U, &received));
     std::puts("xHCI downstream bulk slot and endpoint isolation: PASS");
+
+    uint8_t sector[512U]{};
+    constexpr size_t magic_bytes = sizeof(USB_TEST_MAGIC) - 1U;
+    for (size_t index = 0U; index < magic_bytes; ++index) {
+        sector[index] = static_cast<uint8_t>(USB_TEST_MAGIC[index]);
+    }
+    for (size_t index = magic_bytes; index < sizeof(sector); ++index) {
+        sector[index] = static_cast<uint8_t>(((index - magic_bytes) * 37U + 11U) & 0xFFU);
+    }
+    assert(matches_usb_test_sector(sector, sizeof(sector)));
+    assert(!matches_usb_test_sector(sector, sizeof(sector) - 1U));
+    sector[sizeof(sector) - 1U] ^= 1U;
+    assert(matches_usb_test_magic(sector));
+    assert(!matches_usb_test_sector(sector, sizeof(sector)));
+    std::puts("xHCI known-sector check rejects truncation and corrupt payload: PASS");
+
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");
