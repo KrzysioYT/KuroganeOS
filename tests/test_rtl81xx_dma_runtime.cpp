@@ -67,6 +67,19 @@ int main() {
         dma::FIRST_SEGMENT | dma::LAST_SEGMENT | 68U;
     uint8_t output[dma::MAX_ETHERNET_FRAME]{};
     size_t copied = 0U;
+
+    /* Carrier loss and vanished MMIO must not copy or consume stale DMA
+     * payload. Restoring link must allow the same descriptor to be read. */
+    mmio[REG_PHY_STATUS] = 0U;
+    assert(receive(&g_device, output, sizeof(output), &copied) ==
+           net::Status::InterfaceError);
+    assert(copied == 0U && g_device.next_rx == 0U);
+    assert((rx_descriptors[0].flags & dma::OWN) == 0U);
+    mmio[REG_PHY_STATUS] = UINT8_MAX;
+    assert(receive(&g_device, output, sizeof(output), &copied) ==
+           net::Status::InterfaceError);
+    assert(g_device.next_rx == 0U);
+    mmio[REG_PHY_STATUS] = PHY_LINK_UP;
     assert(receive(&g_device, output, sizeof(output), &copied) ==
            net::Status::Ok);
     assert(copied == 64U);
