@@ -375,6 +375,12 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
+# Class-specific USB2 hub descriptor validation is protocol-only: it does
+# not qualify xHCI downstream ports, hub topology or hotplug runtime.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_protocol.cpp -o "$OUT_DIR/test_usb_hub_protocol"
+"$OUT_DIR/test_usb_hub_protocol"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
   -o "$OUT_DIR/test_usb_hid_report"
