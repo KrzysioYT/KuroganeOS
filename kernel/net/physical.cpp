@@ -46,9 +46,14 @@ Status initialize() {
         return g_status;
     }
 
-    /* The real RTL8168 backend is attempted before legacy Intel/PCnet.
-     * A failed or link-down Realtek must never block other supported NICs. */
+    /* RTL8111/8168 remains experimental until hardware and DMA recovery
+     * qualify. Normal release images must not issue unvalidated MMIO/DMA
+     * commands to a physical NIC. Opt-in is for controlled driver tests only. */
+#if defined(KUROGANE_EXPERIMENTAL_RTL81XX) && KUROGANE_EXPERIMENTAL_RTL81XX
     const rtl81xx::Status realtek_status = rtl81xx::initialize();
+#else
+    const rtl81xx::Status realtek_status = rtl81xx::Status::NotFound;
+#endif
     if (realtek_status != rtl81xx::Status::NotFound) g_detected = true;
     if ((realtek_status == rtl81xx::Status::Ok ||
          realtek_status == rtl81xx::Status::AlreadyInitialized) &&
