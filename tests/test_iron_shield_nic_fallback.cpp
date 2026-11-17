@@ -12,6 +12,7 @@ net::virtio_net::Status virtio_result = net::virtio_net::Status::NoDevice;
 net::e1000::Status intel_result = net::e1000::Status::NotFound;
 net::pcnet::Status pcnet_result = net::pcnet::Status::NotFound;
 net::e1000::Model intel_model = net::e1000::Model::I82574L;
+net::rtl81xx::Status rtl_result = net::rtl81xx::Status::LinkDown;
 net::NetworkInterface test_interface{};
 const pci::Device realtek_device{
     {0U, 1U, 0U}, UINT16_C(0x10EC), UINT16_C(0x8168),
@@ -25,6 +26,14 @@ const Device* find(uint16_t vendor, uint16_t device, size_t occurrence) {
         vendor == realtek_device.vendor_id &&
         device == realtek_device.device_id ? &realtek_device : nullptr;
 }
+}
+
+namespace net::rtl81xx {
+Status initialize() { return realtek_present ? rtl_result : Status::NotFound; }
+NetworkInterface* interface() {
+    return realtek_present && rtl_result == Status::Ok ? &test_interface : nullptr;
+}
+bool link_up() { return realtek_present && rtl_result == Status::Ok; }
 }
 
 namespace net::virtio_net {
@@ -61,9 +70,18 @@ int main() {
     assert(net::physical::interface() == nullptr);
     assert(net::physical::driver() == net::physical::Driver::None);
     assert(net::physical::last_status() == Status::UnsupportedRealtek);
+
+    /* When a real driver binds, the PCI model becomes usable via the
+     * production interface, not merely through a classifier. */
+    rtl_result = net::rtl81xx::Status::Ok;
+    assert(net::physical::initialize() == Status::Ok);
+    assert(net::physical::driver() == net::physical::Driver::Realtek);
+    assert(net::physical::interface() == &test_interface);
+    assert(std::strcmp(net::physical::name(), "rtl8168") == 0);
+    rtl_result = net::rtl81xx::Status::LinkDown;
     assert(std::strcmp(
         net::physical::status_message(Status::UnsupportedRealtek),
-        "Realtek RTL8111/8168 detected; network driver not available") == 0);
+        "Realtek RTL8111/8168 detected; driver not operational") == 0);
 
     /* No supported or unsupported NIC should be reported as NotFound. */
     realtek_present = false;
