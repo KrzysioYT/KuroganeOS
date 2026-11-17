@@ -13,6 +13,7 @@ net::e1000::Status intel_result = net::e1000::Status::NotFound;
 net::pcnet::Status pcnet_result = net::pcnet::Status::NotFound;
 net::e1000::Model intel_model = net::e1000::Model::I82574L;
 net::rtl81xx::Status rtl_result = net::rtl81xx::Status::LinkDown;
+unsigned rtl_probe_count = 0U;
 net::NetworkInterface test_interface{};
 const pci::Device realtek_device{
     {0U, 1U, 0U}, UINT16_C(0x10EC), UINT16_C(0x8168),
@@ -29,7 +30,10 @@ const Device* find(uint16_t vendor, uint16_t device, size_t occurrence) {
 }
 
 namespace net::rtl81xx {
-Status initialize() { return realtek_present ? rtl_result : Status::NotFound; }
+Status initialize() {
+    ++rtl_probe_count;
+    return realtek_present ? rtl_result : Status::NotFound;
+}
 NetworkInterface* interface() {
     return realtek_present && rtl_result == Status::Ok ? &test_interface : nullptr;
 }
@@ -71,14 +75,27 @@ int main() {
     assert(net::physical::driver() == net::physical::Driver::None);
     assert(net::physical::last_status() == Status::UnsupportedRealtek);
 
-    /* When a real driver binds, the PCI model becomes usable via the
-     * production interface, not merely through a classifier. */
+#if defined(KUROGANE_EXPERIMENTAL_RTL81XX) && KUROGANE_EXPERIMENTAL_RTL81XX
+    /* Opted-in test build may bind a *mocked* RTL8168; real hardware still
+     * requires separate qualification. */
+    assert(rtl_probe_count != 0U);
     rtl_result = net::rtl81xx::Status::Ok;
     assert(net::physical::initialize() == Status::Ok);
     assert(net::physical::driver() == net::physical::Driver::Realtek);
     assert(net::physical::interface() == &test_interface);
     assert(std::strcmp(net::physical::name(), "rtl8168") == 0);
     rtl_result = net::rtl81xx::Status::LinkDown;
+#else
+    /* Release/default build must never probe an unqualified physical DMA
+     * engine, even when the PCI vendor/device IDs match. */
+    assert(rtl_probe_count == 0U);
+    rtl_result = net::rtl81xx::Status::Ok;
+    assert(net::physical::initialize() == Status::UnsupportedRealtek);
+    assert(!net::physical::ready());
+    assert(net::physical::driver() == net::physical::Driver::None);
+    assert(rtl_probe_count == 0U);
+    rtl_result = net::rtl81xx::Status::LinkDown;
+#endif
     assert(std::strcmp(
         net::physical::status_message(Status::UnsupportedRealtek),
         "Realtek RTL8111/8168 detected; driver not operational") == 0);
