@@ -27,7 +27,7 @@ the entire 7.0 milestone.**
 | Intel E1000 and E1000e | Same-SHA DHCP, gateway and recovery on both models | Requalify on candidate |
 | VirtIO-net and VirtIO-block | Guest DMA read/write/flush, rollback/failure and coexistence | Requalify on candidate |
 | Legacy PCnet | Guest DHCP/gateway and explicit fallback | Requalify on candidate |
-| Realtek RTL8111/8168 class | **Production** RTL81xx driver path, PCI model validation, DMA RX/TX, reset/timeout, link state, negative tests and supported-device guest or physical execution | **NOT IMPLEMENTED / BLOCKED** |
+| Realtek RTL8111/8168 class | Production RTL81xx driver path, PCI model validation, DMA RX/TX, reset/timeout, link state, negative tests and supported physical execution | **DRAFT CODE / NOT QUALIFIED** — MMIO and DMA path added to PR #60, lacks real RTL8168 hardware runtime proof and power/reset stress |
 | Intel HDA + AC'97 | Hardware family selection, production PCM playback and failure fallback | Requalify on candidate |
 | USB hubs, multi-device hotplug, wider HID | Enumeration through a hub, detach/re-attach, device churn, simultaneous keyboard/mouse and negative report validation | **NOT FULLY QUALIFIED** |
 | Device power management | PCI D-state lifecycle, PMCSR/PME and device-specific safe recovery; system-wide suspend/resume only if part of the accepted 7.0 contract | **PARTIAL** |
@@ -37,8 +37,8 @@ the entire 7.0 milestone.**
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device
-   subset. Missing RTL8111/8168 is a feature gap, not merely a documentation
-   issue. The owner may explicitly change the release scope, but no other actor
+   subset. Unqualified RTL8111/8168 production operation is a feature/qualification
+   gap, not merely a documentation issue. The owner may explicitly change the release scope, but no other actor
    may assume that decision.
 2. Do not equate PCI enumeration with a working driver. A NIC must exchange
    frames through the production network interface. Hardware tests outside the
