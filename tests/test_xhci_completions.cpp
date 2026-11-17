@@ -190,6 +190,24 @@ int main() {
     assert(!initialized() && g_controller.cleanup_pending);
     assert(runtime_status() == Status::CommandFailed);
     assert(g_controller.data_page.allocated && dcbaa[1] == 0x60000U);
+
+    // An identical TRB completion from the root slot must not satisfy a
+    // downstream bulk transfer sharing the controller's event ring.
+    g_controller.event_dequeue = 0U;
+    g_controller.event_cycle = true;
+    g_controller.deferred_event_count = 0U;
+    const BulkTarget downstream{g_controller.companion.data_page, 2U, 3U, 4U};
+    const uint32_t downstream_control = (control & UINT32_C(0x00FFFFFF)) | (2U << 24U);
+    events[0U] = {0x10000U, success, control};
+    events[1U] = {0x10000U, success, downstream_control};
+    bulk::TransferCompletion received{};
+    assert(wait_bulk_transfer(g_controller, downstream, 0x10000U, 3U, 36U, &received));
+    assert(received.transferred == 36U && g_controller.event_dequeue == 2U);
+    assert(g_controller.deferred_event_count == 1U);
+    assert(g_controller.deferred_events[0U].control == control);
+    events[2U] = {0x10000U, success, (downstream_control & ~(31U << 16U)) | (4U << 16U)};
+    assert(!wait_bulk_transfer(g_controller, downstream, 0x10000U, 3U, 36U, &received));
+    std::puts("xHCI downstream bulk slot and endpoint isolation: PASS");
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");

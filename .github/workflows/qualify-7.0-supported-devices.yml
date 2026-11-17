@@ -212,7 +212,7 @@ jobs:
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|dhcp_lease: PASS|network_gateway_icmp: PASS' \
             build/tests/iron-shield-no-nic/serial.log
-      - name: Verify downstream device identity and keep direct USB HID active
+      - name: Verify downstream SCSI inquiry and keep direct USB HID active
         shell: bash
         run: |
           set -euo pipefail
@@ -226,12 +226,28 @@ jobs:
             --require-marker '[USB] USB2 hub descriptor read' \
             --require-marker 'USB2 hub downstream port connected: 1' \
             --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
             --require-marker 'USB2 hub downstream reset and disable verified: 1' \
             --require-marker '[USB] external hub deferred; slot retired' \
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify direct USB storage after bulk transport changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/direct-usb-storage
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --usb-storage \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] xhci_mass_storage_bot_transport: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_inquiry: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_scsi_geometry: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_known_read: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_write_readback: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' "$evidence/serial.log"
       - name: Verify HDA codec and PCM DMA on the release image
         shell: bash
         run: |

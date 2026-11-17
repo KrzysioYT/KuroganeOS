@@ -1178,15 +1178,28 @@ bool configure_report_pointer_endpoint(Controller& controller) {
 }
 
 
-bool configure_mass_storage_endpoints(Controller& controller) {
-    const auto& interface = controller.mass_storage_interface;
-    if (!controller.mass_storage_present ||
-        !control_transfer(
-            controller, 0x00U, 9U, interface.configuration_value,
-            0U, 0U, false)) {
-        return false;
-    }
+struct BulkTarget {
+    const storage::dma::Page& data_page;
+    uint8_t slot_id;
+    uint8_t in_dci;
+    uint8_t out_dci;
+};
 
+BulkTarget primary_bulk_target(const Controller& controller) {
+    return {controller.data_page, controller.slot_id,
+        controller.bulk_in_dci, controller.bulk_out_dci};
+}
+
+bool configure_bulk_endpoints(
+    Controller& controller,
+    const mass_storage::BulkOnlyInterface& interface,
+    const storage::dma::Page& input_page,
+    const uint32_t* output_slot,
+    BulkTarget& target) {
+    const auto context_at = [&](size_t index) {
+        return reinterpret_cast<uint32_t*>(
+            static_cast<uint8_t*>(input_page.virtual_address) + index * controller.context_size);
+    };
     bulk::EndpointPlan bulk_in{};
     bulk::EndpointPlan bulk_out{};
     if (!bulk::build_endpoint_plan(
@@ -1219,7 +1232,7 @@ bool configure_mass_storage_endpoints(Controller& controller) {
     }
 
     const uint8_t current_entries = static_cast<uint8_t>(
-        (output_context(controller, 0U)[0U] >> 27U) & UINT32_C(0x1F));
+        (output_slot[0U] >> 27U) & UINT32_C(0x1F));
     uint8_t context_entries = current_entries;
     if (!bulk::extend_context_entries(
             context_entries, bulk_in.device_context_index, &context_entries) ||
@@ -1228,43 +1241,55 @@ bool configure_mass_storage_endpoints(Controller& controller) {
         return false;
     }
 
-    controller.bulk_in_dci = bulk_in.device_context_index;
-    controller.bulk_out_dci = bulk_out.device_context_index;
-    clear_bytes(controller.input_context_page.virtual_address,
+    target.in_dci = bulk_in.device_context_index;
+    target.out_dci = bulk_out.device_context_index;
+    clear_bytes(input_page.virtual_address,
                 memory::virtual_memory::PAGE_SIZE);
-    input_context(controller, 0U)[1U] =
+    context_at(0U)[1U] =
         UINT32_C(1) |
-        (UINT32_C(1) << controller.bulk_in_dci) |
-        (UINT32_C(1) << controller.bulk_out_dci);
-    copy_bytes(input_context(controller, 1U), output_context(controller, 0U),
+        (UINT32_C(1) << target.in_dci) |
+        (UINT32_C(1) << target.out_dci);
+    copy_bytes(context_at(1U), output_slot,
                controller.context_size);
-    uint32_t* slot = input_context(controller, 1U);
+    uint32_t* slot = context_at(1U);
     slot[0U] &= ~(UINT32_C(0x1F) << 27U);
     slot[0U] |= static_cast<uint32_t>(context_entries) << 27U;
 
     copy_bytes(
-        input_context(
-            controller, static_cast<size_t>(controller.bulk_in_dci) + 1U),
+        context_at(static_cast<size_t>(target.in_dci) + 1U),
         in_context.words,
         sizeof(in_context.words));
     copy_bytes(
-        input_context(
-            controller, static_cast<size_t>(controller.bulk_out_dci) + 1U),
+        context_at(static_cast<size_t>(target.out_dci) + 1U),
         out_context.words,
         sizeof(out_context.words));
 
     Trb completion{};
     return submit_command(
         controller,
-        controller.input_context_page.physical_address,
+        input_page.physical_address,
         0U,
         static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
-            static_cast<uint32_t>(controller.slot_id) << 24U,
+            static_cast<uint32_t>(target.slot_id) << 24U,
         &completion);
+}
+
+bool configure_mass_storage_endpoints(Controller& controller) {
+    const auto& interface = controller.mass_storage_interface;
+    if (!controller.mass_storage_present ||
+        !control_transfer(controller, 0x00U, 9U, interface.configuration_value,
+            0U, 0U, false)) return false;
+    auto target = primary_bulk_target(controller);
+    const bool configured = configure_bulk_endpoints(controller, interface,
+        controller.input_context_page, output_context(controller, 0U), target);
+    controller.bulk_in_dci = target.in_dci;
+    controller.bulk_out_dci = target.out_dci;
+    return configured;
 }
 
 bool wait_bulk_transfer(
     Controller& controller,
+    const BulkTarget& target,
     uint64_t expected_trb,
     uint8_t endpoint_dci,
     size_t requested_length,
@@ -1282,13 +1307,13 @@ bool wait_bulk_transfer(
         }
         const uint8_t event_slot =
             static_cast<uint8_t>(event.control >> 24U);
-        if (event_slot != controller.slot_id) {
+        if (event_slot != target.slot_id) {
             if (!defer_event(controller, event)) return false;
             continue;
         }
         const auto status = bulk::classify_transfer_completion(
             expected_trb,
-            controller.slot_id,
+            target.slot_id,
             endpoint_dci,
             requested_length,
             event.parameter,
@@ -1308,69 +1333,71 @@ bool wait_bulk_transfer(
 
 bool bulk_out_transfer(
     Controller& controller,
+    const BulkTarget& target,
     const void* source,
     size_t length) {
     if (source == nullptr || length == 0U ||
         length > memory::virtual_memory::PAGE_SIZE ||
-        controller.bulk_out_dci < 2U) {
+        target.out_dci < 2U) {
         return false;
     }
 
     bulk::TransferChunk chunk{};
     if (!bulk::plan_normal_trb_chunk(
-            controller.data_page.physical_address, length, &chunk) ||
+            target.data_page.physical_address, length, &chunk) ||
         chunk.length != length) {
         return false;
     }
 
-    copy_bytes(controller.data_page.virtual_address, source, length);
+    copy_bytes(target.data_page.virtual_address, source, length);
     const uint64_t trb = enqueue_trb(
         controller.bulk_out_ring,
         chunk.physical_address,
         static_cast<uint32_t>(chunk.length),
         static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
-    controller.doorbells[controller.slot_id] = controller.bulk_out_dci;
+    controller.doorbells[target.slot_id] = target.out_dci;
 
     bulk::TransferCompletion completion{};
     return wait_bulk_transfer(
-               controller, trb, controller.bulk_out_dci, length, &completion) &&
+               controller, target, trb, target.out_dci, length, &completion) &&
         completion.transferred == length &&
         completion.completion_code == COMPLETION_SUCCESS;
 }
 
 bool bulk_in_transfer(
     Controller& controller,
+    const BulkTarget& target,
     void* destination,
     size_t capacity,
     size_t* transferred) {
     if (destination == nullptr || transferred == nullptr || capacity == 0U ||
         capacity > memory::virtual_memory::PAGE_SIZE ||
-        controller.bulk_in_dci < 2U) {
+        target.in_dci < 2U) {
         return false;
     }
 
     bulk::TransferChunk chunk{};
     if (!bulk::plan_normal_trb_chunk(
-            controller.data_page.physical_address, capacity, &chunk) ||
+            target.data_page.physical_address, capacity, &chunk) ||
         chunk.length != capacity) {
         return false;
     }
 
-    clear_bytes(controller.data_page.virtual_address, capacity);
+    clear_bytes(target.data_page.virtual_address, capacity);
     const uint64_t trb = enqueue_trb(
         controller.bulk_in_ring,
         chunk.physical_address,
         static_cast<uint32_t>(chunk.length),
         static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
-    controller.doorbells[controller.slot_id] = controller.bulk_in_dci;
+    controller.doorbells[target.slot_id] = target.in_dci;
 
     bulk::TransferCompletion completion{};
     if (!wait_bulk_transfer(
-            controller, trb, controller.bulk_in_dci, capacity, &completion) ||
+            controller, target, trb, target.in_dci, capacity, &completion) ||
         completion.transferred > capacity) {
         return false;
     }
-    copy_bytes(destination, controller.data_page.virtual_address,
+    copy_bytes(destination, target.data_page.virtual_address,
                completion.transferred);
     *transferred = completion.transferred;
     return true;
@@ -1384,6 +1411,7 @@ uint32_t next_mass_storage_tag(Controller& controller) {
 
 bool execute_mass_storage_bot(
     Controller& controller,
+    const BulkTarget& target,
     const uint8_t* cdb,
     size_t cdb_length,
     mass_storage::DataDirection direction,
@@ -1418,19 +1446,19 @@ bool execute_mass_storage_bot(
     uint8_t cbw[mass_storage::COMMAND_BLOCK_WRAPPER_SIZE]{};
     if (!mass_storage::encode_command_block_wrapper(
             &wrapper, cbw, sizeof(cbw)) ||
-        !bulk_out_transfer(controller, cbw, sizeof(cbw))) {
+        !bulk_out_transfer(controller, target, cbw, sizeof(cbw))) {
         return false;
     }
 
     size_t received = 0U;
     if (direction == mass_storage::DataDirection::In) {
         if (!bulk_in_transfer(
-                controller, data, data_length, &received) ||
+                controller, target, data, data_length, &received) ||
             received > data_length) {
             return false;
         }
     } else if (direction == mass_storage::DataDirection::Out) {
-        if (!bulk_out_transfer(controller, data, data_length)) {
+        if (!bulk_out_transfer(controller, target, data, data_length)) {
             return false;
         }
     }
@@ -1438,7 +1466,7 @@ bool execute_mass_storage_bot(
     uint8_t csw[mass_storage::COMMAND_STATUS_WRAPPER_SIZE]{};
     size_t csw_received = 0U;
     if (!bulk_in_transfer(
-            controller, csw, sizeof(csw), &csw_received) ||
+            controller, target, csw, sizeof(csw), &csw_received) ||
         csw_received != sizeof(csw)) {
         return false;
     }
@@ -1470,7 +1498,7 @@ bool request_mass_storage_sense(Controller& controller) {
     size_t received = 0U;
     mass_storage::CommandStatusWrapper status{};
     return execute_mass_storage_bot(
-               controller, cdb, sizeof(cdb),
+               controller, primary_bulk_target(controller), cdb, sizeof(cdb),
                mass_storage::DataDirection::In,
                sense, sizeof(sense), &received, &status) &&
         status.status == mass_storage::CommandStatus::Passed &&
@@ -1485,7 +1513,7 @@ bool test_mass_storage_ready(Controller& controller) {
     }
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller, cdb, sizeof(cdb),
+            controller, primary_bulk_target(controller), cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U) {
@@ -1502,7 +1530,7 @@ bool test_mass_storage_ready(Controller& controller) {
 
     status = {};
     if (!execute_mass_storage_bot(
-            controller, cdb, sizeof(cdb),
+            controller, primary_bulk_target(controller), cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U ||
@@ -1512,6 +1540,27 @@ bool test_mass_storage_ready(Controller& controller) {
     return true;
 }
 
+constexpr size_t SCSI_INQUIRY_BYTES = 36U;
+
+bool read_scsi_inquiry(Controller& controller, const BulkTarget& target,
+    uint8_t (&inquiry)[SCSI_INQUIRY_BYTES]) {
+    uint8_t inquiry_cdb[mass_storage::scsi::CDB6_SIZE]{};
+    if (!mass_storage::scsi::build_inquiry(
+            static_cast<uint8_t>(sizeof(inquiry)),
+            inquiry_cdb, sizeof(inquiry_cdb))) {
+        return false;
+    }
+    size_t inquiry_received = 0U;
+    mass_storage::CommandStatusWrapper inquiry_status{};
+    return execute_mass_storage_bot(
+            controller, target, inquiry_cdb, sizeof(inquiry_cdb),
+            mass_storage::DataDirection::In,
+            inquiry, sizeof(inquiry), &inquiry_received, &inquiry_status) &&
+        inquiry_status.status == mass_storage::CommandStatus::Passed &&
+        inquiry_status.data_residue == 0U &&
+        inquiry_received == sizeof(inquiry);
+}
+
 bool probe_mass_storage_scsi_geometry(Controller& controller) {
     if (!test_mass_storage_ready(controller)) {
         terminal::println("[TEST] xhci_mass_storage_test_unit_ready: FAIL");
@@ -1519,23 +1568,8 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     }
     terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
 
-    constexpr size_t inquiry_length = 36U;
-    uint8_t inquiry_cdb[mass_storage::scsi::CDB6_SIZE]{};
-    if (!mass_storage::scsi::build_inquiry(
-            static_cast<uint8_t>(inquiry_length),
-            inquiry_cdb, sizeof(inquiry_cdb))) {
-        return false;
-    }
-    uint8_t inquiry[inquiry_length]{};
-    size_t inquiry_received = 0U;
-    mass_storage::CommandStatusWrapper inquiry_status{};
-    if (!execute_mass_storage_bot(
-            controller, inquiry_cdb, sizeof(inquiry_cdb),
-            mass_storage::DataDirection::In,
-            inquiry, sizeof(inquiry), &inquiry_received, &inquiry_status) ||
-        inquiry_status.status != mass_storage::CommandStatus::Passed ||
-        inquiry_status.data_residue != 0U ||
-        inquiry_received != sizeof(inquiry)) {
+    uint8_t inquiry[SCSI_INQUIRY_BYTES]{};
+    if (!read_scsi_inquiry(controller, primary_bulk_target(controller), inquiry)) {
         terminal::println("[TEST] xhci_mass_storage_inquiry: FAIL");
         return false;
     }
@@ -1550,7 +1584,7 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     size_t capacity_received = 0U;
     mass_storage::CommandStatusWrapper capacity_status{};
     if (!execute_mass_storage_bot(
-            controller, capacity_cdb, sizeof(capacity_cdb),
+            controller, primary_bulk_target(controller), capacity_cdb, sizeof(capacity_cdb),
             mass_storage::DataDirection::In,
             capacity, sizeof(capacity), &capacity_received, &capacity_status) ||
         capacity_status.status != mass_storage::CommandStatus::Passed ||
@@ -1638,7 +1672,7 @@ storage::block::Status read_mass_storage_blocks(
         size_t received = 0U;
         mass_storage::CommandStatusWrapper status{};
         if (!execute_mass_storage_bot(
-                controller,
+                controller, primary_bulk_target(controller),
                 cdb,
                 sizeof(cdb),
                 mass_storage::DataDirection::In,
@@ -1715,7 +1749,7 @@ storage::block::Status write_mass_storage_blocks(
             static_cast<size_t>(controller.mass_storage_block_size);
         mass_storage::CommandStatusWrapper status{};
         if (!execute_mass_storage_bot(
-                controller,
+                controller, primary_bulk_target(controller),
                 cdb,
                 sizeof(cdb),
                 mass_storage::DataDirection::Out,
@@ -1747,7 +1781,7 @@ storage::block::Status synchronize_mass_storage(Controller& controller) {
 
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller,
+            controller, primary_bulk_target(controller),
             cdb,
             sizeof(cdb),
             mass_storage::DataDirection::None,
@@ -2995,9 +3029,40 @@ uint32_t read_downstream_identity(Controller& controller) {
     return vendor == 0U || vendor == UINT16_MAX ? 0U : (vendor << 16U) | product;
 }
 
-// Reuse the unbound companion's EP0 buffers. Publish no child device or
-// data endpoint, and retire the child before disabling its port or parent.
-bool probe_downstream_identity(Controller& controller, uint8_t port, uint8_t speed) {
+bool probe_downstream_storage(Controller& controller) {
+    auto& companion = controller.companion;
+    if (companion.port_speed != 1U) return false; // Full-speed bulk only.
+    auto* bytes = static_cast<uint8_t*>(companion.data_page.virtual_address);
+    clear_bytes(bytes, 9U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
+        bytes[0U] != 9U || bytes[1U] != 2U) return false;
+    const uint16_t length = static_cast<uint16_t>(bytes[2U] |
+        static_cast<uint16_t>(bytes[3U]) << 8U);
+    if (length < 9U || length > 512U) return false;
+
+    clear_bytes(bytes, length);
+    mass_storage::BulkOnlyInterface interface{};
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, length, true) ||
+        !mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface)) return false;
+    const auto valid_packet = [](uint16_t packet) {
+        return packet == 8U || packet == 16U || packet == 32U || packet == 64U;
+    };
+    if (!valid_packet(interface.bulk_in_maximum_packet_size) ||
+        !valid_packet(interface.bulk_out_maximum_packet_size) ||
+        !companion_control_transfer(controller, 0x00U, 9U, interface.configuration_value,
+            0U, 0U, false)) return false;
+
+    BulkTarget target{companion.data_page, companion.slot_id, 0U, 0U};
+    if (!configure_bulk_endpoints(controller, interface, companion.input_context_page,
+            companion_output_context(controller, 0U), target)) return false;
+    uint8_t inquiry[SCSI_INQUIRY_BYTES]{};
+    return read_scsi_inquiry(controller, target, inquiry) &&
+        inquiry[0U] == 0U && inquiry[4U] >= sizeof(inquiry) - 5U;
+}
+
+// Reuse the unbound companion's buffers and the unused bulk rings during
+// cold boot. Retire the child before recycling any DMA or disabling its port.
+bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed) {
     route::Address child{};
     if (!route::extend({controller.port_id, 0U, 0U}, port, &child)) return true;
     auto& companion = controller.companion;
@@ -3005,11 +3070,15 @@ bool probe_downstream_identity(Controller& controller, uint8_t port, uint8_t spe
     companion.port_speed = speed;
     const bool addressed = address_companion_device(controller, child);
     const uint32_t identity = addressed ? read_downstream_identity(controller) : 0U;
+    const bool storage_inquiry = identity != 0U && probe_downstream_storage(controller);
     if (!retire_companion_slot(controller)) return false;
+    reset_ring(&controller.bulk_in_ring);
+    reset_ring(&controller.bulk_out_ring);
     if (identity != 0U) {
         log::write_u64(log::Level::Info, "XHCI",
             "USB2 downstream descriptor read; slot retired; VID/PID: ", identity);
     }
+    if (storage_inquiry) terminal::println("[TEST] xhci_downstream_scsi_inquiry: PASS");
     return true;
 }
 
@@ -3084,7 +3153,7 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                 if (!exchange(hub::PortRequest::GetStatus, &ready) ||
                     (ready.status & required) != required || (ready.status & blocked) != 0U ||
                     (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return;
-                child_retired = probe_downstream_identity(controller, port,
+                child_retired = probe_downstream_device(controller, port,
                     (ready.status & hub::PORT_LOW_SPEED) != 0U ? 2U : 1U);
             };
             const bool reset_verified = hub::probe_port_reset(
