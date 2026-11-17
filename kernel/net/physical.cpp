@@ -3,6 +3,8 @@
 #include "virtio_net.hpp"
 #include "e1000.hpp"
 #include "pcnet.hpp"
+#include "rtl81xx_detection.hpp"
+#include "../drivers/pci.hpp"
 
 namespace net::physical {
 namespace {
@@ -65,8 +67,16 @@ Status initialize() {
         return g_status;
     }
 
+    /* A detected RTL8111/8168 must be reported as unsupported, not as an
+     * operational NIC. Do not register a NetworkInterface until the actual
+     * RX/TX, reset and DMA driver has been implemented and qualified. */
+    const pci::Device* realtek = pci::find(UINT16_C(0x10EC), UINT16_C(0x8168));
+    const bool unsupported_realtek = realtek != nullptr &&
+        rtl81xx::classify_model(realtek->vendor_id, realtek->device_id) !=
+            rtl81xx::Model::Unknown;
     g_initialized = true;
-    g_status = g_detected ? Status::DeviceUnavailable : Status::NotFound;
+    g_status = g_detected ? Status::DeviceUnavailable :
+        unsupported_realtek ? Status::UnsupportedRealtek : Status::NotFound;
     return g_status;
 }
 
@@ -123,6 +133,8 @@ const char* status_message(Status status) {
         case Status::AlreadyInitialized: return "already initialized";
         case Status::NotFound: return "no supported physical NIC was found";
         case Status::DeviceUnavailable: return "supported physical NIC detected but unavailable";
+        case Status::UnsupportedRealtek:
+            return "Realtek RTL8111/8168 detected; network driver not available";
     }
     return "unknown physical network status";
 }
