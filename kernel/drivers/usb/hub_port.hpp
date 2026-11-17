@@ -1,0 +1,161 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "hub_protocol.hpp"
+
+namespace drivers::usb::hub {
+
+// USB 2.0 hub-class requests for one downstream port. A full hub driver
+// still needs configuration, xHCI endpoint ownership, timers, transaction
+// translators and correct handling of disconnect/reset before issuing these.
+struct ControlRequest {
+    uint8_t request_type;
+    uint8_t request;
+    uint16_t value;
+    uint16_t index;
+    uint16_t length;
+};
+
+enum class PortRequest : uint8_t {
+    GetStatus,
+    PowerOn,
+    Reset,
+    ClearConnectionChange,
+    ClearEnableChange,
+    ClearSuspendChange,
+    ClearOverCurrentChange,
+    ClearResetChange,
+};
+
+inline bool make_port_request(
+    uint8_t port_count, uint8_t port, PortRequest request,
+    ControlRequest* output) {
+    if (output == nullptr || port_count == 0U ||
+        port_count > MAX_ROUTE_PORTS || port == 0U ||
+        port > port_count) return false;
+
+    ControlRequest result{};
+    result.index = port; // High byte must be zero for these USB2 requests.
+    switch (request) {
+        case PortRequest::GetStatus:
+            result.request_type = 0xA3U; // IN, class, other/port.
+            result.request = 0U;         // GET_STATUS
+            result.length = 4U;          // wPortStatus + wPortChange
+            break;
+        case PortRequest::PowerOn:
+            result.request_type = 0x23U; // OUT, class, other/port.
+            result.request = 3U;         // SET_FEATURE
+            result.value = 8U;           // PORT_POWER
+            break;
+        case PortRequest::Reset:
+            result.request_type = 0x23U;
+            result.request = 3U;
+            result.value = 4U;           // PORT_RESET
+            break;
+        case PortRequest::ClearConnectionChange:
+        case PortRequest::ClearEnableChange:
+        case PortRequest::ClearSuspendChange:
+        case PortRequest::ClearOverCurrentChange:
+        case PortRequest::ClearResetChange:
+            result.request_type = 0x23U;
+            result.request = 1U;         // CLEAR_FEATURE, acknowledge W1C.
+            result.value = static_cast<uint16_t>(16U +
+                static_cast<uint8_t>(request) -
+                static_cast<uint8_t>(PortRequest::ClearConnectionChange));
+            break;
+        default:
+            return false;
+    }
+    *output = result;
+    return true;
+}
+
+constexpr uint16_t PORT_CONNECTED = UINT16_C(1) << 0U;
+constexpr uint16_t PORT_ENABLED = UINT16_C(1) << 1U;
+constexpr uint16_t PORT_SUSPENDED = UINT16_C(1) << 2U;
+constexpr uint16_t PORT_OVER_CURRENT = UINT16_C(1) << 3U;
+constexpr uint16_t PORT_RESET = UINT16_C(1) << 4U;
+constexpr uint16_t PORT_POWERED = UINT16_C(1) << 8U;
+constexpr uint16_t PORT_LOW_SPEED = UINT16_C(1) << 9U;
+constexpr uint16_t PORT_HIGH_SPEED = UINT16_C(1) << 10U;
+constexpr uint16_t CHANGE_CONNECTION = UINT16_C(1) << 0U;
+constexpr uint16_t CHANGE_ENABLE = UINT16_C(1) << 1U;
+constexpr uint16_t CHANGE_SUSPEND = UINT16_C(1) << 2U;
+constexpr uint16_t CHANGE_OVER_CURRENT = UINT16_C(1) << 3U;
+constexpr uint16_t CHANGE_RESET = UINT16_C(1) << 4U;
+
+struct PortStatus {
+    uint16_t status;
+    uint16_t changed;
+};
+
+enum class PortParse : uint8_t {
+    Ok,
+    InvalidArgument,
+    Truncated,
+    InvalidStatus,
+};
+
+inline PortParse parse_port_status(
+    const uint8_t* data, size_t length, PortStatus* output) {
+    if (data == nullptr || output == nullptr) return PortParse::InvalidArgument;
+    if (length < 4U) return PortParse::Truncated;
+    const uint16_t status = static_cast<uint16_t>(data[0U]) |
+        static_cast<uint16_t>(data[1U]) << 8U;
+    const uint16_t changed = static_cast<uint16_t>(data[2U]) |
+        static_cast<uint16_t>(data[3U]) << 8U;
+
+    // Both speeds at once are impossible for a USB2 port. All-one fields
+    // commonly indicate an inaccessible/disconnected MMIO/controller path.
+    if ((status & (PORT_LOW_SPEED | PORT_HIGH_SPEED)) ==
+            (PORT_LOW_SPEED | PORT_HIGH_SPEED) ||
+        (status == UINT16_MAX && changed == UINT16_MAX))
+        return PortParse::InvalidStatus;
+
+    *output = {status, changed};
+    return PortParse::Ok;
+}
+
+enum class PortAction : uint8_t {
+    OverCurrent,
+    ClearOverCurrentChange,
+    ClearConnectionChange,
+    ClearResetChange,
+    ClearEnableChange,
+    ClearSuspendChange,
+    PowerOn,
+    Disconnected,
+    WaitReset,
+    Reset,
+    Suspended,
+    Ready,
+};
+
+inline PortAction next_port_action(const PortStatus& port) {
+    if ((port.status & PORT_OVER_CURRENT) != 0U)
+        return PortAction::OverCurrent;
+    if ((port.changed & CHANGE_OVER_CURRENT) != 0U)
+        return PortAction::ClearOverCurrentChange;
+    if ((port.changed & CHANGE_CONNECTION) != 0U)
+        return PortAction::ClearConnectionChange;
+    if ((port.changed & CHANGE_RESET) != 0U)
+        return PortAction::ClearResetChange;
+    if ((port.changed & CHANGE_ENABLE) != 0U)
+        return PortAction::ClearEnableChange;
+    if ((port.changed & CHANGE_SUSPEND) != 0U)
+        return PortAction::ClearSuspendChange;
+    if ((port.status & PORT_POWERED) == 0U)
+        return PortAction::PowerOn;
+    if ((port.status & PORT_CONNECTED) == 0U)
+        return PortAction::Disconnected;
+    if ((port.status & PORT_RESET) != 0U)
+        return PortAction::WaitReset;
+    if ((port.status & PORT_ENABLED) == 0U)
+        return PortAction::Reset;
+    if ((port.status & PORT_SUSPENDED) != 0U)
+        return PortAction::Suspended;
+    return PortAction::Ready;
+}
+} // namespace drivers::usb::hub
