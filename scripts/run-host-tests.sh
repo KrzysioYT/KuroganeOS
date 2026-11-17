@@ -381,6 +381,12 @@ bash tests/test_network_smoke_state.sh
   tests/test_usb_hub_protocol.cpp -o "$OUT_DIR/test_usb_hub_protocol"
 "$OUT_DIR/test_usb_hub_protocol"
 
+# USB2 class control requests and port status/change safety protocol:
+# this does not qualify hub attachment or downstream enumeration.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_port.cpp -o "$OUT_DIR/test_usb_hub_port"
+"$OUT_DIR/test_usb_hub_port"
+
 # Exact xHCI slot-context routing, root ports and downstream five-tier routes.
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_xhci_route.cpp -o "$OUT_DIR/test_xhci_route"
