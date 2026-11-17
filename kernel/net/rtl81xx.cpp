@@ -15,6 +15,9 @@ constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB80000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
 constexpr uint32_t RESET_BUDGET = UINT32_C(250000);
 constexpr uint32_t LINK_BUDGET = UINT32_C(250000);
+constexpr uint8_t PCI_COMMAND = 0x04U;
+constexpr uint16_t PCI_MEMORY_SPACE = UINT16_C(0x0002);
+constexpr uint16_t PCI_BUS_MASTER = UINT16_C(0x0004);
 
 constexpr size_t REG_MAC = 0x00U;
 constexpr size_t REG_TX_DESC = 0x20U;
@@ -74,6 +77,16 @@ inline void write32(Device& device, size_t offset, uint32_t value) {
 }
 inline void relax() { __asm__ volatile("pause" : : : "memory"); }
 
+bool configure_pci_command(const pci::Device& device, bool enable_dma) {
+    const uint16_t current = pci::read16(device, PCI_COMMAND);
+    if (current == UINT16_MAX) return false;
+    constexpr uint16_t mask = PCI_MEMORY_SPACE | PCI_BUS_MASTER;
+    const uint16_t required = enable_dma ? mask : PCI_MEMORY_SPACE;
+    pci::write16(device, PCI_COMMAND, static_cast<uint16_t>((current & ~mask) | required));
+    const uint16_t applied = pci::read16(device, PCI_COMMAND);
+    return applied != UINT16_MAX && (applied & mask) == required;
+}
+
 bool map_registers(uint64_t physical, Device* device) {
     if (device == nullptr || physical == 0U) return false;
     auto* space = memory::kernel_virtual_memory::address_space();
@@ -113,8 +126,8 @@ bool map_registers(uint64_t physical, Device* device) {
     return true;
 }
 
-/* This cleanup is only allowed before bus mastering has been enabled.
- * After hardware accepts DMA descriptors, a verified stop is mandatory. */
+/* Call before starting RX/TX and only release published DMA memory once
+ * PCI bus mastering has been confirmed disabled. */
 void cleanup_before_start(Device* device) {
     if (device == nullptr) return;
     for (size_t i = 0U; i < DESCRIPTOR_COUNT; ++i) {
@@ -263,14 +276,12 @@ Status initialize() {
     if (!map_registers(bar, &g_device))
         return g_status = Status::MappingFailed;
 
-    /* Disable PCI DMA before reset and descriptor setup; use DMA32
-     * for conservative RTL8168 revisions. */
-    const uint16_t command = pci::read16(*found, 0x04U);
-    pci::write16(*found, 0x04U, static_cast<uint16_t>(
-        command & ~UINT16_C(0x0004)));
-    /* Avoid handing out DMA pages while the device can still be bus master. */
-    if ((pci::read16(*found, 0x04U) & UINT16_C(0x0004)) != 0U)
+    /* Firmware may leave memory decoding off or bus mastering on. Both
+     * bits must be confirmed before touching registers or allocating rings. */
+    if (!configure_pci_command(*found, false)) {
+        cleanup_before_start(&g_device);
         return g_status = Status::DeviceFault;
+    }
     write16(g_device, REG_INT_MASK, 0U);
     write16(g_device, REG_INT_STATUS, UINT16_MAX);
     write8(g_device, REG_CHIP_CMD, CMD_RESET);
@@ -312,9 +323,11 @@ Status initialize() {
     write32(g_device, REG_RX_DESC + 4U, 0U);
     write8(g_device, REG_CONFIG_LOCK, 0U);
     __atomic_thread_fence(__ATOMIC_RELEASE);
-    pci::enable_bus_mastering(*found);
-    if ((pci::read16(*found, 0x04U) & UINT16_C(0x0004)) == 0U) {
-        cleanup_before_start(&g_device);
+    if (!configure_pci_command(*found, true)) {
+        /* The command write may have reached the device even if readback
+         * failed. The rings are published and must stay out of the allocator
+         * until bus mastering is proven disabled. */
+        if (configure_pci_command(*found, false)) cleanup_before_start(&g_device);
         return g_status = Status::DeviceFault;
     }
     write8(g_device, REG_CHIP_CMD, static_cast<uint8_t>(CMD_RX | CMD_TX));
@@ -322,7 +335,7 @@ Status initialize() {
     g_device.interface = {&g_device, transmit, receive, g_device.mac, ETHERNET_MTU};
     g_device.started = true;
     for (uint32_t i = 0U; i < LINK_BUDGET; ++i) {
-        if ((read8(g_device, REG_PHY_STATUS) & PHY_LINK_UP) != 0U)
+        if (link_up())
             return g_status = Status::Ok;
         relax();
     }
@@ -330,8 +343,9 @@ Status initialize() {
 }
 
 bool link_up() {
-    return g_device.started && g_device.registers != nullptr &&
-        (read8(g_device, REG_PHY_STATUS) & PHY_LINK_UP) != 0U;
+    if (!g_device.started || g_device.registers == nullptr) return false;
+    const uint8_t phy = read8(g_device, REG_PHY_STATUS);
+    return phy != UINT8_MAX && (phy & PHY_LINK_UP) != 0U;
 }
 bool ready() { return g_device.started && link_up(); }
 NetworkInterface* interface() { return ready() ? &g_device.interface : nullptr; }
