@@ -219,6 +219,9 @@ net::Status receive(void* context, uint8_t* out, size_t capacity,
         return net::Status::NotInitialized;
     if (out == nullptr || out_length == nullptr)
         return net::Status::InvalidArgument;
+    /* A removed controller or lost link must not expose stale RX DMA
+     * buffers as a valid frame. Preserve the descriptor for recovery. */
+    if (!link_up()) return net::Status::InterfaceError;
     if (__atomic_test_and_set(&g_device.rx_busy, __ATOMIC_ACQUIRE))
         return net::Status::WouldBlock;
     const size_t index = g_device.next_rx;
