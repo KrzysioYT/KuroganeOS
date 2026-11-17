@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -31,6 +31,7 @@ usb_root_hub=false
 usb_hub_storage=false
 usb_hub_two_storage=false
 usb_hub_power=false
+usb_hub_unsupported=false
 usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
@@ -93,6 +94,7 @@ while (($#)); do
         --usb-hub-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; shift ;;
         --usb-hub-two-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_two_storage=true; shift ;;
         --usb-hub-power) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_power=true; shift ;;
+        --usb-hub-unsupported) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_unsupported=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
@@ -890,11 +892,19 @@ if $usb_tablet; then
         -device usb-tablet,bus=kurogane_xhci.0,id=kurogane_usb_tablet
     )
 fi
+if $usb_hub_unsupported; then
+    usb_args+=(
+        -device "usb-tablet,bus=kurogane_xhci.0,id=kurogane_unsupported_tablet,port=1.1"
+    )
+fi
 if $usb_storage; then
     usb_storage_image="$tmp/usb-storage.img"
     usb_storage_port=""
     if $usb_hub_storage; then
         usb_storage_port=",port=1.1"
+    fi
+    if $usb_hub_unsupported; then
+        usb_storage_port=",port=1.2"
     fi
     python3 - "$usb_storage_image" "$usb_hub_storage" <<'PY'
 import struct

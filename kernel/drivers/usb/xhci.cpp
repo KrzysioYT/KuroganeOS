@@ -3101,7 +3101,7 @@ uint32_t read_downstream_identity(Controller& controller) {
 }
 
 enum class DownstreamStorageProbe : uint8_t {
-    None, Inquiry, BlockRead, KnownSector, ScratchFailed, ScratchRestored,
+    None, UnsupportedInterface, Inquiry, BlockRead, KnownSector, ScratchFailed, ScratchRestored,
 };
 
 DownstreamStorageProbe run_downstream_scratch(Controller& controller, const BulkTarget& target,
@@ -3161,8 +3161,10 @@ DownstreamStorageProbe probe_downstream_storage(Controller& controller, uint32_t
 
     clear_bytes(bytes, length);
     mass_storage::BulkOnlyInterface interface{};
-    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, length, true) ||
-        !mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface)) return Probe::None;
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, length, true))
+        return Probe::None;
+    if (!mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface))
+        return Probe::UnsupportedInterface;
     const auto valid_packet = [](uint16_t packet) {
         return packet == 8U || packet == 16U || packet == 32U || packet == 64U;
     };
@@ -3213,6 +3215,10 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
     if (identity != 0U) {
         log::write_u64(log::Level::Info, "XHCI",
             "USB2 downstream descriptor read; slot retired; VID/PID: ", identity);
+    }
+    if (storage == DownstreamStorageProbe::UnsupportedInterface) {
+        log::write_u64(log::Level::Warn, "XHCI",
+            "USB2 unsupported downstream interface; slot retired at port: ", port);
     }
     if (storage >= DownstreamStorageProbe::Inquiry) {
         terminal::println("[TEST] xhci_downstream_scsi_inquiry: PASS");

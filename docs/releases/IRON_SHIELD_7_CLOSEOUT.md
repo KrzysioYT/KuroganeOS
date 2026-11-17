@@ -45,7 +45,7 @@ the entire 7.0 milestone.**
 | Intel HDA + AC'97 | Hardware family selection, production PCM playback and failure fallback | The QEMU gate requires HDA codec and PCM DMA, then AC'97 selection and PCM DMA in a separate boot with a codec-less HDA controller. AC'97 readiness requires completion of a silent PCM descriptor and an acknowledged stop/reset. Physical codec and playback quality remain unverified. |
 | USB hubs, multi-device hotplug, wider HID | Enumeration through a hub, detach/re-attach, device churn, simultaneous keyboard/mouse and negative report validation | **DOWNSTREAM BOOT BLOCK I/O / NOT QUALIFIED** — xHCI addresses a full-speed storage child and reads its first sector. Only the tagged QEMU scratch fixture is eligible for a write, flush, readback and restore within the boot probe. CI compares the complete scratch image after QEMU exits and verifies direct HID and direct USB storage. Persistent binding, runtime downstream block I/O, high-speed hub TT scheduling and hub hotplug remain open. Physical hub qualification is blocked without suitable hardware. |
 | Device power management | PCI D-state lifecycle, PMCSR/PME and device-specific safe recovery; system-wide suspend/resume only if part of the accepted 7.0 contract | **PARTIAL** — the PR gate boots a separately instrumented image from the exact candidate SHA and requires four pre-bind D0 → D3hot → D0 cycles followed by E1000e DHCP and ICMP. PMCSR transactions check PCI identity and preserve unrelated live controls. Active-driver recovery and physical power transitions remain unverified. |
-| Error isolation and hardware inventory | Unsupported hardware explained without claiming functional driver; optional-device failure does not stop boot or damage storage | Needs end-to-end evidence |
+| Error isolation and hardware inventory | Unsupported hardware explained without claiming functional driver; optional-device failure does not stop boot or damage storage | **PARTIAL** — the QEMU gate requires an unsupported downstream tablet to be identified and retired on port 1, then a storage read/write/restore on port 2 with direct keyboard/mouse still delivering input. Broader optional-device fault isolation remains open. |
 | Closeout regression | Full host, UBSan, kernel tests, clean IMG/ISO, real QEMU/OVMF with device-matrix logs, checksums and exact SHA | **OPEN** |
 
 The USB gate also requires three QEMU root-port keyboard detach/reattach cycles
@@ -105,6 +105,13 @@ identity, lost decode/DMA enable or unreadable command state; readiness and
 TX/RX reject these states before MMIO, preserving buffers and descriptors.
 These are host fault-injection results; physical removal/power recovery remains
 BLOCKED and the experimental initialization opt-in remains required.
+
+A downstream configuration with no supported BOT/SCSI interface now
+reports an explicit unsupported-interface diagnostic after child retirement.
+The separate QEMU negative gate puts a tablet before the supported scratch
+disk and requires successful port cleanup, disk access and direct HID input.
+This checks boot-time isolation and leaves persistent downstream HID/hotplug
+and physical hub qualification open.
 
 ## Rules for closing
 
