@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -215,7 +215,7 @@ if [[ -n "$cpu_model_override" ]]; then
     cpu_model="$cpu_model_override"
 fi
 case "$audio_model" in
-    none|ac97|hda) ;;
+    none|ac97|hda|ac97-fallback) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
 esac
 send_key_pattern='^[A-Za-z0-9_-]+(\+[A-Za-z0-9_-]+)*$'
@@ -749,13 +749,17 @@ if [[ "$nic_model" != "none" ]]; then
 fi
 
 audio_args=()
-if [[ "$audio_model" == "ac97" ]]; then
+if [[ "$audio_model" == "ac97" || "$audio_model" == "ac97-fallback" ]]; then
     # The null backend keeps CI headless while still exposing a real PCI
     # Intel AC97 device to KuroganeOS. Guest DMA/mixer programming remains real.
     audio_args=(
         -audiodev none,id=kurogane_audio
         -device AC97,audiodev=kurogane_audio
     )
+fi
+if [[ "$audio_model" == "ac97-fallback" ]]; then
+    # Present an HDA controller with an empty codec bus alongside AC'97.
+    audio_args+=(-device intel-hda,id=kurogane_hda)
 fi
 if [[ "$audio_model" == "hda" ]]; then
     # Headless backend: controller/codec/DMA traffic remains real while CI
