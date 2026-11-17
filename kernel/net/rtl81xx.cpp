@@ -180,10 +180,15 @@ net::Status transmit(void* context, const uint8_t* data, size_t count) {
         return net::Status::QueueFull;
     }
     auto* bytes = static_cast<uint8_t*>(g_device.tx_buffers[index].virtual_address);
+    /* Ethernet requires at least 60 payload/header bytes before the FCS.
+     * Zero-pad short frames rather than leaking stale DMA buffer contents. */
+    const size_t wire_length = count < 60U ? 60U : count;
     for (size_t i = 0U; i < count; ++i) bytes[i] = data[i];
+    for (size_t i = count; i < wire_length; ++i) bytes[i] = 0U;
     slot.vlan = 0U;
     __atomic_store_n(&slot.flags,
-        dma::tx_submit(index + 1U == DESCRIPTOR_COUNT, count), __ATOMIC_RELEASE);
+        dma::tx_submit(index + 1U == DESCRIPTOR_COUNT, wire_length),
+        __ATOMIC_RELEASE);
     g_device.next_tx = (index + 1U) % DESCRIPTOR_COUNT;
     write8(g_device, REG_TX_POLL, TX_POLL_NORMAL);
     ++g_device.tx_frames;
