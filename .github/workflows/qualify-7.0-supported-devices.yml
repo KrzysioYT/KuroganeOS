@@ -236,34 +236,6 @@ jobs:
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
-      - name: Verify individually powered hub ports before downstream storage
-        shell: bash
-        run: |
-          set -euo pipefail
-          evidence=build/tests/iron-shield-no-nic/powered-hub
-          bash scripts/smoke-uefi-iso-qemu.sh \
-            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
-            --usb-hub-power --usb-keyboard --usb-mouse --no-ps2 \
-            --log-dir "$evidence" --timeout 180 \
-            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
-            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
-            --require-marker '[USB] USB2 hub descriptor read' \
-            --require-marker 'USB2 hub port power verified: 1' \
-            --require-marker 'USB2 hub port power verified: 2' \
-            --require-marker 'USB2 hub port power verified: 3' \
-            --require-marker 'USB2 hub port power verified: 4' \
-            --require-marker 'USB2 hub downstream port connected: 1' \
-            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
-            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
-            --require-marker '[TEST] xhci_downstream_read10: PASS' \
-            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
-            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
-            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
-            --require-marker '[USB] external hub deferred; slot retired' \
-            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
-            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
-            --require-marker '[TEST] usb_hid_mouse_input: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
       - name: Verify direct USB storage after bulk transport changes
         shell: bash
         run: |
@@ -307,6 +279,47 @@ jobs:
             --require-marker '[AUDIO] backend=ac97' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|ac97_.*: FAIL|\[AUDIO\] backend=hda' "$evidence/serial.log"
+      - name: Verify individually powered hub ports before downstream storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/powered-hub
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-usb-hub-power.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-power --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub port power off verified: 1' \
+            --require-marker 'USB2 hub port power off verified: 2' \
+            --require-marker 'USB2 hub port power off verified: 3' \
+            --require-marker 'USB2 hub port power off verified: 4' \
+            --require-marker 'USB2 hub port power verified: 1' \
+            --require-marker 'USB2 hub port power verified: 2' \
+            --require-marker 'USB2 hub port power verified: 3' \
+            --require-marker 'USB2 hub port power verified: 4' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
+            --require-marker '[TEST] xhci_downstream_read10: PASS' \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+          git restore --worktree -- kernel/drivers/usb/xhci.cpp
       - name: Verify three root-port keyboard detach and reattach cycles
         shell: bash
         run: |

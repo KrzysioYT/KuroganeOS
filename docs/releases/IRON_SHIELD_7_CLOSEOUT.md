@@ -65,6 +65,9 @@ for power-good and connection detection, and verifies status before reset.
 Overcurrent, active ports and failed control/timer/readback operations stop that
 probe. Unpowered ganged hubs need a shared-power policy. CI requires the same
 downstream scratch restore and direct HID checks with QEMU port-power enabled.
+The separate instrumented image first powers each port off through a USB class
+request and verifies readback. The artifact records the source SHA, patch and
+image hash.
 Physical switched-hub power behavior remains BLOCKED without suitable hardware.
 
 ## Rules for closing
