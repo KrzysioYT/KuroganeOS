@@ -43,7 +43,7 @@ the entire 7.0 milestone.**
 | Legacy PCnet | Guest DHCP/gateway and explicit fallback | Requalify on candidate |
 | Realtek RTL8111/8168 class | Production RTL81xx driver path, PCI model validation, DMA RX/TX, reset/timeout, link state, negative tests and supported physical execution | **DRAFT CODE / NOT QUALIFIED** — MMIO and DMA path added to PR #60, lacks real RTL8168 hardware runtime proof and power/reset stress |
 | Intel HDA + AC'97 | Hardware family selection, production PCM playback and failure fallback | Requalify on candidate |
-| USB hubs, multi-device hotplug, wider HID | Enumeration through a hub, detach/re-attach, device churn, simultaneous keyboard/mouse and negative report validation | **NOT FULLY QUALIFIED** |
+| USB hubs, multi-device hotplug, wider HID | Enumeration through a hub, detach/re-attach, device churn, simultaneous keyboard/mouse and negative report validation | **PROTOCOL FOUNDATION ONLY / NOT QUALIFIED** — bounded USB2 hub descriptor parser and malformed-input host regression added; no downstream xHCI enumeration, hub routing or hub QEMU proof yet |
 | Device power management | PCI D-state lifecycle, PMCSR/PME and device-specific safe recovery; system-wide suspend/resume only if part of the accepted 7.0 contract | **PARTIAL** |
 | Error isolation and hardware inventory | Unsupported hardware explained without claiming functional driver; optional-device failure does not stop boot or damage storage | Needs end-to-end evidence |
 | Closeout regression | Full host, UBSan, kernel tests, clean IMG/ISO, real QEMU/OVMF with device-matrix logs, checksums and exact SHA | **OPEN** |
