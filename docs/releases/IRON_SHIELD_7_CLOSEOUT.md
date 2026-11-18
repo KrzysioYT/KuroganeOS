@@ -63,7 +63,7 @@ child callback reports a retirement failure.
 Cold-boot hub probing now powers inactive individually switched ports, waits
 for power-good and connection detection, and verifies status before reset.
 Overcurrent, active ports and failed control/timer/readback operations stop that
-probe. Unpowered ganged hubs need a shared-power policy. CI requires the same
+probe. Unpowered ganged hubs now use the bounded group policy described below. CI requires the same
 downstream scratch restore and direct HID checks with QEMU port-power enabled.
 The separate instrumented image first powers each port off through a USB class
 request and verifies readback. The artifact records the source SHA, patch and
@@ -148,12 +148,23 @@ remains BLOCKED; this does not qualify persistent downstream hotplug.
 The no-NIC CI gate also boots a separately instrumented image with real USB
 keyboard/mouse and an injected unacknowledged live companion retirement. It
 requires actual xHCI halted-status and PCI bus-master-disable readback, retained
-slot/DCBAA/DMA ownership and failed HID lifecycles, followed by the login surface
+slot/DCBAA/DMA ownership and failed HID lifecycles, as well as the login surface
 and loopback service. USB is intentionally unavailable after containment; normal
 input and hotplug remain mandatory in the uninjected/other qualified profiles.
 The artifact records candidate SHA, exact patch and instrumented image hash.
 This tests the production containment path against QEMU hardware, not a real
 missing command completion or physical hub failure; those remain BLOCKED.
+
+Cold-boot ganged hub power now preflights all (at most 15) ports before any
+shared change. Only an entirely unpowered, inactive group can receive PowerOn;
+partial power, enabled/reset/suspended ports or overcurrent defer that hub.
+The driver requests power for every logical port, waits power-good once and
+reads back the entire group before enumeration. An unverified transfer, timer
+or post-power state enters controller containment. Already powered groups are
+read-only. Host/UBSan cover every transfer failure and each unsafe state.
+This is runtime wiring plus host evidence, not ganged-hub hardware qualification:
+QEMU's existing individual-port profiles remain required, and a real ganged-hub
+profile, physical switching and downstream hotplug remain BLOCKED/unqualified.
 
 ## Rules for closing
 

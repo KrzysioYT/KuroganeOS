@@ -3277,17 +3277,32 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
         !controller.hub_reset_attempted &&
         arch::x86_64::hpet::capabilities() != nullptr;
     if (probe_ports) controller.hub_reset_attempted = true;
+    const auto exchange_port = [&](uint8_t port, hub::PortRequest kind, hub::PortStatus* status) {
+        hub::ControlRequest request{};
+        if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
+        for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+        if (!transfer(controller, request.request_type, request.request,
+                request.value, request.index, request.length, request.length != 0U)) {
+            return false;
+        }
+        return request.length == 0U ||
+            hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
+    };
+    if (probe_ports && parsed.power_mode == hub::PowerMode::Ganged) {
+        const auto power = hub::power_ganged_hub_for_probe(parsed, exchange_port, wait_hpet_us);
+        if (power == hub::PowerResult::UnsafePort) {
+            log::write(log::Level::Error, "XHCI", "USB2 hub shared power unverified; stopping controller");
+            return false;
+        }
+        if (power == hub::PowerResult::Unavailable) {
+            log::write(log::Level::Warn, "XHCI", "USB2 hub shared power deferred; group is not inactive");
+            return true;
+        }
+        log::write(log::Level::Info, "XHCI", "USB2 hub shared power group ready");
+    }
     for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
         const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
-            hub::ControlRequest request{};
-            if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
-            for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
-            if (!transfer(controller, request.request_type, request.request,
-                    request.value, request.index, request.length, request.length != 0U)) {
-                return false;
-            }
-            return request.length == 0U ||
-                hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
+            return exchange_port(port, kind, status);
         };
         hub::PortStatus status{};
         if (!exchange(hub::PortRequest::GetStatus, &status)) {

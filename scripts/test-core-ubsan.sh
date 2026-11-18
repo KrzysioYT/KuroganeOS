@@ -25,6 +25,7 @@ run session-owner tests/test_flux_session_owner_policy.cpp
 run package-vfs tests/test_package_vfs.cpp kernel/install/package_vfs.cpp kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp
 run abi -Isdk/include tests/test_sdk_abi.cpp
 run usb-hub-port tests/test_usb_hub_port.cpp
+run usb-hub-ganged-power tests/test_usb_hub_ganged_power.cpp
 
 run xhci-completions -ffunction-sections -fdata-sections \
     tests/test_xhci_completions.cpp kernel/drivers/usb/protocol.cpp \

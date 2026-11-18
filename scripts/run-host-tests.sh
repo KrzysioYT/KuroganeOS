@@ -450,6 +450,9 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/storage/scratch_test.cpp kernel/core/system_metrics.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_ganged_power.cpp -o "$OUT_DIR/test_usb_hub_ganged_power"
+"$OUT_DIR/test_usb_hub_ganged_power"
 python3 tests/test_xhci_retirement_injector.py
 python3 tests/test_usb_hub_power_injector.py
 python3 tests/test_usb_hotplug_qmp.py

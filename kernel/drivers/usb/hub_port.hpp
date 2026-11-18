@@ -180,8 +180,44 @@ enum class PowerResult : uint8_t {
     UnsafePort,
 };
 
+// Shared power is changed only when every port is unpowered and inactive.
+// SET_FEATURE(PORT_POWER) is sent for each logical port, then power-good is
+// waited once and the entire group is read back before any child reset.
+template<typename Exchange, typename Wait>
+PowerResult power_ganged_hub_for_probe(const Descriptor& hub, Exchange exchange, Wait wait_us) {
+    if (hub.power_mode != PowerMode::Ganged || hub.port_count == 0U ||
+        hub.port_count > MAX_ROUTE_PORTS) return PowerResult::Unavailable;
+    PortStatus ports[MAX_ROUTE_PORTS]{};
+    bool needs_power = false;
+    for (uint8_t port = 1U; port <= hub.port_count; ++port) {
+        if (!exchange(port, PortRequest::GetStatus, &ports[port - 1U]))
+            return PowerResult::UnsafePort;
+        if ((ports[port - 1U].status & PORT_POWERED) == 0U) needs_power = true;
+    }
+    if (!needs_power) return PowerResult::Ready; // Read-only, no shared change.
+    constexpr uint16_t unsafe = PORT_POWERED | PORT_ENABLED | PORT_SUSPENDED |
+        PORT_OVER_CURRENT | PORT_RESET;
+    for (uint8_t port = 0U; port < hub.port_count; ++port) {
+        if ((ports[port].status & unsafe) != 0U ||
+            (ports[port].changed & CHANGE_OVER_CURRENT) != 0U)
+            return PowerResult::Unavailable;
+    }
+    for (uint8_t port = 1U; port <= hub.port_count; ++port) {
+        if (!exchange(port, PortRequest::PowerOn, nullptr)) return PowerResult::UnsafePort;
+    }
+    const uint32_t power_good = static_cast<uint32_t>(hub.power_on_delay_2ms) * 2000U;
+    if (!wait_us(power_good < 100000U ? 100000U : power_good)) return PowerResult::UnsafePort;
+    for (uint8_t port = 1U; port <= hub.port_count; ++port) {
+        PortStatus status{};
+        if (!exchange(port, PortRequest::GetStatus, &status) ||
+            (status.status & unsafe) != PORT_POWERED ||
+            (status.changed & CHANGE_OVER_CURRENT) != 0U) return PowerResult::UnsafePort;
+    }
+    return PowerResult::Ready;
+}
+
 // Cold-boot only: power an unused, individually switched port before probing.
-// Ganged switching needs a hub-wide policy before changing shared power.
+// Ganged switching uses the group preflight above, never this per-port path.
 template<typename Exchange, typename Wait>
 PowerResult power_port_for_probe(
     const Descriptor& hub, PortStatus& port, Exchange exchange, Wait wait_us) {
