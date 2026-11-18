@@ -25,3 +25,10 @@ run session-owner tests/test_flux_session_owner_policy.cpp
 run package-vfs tests/test_package_vfs.cpp kernel/install/package_vfs.cpp kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp
 run abi -Isdk/include tests/test_sdk_abi.cpp
 run usb-hub-port tests/test_usb_hub_port.cpp
+
+run xhci-completions -ffunction-sections -fdata-sections \
+    tests/test_xhci_completions.cpp kernel/drivers/usb/protocol.cpp \
+    kernel/drivers/usb/hid_report.cpp kernel/drivers/usb/mass_storage_protocol.cpp \
+    kernel/drivers/usb/xhci_bulk.cpp kernel/drivers/core/device_manager.cpp \
+    kernel/storage/device_registry.cpp kernel/storage/scratch_test.cpp \
+    kernel/core/system_metrics.cpp -Wl,--gc-sections

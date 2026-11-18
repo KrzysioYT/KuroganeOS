@@ -1,5 +1,6 @@
 #include <cassert>
 #include <cstdio>
+#include <initializer_list>
 
 #include "../kernel/drivers/usb/xhci.cpp"
 
@@ -279,6 +280,53 @@ int main() {
         assert(companion.hid_lifecycle == HidLifecycle::WaitingForDevice);
     }
     std::puts("xHCI repeated child retirement clears stale DMA and events: PASS");
+
+    // A companion Disable Slot timeout must contain the entire controller,
+    // retaining slot/ring ownership and deferring all remaining input/events.
+    alignas(4) uint8_t stopped_mmio[0x40]{};
+    for (bool halted : {false, true}) {
+        clear_bytes(events, sizeof(events));
+        g_controller.initialized = true;
+        g_controller.cleanup_pending = false;
+        g_controller.dma_published = true;
+        g_controller.operational = stopped_mmio;
+        write32(stopped_mmio, OP_USBCMD, CMD_RUN);
+        write32(stopped_mmio, OP_USBSTS, halted ? STS_HALTED : 0U);
+        g_controller.hid_kind = HidKind::None;
+        g_controller.hid_lifecycle = HidLifecycle::Active;
+        g_controller.port_id = 0U;
+        g_controller.event_dequeue = 0U;
+        g_controller.event_cycle = true;
+        g_controller.deferred_event_count = 0U;
+        g_controller.command_ring.enqueue = 0U;
+        companion.child_device = device::INVALID_DEVICE_ID;
+        companion.hid_kind = HidKind::Keyboard;
+        assert(register_companion_hid(g_controller));
+        const auto retained_child = device::handle_for(companion.child_device);
+        companion.hid_kind = HidKind::None;
+        companion.hid_lifecycle = HidLifecycle::ReleaseInput;
+        companion.slot_id = 2U;
+        companion.ep0_ring.enqueue = 3U;
+        dcbaa[2U] = 0xA0000U;
+        report[0U] = 0xA5U;
+        assert(defer_event(g_controller, companion_report));
+        assert(poll(1U) == 0U);
+        assert(!initialized() && g_controller.cleanup_pending);
+        assert(g_controller.hid_lifecycle == HidLifecycle::Failed);
+        assert(companion.hid_lifecycle == HidLifecycle::Failed);
+        assert(runtime_status() == (halted ? Status::CommandFailed : Status::ControllerHaltTimeout));
+        assert((read32(stopped_mmio, OP_USBCMD) & CMD_RUN) == 0U);
+        assert(companion.slot_id == 2U && dcbaa[2U] == 0xA0000U);
+        assert(companion.data_page.allocated && report[0U] == 0xA5U);
+        assert(companion.ep0_ring.enqueue == 3U);
+        assert(g_controller.deferred_event_count == 1U);
+        assert(g_controller.command_ring.enqueue == 1U);
+        assert(poll(1U) == 0U && g_controller.command_ring.enqueue == 1U);
+        const auto* failed_child = device::resolve(retained_child);
+        assert(failed_child != nullptr && failed_child->status == device::Status::Failed);
+        assert(remove_companion_device(&g_controller) == Status::Ok);
+    }
+    std::puts("xHCI companion retirement timeout halts polling and retains DMA: PASS");
 
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");

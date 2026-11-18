@@ -137,6 +137,14 @@ probe and rejects missing anchors or duplicate injection; an anchor mismatch
 must fail qualification before QEMU. Physical hub power/fault recovery remains
 BLOCKED without suitable hardware.
 
+A failed companion Disable Slot now contains the whole xHCI controller, marks
+both HID lifecycles and the companion device failed, and stops event polling
+before more input can be queued. DMA pages, slot/DCBAA and endpoint rings remain
+owned until explicit cleanup/reinitialize. Host/UBSan inject a missing command
+completion with both acknowledged halt and halt timeout, checking retained DMA,
+unchanged pending events and no subsequent polling work. Physical fault recovery
+remains BLOCKED; this does not qualify persistent downstream hotplug.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

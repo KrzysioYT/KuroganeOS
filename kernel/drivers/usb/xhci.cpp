@@ -2989,10 +2989,12 @@ void handle_companion_pointer_report(
     }
 }
 
+void fail_hotplug(Controller& controller, Status reason);
+
 bool retire_companion_slot(Controller& controller) {
     auto& companion = controller.companion;
     if (!disable_slot(controller, companion.slot_id)) {
-        companion.hid_lifecycle = HidLifecycle::Failed;
+        fail_hotplug(controller, Status::CommandFailed);
         return false;
     }
     if (remove_companion_device(&controller) != Status::Ok) {
@@ -3594,6 +3596,7 @@ Status attach_hid_device(Controller& controller) {
 void fail_hotplug(Controller& controller, Status reason) {
     controller.initialized = false;
     controller.hid_lifecycle = HidLifecycle::Failed;
+    controller.companion.hid_lifecycle = HidLifecycle::Failed;
     controller.cleanup_pending = true;
     const Status stopped = quiesce_dma(controller);
     controller.runtime_status = stopped == Status::Ok ? reason : stopped;
@@ -3607,6 +3610,10 @@ void fail_hotplug(Controller& controller, Status reason) {
     }
     if (controller.mass_storage_device != device::INVALID_DEVICE_ID) {
         static_cast<void>(device::set_status(controller.mass_storage_device,
+                                            device::Status::Failed));
+    }
+    if (controller.companion.child_device != device::INVALID_DEVICE_ID) {
+        static_cast<void>(device::set_status(controller.companion.child_device,
                                             device::Status::Failed));
     }
     log::write(log::Level::Error, "XHCI", status_message(controller.runtime_status));
@@ -3807,6 +3814,7 @@ size_t poll(size_t budget) {
         return 0U;
     }
     static_cast<void>(progress_companion_lifecycle(g_controller));
+    if (!g_controller.initialized) return 0U;
 
     const bool input_pending =
         (g_controller.hid_kind == HidKind::Keyboard &&
@@ -3873,6 +3881,9 @@ size_t poll(size_t budget) {
             }
         }
 
+        // Either lifecycle can contain a failed slot retirement by halting
+        // the controller. Do not consume more events or requeue input then.
+        if (!g_controller.initialized) return processed;
         if (trb_type(event) != TRB_TRANSFER_EVENT) continue;
         const uint8_t event_slot =
             static_cast<uint8_t>(event.control >> 24U);
