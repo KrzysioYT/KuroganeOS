@@ -113,6 +113,15 @@ disk and requires successful port cleanup, disk access and direct HID input.
 This checks boot-time isolation and leaves persistent downstream HID/hotplug
 and physical hub qualification open.
 
+Hub reset results now distinguish a verified reset, a failed probe with verified
+port disable, and unsafe cleanup. After a reset attempt, an ignored/failed
+disable, unreadable final status, a port still enabled/resetting or a failed
+child retirement aborts hub enumeration and enters controller DMA cleanup.
+The next child cannot reuse a slot/address while the prior port state is
+unverified. Host/UBSan cover these failures, re-enable after acknowledgement,
+and a reset timeout followed by verified disable. Physical hub fault recovery
+remains BLOCKED without suitable hardware.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

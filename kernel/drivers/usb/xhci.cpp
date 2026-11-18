@@ -3306,7 +3306,6 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
         }
         // Do not wait on the timer inside the normal HID polling path.
         if (probe_ports && hub::inactive_reset_candidate(status)) {
-            bool child_retired = true;
             const auto after_reset = [&] {
                 // This first topology has no high-speed transaction translator.
                 if (companion || speed != 1U || controller.maximum_slots < 2U ||
@@ -3322,14 +3321,17 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                 if (!exchange(hub::PortRequest::GetStatus, &ready) ||
                     (ready.status & required) != required || (ready.status & blocked) != 0U ||
                     (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return true;
-                child_retired = probe_downstream_device(controller, port,
+                return probe_downstream_device(controller, port,
                     (ready.status & hub::PORT_LOW_SPEED) != 0U ? 2U : 1U);
-                return child_retired;
             };
-            const bool reset_verified = hub::probe_port_reset(
+            const auto result = hub::probe_port_reset(
                 status, exchange, wait_hpet_us, after_reset);
-            if (!child_retired) return false;
-            if (reset_verified) {
+            if (result == hub::ResetResult::UnsafePort) {
+                log::write_u64(log::Level::Error, "XHCI",
+                    "USB2 hub port cleanup unverified; stopping controller at port: ", port);
+                return false;
+            }
+            if (result == hub::ResetResult::Verified) {
                 log::write_u64(log::Level::Info, "XHCI",
                     "USB2 hub downstream reset and disable verified: ", port);
             } else {

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
+#include <cstdio>
 
 namespace {
 namespace hub = drivers::usb::hub;
@@ -87,8 +88,9 @@ struct ResetStep {
 template<size_t N>
 void check_reset_sequence(
     hub::PortStatus initial, const ResetStep (&steps)[N],
-    size_t short_delays, bool expected, bool expect_callback,
-    bool fail_short_delay = false, bool child_retired = true) {
+    size_t short_delays, hub::ResetResult expected, bool expect_callback,
+    bool fail_short_delay = false, bool child_retired = true,
+    size_t failed_exchange = SIZE_MAX) {
     size_t next = 0U;
     size_t waits = 0U;
     size_t callbacks = 0U;
@@ -96,8 +98,7 @@ void check_reset_sequence(
         assert(next < N && request == steps[next].request);
         assert((status != nullptr) == (request == Request::GetStatus));
         if (status != nullptr) *status = steps[next].reply;
-        ++next;
-        return true;
+        return next++ != failed_exchange;
     };
     const auto wait = [&](uint32_t microseconds) {
         assert(microseconds == (waits == 0U ? 100000U : 10000U));
@@ -114,7 +115,8 @@ void check_reset_sequence(
         ++callbacks;
         return child_retired;
     };
-    assert(hub::probe_port_reset(initial, exchange, wait, after_reset) == expected);
+    const auto result = hub::probe_port_reset(initial, exchange, wait, after_reset);
+    assert(result == expected);
     assert(next == N && waits == 1U + short_delays);
     assert(callbacks == (expect_callback ? 1U : 0U));
 }
@@ -136,25 +138,27 @@ void test_downstream_reset() {
         {Request::GetStatus, {connected, 0U}},
     };
     check_reset_sequence({connected, hub::CHANGE_CONNECTION | hub::CHANGE_RESET},
-        success, 2U, true, true);
+        success, 2U, hub::ResetResult::Verified, true);
 
     const ResetStep replaced[] = {
         {Request::GetStatus, {connected, hub::CHANGE_CONNECTION}},
     };
-    check_reset_sequence({connected, 0U}, replaced, 0U, false, false);
+    check_reset_sequence({connected, 0U}, replaced, 0U, hub::ResetResult::ProbeFailed, false);
 
     const ResetStep no_timer[] = {
         {Request::GetStatus, {connected, 0U}}, {Request::Reset}, {Request::Disable},
+        {Request::GetStatus, {connected | hub::PORT_RESET, 0U}},
     };
-    check_reset_sequence({connected, 0U}, no_timer, 1U, false, false, true);
+    check_reset_sequence({connected, 0U}, no_timer, 1U, hub::ResetResult::UnsafePort, false, true);
 
     const ResetStep lost_connection[] = {
         {Request::GetStatus, {connected, 0U}},
         {Request::Reset},
         {Request::GetStatus, {hub::PORT_POWERED, hub::CHANGE_CONNECTION}},
         {Request::Disable},
+        {Request::GetStatus, {hub::PORT_POWERED, hub::CHANGE_CONNECTION}},
     };
-    check_reset_sequence({connected, 0U}, lost_connection, 1U, false, false);
+    check_reset_sequence({connected, 0U}, lost_connection, 1U, hub::ResetResult::ProbeFailed, false);
 
     const ResetStep disable_ignored[] = {
         {Request::GetStatus, {connected, 0U}},
@@ -164,7 +168,7 @@ void test_downstream_reset() {
         {Request::Disable},
         {Request::GetStatus, {enabled, 0U}},
     };
-    check_reset_sequence({connected, 0U}, disable_ignored, 1U, false, true);
+    check_reset_sequence({connected, 0U}, disable_ignored, 1U, hub::ResetResult::UnsafePort, true);
 
     // A live child slot can still access DMA after a failed Disable Slot.
     // Preserve the port and stop the hub sequence for controller cleanup.
@@ -175,7 +179,39 @@ void test_downstream_reset() {
         {Request::ClearResetChange},
     };
     check_reset_sequence({connected, 0U}, child_cleanup_failed,
-        1U, false, true, false, false);
+        1U, hub::ResetResult::UnsafePort, true, false, false);
+
+    const ResetStep disable_failed[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+        {Request::ClearResetChange}, {Request::Disable},
+    };
+    check_reset_sequence({connected, 0U}, disable_failed,
+        1U, hub::ResetResult::UnsafePort, true, false, true, 4U);
+    check_reset_sequence({connected, 0U}, disable_ignored,
+        1U, hub::ResetResult::UnsafePort, true, false, true, 5U);
+
+    const ResetStep reenabled[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+        {Request::ClearResetChange}, {Request::Disable},
+        {Request::GetStatus, {connected, hub::CHANGE_ENABLE}},
+        {Request::ClearEnableChange}, {Request::GetStatus, {enabled, 0U}},
+    };
+    check_reset_sequence({connected, 0U}, reenabled,
+        1U, hub::ResetResult::UnsafePort, true);
+
+    // Reset timeout is recoverable only after Disable and status readback.
+    ResetStep timed_out[14U] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+    };
+    for (size_t i = 2U; i < 12U; ++i)
+        timed_out[i] = {Request::GetStatus, {connected | hub::PORT_RESET, 0U}};
+    timed_out[12U] = {Request::Disable};
+    timed_out[13U] = {Request::GetStatus, {connected, 0U}};
+    check_reset_sequence({connected, 0U}, timed_out,
+        10U, hub::ResetResult::ProbeFailed, false);
+    std::puts("USB2 hub reset cleanup verification and unsafe-port containment: PASS");
 
     assert(!hub::inactive_reset_candidate({enabled, 0U}));
     assert(!hub::inactive_reset_candidate({connected | hub::PORT_OVER_CURRENT, 0U}));

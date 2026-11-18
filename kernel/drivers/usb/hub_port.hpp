@@ -200,15 +200,21 @@ bool power_port_for_probe(
 // caller may use EP0 after a verified reset. Retire any child slot in that
 // callback before this function disables the port again. A false callback
 // result retains the port for controller-level DMA quiescence and cleanup.
+enum class ResetResult : uint8_t {
+    Verified,
+    ProbeFailed,
+    UnsafePort,
+};
+
 template<typename Exchange, typename Wait, typename AfterReset>
-bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterReset after_reset) {
-    if (!inactive_reset_candidate(port)) return false;
+ResetResult probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterReset after_reset) {
+    if (!inactive_reset_candidate(port)) return ResetResult::ProbeFailed;
     if ((port.changed & CHANGE_CONNECTION) != 0U &&
-        !exchange(PortRequest::ClearConnectionChange, nullptr)) return false;
+        !exchange(PortRequest::ClearConnectionChange, nullptr)) return ResetResult::ProbeFailed;
     if ((port.changed & CHANGE_RESET) != 0U &&
-        !exchange(PortRequest::ClearResetChange, nullptr)) return false;
+        !exchange(PortRequest::ClearResetChange, nullptr)) return ResetResult::ProbeFailed;
     if (!wait_us(100000U) || !exchange(PortRequest::GetStatus, &port) ||
-        !inactive_reset_candidate(port) || port.changed != 0U) return false;
+        !inactive_reset_candidate(port) || port.changed != 0U) return ResetResult::ProbeFailed;
 
     bool completed = false;
     if (exchange(PortRequest::Reset, nullptr)) {
@@ -221,7 +227,7 @@ bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterRes
             if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
                 (port.changed & CHANGE_RESET) != 0U) {
                 completed = exchange(PortRequest::ClearResetChange, nullptr);
-                if (completed && !after_reset()) return false;
+                if (completed && !after_reset()) return ResetResult::UnsafePort;
                 break;
             }
         }
@@ -229,10 +235,15 @@ bool probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterRes
     // A failed transfer may still have reached the hub; always request
     // cleanup once a reset was attempted. Only verified cleanup earns PASS.
     const bool disabled = exchange(PortRequest::Disable, nullptr);
-    if (!completed || !disabled || !exchange(PortRequest::GetStatus, &port)) return false;
+    if (!disabled || !exchange(PortRequest::GetStatus, &port))
+        return ResetResult::UnsafePort;
+    constexpr uint16_t active = PORT_ENABLED | PORT_RESET;
+    if ((port.status & active) != 0U) return ResetResult::UnsafePort;
     if (port.changed == CHANGE_ENABLE &&
         (!exchange(PortRequest::ClearEnableChange, nullptr) ||
-         !exchange(PortRequest::GetStatus, &port))) return false;
-    return inactive_reset_candidate(port) && port.changed == 0U;
+         !exchange(PortRequest::GetStatus, &port))) return ResetResult::UnsafePort;
+    if ((port.status & active) != 0U) return ResetResult::UnsafePort;
+    return completed && inactive_reset_candidate(port) && port.changed == 0U
+        ? ResetResult::Verified : ResetResult::ProbeFailed;
 }
 } // namespace drivers::usb::hub
