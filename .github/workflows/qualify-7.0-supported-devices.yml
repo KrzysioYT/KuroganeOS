@@ -408,6 +408,31 @@ jobs:
             --require-marker-count '[TEST] usb_hid_f12_press: PASS' 3 \
             --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify live companion retirement failure contains real xHCI DMA
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/retirement-failure
+          mkdir -p "$evidence"
+          git restore --worktree -- kernel/drivers/usb/xhci.cpp
+          trap 'git restore --worktree -- kernel/drivers/usb/xhci.cpp' EXIT
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-xhci-retirement-failure.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] xhci_mouse_enumeration: PASS' \
+            --require-marker '[TEST] xhci_companion_retirement_containment: PASS' \
+            --require-marker '[TEST] network_loopback: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_companion_retirement_containment: FAIL' "$evidence/serial.log"
       - name: Retain no-NIC serial evidence
         if: always()
         uses: actions/upload-artifact@v4

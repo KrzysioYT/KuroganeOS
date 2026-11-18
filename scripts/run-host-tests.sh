@@ -450,6 +450,7 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/storage/scratch_test.cpp kernel/core/system_metrics.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
+python3 tests/test_xhci_retirement_injector.py
 python3 tests/test_usb_hub_power_injector.py
 python3 tests/test_usb_hotplug_qmp.py
 

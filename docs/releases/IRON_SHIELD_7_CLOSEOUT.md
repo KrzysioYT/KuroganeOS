@@ -145,6 +145,16 @@ completion with both acknowledged halt and halt timeout, checking retained DMA,
 unchanged pending events and no subsequent polling work. Physical fault recovery
 remains BLOCKED; this does not qualify persistent downstream hotplug.
 
+The no-NIC CI gate also boots a separately instrumented image with real USB
+keyboard/mouse and an injected unacknowledged live companion retirement. It
+requires actual xHCI halted-status and PCI bus-master-disable readback, retained
+slot/DCBAA/DMA ownership and failed HID lifecycles, followed by the login surface
+and loopback service. USB is intentionally unavailable after containment; normal
+input and hotplug remain mandatory in the uninjected/other qualified profiles.
+The artifact records candidate SHA, exact patch and instrumented image hash.
+This tests the production containment path against QEMU hardware, not a real
+missing command completion or physical hub failure; those remain BLOCKED.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device
