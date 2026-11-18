@@ -126,6 +126,14 @@ Unverified control transfers before reset also return the unsafe result,
 so an unfinished EP0 operation cannot be followed by another port probe.
 Host/UBSan cover failed change acknowledgements and status reads before reset.
 
+Hub port power now distinguishes an unsupported/no-action policy from an
+unsafe result after PowerOn. Failed SET_FEATURE, timer or status readback,
+unpowered readback, overcurrent and unexpected enable/reset/suspend after power
+abort the hub probe and enter controller DMA cleanup instead of continuing to
+the next port. An unreadable initial port status also aborts. Host/UBSan inject
+these power failures; successful individually powered ports remain a QEMU gate.
+Physical hub power/fault recovery remains BLOCKED without suitable hardware.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

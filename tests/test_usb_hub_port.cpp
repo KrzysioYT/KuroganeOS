@@ -31,13 +31,13 @@ void test_port_power() {
             ++waits;
             return true;
         };
-        assert(hub::power_port_for_probe(descriptor, port, exchange, wait));
+        assert(hub::power_port_for_probe(descriptor, port, exchange, wait) == hub::PowerResult::Ready);
         assert(requests == 2U && waits == 1U);
         assert(hub::inactive_reset_candidate(port));
     }
 
     // Failures at SET_FEATURE, timer, GET_STATUS and readback must stop.
-    for (unsigned failure = 0U; failure < 7U; ++failure) {
+    for (unsigned failure = 0U; failure < 9U; ++failure) {
         size_t requests = 0U;
         size_t waits = 0U;
         hub::PortStatus port{};
@@ -50,11 +50,13 @@ void test_port_power() {
                 if (failure == 4U) output->status |= hub::PORT_OVER_CURRENT;
                 if (failure == 5U) output->changed = hub::CHANGE_OVER_CURRENT;
                 if (failure == 6U) output->status |= hub::PORT_ENABLED;
+                if (failure == 7U) output->status |= hub::PORT_RESET;
+                if (failure == 8U) output->status |= hub::PORT_SUSPENDED;
             }
             return failure != (request == Request::PowerOn ? 0U : 2U);
         };
         const auto wait = [&](uint32_t) { ++waits; return failure != 1U; };
-        assert(!hub::power_port_for_probe(descriptor, port, exchange, wait));
+        assert(hub::power_port_for_probe(descriptor, port, exchange, wait) == hub::PowerResult::UnsafePort);
         assert(requests == (failure < 2U ? 1U : 2U));
         assert(waits == (failure == 0U ? 0U : 1U));
     }
@@ -66,18 +68,19 @@ void test_port_power() {
     for (auto mode : {hub::PowerMode::Ganged, hub::PowerMode::AlwaysOn}) {
         descriptor.power_mode = mode;
         hub::PortStatus port{};
-        assert(!hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+        assert(hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait) == hub::PowerResult::Unavailable);
         port.status = hub::PORT_POWERED;
-        assert(hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+        assert(hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait) == hub::PowerResult::Ready);
     }
     descriptor.power_mode = hub::PowerMode::Individual;
     for (auto state : {hub::PORT_ENABLED, hub::PORT_RESET, hub::PORT_SUSPENDED,
                        hub::PORT_OVER_CURRENT}) {
         hub::PortStatus port{state, 0U};
-        assert(!hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait));
+        assert(hub::power_port_for_probe(descriptor, port, forbidden_exchange, forbidden_wait) == hub::PowerResult::Unavailable);
     }
     hub::PortStatus overcurrent{0U, hub::CHANGE_OVER_CURRENT};
-    assert(!hub::power_port_for_probe(descriptor, overcurrent, forbidden_exchange, forbidden_wait));
+    assert(hub::power_port_for_probe(descriptor, overcurrent, forbidden_exchange, forbidden_wait) == hub::PowerResult::Unavailable);
+    std::puts("USB2 hub power failure containment: PASS");
 }
 
 struct ResetStep {

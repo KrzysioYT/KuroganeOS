@@ -174,26 +174,36 @@ inline bool inactive_reset_candidate(const PortStatus& port) {
         (port.changed & ~clearable) == 0U;
 }
 
+enum class PowerResult : uint8_t {
+    Ready,
+    Unavailable,
+    UnsafePort,
+};
+
 // Cold-boot only: power an unused, individually switched port before probing.
 // Ganged switching needs a hub-wide policy before changing shared power.
 template<typename Exchange, typename Wait>
-bool power_port_for_probe(
+PowerResult power_port_for_probe(
     const Descriptor& hub, PortStatus& port, Exchange exchange, Wait wait_us) {
     constexpr uint16_t unsafe = PORT_ENABLED | PORT_SUSPENDED |
         PORT_OVER_CURRENT | PORT_RESET;
     if ((port.status & PORT_OVER_CURRENT) != 0U ||
-        (port.changed & CHANGE_OVER_CURRENT) != 0U) return false;
-    if ((port.status & PORT_POWERED) != 0U) return true;
+        (port.changed & CHANGE_OVER_CURRENT) != 0U) return PowerResult::Unavailable;
+    if ((port.status & PORT_POWERED) != 0U) return PowerResult::Ready;
     if (hub.power_mode != PowerMode::Individual ||
-        (port.status & unsafe) != 0U) return false;
-    if (!exchange(PortRequest::PowerOn, nullptr)) return false;
+        (port.status & unsafe) != 0U) return PowerResult::Unavailable;
+    if (!exchange(PortRequest::PowerOn, nullptr)) return PowerResult::UnsafePort;
     // Allow connection detection to settle as well as descriptor power-good.
     const uint32_t power_good = static_cast<uint32_t>(hub.power_on_delay_2ms) * 2000U;
     const uint32_t delay = power_good < 100000U ? 100000U : power_good;
-    if (!wait_us(delay) || !exchange(PortRequest::GetStatus, &port)) return false;
+    // After SET_FEATURE, an unfinished transfer or unknown port state must
+    // not be followed by another port's control traffic or slot reuse.
+    if (!wait_us(delay) || !exchange(PortRequest::GetStatus, &port))
+        return PowerResult::UnsafePort;
     return (port.status & PORT_POWERED) != 0U &&
         (port.status & unsafe) == 0U &&
-        (port.changed & CHANGE_OVER_CURRENT) == 0U;
+        (port.changed & CHANGE_OVER_CURRENT) == 0U
+        ? PowerResult::Ready : PowerResult::UnsafePort;
 }
 
 // Probe one powered, inactive port during controller initialization. The

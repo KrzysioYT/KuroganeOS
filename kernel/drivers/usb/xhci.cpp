@@ -3288,11 +3288,21 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
                 hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
         };
         hub::PortStatus status{};
-        if (!exchange(hub::PortRequest::GetStatus, &status)) return true;
+        if (!exchange(hub::PortRequest::GetStatus, &status)) {
+            log::write_u64(log::Level::Error, "XHCI",
+                "USB2 hub port status unverified; stopping controller at port: ", port);
+            return false;
+        }
         if (!controller.initialized &&
             (status.status & hub::PORT_POWERED) == 0U &&
             arch::x86_64::hpet::capabilities() != nullptr) {
-            if (!hub::power_port_for_probe(parsed, status, exchange, wait_hpet_us)) {
+            const auto power = hub::power_port_for_probe(parsed, status, exchange, wait_hpet_us);
+            if (power == hub::PowerResult::UnsafePort) {
+                log::write_u64(log::Level::Error, "XHCI",
+                    "USB2 hub port power unverified; stopping controller at port: ", port);
+                return false;
+            }
+            if (power == hub::PowerResult::Unavailable) {
                 log::write_u64(log::Level::Warn, "XHCI",
                     "USB2 hub port power unavailable: ", port);
                 continue;
