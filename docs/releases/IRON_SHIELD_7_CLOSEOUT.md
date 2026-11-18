@@ -132,7 +132,10 @@ unpowered readback, overcurrent and unexpected enable/reset/suspend after power
 abort the hub probe and enter controller DMA cleanup instead of continuing to
 the next port. An unreadable initial port status also aborts. Host/UBSan inject
 these power failures; successful individually powered ports remain a QEMU gate.
-Physical hub power/fault recovery remains BLOCKED without suitable hardware.
+The host suite also applies the CI power-off fixture to the current production
+probe and rejects missing anchors or duplicate injection; an anchor mismatch
+must fail qualification before QEMU. Physical hub power/fault recovery remains
+BLOCKED without suitable hardware.
 
 ## Rules for closing
 

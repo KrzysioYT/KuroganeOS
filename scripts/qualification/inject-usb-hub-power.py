@@ -5,7 +5,7 @@ from pathlib import Path
 
 def inject(source):
     anchor = """        hub::PortStatus status{};
-        if (!exchange(hub::PortRequest::GetStatus, &status)) return true;"""
+        if (!exchange(hub::PortRequest::GetStatus, &status)) {"""
     setup = """        // Qualification-only fixture. Use real class requests and readback.
         if (controller.initialized || parsed.power_mode != hub::PowerMode::Individual ||
             !transfer(controller, 0x23U, 1U, 8U, port, 0U, false)) return false;
