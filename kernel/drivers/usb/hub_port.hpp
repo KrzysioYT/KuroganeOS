@@ -210,11 +210,12 @@ template<typename Exchange, typename Wait, typename AfterReset>
 ResetResult probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, AfterReset after_reset) {
     if (!inactive_reset_candidate(port)) return ResetResult::ProbeFailed;
     if ((port.changed & CHANGE_CONNECTION) != 0U &&
-        !exchange(PortRequest::ClearConnectionChange, nullptr)) return ResetResult::ProbeFailed;
+        !exchange(PortRequest::ClearConnectionChange, nullptr)) return ResetResult::UnsafePort;
     if ((port.changed & CHANGE_RESET) != 0U &&
-        !exchange(PortRequest::ClearResetChange, nullptr)) return ResetResult::ProbeFailed;
-    if (!wait_us(100000U) || !exchange(PortRequest::GetStatus, &port) ||
-        !inactive_reset_candidate(port) || port.changed != 0U) return ResetResult::ProbeFailed;
+        !exchange(PortRequest::ClearResetChange, nullptr)) return ResetResult::UnsafePort;
+    if (!wait_us(100000U)) return ResetResult::ProbeFailed;
+    if (!exchange(PortRequest::GetStatus, &port)) return ResetResult::UnsafePort;
+    if (!inactive_reset_candidate(port) || port.changed != 0U) return ResetResult::ProbeFailed;
 
     bool completed = false;
     if (exchange(PortRequest::Reset, nullptr)) {

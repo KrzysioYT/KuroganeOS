@@ -122,6 +122,10 @@ unverified. Host/UBSan cover these failures, re-enable after acknowledgement,
 and a reset timeout followed by verified disable. Physical hub fault recovery
 remains BLOCKED without suitable hardware.
 
+Unverified control transfers before reset also return the unsafe result,
+so an unfinished EP0 operation cannot be followed by another port probe.
+Host/UBSan cover failed change acknowledgements and status reads before reset.
+
 ## Rules for closing
 
 1. Do not silently shrink the scope to the already qualified virtual-device

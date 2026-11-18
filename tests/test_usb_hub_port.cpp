@@ -145,6 +145,27 @@ void test_downstream_reset() {
     };
     check_reset_sequence({connected, 0U}, replaced, 0U, hub::ResetResult::ProbeFailed, false);
 
+    const ResetStep unreadable_before_reset[] = {
+        {Request::GetStatus, {connected, 0U}},
+    };
+    check_reset_sequence({connected, 0U}, unreadable_before_reset,
+        0U, hub::ResetResult::UnsafePort, false, false, true, 0U);
+    for (auto change : {hub::CHANGE_CONNECTION, hub::CHANGE_RESET}) {
+        size_t requests = 0U;
+        const auto fail_clear = [&](Request request, hub::PortStatus* status) {
+            assert(request == (change == hub::CHANGE_CONNECTION
+                ? Request::ClearConnectionChange : Request::ClearResetChange));
+            assert(status == nullptr);
+            ++requests;
+            return false;
+        };
+        const auto no_wait = [](uint32_t) { assert(false); return false; };
+        const auto no_child = [] { assert(false); return false; };
+        assert(hub::probe_port_reset({connected, change}, fail_clear, no_wait, no_child) ==
+            hub::ResetResult::UnsafePort);
+        assert(requests == 1U);
+    }
+
     const ResetStep no_timer[] = {
         {Request::GetStatus, {connected, 0U}}, {Request::Reset}, {Request::Disable},
         {Request::GetStatus, {connected | hub::PORT_RESET, 0U}},
