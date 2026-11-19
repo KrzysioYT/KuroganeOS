@@ -24,6 +24,11 @@ run handles tests/test_file_handle.cpp
 run session-owner tests/test_flux_session_owner_policy.cpp
 run package-vfs tests/test_package_vfs.cpp kernel/install/package_vfs.cpp kernel/install/package.cpp kernel/fs/vfs.cpp kernel/libk/crc.cpp
 run abi -Isdk/include tests/test_sdk_abi.cpp
+# Re-run production RTL81xx descriptor validation and injected TX/RX fault
+# containment under UBSan; simulation does not qualify physical hardware.
+run rtl81xx-ring tests/test_rtl81xx_ring.cpp
+run rtl81xx-dma-runtime -ffunction-sections -fdata-sections \
+    tests/test_rtl81xx_dma_runtime.cpp -Wl,--gc-sections
 run usb-hub-port tests/test_usb_hub_port.cpp
 run usb-hub-ganged-power tests/test_usb_hub_ganged_power.cpp
 

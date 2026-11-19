@@ -185,3 +185,21 @@ profile, physical switching and downstream hotplug remain BLOCKED/unqualified.
 See [historical supported-subset audit](../audit/2026-10-24-supported-device-gate.md)
 and [consolidation findings](../audit/2026-10-20-consolidation.md)
 for earlier limitations, not current test-result substitutes.
+
+## 2026-11-19 — RTL81xx descriptor-integrity increment (qualification pending)
+
+The experimental production RX/TX paths now validate each live descriptor's
+physical DMA-buffer binding and end-of-ring marker before consuming RX data
+or publishing TX work. A mismatch latches a cross-CPU atomic device fault,
+returns an interface error, stops new software ring operations and retains
+all DMA ownership pending an explicitly verified hardware shutdown. Carrier
+and PCI/controller readiness are also rechecked under each ring's producer
+lock. The selector remains behind `KUROGANE_EXPERIMENTAL_RTL81XX`.
+
+The production-path MMIO/DMA fixture injects address and ring-wrap corruption
+for both RX and TX, checking unchanged buffers, counters, ring positions and
+doorbells. The same host tests are included in the UBSan runner. These
+injections do not demonstrate physical DMA recovery, device reset, or
+hardware compatibility. **Realtek remains BLOCKED — PHYSICAL HARDWARE
+REQUIRED.** Confirm these changes against the final source SHA and CI run;
+do not inherit PASS from the previous candidate.
