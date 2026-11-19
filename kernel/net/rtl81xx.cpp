@@ -221,7 +221,7 @@ net::Status transmit(void* context, const uint8_t* data, size_t count) {
     if (!dma::valid_descriptor_binding(slot, flags,
             g_device.tx_buffers[index].physical_address,
             index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
-        g_device.faulted = true;
+        __atomic_store_n(&g_device.faulted, true, __ATOMIC_RELEASE);
         g_status = Status::DeviceFault;
         __atomic_clear(&g_device.tx_busy, __ATOMIC_RELEASE);
         return net::Status::InterfaceError;
@@ -269,7 +269,7 @@ net::Status receive(void* context, uint8_t* out, size_t capacity,
     if (!dma::valid_descriptor_binding(slot, flags,
             g_device.rx_buffers[index].physical_address,
             index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
-        g_device.faulted = true;
+        __atomic_store_n(&g_device.faulted, true, __ATOMIC_RELEASE);
         g_status = Status::DeviceFault;
         __atomic_clear(&g_device.rx_busy, __ATOMIC_RELEASE);
         return net::Status::InterfaceError;
@@ -313,7 +313,8 @@ Status initialize() {
     if (g_device.started) {
         // A corrupted live ring is quarantined. Reinitializing here would
         // free or reuse DMA pages while the controller might still own them.
-        if (g_device.faulted) return g_status = Status::DeviceFault;
+        if (__atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE))
+            return g_status = Status::DeviceFault;
         g_status = link_up() ? Status::Ok : Status::LinkDown;
         return g_status;
     }
@@ -398,7 +399,8 @@ Status initialize() {
 }
 
 bool link_up() {
-    if (!g_device.started || g_device.faulted ||
+    if (!g_device.started ||
+        __atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE) ||
         g_device.registers == nullptr) return false;
     const uint32_t expected_identity =
         static_cast<uint32_t>(g_device.pci_device.device_id) << 16U |
