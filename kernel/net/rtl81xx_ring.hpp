@@ -33,6 +33,18 @@ constexpr bool valid_dma_buffer(uint64_t physical, size_t length) {
         physical <= UINT64_MAX - static_cast<uint64_t>(length - 1U);
 }
 
+// The device owns descriptor completion flags but must never redirect a DMA
+// ring entry to a different physical buffer or corrupt its wrap marker.
+// Validate both before consuming or publishing a descriptor. A failure is a
+// device fault, not a frame that may safely be rearmed.
+constexpr bool valid_descriptor_binding(
+    const Descriptor& slot, uint32_t flags, uint64_t expected_physical,
+    bool last, size_t buffer_capacity) {
+    return valid_dma_buffer(expected_physical, buffer_capacity) &&
+        slot.address == expected_physical &&
+        ((flags & END_OF_RING) != 0U) == last;
+}
+
 constexpr uint32_t rx_rearm(bool last, size_t capacity) {
     return capacity != 0U && capacity <= RX_BUFFER_BYTES
         ? OWN | (last ? END_OF_RING : 0U) | static_cast<uint32_t>(capacity)

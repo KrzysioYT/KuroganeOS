@@ -58,6 +58,9 @@ struct Device {
     bool rx_busy;
     bool tx_busy;
     bool started;
+    // An invalid DMA binding is terminal until an explicit, verified
+    // controller shutdown. Never overwrite live/ambiguous DMA ownership.
+    bool faulted;
 };
 
 Device g_device{};
@@ -206,9 +209,23 @@ net::Status transmit(void* context, const uint8_t* data, size_t count) {
     if (!link_up()) return net::Status::InterfaceError;
     if (__atomic_test_and_set(&g_device.tx_busy, __ATOMIC_ACQUIRE))
         return net::Status::QueueFull;
+    // Recheck after acquiring producer ownership: the controller may stop
+    // between the initial carrier check and our ring access.
+    if (!link_up()) {
+        __atomic_clear(&g_device.tx_busy, __ATOMIC_RELEASE);
+        return net::Status::InterfaceError;
+    }
     const size_t index = g_device.next_tx;
     dma::Descriptor& slot = tx_ring()[index];
     const uint32_t flags = __atomic_load_n(&slot.flags, __ATOMIC_ACQUIRE);
+    if (!dma::valid_descriptor_binding(slot, flags,
+            g_device.tx_buffers[index].physical_address,
+            index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
+        g_device.faulted = true;
+        g_status = Status::DeviceFault;
+        __atomic_clear(&g_device.tx_busy, __ATOMIC_RELEASE);
+        return net::Status::InterfaceError;
+    }
     if ((flags & dma::OWN) != 0U) {
         __atomic_clear(&g_device.tx_busy, __ATOMIC_RELEASE);
         return net::Status::QueueFull;
@@ -242,10 +259,22 @@ net::Status receive(void* context, uint8_t* out, size_t capacity,
     if (!link_up()) return net::Status::InterfaceError;
     if (__atomic_test_and_set(&g_device.rx_busy, __ATOMIC_ACQUIRE))
         return net::Status::WouldBlock;
+    if (!link_up()) {
+        __atomic_clear(&g_device.rx_busy, __ATOMIC_RELEASE);
+        return net::Status::InterfaceError;
+    }
     const size_t index = g_device.next_rx;
     dma::Descriptor& slot = rx_ring()[index];
-    const dma::ReceiveInfo info = dma::inspect_rx(
-        __atomic_load_n(&slot.flags, __ATOMIC_ACQUIRE), capacity);
+    const uint32_t flags = __atomic_load_n(&slot.flags, __ATOMIC_ACQUIRE);
+    if (!dma::valid_descriptor_binding(slot, flags,
+            g_device.rx_buffers[index].physical_address,
+            index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
+        g_device.faulted = true;
+        g_status = Status::DeviceFault;
+        __atomic_clear(&g_device.rx_busy, __ATOMIC_RELEASE);
+        return net::Status::InterfaceError;
+    }
+    const dma::ReceiveInfo info = dma::inspect_rx(flags, capacity);
     if (info.result == dma::Receive::NotReady) {
         __atomic_clear(&g_device.rx_busy, __ATOMIC_RELEASE);
         return net::Status::WouldBlock;
@@ -282,6 +311,9 @@ Status initialize() {
     if (g_device.registers != nullptr && !g_device.started)
         return g_status;
     if (g_device.started) {
+        // A corrupted live ring is quarantined. Reinitializing here would
+        // free or reuse DMA pages while the controller might still own them.
+        if (g_device.faulted) return g_status = Status::DeviceFault;
         g_status = link_up() ? Status::Ok : Status::LinkDown;
         return g_status;
     }
@@ -366,7 +398,8 @@ Status initialize() {
 }
 
 bool link_up() {
-    if (!g_device.started || g_device.registers == nullptr) return false;
+    if (!g_device.started || g_device.faulted ||
+        g_device.registers == nullptr) return false;
     const uint32_t expected_identity =
         static_cast<uint32_t>(g_device.pci_device.device_id) << 16U |
         g_device.pci_device.vendor_id;

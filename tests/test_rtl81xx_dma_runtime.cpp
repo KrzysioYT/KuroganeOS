@@ -39,6 +39,12 @@ int main() {
     for (size_t i = 0; i < DESCRIPTOR_COUNT; ++i) {
         g_device.tx_buffers[i].virtual_address = tx_data[i];
         g_device.rx_buffers[i].virtual_address = rx_data[i];
+        g_device.tx_buffers[i].physical_address = UINT64_C(0x100000) + i * 4096U;
+        g_device.rx_buffers[i].physical_address = UINT64_C(0x200000) + i * 4096U;
+        tx_descriptors[i].address = g_device.tx_buffers[i].physical_address;
+        rx_descriptors[i].address = g_device.rx_buffers[i].physical_address;
+        tx_descriptors[i].flags =
+            i + 1U == DESCRIPTOR_COUNT ? dma::END_OF_RING : 0U;
         rx_descriptors[i].flags = dma::rx_rearm(i == DESCRIPTOR_COUNT - 1U,
                                                dma::RX_BUFFER_BYTES);
     }
@@ -110,6 +116,53 @@ int main() {
     assert(ready() && interface() != nullptr);
     rx_descriptors[0].flags = dma::rx_rearm(false, dma::RX_BUFFER_BYTES);
     std::puts("RTL81xx stopped/reset DMA engines reject TX/RX without descriptor mutation: PASS");
+
+    // Inject a corrupted physical address and a missing wrap marker on the
+    // actual production TX/RX paths. No buffer copy, descriptor publication,
+    // ring advance or TX doorbell is permitted. Quarantine survives a second
+    // initialize() call; tests alone can clear it between independent cases.
+    for (unsigned fault = 0U; fault < 4U; ++fault) {
+        const bool receive_fault = fault >= 2U;
+        auto& slot = receive_fault ? rx_descriptors[0] : tx_descriptors[0];
+        const uint32_t before_flags = slot.flags;
+        const uint64_t before_address = slot.address;
+        const size_t before_tx = g_device.next_tx, before_rx = g_device.next_rx;
+        const uint64_t before_tx_frames = g_device.tx_frames;
+        const uint64_t before_rx_frames = g_device.rx_frames;
+        const uint8_t old_doorbell = mmio[REG_TX_POLL];
+        if ((fault & 1U) == 0U) slot.address ^= UINT64_C(8);
+        else slot.flags ^= dma::END_OF_RING;
+
+        uint8_t blocked[128];
+        std::memset(blocked, 0xA5, sizeof(blocked));
+        size_t copied = 99U;
+        if (receive_fault) {
+            assert(receive(&g_device, blocked, sizeof(blocked), &copied) ==
+                   net::Status::InterfaceError);
+            assert(copied == 0U);
+        } else {
+            assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
+                   net::Status::InterfaceError);
+        }
+        assert(g_device.faulted && last_status() == Status::DeviceFault);
+        assert(!ready() && interface() == nullptr);
+        assert(initialize() == Status::DeviceFault);
+        assert(g_device.next_tx == before_tx && g_device.next_rx == before_rx);
+        assert(g_device.tx_frames == before_tx_frames &&
+               g_device.rx_frames == before_rx_frames);
+        assert(mmio[REG_TX_POLL] == old_doorbell);
+        assert(slot.address == ((fault & 1U) == 0U
+            ? (before_address ^ UINT64_C(8)) : before_address));
+        assert(slot.flags == ((fault & 1U) != 0U
+            ? (before_flags ^ dma::END_OF_RING) : before_flags));
+        for (uint8_t byte : blocked) assert(byte == 0xA5);
+        slot.address = before_address;
+        slot.flags = before_flags;
+        g_device.faulted = false; // Independent synthetic test case only.
+        g_status = Status::Ok;
+        assert(ready());
+    }
+    std::puts("RTL81xx corrupt RX/TX DMA bindings quarantine device without mutation: PASS");
     assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
            net::Status::Ok);
     assert((tx_descriptors[0].flags & dma::OWN) != 0U);

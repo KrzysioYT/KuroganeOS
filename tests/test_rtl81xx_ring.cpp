@@ -20,6 +20,15 @@ int main() {
     static_assert(!valid_dma_buffer(UINT64_C(0x1001), 2048U));
     static_assert(!valid_dma_buffer(UINT64_C(0xFFFFFFFFFFFFFFF8), 32U));
     static_assert(!valid_dma_buffer(UINT64_C(0x1000), 0U));
+    constexpr Descriptor good{END_OF_RING, 0U, UINT64_C(0x1000)};
+    static_assert(valid_descriptor_binding(good, good.flags,
+        UINT64_C(0x1000), true, RX_BUFFER_BYTES));
+    static_assert(!valid_descriptor_binding(good, good.flags,
+        UINT64_C(0x2000), true, RX_BUFFER_BYTES));
+    static_assert(!valid_descriptor_binding(good, good.flags,
+        UINT64_C(0x1000), false, RX_BUFFER_BYTES));
+    static_assert(!valid_descriptor_binding(good, good.flags,
+        UINT64_C(0x1001), true, RX_BUFFER_BYTES));
     assert(inspect_rx(OWN | 64U, 1514U).result == Receive::NotReady);
     assert(inspect_rx(FIRST_SEGMENT | LAST_SEGMENT | (64U + 4U), 1514U).result ==
            Receive::Ready);
