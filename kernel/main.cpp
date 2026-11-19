@@ -683,6 +683,8 @@ void initialize_device_framework(bool safe_mode) {
             "DRIVER",
             kstatus_message(bind_status));
     }
+    terminal::write("[AUDIO] backend=");
+    terminal::println(drivers::audio::backend_name());
     log::write_u64(
         log::Level::Info,
         "DEVICE",

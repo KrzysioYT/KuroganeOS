@@ -22,6 +22,7 @@ struct FakeConfig {
     size_t wait_count;
     uint32_t pending_wait;
     bool fail_wait;
+    uint16_t replace_device_after_wait;
 };
 
 uint16_t load16(const FakeConfig& config, uint8_t offset) {
@@ -72,6 +73,10 @@ bool wait_us(uint32_t duration, void* context) {
     assert(duration >= config.pending_wait);
     if (config.fail_wait) return false;
     config.pending_wait = 0U;
+    if (config.replace_device_after_wait != 0U) {
+        store16(config, 0x02U, config.replace_device_after_wait);
+        config.replace_device_after_wait = 0U;
+    }
     return true;
 }
 
@@ -84,6 +89,8 @@ void seed_pm(
     uint8_t capability,
     uint16_t pmcap,
     uint16_t pmcsr) {
+    store16(config, 0x00U, 0x8086U);
+    store16(config, 0x02U, 0x10D3U);
     store16(config, 0x04U, 0U);
     config.pmcsr_offset = static_cast<uint8_t>(capability + 4U);
     store16(config, capability, UINT16_C(0x0001));
@@ -270,8 +277,21 @@ void test_restore_failure_and_removed_device() {
     FakeConfig config{};
     seed_pm(config, 0x50U, 0x0603U, 0U);
     Transaction transaction{};
+    store16(config, 0x00U, UINT16_MAX);
+    assert(transition({0U, 1U, 0U}, 0x50U, State::D3Hot,
+        access(config), &transaction) == Status::DeviceAbsent);
+    assert(!transaction.active && config.write_count == 0U);
+    store16(config, 0x00U, 0x8086U);
     assert(transition({0U, 1U, 0U}, 0x50U, State::D3Hot,
         access(config), &transaction) == Status::Ok);
+    store16(config, 0x00U, UINT16_MAX);
+    assert(restore(access(config), &transaction) == Status::DeviceAbsent);
+    assert(transaction.active && config.write_count == 1U);
+    store16(config, 0x00U, 0x8086U);
+    store16(config, 0x02U, 0x100EU);
+    assert(restore(access(config), &transaction) == Status::DeviceChanged);
+    assert(transaction.active && config.write_count == 1U);
+    store16(config, 0x02U, 0x10D3U);
     store16(config, 0x50U, 0xFFFFU);
     assert(restore(access(config), &transaction) == Status::CapabilityMalformed);
     assert(transaction.active && config.write_count == 1U);
@@ -284,6 +304,20 @@ void test_restore_failure_and_removed_device() {
     assert(!transaction.active);
 }
 
+void test_device_changes_before_verification() {
+    using namespace pci::power;
+    FakeConfig config{};
+    seed_pm(config, 0x50U, 0x0003U, 0U);
+    config.replace_device_after_wait = 0x100EU;
+    Transaction transaction{};
+    // The new function even reports the expected D3hot PMCSR value.
+    assert(transition({0U, 1U, 0U}, 0x50U, State::D3Hot,
+        access(config), &transaction) == Status::DeviceChanged);
+    assert(transaction.active && transaction.pending_delay_us == 0U);
+    assert(config.write_count == 1U);
+    assert(restore(access(config), &transaction) == Status::DeviceChanged);
+    assert(config.write_count == 1U);
+}
 
 void test_restore_pme_when_power_state_unchanged() {
     using namespace pci::power;
@@ -303,9 +337,11 @@ void test_restore_pme_when_power_state_unchanged() {
             Status::Ok);
         assert(transaction.active && config.write_count == 0U);
 
-        // Device/firmware clears the wakeup setting without changing D-state.
+        // Device/firmware changes Data Select and clears the wakeup setting
+        // without changing D-state.
+        constexpr uint16_t data_select = UINT16_C(5) << 9U;
         store16(config, static_cast<uint8_t>(cap + 4U),
-            static_cast<uint16_t>(state_bits | PMCSR_PME_STATUS));
+            static_cast<uint16_t>(state_bits | data_select | PMCSR_PME_STATUS));
         config.ignore_pmcsr_writes = true;
         assert(restore(access(config), &transaction) ==
             Status::VerificationFailed);
@@ -322,6 +358,7 @@ void test_restore_pme_when_power_state_unchanged() {
         assert((restored & PMCSR_POWER_STATE_MASK) == state_bits);
         assert((restored & PMCSR_PME_ENABLE) != 0U);
         assert((restored & PMCSR_PME_STATUS) != 0U);
+        assert((restored & (UINT16_C(0xF) << 9U)) == data_select);
         assert((config.writes[1].value & PMCSR_PME_STATUS) == 0U);
     }
 }
@@ -337,7 +374,8 @@ int main() {
     test_all_low_power_states_require_quiesce();
     test_delay_failure_and_token_ownership();
     test_restore_failure_and_removed_device();
+    test_device_changes_before_verification();
     test_restore_pme_when_power_state_unchanged();
-    puts("PCI power transitions, timing, PME restore, W1C and recovery: PASS");
+    puts("PCI power timing, PME restore, W1C and endpoint identity: PASS");
     return 0;
 }

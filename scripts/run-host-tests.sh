@@ -102,6 +102,45 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_intel_gbe_model.cpp \
   -o "$OUT_DIR/test_intel_gbe_model"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_rtl81xx_detection.cpp -o "$OUT_DIR/test_rtl81xx_detection"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_rtl81xx_ring.cpp -o "$OUT_DIR/test_rtl81xx_ring"
+"$OUT_DIR/test_rtl81xx_ring"
+
+# Exercise real RTL81xx RX/TX logic with injected MMIO and DMA rings,
+# including surprise link loss, queue backpressure and malformed frames.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_dma_runtime.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_dma_runtime"
+"$OUT_DIR/test_rtl81xx_dma_runtime"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_pci_start.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_pci_start"
+"$OUT_DIR/test_rtl81xx_pci_start"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_cleanup.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_cleanup"
+"$OUT_DIR/test_rtl81xx_cleanup"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_iron_shield_nic_fallback.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_iron_shield_nic_fallback"
+"$OUT_DIR/test_iron_shield_nic_fallback"
+
+# Exercise the identical production selector with explicit experimental
+# opt-in; the normal build above proves no unqualified Realtek DMA probing.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_EXPERIMENTAL_RTL81XX=1 -ffunction-sections -fdata-sections \
+  tests/test_iron_shield_nic_fallback.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_iron_shield_nic_experimental"
+"$OUT_DIR/test_iron_shield_nic_experimental"
+
+"$OUT_DIR/test_rtl81xx_detection"
 "$OUT_DIR/test_intel_gbe_model"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -341,6 +380,23 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
+# Class-specific USB2 hub descriptor validation is protocol-only: it does
+# not qualify xHCI downstream ports, hub topology or hotplug runtime.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_protocol.cpp -o "$OUT_DIR/test_usb_hub_protocol"
+"$OUT_DIR/test_usb_hub_protocol"
+
+# USB2 class control requests and port status/change safety protocol:
+# this does not qualify hub attachment or downstream enumeration.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_port.cpp -o "$OUT_DIR/test_usb_hub_port"
+"$OUT_DIR/test_usb_hub_port"
+
+# Exact xHCI slot-context routing, root ports and downstream five-tier routes.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_xhci_route.cpp -o "$OUT_DIR/test_xhci_route"
+"$OUT_DIR/test_xhci_route"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
   -o "$OUT_DIR/test_usb_hid_report"
@@ -391,8 +447,14 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
+  kernel/storage/scratch_test.cpp kernel/core/system_metrics.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_ganged_power.cpp -o "$OUT_DIR/test_usb_hub_ganged_power"
+"$OUT_DIR/test_usb_hub_ganged_power"
+python3 tests/test_xhci_retirement_injector.py
+python3 tests/test_usb_hub_power_injector.py
 python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,

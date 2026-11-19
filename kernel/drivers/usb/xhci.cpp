@@ -2,15 +2,19 @@
 
 #include "protocol.hpp"
 #include "hid_report.hpp"
+#include "hub_port.hpp"
 #include "mass_storage_protocol.hpp"
 #include "xhci_bulk.hpp"
 #include "xhci_layout.hpp"
+#include "xhci_route.hpp"
+#include "../../arch/x86_64/hpet.hpp"
 #include "../../core/log.hpp"
 #include "../../input/input.hpp"
 #include "../../memory/kernel_virtual_memory.hpp"
 #include "../../memory/virtual_memory.hpp"
 #include "../../storage/dma.hpp"
 #include "../../storage/device_registry.hpp"
+#include "../../storage/scratch_test.hpp"
 #include "../../storage/block_device.hpp"
 #include "../../terminal.hpp"
 
@@ -48,6 +52,8 @@ constexpr uint32_t PORT_CONNECTED = UINT32_C(1) << 0U;
 constexpr uint32_t PORT_ENABLED = UINT32_C(1) << 1U;
 constexpr uint32_t PORT_RESET = UINT32_C(1) << 4U;
 constexpr uint32_t PORT_POWER = UINT32_C(1) << 9U;
+constexpr uint32_t PORT_CONNECT_CHANGED = UINT32_C(1) << 17U;
+constexpr uint8_t USB_HUB_CLASS = 0x09U;
 
 constexpr uint8_t TRB_NORMAL = 1U;
 constexpr uint8_t TRB_SETUP_STAGE = 2U;
@@ -145,6 +151,8 @@ struct Controller {
     size_t context_size;
     uint8_t maximum_slots;
     uint8_t maximum_ports;
+    bool deferred_hub_ports[256U];
+    bool hub_reset_attempted;
     uint8_t slot_id;
     uint8_t port_id;
     uint8_t port_speed;
@@ -718,15 +726,30 @@ bool submit_command(
     return completion_ok(*completion);
 }
 
-[[maybe_unused]] uint8_t first_connected_port(const Controller& controller) {
-    // MaxPorts can be 255: a uint8_t one-based loop would wrap to zero.
-    for (size_t index = 0U; index < controller.maximum_ports; ++index) {
-        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
-             PORT_CONNECTED) != 0U) {
-            return static_cast<uint8_t>(index + 1U);
-        }
+bool disable_slot(Controller& controller, uint8_t& slot) {
+    if (slot == 0U) return true;
+    Trb completion{};
+    if (!submit_command(controller, 0U, 0U,
+            static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
+            static_cast<uint32_t>(slot) << 24U, &completion)) {
+        return false;
     }
-    return 0U;
+    // Transfers precede Disable Slot completion on the same event ring.
+    // Discard retired transfers before reusing slot IDs or TRB addresses.
+    size_t kept = 0U;
+    for (size_t index = 0U; index < controller.deferred_event_count; ++index) {
+        const Trb& event = controller.deferred_events[index];
+        if (trb_type(event) == TRB_TRANSFER_EVENT &&
+            (event.control >> 24U) == slot) {
+            continue;
+        }
+        controller.deferred_events[kept++] = event;
+    }
+    controller.deferred_event_count = kept;
+    static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)[slot] = 0U;
+    barrier();
+    slot = 0U;
+    return true;
 }
 
 bool port_claimed(const Controller& controller, uint8_t port) {
@@ -739,14 +762,23 @@ bool port_claimed(const Controller& controller, uint8_t port) {
     return controller.companion.ignored_port_id == port;
 }
 
-uint8_t first_unclaimed_connected_port(const Controller& controller) {
+bool connected_probe_candidate(Controller& controller, uint8_t port) {
+    const size_t index = static_cast<size_t>(port - 1U);
+    const uint32_t status = read32(controller.operational, OP_PORTS + index * PORT_STRIDE);
+    if (status == UINT32_MAX) return false;
+    if ((status & PORT_CONNECTED) == 0U ||
+        (status & PORT_CONNECT_CHANGED) != 0U) {
+        controller.deferred_hub_ports[port] = false;
+    }
+    return (status & PORT_CONNECTED) != 0U && !controller.deferred_hub_ports[port];
+}
+
+uint8_t first_unclaimed_connected_port(Controller& controller) {
+    // MaxPorts can be 255: keep the loop index wider than a port number.
     for (size_t index = 0U; index < controller.maximum_ports; ++index) {
         const uint8_t port = static_cast<uint8_t>(index + 1U);
         if (port_claimed(controller, port)) continue;
-        if ((read32(controller.operational, OP_PORTS + index * PORT_STRIDE) &
-             PORT_CONNECTED) != 0U) {
-            return port;
-        }
+        if (connected_probe_candidate(controller, port)) return port;
     }
     return 0U;
 }
@@ -772,16 +804,6 @@ bool reset_port(
         relax();
     }
     return false;
-}
-
-bool reset_connected_port(Controller& controller) {
-    const uint8_t port = first_unclaimed_connected_port(controller);
-    if (port == 0U) return false;
-    uint8_t speed = 0U;
-    if (!reset_port(controller, port, &speed)) return false;
-    controller.port_id = port;
-    controller.port_speed = speed;
-    return true;
 }
 
 void acknowledge_port_change(Controller& controller, uint8_t port) {
@@ -835,9 +857,10 @@ bool address_device(Controller& controller) {
                 memory::virtual_memory::PAGE_SIZE);
     input_context(controller, 0U)[1U] = 3U;
     uint32_t* slot = input_context(controller, 1U);
-    slot[0U] = static_cast<uint32_t>(controller.port_speed) << 20U |
-        UINT32_C(1) << 27U;
-    slot[1U] = static_cast<uint32_t>(controller.port_id) << 16U;
+    if (!route::slot_context_words(
+            {controller.port_id, 0U, 0U}, controller.port_speed, 1U,
+            &slot[0U], &slot[1U]))
+        return false;
     controller.ep0_packet_size = initial_packet_size(controller.port_speed);
     uint32_t* ep0 = input_context(controller, 2U);
     ep0[1U] = UINT32_C(3) << 1U | UINT32_C(4) << 3U |
@@ -938,7 +961,7 @@ bool update_ep0_packet_size(Controller& controller, uint16_t packet_size) {
     return true;
 }
 
-bool read_descriptors(Controller& controller) {
+bool read_descriptors(Controller& controller, bool& is_hub) {
     clear_bytes(controller.data_page.virtual_address,
                 memory::virtual_memory::PAGE_SIZE);
     if (!control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 8U, true)) {
@@ -961,6 +984,8 @@ bool read_descriptors(Controller& controller) {
     }
     bytes = static_cast<const uint8_t*>(controller.data_page.virtual_address);
     if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    is_hub = bytes[4U] == USB_HUB_CLASS;
+    if (is_hub) return false;
     controller.vendor_id = static_cast<uint16_t>(bytes[8U]) |
         static_cast<uint16_t>(bytes[9U]) << 8U;
     controller.product_id = static_cast<uint16_t>(bytes[10U]) |
@@ -1180,15 +1205,28 @@ bool configure_report_pointer_endpoint(Controller& controller) {
 }
 
 
-bool configure_mass_storage_endpoints(Controller& controller) {
-    const auto& interface = controller.mass_storage_interface;
-    if (!controller.mass_storage_present ||
-        !control_transfer(
-            controller, 0x00U, 9U, interface.configuration_value,
-            0U, 0U, false)) {
-        return false;
-    }
+struct BulkTarget {
+    const storage::dma::Page& data_page;
+    uint8_t slot_id;
+    uint8_t in_dci;
+    uint8_t out_dci;
+};
 
+BulkTarget primary_bulk_target(const Controller& controller) {
+    return {controller.data_page, controller.slot_id,
+        controller.bulk_in_dci, controller.bulk_out_dci};
+}
+
+bool configure_bulk_endpoints(
+    Controller& controller,
+    const mass_storage::BulkOnlyInterface& interface,
+    const storage::dma::Page& input_page,
+    const uint32_t* output_slot,
+    BulkTarget& target) {
+    const auto context_at = [&](size_t index) {
+        return reinterpret_cast<uint32_t*>(
+            static_cast<uint8_t*>(input_page.virtual_address) + index * controller.context_size);
+    };
     bulk::EndpointPlan bulk_in{};
     bulk::EndpointPlan bulk_out{};
     if (!bulk::build_endpoint_plan(
@@ -1221,7 +1259,7 @@ bool configure_mass_storage_endpoints(Controller& controller) {
     }
 
     const uint8_t current_entries = static_cast<uint8_t>(
-        (output_context(controller, 0U)[0U] >> 27U) & UINT32_C(0x1F));
+        (output_slot[0U] >> 27U) & UINT32_C(0x1F));
     uint8_t context_entries = current_entries;
     if (!bulk::extend_context_entries(
             context_entries, bulk_in.device_context_index, &context_entries) ||
@@ -1230,43 +1268,55 @@ bool configure_mass_storage_endpoints(Controller& controller) {
         return false;
     }
 
-    controller.bulk_in_dci = bulk_in.device_context_index;
-    controller.bulk_out_dci = bulk_out.device_context_index;
-    clear_bytes(controller.input_context_page.virtual_address,
+    target.in_dci = bulk_in.device_context_index;
+    target.out_dci = bulk_out.device_context_index;
+    clear_bytes(input_page.virtual_address,
                 memory::virtual_memory::PAGE_SIZE);
-    input_context(controller, 0U)[1U] =
+    context_at(0U)[1U] =
         UINT32_C(1) |
-        (UINT32_C(1) << controller.bulk_in_dci) |
-        (UINT32_C(1) << controller.bulk_out_dci);
-    copy_bytes(input_context(controller, 1U), output_context(controller, 0U),
+        (UINT32_C(1) << target.in_dci) |
+        (UINT32_C(1) << target.out_dci);
+    copy_bytes(context_at(1U), output_slot,
                controller.context_size);
-    uint32_t* slot = input_context(controller, 1U);
+    uint32_t* slot = context_at(1U);
     slot[0U] &= ~(UINT32_C(0x1F) << 27U);
     slot[0U] |= static_cast<uint32_t>(context_entries) << 27U;
 
     copy_bytes(
-        input_context(
-            controller, static_cast<size_t>(controller.bulk_in_dci) + 1U),
+        context_at(static_cast<size_t>(target.in_dci) + 1U),
         in_context.words,
         sizeof(in_context.words));
     copy_bytes(
-        input_context(
-            controller, static_cast<size_t>(controller.bulk_out_dci) + 1U),
+        context_at(static_cast<size_t>(target.out_dci) + 1U),
         out_context.words,
         sizeof(out_context.words));
 
     Trb completion{};
     return submit_command(
         controller,
-        controller.input_context_page.physical_address,
+        input_page.physical_address,
         0U,
         static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
-            static_cast<uint32_t>(controller.slot_id) << 24U,
+            static_cast<uint32_t>(target.slot_id) << 24U,
         &completion);
+}
+
+bool configure_mass_storage_endpoints(Controller& controller) {
+    const auto& interface = controller.mass_storage_interface;
+    if (!controller.mass_storage_present ||
+        !control_transfer(controller, 0x00U, 9U, interface.configuration_value,
+            0U, 0U, false)) return false;
+    auto target = primary_bulk_target(controller);
+    const bool configured = configure_bulk_endpoints(controller, interface,
+        controller.input_context_page, output_context(controller, 0U), target);
+    controller.bulk_in_dci = target.in_dci;
+    controller.bulk_out_dci = target.out_dci;
+    return configured;
 }
 
 bool wait_bulk_transfer(
     Controller& controller,
+    const BulkTarget& target,
     uint64_t expected_trb,
     uint8_t endpoint_dci,
     size_t requested_length,
@@ -1284,13 +1334,13 @@ bool wait_bulk_transfer(
         }
         const uint8_t event_slot =
             static_cast<uint8_t>(event.control >> 24U);
-        if (event_slot != controller.slot_id) {
+        if (event_slot != target.slot_id) {
             if (!defer_event(controller, event)) return false;
             continue;
         }
         const auto status = bulk::classify_transfer_completion(
             expected_trb,
-            controller.slot_id,
+            target.slot_id,
             endpoint_dci,
             requested_length,
             event.parameter,
@@ -1310,69 +1360,71 @@ bool wait_bulk_transfer(
 
 bool bulk_out_transfer(
     Controller& controller,
+    const BulkTarget& target,
     const void* source,
     size_t length) {
     if (source == nullptr || length == 0U ||
         length > memory::virtual_memory::PAGE_SIZE ||
-        controller.bulk_out_dci < 2U) {
+        target.out_dci < 2U) {
         return false;
     }
 
     bulk::TransferChunk chunk{};
     if (!bulk::plan_normal_trb_chunk(
-            controller.data_page.physical_address, length, &chunk) ||
+            target.data_page.physical_address, length, &chunk) ||
         chunk.length != length) {
         return false;
     }
 
-    copy_bytes(controller.data_page.virtual_address, source, length);
+    copy_bytes(target.data_page.virtual_address, source, length);
     const uint64_t trb = enqueue_trb(
         controller.bulk_out_ring,
         chunk.physical_address,
         static_cast<uint32_t>(chunk.length),
         static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
-    controller.doorbells[controller.slot_id] = controller.bulk_out_dci;
+    controller.doorbells[target.slot_id] = target.out_dci;
 
     bulk::TransferCompletion completion{};
     return wait_bulk_transfer(
-               controller, trb, controller.bulk_out_dci, length, &completion) &&
+               controller, target, trb, target.out_dci, length, &completion) &&
         completion.transferred == length &&
         completion.completion_code == COMPLETION_SUCCESS;
 }
 
 bool bulk_in_transfer(
     Controller& controller,
+    const BulkTarget& target,
     void* destination,
     size_t capacity,
     size_t* transferred) {
     if (destination == nullptr || transferred == nullptr || capacity == 0U ||
         capacity > memory::virtual_memory::PAGE_SIZE ||
-        controller.bulk_in_dci < 2U) {
+        target.in_dci < 2U) {
         return false;
     }
 
     bulk::TransferChunk chunk{};
     if (!bulk::plan_normal_trb_chunk(
-            controller.data_page.physical_address, capacity, &chunk) ||
+            target.data_page.physical_address, capacity, &chunk) ||
         chunk.length != capacity) {
         return false;
     }
 
-    clear_bytes(controller.data_page.virtual_address, capacity);
+    clear_bytes(target.data_page.virtual_address, capacity);
     const uint64_t trb = enqueue_trb(
         controller.bulk_in_ring,
         chunk.physical_address,
         static_cast<uint32_t>(chunk.length),
         static_cast<uint32_t>(TRB_NORMAL) << 10U | UINT32_C(1) << 5U);
-    controller.doorbells[controller.slot_id] = controller.bulk_in_dci;
+    controller.doorbells[target.slot_id] = target.in_dci;
 
     bulk::TransferCompletion completion{};
     if (!wait_bulk_transfer(
-            controller, trb, controller.bulk_in_dci, capacity, &completion) ||
+            controller, target, trb, target.in_dci, capacity, &completion) ||
         completion.transferred > capacity) {
         return false;
     }
-    copy_bytes(destination, controller.data_page.virtual_address,
+    copy_bytes(destination, target.data_page.virtual_address,
                completion.transferred);
     *transferred = completion.transferred;
     return true;
@@ -1386,6 +1438,7 @@ uint32_t next_mass_storage_tag(Controller& controller) {
 
 bool execute_mass_storage_bot(
     Controller& controller,
+    const BulkTarget& target,
     const uint8_t* cdb,
     size_t cdb_length,
     mass_storage::DataDirection direction,
@@ -1420,19 +1473,19 @@ bool execute_mass_storage_bot(
     uint8_t cbw[mass_storage::COMMAND_BLOCK_WRAPPER_SIZE]{};
     if (!mass_storage::encode_command_block_wrapper(
             &wrapper, cbw, sizeof(cbw)) ||
-        !bulk_out_transfer(controller, cbw, sizeof(cbw))) {
+        !bulk_out_transfer(controller, target, cbw, sizeof(cbw))) {
         return false;
     }
 
     size_t received = 0U;
     if (direction == mass_storage::DataDirection::In) {
         if (!bulk_in_transfer(
-                controller, data, data_length, &received) ||
+                controller, target, data, data_length, &received) ||
             received > data_length) {
             return false;
         }
     } else if (direction == mass_storage::DataDirection::Out) {
-        if (!bulk_out_transfer(controller, data, data_length)) {
+        if (!bulk_out_transfer(controller, target, data, data_length)) {
             return false;
         }
     }
@@ -1440,7 +1493,7 @@ bool execute_mass_storage_bot(
     uint8_t csw[mass_storage::COMMAND_STATUS_WRAPPER_SIZE]{};
     size_t csw_received = 0U;
     if (!bulk_in_transfer(
-            controller, csw, sizeof(csw), &csw_received) ||
+            controller, target, csw, sizeof(csw), &csw_received) ||
         csw_received != sizeof(csw)) {
         return false;
     }
@@ -1461,7 +1514,7 @@ bool execute_mass_storage_bot(
     return true;
 }
 
-bool request_mass_storage_sense(Controller& controller) {
+bool request_mass_storage_sense(Controller& controller, const BulkTarget& target) {
     constexpr size_t sense_length = 18U;
     uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_request_sense(
@@ -1472,7 +1525,7 @@ bool request_mass_storage_sense(Controller& controller) {
     size_t received = 0U;
     mass_storage::CommandStatusWrapper status{};
     return execute_mass_storage_bot(
-               controller, cdb, sizeof(cdb),
+               controller, target, cdb, sizeof(cdb),
                mass_storage::DataDirection::In,
                sense, sizeof(sense), &received, &status) &&
         status.status == mass_storage::CommandStatus::Passed &&
@@ -1480,14 +1533,14 @@ bool request_mass_storage_sense(Controller& controller) {
         status.data_residue == 0U;
 }
 
-bool test_mass_storage_ready(Controller& controller) {
+bool test_mass_storage_ready(Controller& controller, const BulkTarget& target) {
     uint8_t cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_test_unit_ready(cdb, sizeof(cdb))) {
         return false;
     }
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller, cdb, sizeof(cdb),
+            controller, target, cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U) {
@@ -1500,11 +1553,11 @@ bool test_mass_storage_ready(Controller& controller) {
 
     terminal::println(
         "[TEST] xhci_mass_storage_test_unit_ready: CHECK_CONDITION");
-    if (!request_mass_storage_sense(controller)) return false;
+    if (!request_mass_storage_sense(controller, target)) return false;
 
     status = {};
     if (!execute_mass_storage_bot(
-            controller, cdb, sizeof(cdb),
+            controller, target, cdb, sizeof(cdb),
             mass_storage::DataDirection::None,
             nullptr, 0U, nullptr, &status) ||
         status.data_residue != 0U ||
@@ -1514,35 +1567,29 @@ bool test_mass_storage_ready(Controller& controller) {
     return true;
 }
 
-bool probe_mass_storage_scsi_geometry(Controller& controller) {
-    if (!test_mass_storage_ready(controller)) {
-        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: FAIL");
-        return false;
-    }
-    terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
+constexpr size_t SCSI_INQUIRY_BYTES = 36U;
 
-    constexpr size_t inquiry_length = 36U;
+bool read_scsi_inquiry(Controller& controller, const BulkTarget& target,
+    uint8_t (&inquiry)[SCSI_INQUIRY_BYTES]) {
     uint8_t inquiry_cdb[mass_storage::scsi::CDB6_SIZE]{};
     if (!mass_storage::scsi::build_inquiry(
-            static_cast<uint8_t>(inquiry_length),
+            static_cast<uint8_t>(sizeof(inquiry)),
             inquiry_cdb, sizeof(inquiry_cdb))) {
         return false;
     }
-    uint8_t inquiry[inquiry_length]{};
     size_t inquiry_received = 0U;
     mass_storage::CommandStatusWrapper inquiry_status{};
-    if (!execute_mass_storage_bot(
-            controller, inquiry_cdb, sizeof(inquiry_cdb),
+    return execute_mass_storage_bot(
+            controller, target, inquiry_cdb, sizeof(inquiry_cdb),
             mass_storage::DataDirection::In,
-            inquiry, sizeof(inquiry), &inquiry_received, &inquiry_status) ||
-        inquiry_status.status != mass_storage::CommandStatus::Passed ||
-        inquiry_status.data_residue != 0U ||
-        inquiry_received != sizeof(inquiry)) {
-        terminal::println("[TEST] xhci_mass_storage_inquiry: FAIL");
-        return false;
-    }
-    terminal::println("[TEST] xhci_mass_storage_inquiry: PASS");
+            inquiry, sizeof(inquiry), &inquiry_received, &inquiry_status) &&
+        inquiry_status.status == mass_storage::CommandStatus::Passed &&
+        inquiry_status.data_residue == 0U &&
+        inquiry_received == sizeof(inquiry);
+}
 
+bool read_scsi_capacity(Controller& controller, const BulkTarget& target,
+    mass_storage::scsi::ReadCapacity10Data& output) {
     uint8_t capacity_cdb[mass_storage::scsi::CDB10_SIZE]{};
     if (!mass_storage::scsi::build_read_capacity10(
             capacity_cdb, sizeof(capacity_cdb))) {
@@ -1552,13 +1599,12 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     size_t capacity_received = 0U;
     mass_storage::CommandStatusWrapper capacity_status{};
     if (!execute_mass_storage_bot(
-            controller, capacity_cdb, sizeof(capacity_cdb),
+            controller, target, capacity_cdb, sizeof(capacity_cdb),
             mass_storage::DataDirection::In,
             capacity, sizeof(capacity), &capacity_received, &capacity_status) ||
         capacity_status.status != mass_storage::CommandStatus::Passed ||
         capacity_status.data_residue != 0U ||
         capacity_received != sizeof(capacity)) {
-        terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
         return false;
     }
 
@@ -1569,6 +1615,29 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
         geometry.block_size > memory::virtual_memory::PAGE_SIZE ||
         (memory::virtual_memory::PAGE_SIZE % geometry.block_size) != 0U ||
         geometry.block_count == 0U) {
+        return false;
+    }
+
+    output = geometry;
+    return true;
+}
+
+bool probe_mass_storage_scsi_geometry(Controller& controller) {
+    if (!test_mass_storage_ready(controller, primary_bulk_target(controller))) {
+        terminal::println("[TEST] xhci_mass_storage_test_unit_ready: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_test_unit_ready: PASS");
+
+    uint8_t inquiry[SCSI_INQUIRY_BYTES]{};
+    if (!read_scsi_inquiry(controller, primary_bulk_target(controller), inquiry)) {
+        terminal::println("[TEST] xhci_mass_storage_inquiry: FAIL");
+        return false;
+    }
+    terminal::println("[TEST] xhci_mass_storage_inquiry: PASS");
+
+    mass_storage::scsi::ReadCapacity10Data geometry{};
+    if (!read_scsi_capacity(controller, primary_bulk_target(controller), geometry)) {
         terminal::println("[TEST] xhci_mass_storage_read_capacity: FAIL");
         return false;
     }
@@ -1584,6 +1653,47 @@ bool probe_mass_storage_scsi_geometry(Controller& controller) {
     terminal::println("[TEST] xhci_mass_storage_read_capacity: PASS");
     terminal::println("[TEST] xhci_mass_storage_scsi_geometry: PASS");
     return true;
+}
+
+storage::block::Status read_scsi_chunk(
+    Controller& controller,
+    const BulkTarget& target,
+    uint32_t first_block,
+    uint16_t block_count,
+    size_t transfer_bytes,
+    void* destination) {
+    if (destination == nullptr || transfer_bytes == 0U ||
+        transfer_bytes > memory::virtual_memory::PAGE_SIZE) {
+        return storage::block::Status::InvalidArgument;
+    }
+    uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_read10(
+            first_block,
+            block_count,
+            cdb,
+            sizeof(cdb))) {
+        return storage::block::Status::InvalidArgument;
+    }
+
+    size_t received = 0U;
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller, target,
+            cdb,
+            sizeof(cdb),
+            mass_storage::DataDirection::In,
+            destination,
+            transfer_bytes,
+            &received,
+            &status)) {
+        return storage::block::Status::IoError;
+    }
+    if (status.status != mass_storage::CommandStatus::Passed ||
+        status.data_residue != 0U ||
+        received != transfer_bytes) {
+        return storage::block::Status::CommandFailed;
+    }
+    return storage::block::Status::Ok;
 }
 
 storage::block::Status read_mass_storage_blocks(
@@ -1625,42 +1735,56 @@ storage::block::Status read_mass_storage_blocks(
             return storage::block::Status::InvalidArgument;
         }
 
-        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
-        if (!mass_storage::scsi::build_read10(
-                static_cast<uint32_t>(logical_block),
-                static_cast<uint16_t>(chunk_blocks),
-                cdb,
-                sizeof(cdb))) {
-            return storage::block::Status::InvalidArgument;
-        }
-
         const size_t transfer_bytes =
-            chunk_blocks *
-            static_cast<size_t>(controller.mass_storage_block_size);
-        size_t received = 0U;
-        mass_storage::CommandStatusWrapper status{};
-        if (!execute_mass_storage_bot(
-                controller,
-                cdb,
-                sizeof(cdb),
-                mass_storage::DataDirection::In,
-                output +
-                    static_cast<size_t>(completed) *
-                        controller.mass_storage_block_size,
-                transfer_bytes,
-                &received,
-                &status)) {
-            return storage::block::Status::IoError;
-        }
-        if (status.status != mass_storage::CommandStatus::Passed ||
-            status.data_residue != 0U ||
-            received != transfer_bytes) {
-            return storage::block::Status::CommandFailed;
-        }
-
+            chunk_blocks * static_cast<size_t>(controller.mass_storage_block_size);
+        const auto status = read_scsi_chunk(
+            controller, primary_bulk_target(controller),
+            static_cast<uint32_t>(logical_block), static_cast<uint16_t>(chunk_blocks),
+            transfer_bytes, output + static_cast<size_t>(completed) *
+                controller.mass_storage_block_size);
+        if (status != storage::block::Status::Ok) return status;
         completed += static_cast<uint64_t>(chunk_blocks);
     }
 
+    return storage::block::Status::Ok;
+}
+
+storage::block::Status write_scsi_chunk(
+    Controller& controller,
+    const BulkTarget& target,
+    uint32_t first_block,
+    uint16_t block_count,
+    size_t transfer_bytes,
+    const void* source) {
+    if (source == nullptr || transfer_bytes == 0U ||
+        transfer_bytes > memory::virtual_memory::PAGE_SIZE) {
+        return storage::block::Status::InvalidArgument;
+    }
+    uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
+    if (!mass_storage::scsi::build_write10(
+            first_block,
+            block_count,
+            cdb,
+            sizeof(cdb))) {
+        return storage::block::Status::InvalidArgument;
+    }
+
+    mass_storage::CommandStatusWrapper status{};
+    if (!execute_mass_storage_bot(
+            controller, target,
+            cdb,
+            sizeof(cdb),
+            mass_storage::DataDirection::Out,
+            const_cast<void*>(source),
+            transfer_bytes,
+            nullptr,
+            &status)) {
+        return storage::block::Status::IoError;
+    }
+    if (status.status != mass_storage::CommandStatus::Passed ||
+        status.data_residue != 0U) {
+        return storage::block::Status::CommandFailed;
+    }
     return storage::block::Status::Ok;
 }
 
@@ -1703,45 +1827,21 @@ storage::block::Status write_mass_storage_blocks(
             return storage::block::Status::InvalidArgument;
         }
 
-        uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
-        if (!mass_storage::scsi::build_write10(
-                static_cast<uint32_t>(logical_block),
-                static_cast<uint16_t>(chunk_blocks),
-                cdb,
-                sizeof(cdb))) {
-            return storage::block::Status::InvalidArgument;
-        }
-
         const size_t transfer_bytes =
-            chunk_blocks *
-            static_cast<size_t>(controller.mass_storage_block_size);
-        mass_storage::CommandStatusWrapper status{};
-        if (!execute_mass_storage_bot(
-                controller,
-                cdb,
-                sizeof(cdb),
-                mass_storage::DataDirection::Out,
-                const_cast<uint8_t*>(
-                    input +
-                    static_cast<size_t>(completed) *
-                        controller.mass_storage_block_size),
-                transfer_bytes,
-                nullptr,
-                &status)) {
-            return storage::block::Status::IoError;
-        }
-        if (status.status != mass_storage::CommandStatus::Passed ||
-            status.data_residue != 0U) {
-            return storage::block::Status::CommandFailed;
-        }
-
+            chunk_blocks * static_cast<size_t>(controller.mass_storage_block_size);
+        const auto status = write_scsi_chunk(
+            controller, primary_bulk_target(controller),
+            static_cast<uint32_t>(logical_block), static_cast<uint16_t>(chunk_blocks),
+            transfer_bytes, input + static_cast<size_t>(completed) *
+                controller.mass_storage_block_size);
+        if (status != storage::block::Status::Ok) return status;
         completed += static_cast<uint64_t>(chunk_blocks);
     }
 
     return storage::block::Status::Ok;
 }
 
-storage::block::Status synchronize_mass_storage(Controller& controller) {
+storage::block::Status synchronize_scsi_cache(Controller& controller, const BulkTarget& target) {
     uint8_t cdb[mass_storage::scsi::CDB10_SIZE]{};
     if (!mass_storage::scsi::build_synchronize_cache10(cdb, sizeof(cdb))) {
         return storage::block::Status::InvalidArgument;
@@ -1749,7 +1849,7 @@ storage::block::Status synchronize_mass_storage(Controller& controller) {
 
     mass_storage::CommandStatusWrapper status{};
     if (!execute_mass_storage_bot(
-            controller,
+            controller, target,
             cdb,
             sizeof(cdb),
             mass_storage::DataDirection::None,
@@ -1763,6 +1863,10 @@ storage::block::Status synchronize_mass_storage(Controller& controller) {
         status.data_residue == 0U
         ? storage::block::Status::Ok
         : storage::block::Status::CommandFailed;
+}
+
+storage::block::Status synchronize_mass_storage(Controller& controller) {
+    return synchronize_scsi_cache(controller, primary_bulk_target(controller));
 }
 
 storage::block::Status mass_storage_block_read(
@@ -1811,6 +1915,25 @@ storage::block::Status mass_storage_block_flush(void* context) {
     return synchronize_mass_storage(*controller);
 }
 
+constexpr char USB_TEST_MAGIC[] = "KUROGANE_USB_READ_V1";
+
+bool matches_usb_test_magic(const uint8_t* bytes) {
+    for (size_t index = 0U; index < sizeof(USB_TEST_MAGIC) - 1U; ++index) {
+        if (bytes[index] != static_cast<uint8_t>(USB_TEST_MAGIC[index])) return false;
+    }
+    return true;
+}
+
+bool matches_usb_test_sector(const uint8_t* bytes, size_t length) {
+    if (length != 512U || !matches_usb_test_magic(bytes)) return false;
+    constexpr size_t prefix = sizeof(USB_TEST_MAGIC) - 1U;
+    for (size_t index = prefix; index < length; ++index) {
+        const auto expected = static_cast<uint8_t>(((index - prefix) * 37U + 11U) & 0xFFU);
+        if (bytes[index] != expected) return false;
+    }
+    return true;
+}
+
 bool initialize_mass_storage_block_device(Controller& controller) {
     if (controller.mass_storage_block_size == 0U ||
         controller.mass_storage_block_count == 0U) {
@@ -1842,16 +1965,9 @@ bool initialize_mass_storage_block_device(Controller& controller) {
     }
 
     terminal::println("[TEST] xhci_mass_storage_read10: PASS");
-    static constexpr char expected_magic[] = "KUROGANE_USB_READ_V1";
     const auto* bytes = static_cast<const uint8_t*>(
         controller.storage_io_page.virtual_address);
-    bool known = true;
-    for (size_t index = 0U; index < sizeof(expected_magic) - 1U; ++index) {
-        if (bytes[index] != static_cast<uint8_t>(expected_magic[index])) {
-            known = false;
-            break;
-        }
-    }
+    const bool known = matches_usb_test_magic(bytes);
     if (known) {
         terminal::println("[TEST] xhci_mass_storage_known_read: PASS");
     }
@@ -2280,7 +2396,7 @@ uint32_t* companion_output_context(
         index * controller.context_size);
 }
 
-bool address_companion_device(Controller& controller) {
+bool address_companion_device(Controller& controller, const route::Address& topology) {
     auto& companion = controller.companion;
     Trb completion{};
     if (!submit_command(
@@ -2303,9 +2419,10 @@ bool address_companion_device(Controller& controller) {
         memory::virtual_memory::PAGE_SIZE);
     companion_input_context(controller, 0U)[1U] = 3U;
     uint32_t* slot = companion_input_context(controller, 1U);
-    slot[0U] = static_cast<uint32_t>(companion.port_speed) << 20U |
-        UINT32_C(1) << 27U;
-    slot[1U] = static_cast<uint32_t>(companion.port_id) << 16U;
+    if (!route::slot_context_words(
+            topology, companion.port_speed, 1U,
+            &slot[0U], &slot[1U]))
+        return false;
     companion.ep0_packet_size = initial_packet_size(companion.port_speed);
     uint32_t* ep0 = companion_input_context(controller, 2U);
     ep0[1U] = UINT32_C(3) << 1U | UINT32_C(4) << 3U |
@@ -2368,6 +2485,23 @@ bool companion_control_transfer(
             companion.slot_id;
 }
 
+bool wait_hpet_us(uint32_t microseconds) {
+    namespace timer = arch::x86_64::hpet;
+    const auto* caps = timer::capabilities();
+    if (caps == nullptr || caps->counter_period_femtoseconds == 0U) return false;
+    const uint64_t period = caps->counter_period_femtoseconds;
+    const uint64_t ticks =
+        (static_cast<uint64_t>(microseconds) * UINT64_C(1000000000) + period - 1U) / period;
+    if (!caps->counter_64_bit && ticks > UINT32_MAX) return false;
+    const uint64_t start = timer::counter();
+    for (unsigned attempt = 0U; attempt < 20000000U; ++attempt) {
+        const uint64_t delta = timer::counter() - start;
+        if ((caps->counter_64_bit ? delta : static_cast<uint32_t>(delta)) >= ticks) return true;
+        relax();
+    }
+    return false;
+}
+
 bool update_companion_ep0_packet_size(
     Controller& controller,
     uint16_t packet_size) {
@@ -2398,7 +2532,7 @@ bool update_companion_ep0_packet_size(
     return true;
 }
 
-bool read_companion_descriptors(Controller& controller) {
+bool read_companion_descriptors(Controller& controller, bool& is_hub) {
     auto& companion = controller.companion;
     clear_bytes(
         companion.data_page.virtual_address,
@@ -2430,6 +2564,8 @@ bool read_companion_descriptors(Controller& controller) {
     bytes = static_cast<const uint8_t*>(
         companion.data_page.virtual_address);
     if (bytes[0U] < 18U || bytes[1U] != 1U) return false;
+    is_hub = bytes[4U] == USB_HUB_CLASS;
+    if (is_hub) return false;
     companion.vendor_id = static_cast<uint16_t>(bytes[8U]) |
         static_cast<uint16_t>(bytes[9U]) << 8U;
     companion.product_id = static_cast<uint16_t>(bytes[10U]) |
@@ -2853,30 +2989,19 @@ void handle_companion_pointer_report(
     }
 }
 
+void fail_hotplug(Controller& controller, Status reason);
+
 bool retire_companion_slot(Controller& controller) {
     auto& companion = controller.companion;
-    if (companion.slot_id != 0U) {
-        Trb completion{};
-        if (!submit_command(
-                controller, 0U, 0U,
-                static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
-                    static_cast<uint32_t>(
-                        companion.slot_id) << 24U,
-                &completion)) {
-            companion.hid_lifecycle = HidLifecycle::Failed;
-            return false;
-        }
-        static_cast<uint64_t*>(
-            controller.dcbaa_page.virtual_address)
-            [companion.slot_id] = 0U;
-        barrier();
+    if (!disable_slot(controller, companion.slot_id)) {
+        fail_hotplug(controller, Status::CommandFailed);
+        return false;
     }
     if (remove_companion_device(&controller) != Status::Ok) {
         companion.hid_lifecycle = HidLifecycle::Failed;
         return false;
     }
 
-    companion.slot_id = 0U;
     companion.port_id = 0U;
     companion.port_speed = 0U;
     companion.interrupt_dci = 0U;
@@ -2941,6 +3066,310 @@ void mark_multi_hid_if_ready(Controller& controller) {
     }
 }
 
+bool configure_full_speed_hub_slot(Controller& controller, uint8_t port_count) {
+    clear_bytes(controller.input_context_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+    input_context(controller, 0U)[1U] = 1U; // Add only the slot context.
+    uint32_t* slot = input_context(controller, 1U);
+    copy_bytes(slot, output_context(controller, 0U), controller.context_size);
+    slot[0U] |= UINT32_C(1) << 26U; // Hub
+    slot[0U] &= ~(UINT32_C(1) << 25U); // Full speed has no TT.
+    slot[1U] = (slot[1U] & UINT32_C(0x00FFFFFF)) |
+        static_cast<uint32_t>(port_count) << 24U;
+    slot[3U] = 0U; // Device address and slot state are controller-owned.
+    Trb completion{};
+    return submit_command(controller, controller.input_context_page.physical_address,
+        0U, static_cast<uint32_t>(TRB_CONFIGURE_ENDPOINT) << 10U |
+            static_cast<uint32_t>(controller.slot_id) << 24U, &completion);
+}
+
+uint32_t read_downstream_identity(Controller& controller) {
+    auto* bytes = static_cast<uint8_t*>(controller.companion.data_page.virtual_address);
+    clear_bytes(bytes, 18U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 8U, true) ||
+        bytes[0U] != 18U || bytes[1U] != 1U) return 0U;
+    const uint8_t packet = bytes[7U];
+    if (packet != 8U && (controller.companion.port_speed == 2U ||
+        (packet != 16U && packet != 32U && packet != 64U))) return 0U;
+    if (!update_companion_ep0_packet_size(controller, packet)) return 0U;
+
+    clear_bytes(bytes, 18U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0100U, 0U, 18U, true) ||
+        bytes[0U] != 18U || bytes[1U] != 1U || bytes[7U] != packet ||
+        bytes[17U] == 0U) return 0U;
+    const uint32_t vendor = bytes[8U] | static_cast<uint32_t>(bytes[9U]) << 8U;
+    const uint32_t product = bytes[10U] | static_cast<uint32_t>(bytes[11U]) << 8U;
+    return vendor == 0U || vendor == UINT16_MAX ? 0U : (vendor << 16U) | product;
+}
+
+enum class DownstreamStorageProbe : uint8_t {
+    None, UnsupportedInterface, Inquiry, BlockRead, KnownSector, ScratchFailed, ScratchRestored,
+};
+
+DownstreamStorageProbe run_downstream_scratch(Controller& controller, const BulkTarget& target,
+    uint64_t sector_count) {
+    using Probe = DownstreamStorageProbe;
+    namespace block = storage::block;
+    namespace scratch = storage::scratch_test;
+    struct ScratchView {
+        Controller& controller;
+        const BulkTarget& target;
+    };
+    ScratchView view{controller, target};
+    // The unified scratch header is on physical LBA 1. The LBA 0 read probe
+    // remains intact, and the scratch runner rejects writes over its header.
+    const block::Device device{
+        &view, scratch::SCRATCH_SECTOR_SIZE, sector_count - 1U,
+        [](void* context, uint64_t first, uint64_t count, void* destination) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return read_scsi_chunk(state.controller, state.target,
+                static_cast<uint32_t>(first + 1U), static_cast<uint16_t>(count),
+                static_cast<size_t>(count) * scratch::SCRATCH_SECTOR_SIZE, destination);
+        },
+        [](void* context, uint64_t first, uint64_t count, const void* source) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return write_scsi_chunk(state.controller, state.target,
+                static_cast<uint32_t>(first + 1U), static_cast<uint16_t>(count),
+                static_cast<size_t>(count) * scratch::SCRATCH_SECTOR_SIZE, source);
+        },
+        [](void* context) {
+            auto& state = *static_cast<ScratchView*>(context);
+            return synchronize_scsi_cache(state.controller, state.target);
+        },
+    };
+    // The bounded probe runs once during initialization, before publication.
+    static scratch::Workspace workspace{};
+    const auto result = scratch::run(&device, &workspace);
+    if (result.status == scratch::Status::NotTagged) return Probe::KnownSector;
+    if (result.status == scratch::Status::Ok && result.write_attempted && result.restored) {
+        return Probe::ScratchRestored;
+    }
+    log::write(log::Level::Warn, "XHCI", scratch::status_message(result.status));
+    log::write(log::Level::Warn, "XHCI", block::status_message(result.block_status));
+    return Probe::ScratchFailed;
+}
+
+DownstreamStorageProbe probe_downstream_storage(Controller& controller, uint32_t identity) {
+    using Probe = DownstreamStorageProbe;
+    auto& companion = controller.companion;
+    if (companion.port_speed != 1U) return Probe::None; // Full-speed bulk only.
+    auto* bytes = static_cast<uint8_t*>(companion.data_page.virtual_address);
+    clear_bytes(bytes, 9U);
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
+        bytes[0U] != 9U || bytes[1U] != 2U) return Probe::None;
+    const uint16_t length = static_cast<uint16_t>(bytes[2U] |
+        static_cast<uint16_t>(bytes[3U]) << 8U);
+    if (length < 9U || length > 512U) return Probe::None;
+
+    clear_bytes(bytes, length);
+    mass_storage::BulkOnlyInterface interface{};
+    if (!companion_control_transfer(controller, 0x80U, 6U, 0x0200U, 0U, length, true))
+        return Probe::None;
+    if (!mass_storage::find_bulk_only_scsi_interface(bytes, length, &interface))
+        return Probe::UnsupportedInterface;
+    const auto valid_packet = [](uint16_t packet) {
+        return packet == 8U || packet == 16U || packet == 32U || packet == 64U;
+    };
+    if (!valid_packet(interface.bulk_in_maximum_packet_size) ||
+        !valid_packet(interface.bulk_out_maximum_packet_size) ||
+        !companion_control_transfer(controller, 0x00U, 9U, interface.configuration_value,
+            0U, 0U, false)) return Probe::None;
+
+    BulkTarget target{companion.data_page, companion.slot_id, 0U, 0U};
+    if (!configure_bulk_endpoints(controller, interface, companion.input_context_page,
+            companion_output_context(controller, 0U), target)) return Probe::None;
+    uint8_t inquiry[SCSI_INQUIRY_BYTES]{};
+    if (!read_scsi_inquiry(controller, target, inquiry) ||
+        inquiry[0U] != 0U || inquiry[4U] < sizeof(inquiry) - 5U) return Probe::None;
+
+    mass_storage::scsi::ReadCapacity10Data geometry{};
+    if (!test_mass_storage_ready(controller, target) ||
+        !read_scsi_capacity(controller, target, geometry)) return Probe::Inquiry;
+
+    auto* data = static_cast<uint8_t*>(controller.storage_io_page.virtual_address);
+    if (read_scsi_chunk(controller, target, 0U, 1U, geometry.block_size, data) !=
+        storage::block::Status::Ok) return Probe::Inquiry;
+    log::write_u64(log::Level::Info, "XHCI",
+        "USB2 downstream block count: ", geometry.block_count);
+    if (geometry.block_count != UINT64_C(16384) ||
+        !matches_usb_test_sector(data, geometry.block_size)) return Probe::BlockRead;
+    // Only the explicitly tagged QEMU fixture reaches the write path.
+    constexpr uint32_t qemu_storage_identity = UINT32_C(0x46F40001);
+    if (identity != qemu_storage_identity) return Probe::KnownSector;
+    return run_downstream_scratch(controller, target, geometry.block_count);
+}
+
+// Reuse the unbound companion's buffers and the unused bulk rings during
+// cold boot. Retire the child before recycling any DMA or disabling its port.
+bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed) {
+    route::Address child{};
+    if (!route::extend({controller.port_id, 0U, 0U}, port, &child)) return true;
+    auto& companion = controller.companion;
+    companion.port_id = child.root_port;
+    companion.port_speed = speed;
+    const bool addressed = address_companion_device(controller, child);
+    const uint32_t identity = addressed ? read_downstream_identity(controller) : 0U;
+    const auto storage = identity == 0U ? DownstreamStorageProbe::None :
+        probe_downstream_storage(controller, identity);
+    if (!retire_companion_slot(controller)) return false;
+    reset_ring(&controller.bulk_in_ring);
+    reset_ring(&controller.bulk_out_ring);
+    if (identity != 0U) {
+        log::write_u64(log::Level::Info, "XHCI",
+            "USB2 downstream descriptor read; slot retired; VID/PID: ", identity);
+    }
+    if (storage == DownstreamStorageProbe::UnsupportedInterface) {
+        log::write_u64(log::Level::Warn, "XHCI",
+            "USB2 unsupported downstream interface; slot retired at port: ", port);
+    }
+    if (storage >= DownstreamStorageProbe::Inquiry) {
+        terminal::println("[TEST] xhci_downstream_scsi_inquiry: PASS");
+    }
+    if (storage >= DownstreamStorageProbe::BlockRead) {
+        terminal::println("[TEST] xhci_downstream_read10: PASS");
+    }
+    if (storage >= DownstreamStorageProbe::KnownSector) {
+        terminal::println("[TEST] xhci_downstream_known_sector: PASS");
+    }
+    if (storage == DownstreamStorageProbe::ScratchRestored) {
+        terminal::println("[TEST] xhci_downstream_write_flush_readback_restore: PASS");
+    } else if (storage == DownstreamStorageProbe::ScratchFailed) {
+        terminal::println("[TEST] xhci_downstream_write_flush_readback_restore: FAIL");
+    }
+    return true;
+}
+
+// A probe failure is optional unless the child slot cannot be retired.
+bool probe_usb2_hub_ports(Controller& controller, bool companion) {
+    const uint8_t speed = companion
+        ? controller.companion.port_speed : controller.port_speed;
+    if (speed != 1U && speed != 3U) return true; // USB 1.x/2.0 full or high speed.
+    const auto transfer = companion ? companion_control_transfer : control_transfer;
+    const auto& page = companion ? controller.companion.data_page : controller.data_page;
+    auto* bytes = static_cast<uint8_t*>(page.virtual_address);
+
+    clear_bytes(bytes, 9U);
+    if (!transfer(controller, 0x80U, 6U, 0x0200U, 0U, 9U, true) ||
+        bytes[0U] != 9U || bytes[1U] != 2U || bytes[5U] == 0U ||
+        (bytes[3U] == 0U && bytes[2U] < 9U) || (bytes[7U] & 0x80U) == 0U) return true;
+    const uint8_t configuration_value = bytes[5U];
+    if (!transfer(controller, 0x00U, 9U, configuration_value, 0U, 0U, false)) return true;
+
+    constexpr uint16_t descriptor = UINT16_C(0x2900);
+    clear_bytes(bytes, 7U);
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, 7U, true)) return true;
+    const uint8_t ports = bytes[2U];
+    if (ports == 0U || ports > hub::MAX_ROUTE_PORTS) return true;
+    const auto length = static_cast<uint16_t>(
+        7U + 2U * hub::descriptor_bitmap_bytes(ports));
+    if (bytes[0U] != length || bytes[1U] != hub::DESCRIPTOR_TYPE_USB2_HUB) return true;
+
+    clear_bytes(bytes, length);
+    hub::Descriptor parsed{};
+    if (!transfer(controller, 0xA0U, 6U, descriptor, 0U, length, true) ||
+        hub::parse_usb2_descriptor(bytes, length, &parsed) != hub::ParseStatus::Ok ||
+        parsed.port_count != ports) return true;
+    terminal::println("[USB] USB2 hub descriptor read");
+
+    // Limit synchronous resets to the first hub seen at cold boot. Its
+    // descriptor bounds this loop to 15 ports, each visited once.
+    const bool probe_ports = !controller.initialized &&
+        !controller.hub_reset_attempted &&
+        arch::x86_64::hpet::capabilities() != nullptr;
+    if (probe_ports) controller.hub_reset_attempted = true;
+    const auto exchange_port = [&](uint8_t port, hub::PortRequest kind, hub::PortStatus* status) {
+        hub::ControlRequest request{};
+        if (!hub::make_port_request(parsed.port_count, port, kind, &request)) return false;
+        for (size_t i = 0U; i < request.length; ++i) bytes[i] = UINT8_MAX;
+        if (!transfer(controller, request.request_type, request.request,
+                request.value, request.index, request.length, request.length != 0U)) {
+            return false;
+        }
+        return request.length == 0U ||
+            hub::parse_port_status(bytes, request.length, status) == hub::PortParse::Ok;
+    };
+    if (probe_ports && parsed.power_mode == hub::PowerMode::Ganged) {
+        const auto power = hub::power_ganged_hub_for_probe(parsed, exchange_port, wait_hpet_us);
+        if (power == hub::PowerResult::UnsafePort) {
+            log::write(log::Level::Error, "XHCI", "USB2 hub shared power unverified; stopping controller");
+            return false;
+        }
+        if (power == hub::PowerResult::Unavailable) {
+            log::write(log::Level::Warn, "XHCI", "USB2 hub shared power deferred; group is not inactive");
+            return true;
+        }
+        log::write(log::Level::Info, "XHCI", "USB2 hub shared power group ready");
+    }
+    for (uint8_t port = 1U; port <= parsed.port_count; ++port) {
+        const auto exchange = [&](hub::PortRequest kind, hub::PortStatus* status) {
+            return exchange_port(port, kind, status);
+        };
+        hub::PortStatus status{};
+        if (!exchange(hub::PortRequest::GetStatus, &status)) {
+            log::write_u64(log::Level::Error, "XHCI",
+                "USB2 hub port status unverified; stopping controller at port: ", port);
+            return false;
+        }
+        if (!controller.initialized &&
+            (status.status & hub::PORT_POWERED) == 0U &&
+            arch::x86_64::hpet::capabilities() != nullptr) {
+            const auto power = hub::power_port_for_probe(parsed, status, exchange, wait_hpet_us);
+            if (power == hub::PowerResult::UnsafePort) {
+                log::write_u64(log::Level::Error, "XHCI",
+                    "USB2 hub port power unverified; stopping controller at port: ", port);
+                return false;
+            }
+            if (power == hub::PowerResult::Unavailable) {
+                log::write_u64(log::Level::Warn, "XHCI",
+                    "USB2 hub port power unavailable: ", port);
+                continue;
+            }
+            log::write_u64(log::Level::Info, "XHCI",
+                "USB2 hub port power verified: ", port);
+        }
+        if ((status.status & hub::PORT_CONNECTED) != 0U) {
+            log::write_u64(log::Level::Info, "XHCI",
+                "USB2 hub downstream port connected: ", port);
+        }
+        // Do not wait on the timer inside the normal HID polling path.
+        if (probe_ports && hub::inactive_reset_candidate(status)) {
+            const auto after_reset = [&] {
+                // This first topology has no high-speed transaction translator.
+                if (companion || speed != 1U || controller.maximum_slots < 2U ||
+                    controller.companion.slot_id != 0U ||
+                    (read32(controller.registers, 0U) >> 16U) < 0x0100U ||
+                    !configure_full_speed_hub_slot(controller, parsed.port_count) ||
+                    !wait_hpet_us(10000U)) return true;
+                hub::PortStatus ready{};
+                constexpr uint16_t required = hub::PORT_POWERED | hub::PORT_CONNECTED |
+                    hub::PORT_ENABLED;
+                constexpr uint16_t blocked = hub::PORT_OVER_CURRENT | hub::PORT_SUSPENDED |
+                    hub::PORT_RESET | hub::PORT_HIGH_SPEED;
+                if (!exchange(hub::PortRequest::GetStatus, &ready) ||
+                    (ready.status & required) != required || (ready.status & blocked) != 0U ||
+                    (ready.changed & ~hub::CHANGE_ENABLE) != 0U) return true;
+                return probe_downstream_device(controller, port,
+                    (ready.status & hub::PORT_LOW_SPEED) != 0U ? 2U : 1U);
+            };
+            const auto result = hub::probe_port_reset(
+                status, exchange, wait_hpet_us, after_reset);
+            if (result == hub::ResetResult::UnsafePort) {
+                log::write_u64(log::Level::Error, "XHCI",
+                    "USB2 hub port cleanup unverified; stopping controller at port: ", port);
+                return false;
+            }
+            if (result == hub::ResetResult::Verified) {
+                log::write_u64(log::Level::Info, "XHCI",
+                    "USB2 hub downstream reset and disable verified: ", port);
+            } else {
+                log::write_u64(log::Level::Warn, "XHCI",
+                    "USB2 hub downstream reset probe incomplete: ", port);
+            }
+        }
+    }
+    return true;
+}
+
 bool attach_companion_hid(Controller& controller) {
     auto& companion = controller.companion;
     if (!companion.allocated || companion.slot_id != 0U) {
@@ -2954,15 +3383,23 @@ bool attach_companion_hid(Controller& controller) {
     if (!reset_port(controller, port, &speed)) return false;
     companion.port_id = port;
     companion.port_speed = speed;
+    acknowledge_port_change(controller, port);
 
-    if (!address_companion_device(controller)) {
+    if (!address_companion_device(controller, {port, 0U, 0U})) {
         static_cast<void>(retire_companion_slot(controller));
         return false;
     }
-    if (!read_companion_descriptors(controller)) {
+    bool is_hub = false;
+    if (!read_companion_descriptors(controller, is_hub)) {
         const uint8_t unsupported_port = companion.port_id;
+        if (is_hub) probe_usb2_hub_ports(controller, true);
         if (!retire_companion_slot(controller)) return false;
-        companion.ignored_port_id = unsupported_port;
+        if (is_hub) {
+            controller.deferred_hub_ports[unsupported_port] = true;
+            terminal::println("[USB] external hub deferred; slot retired");
+        } else {
+            companion.ignored_port_id = unsupported_port;
+        }
         return false;
     }
     if (!configure_companion_hid_endpoint(controller) ||
@@ -3070,14 +3507,45 @@ bool progress_companion_lifecycle(Controller& controller) {
     return companion.hid_lifecycle == HidLifecycle::Active;
 }
 
-Status attach_hid_device(Controller& controller) {
-    if (!reset_connected_port(controller)) {
-        return first_unclaimed_connected_port(controller) != 0U
-            ? Status::PortResetTimeout : Status::NoDevice;
+void reset_primary_endpoint_memory(Controller& controller) {
+    reset_ring(&controller.ep0_ring);
+    reset_ring(&controller.interrupt_ring);
+    reset_ring(&controller.bulk_in_ring);
+    reset_ring(&controller.bulk_out_ring);
+    clear_bytes(controller.device_context_page.virtual_address,
+                memory::virtual_memory::PAGE_SIZE);
+}
+
+Status find_supported_root_device(Controller& controller) {
+    // Retry another root port only after the controller acknowledges slot
+    // retirement. Hub children still require a separate downstream path.
+    for (size_t attempt = 0U; attempt < controller.maximum_ports; ++attempt) {
+        const uint8_t port = first_unclaimed_connected_port(controller);
+        if (port == 0U) return Status::NoDevice;
+        uint8_t speed = 0U;
+        if (!reset_port(controller, port, &speed)) return Status::PortResetTimeout;
+        controller.port_id = port;
+        controller.port_speed = speed;
+        acknowledge_port_change(controller, port);
+        log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
+        if (!address_device(controller)) return Status::CommandFailed;
+        bool is_hub = false;
+        if (read_descriptors(controller, is_hub)) return Status::Ok;
+        if (!is_hub) return Status::HidKeyboardNotFound;
+        if (!probe_usb2_hub_ports(controller, false)) return Status::CommandFailed;
+        if (!disable_slot(controller, controller.slot_id)) return Status::CommandFailed;
+        reset_primary_endpoint_memory(controller);
+        controller.port_id = 0U;
+        controller.port_speed = 0U;
+        controller.deferred_hub_ports[port] = true;
+        terminal::println("[USB] external hub deferred; slot retired");
     }
-    log::write(log::Level::Info, "XHCI", "connected USB port reset completed");
-    if (!address_device(controller)) return Status::CommandFailed;
-    if (!read_descriptors(controller)) return Status::HidKeyboardNotFound;
+    return Status::NoDevice;
+}
+
+Status attach_hid_device(Controller& controller) {
+    const Status found = find_supported_root_device(controller);
+    if (found != Status::Ok) return found;
     log::write(log::Level::Info, "XHCI", "supported USB descriptors accepted");
 
     bool configured = false;
@@ -3143,6 +3611,7 @@ Status attach_hid_device(Controller& controller) {
 void fail_hotplug(Controller& controller, Status reason) {
     controller.initialized = false;
     controller.hid_lifecycle = HidLifecycle::Failed;
+    controller.companion.hid_lifecycle = HidLifecycle::Failed;
     controller.cleanup_pending = true;
     const Status stopped = quiesce_dma(controller);
     controller.runtime_status = stopped == Status::Ok ? reason : stopped;
@@ -3156,6 +3625,10 @@ void fail_hotplug(Controller& controller, Status reason) {
     }
     if (controller.mass_storage_device != device::INVALID_DEVICE_ID) {
         static_cast<void>(device::set_status(controller.mass_storage_device,
+                                            device::Status::Failed));
+    }
+    if (controller.companion.child_device != device::INVALID_DEVICE_ID) {
+        static_cast<void>(device::set_status(controller.companion.child_device,
                                             device::Status::Failed));
     }
     log::write(log::Level::Error, "XHCI", status_message(controller.runtime_status));
@@ -3210,19 +3683,9 @@ bool progress_hid_lifecycle(Controller& controller) {
     }
     if (controller.hid_lifecycle == HidLifecycle::ReleaseInput) {
         if (!flush_hid_input(controller)) return false;
-        Trb completion{};
-        if (controller.slot_id != 0U) {
-            if (!submit_command(controller, 0U, 0U,
-                    static_cast<uint32_t>(TRB_DISABLE_SLOT) << 10U |
-                    static_cast<uint32_t>(controller.slot_id) << 24U,
-                    &completion)) {
-                fail_hotplug(controller, Status::CommandFailed);
-                return false;
-            }
-            static_cast<uint64_t*>(controller.dcbaa_page.virtual_address)
-                [controller.slot_id] = 0U;
-            barrier();
-            controller.slot_id = 0U;
+        if (!disable_slot(controller, controller.slot_id)) {
+            fail_hotplug(controller, Status::CommandFailed);
+            return false;
         }
         // Only acknowledged Disable Slot permits reuse of endpoint DMA.
         controller.report_queued = false;
@@ -3258,13 +3721,9 @@ bool progress_hid_lifecycle(Controller& controller) {
         if (first_unclaimed_connected_port(controller) == 0U) return false;
         // Command/event rings stay live. Only disabled-slot endpoint/context
         // pages are reused; no DMA allocation or global controller reset.
-        reset_ring(&controller.ep0_ring);
-        reset_ring(&controller.interrupt_ring);
-        reset_ring(&controller.bulk_in_ring);
-        reset_ring(&controller.bulk_out_ring);
-        clear_bytes(controller.device_context_page.virtual_address,
-                    memory::virtual_memory::PAGE_SIZE);
+        reset_primary_endpoint_memory(controller);
         const Status attached = attach_hid_device(controller);
+        if (attached == Status::NoDevice) return false;
         if (attached != Status::Ok) {
             fail_hotplug(controller, attached);
             return false;
@@ -3370,6 +3829,7 @@ size_t poll(size_t budget) {
         return 0U;
     }
     static_cast<void>(progress_companion_lifecycle(g_controller));
+    if (!g_controller.initialized) return 0U;
 
     const bool input_pending =
         (g_controller.hid_kind == HidKind::Keyboard &&
@@ -3416,6 +3876,12 @@ size_t poll(size_t budget) {
                 static_cast<void>(
                     progress_companion_lifecycle(g_controller));
             } else {
+                if (port != 0U && port <= g_controller.maximum_ports &&
+                    g_controller.deferred_hub_ports[port]) {
+                    // Observe CSC before acknowledging it, or a replacement
+                    // device on this port could remain permanently deferred.
+                    static_cast<void>(connected_probe_candidate(g_controller, port));
+                }
                 acknowledge_port_change(g_controller, port);
                 if (g_controller.hid_lifecycle ==
                     HidLifecycle::WaitingForDevice) {
@@ -3430,6 +3896,9 @@ size_t poll(size_t budget) {
             }
         }
 
+        // Either lifecycle can contain a failed slot retirement by halting
+        // the controller. Do not consume more events or requeue input then.
+        if (!g_controller.initialized) return processed;
         if (trb_type(event) != TRB_TRANSFER_EVENT) continue;
         const uint8_t event_slot =
             static_cast<uint8_t>(event.control >> 24U);

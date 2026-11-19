@@ -1,6 +1,7 @@
 #include "ac97.hpp"
 
 #include "../../arch/x86_64/io.hpp"
+#include "../../terminal.hpp"
 #include "../pci.hpp"
 #include "../../storage/dma.hpp"
 
@@ -26,12 +27,12 @@ constexpr uint16_t kMixerMute = UINT16_C(1) << 15U;
 constexpr uint16_t kMixerAttenuationMask = UINT16_C(0x1F);
 
 constexpr uint16_t kPcmOutBdbase = 0x10U;
-constexpr uint16_t kPcmOutCiv = 0x14U;
 constexpr uint16_t kPcmOutLvi = 0x15U;
 constexpr uint16_t kPcmOutStatus = 0x16U;
-constexpr uint16_t kPcmOutPicb = 0x18U;
-constexpr uint16_t kPcmOutPiv = 0x1AU;
 constexpr uint16_t kPcmOutControl = 0x1BU;
+constexpr uint8_t kPciCommand = 0x04U;
+constexpr uint16_t kPciIoSpace = UINT16_C(1) << 0U;
+constexpr uint16_t kPciBusMaster = UINT16_C(1) << 2U;
 
 constexpr uint8_t kControlRun = UINT8_C(1) << 0U;
 constexpr uint8_t kControlReset = UINT8_C(1) << 1U;
@@ -49,6 +50,7 @@ constexpr uint32_t kDescriptorInterruptOnCompletion = UINT32_C(1) << 31U;
 constexpr uint32_t kDescriptorBufferUnderrunPolicy = UINT32_C(1) << 30U;
 constexpr uint32_t kResetPollBudget = 100000U;
 constexpr uint32_t kCodecPollBudget = 100000U;
+constexpr uint32_t kPcmProbePollBudget = 8000000U;
 
 struct __attribute__((packed)) BufferDescriptor {
     uint32_t address;
@@ -138,7 +140,11 @@ bool reset_pcm_engine() {
     bus_write8(kPcmOutControl, 0U);
     bus_write8(kPcmOutControl, kControlReset);
     for (uint32_t attempt = 0U; attempt < kResetPollBudget; ++attempt) {
-        if ((bus_read8(kPcmOutControl) & kControlReset) == 0U) {
+        const uint8_t control = bus_read8(kPcmOutControl);
+        const uint16_t status = bus_read16(kPcmOutStatus);
+        if (control == UINT8_MAX || status == UINT16_MAX) return false;
+        if ((control & (kControlReset | kControlRun)) == 0U &&
+            (status & kStatusDmaHalted) != 0U) {
             bus_write16(kPcmOutStatus, kStatusWriteOneToClear);
             return true;
         }
@@ -181,10 +187,47 @@ void release_dma() {
     }
 }
 
+void start_pcm(size_t sample_words) {
+    auto* descriptors = static_cast<BufferDescriptor*>(g_bdl_page.virtual_address);
+    clear_bytes(descriptors, 32U * sizeof(BufferDescriptor));
+    descriptors[0].address = static_cast<uint32_t>(g_pcm_page.physical_address);
+    descriptors[0].length_control =
+        static_cast<uint32_t>(sample_words) |
+        kDescriptorInterruptOnCompletion |
+        kDescriptorBufferUnderrunPolicy;
+
+    __asm__ volatile("sfence" : : : "memory");
+    bus_write16(kPcmOutStatus, kStatusWriteOneToClear);
+    bus_write32(kPcmOutBdbase, static_cast<uint32_t>(g_bdl_page.physical_address));
+    bus_write8(kPcmOutLvi, 0U);
+    bus_write8(kPcmOutControl, kControlRun);
+}
+
+bool pcm_probe_completed() {
+    for (uint32_t attempt = 0U; attempt < kPcmProbePollBudget; ++attempt) {
+        const uint16_t status = bus_read16(kPcmOutStatus);
+        if ((status & kStatusFifoError) != 0U) return false;
+        // DCH alone could be the initial halted state. Require completion
+        // of the final descriptor before accepting this DMA buffer.
+        constexpr uint16_t completed = kStatusDmaHalted | kStatusLastValidInterrupt;
+        if ((status & completed) == completed) return true;
+        arch::pause();
+    }
+    return false;
+}
+
+Status fail_initialization(Status status, uint16_t restore_command) {
+    pci::write16(g_pci_device->address, kPciCommand, restore_command);
+    release_dma();
+    g_status = status;
+    return g_status;
+}
+
 } // namespace
 
 Status initialize() {
     if (g_initialized) return Status::AlreadyInitialized;
+    if (g_bdl_page.allocated || g_pcm_page.allocated) return Status::DeviceFault;
 
     g_status = Status::NotInitialized;
     g_pci_device = pci::find(kIntelVendor, kIchAc97Device);
@@ -205,40 +248,53 @@ Status initialize() {
     g_mixer_base = static_cast<uint16_t>(mixer);
     g_bus_master_base = static_cast<uint16_t>(bus);
 
-    uint16_t command = pci::read16(g_pci_device->address, 0x04U);
-    command = static_cast<uint16_t>(command | UINT16_C(0x0005));
-    pci::write16(g_pci_device->address, 0x04U, command);
+    const pci::Address address = g_pci_device->address;
+    const uint16_t command = pci::read16(address, kPciCommand);
+    if (command == UINT16_MAX) {
+        g_status = Status::DeviceFault;
+        return g_status;
+    }
+    const uint16_t io_only = static_cast<uint16_t>((command | kPciIoSpace) & ~kPciBusMaster);
+    constexpr uint16_t decode_bits = kPciIoSpace | kPciBusMaster;
+    pci::write16(address, kPciCommand, io_only);
+    if ((pci::read16(address, kPciCommand) & decode_bits) != kPciIoSpace) {
+        return fail_initialization(Status::DeviceFault, command);
+    }
+    if (!reset_pcm_engine() || !reset_codec()) {
+        return fail_initialization(Status::CodecResetFailed,
+            static_cast<uint16_t>(command & ~kPciBusMaster));
+    }
 
     if (storage::dma::allocate_page(false, &g_bdl_page) !=
             storage::dma::Status::Ok ||
         storage::dma::allocate_page(false, &g_pcm_page) !=
             storage::dma::Status::Ok) {
-        release_dma();
-        g_status = Status::DmaAllocationFailed;
-        return g_status;
+        return fail_initialization(Status::DmaAllocationFailed, command);
     }
-    if (g_bdl_page.physical_address >= storage::dma::DMA32_ADDRESS_LIMIT ||
-        g_pcm_page.physical_address >= storage::dma::DMA32_ADDRESS_LIMIT) {
-        release_dma();
-        g_status = Status::DmaAllocationFailed;
-        return g_status;
-    }
-    clear_bytes(g_bdl_page.virtual_address, 4096U);
-    clear_bytes(g_pcm_page.virtual_address, 4096U);
-
-    if (!reset_codec() || !reset_pcm_engine()) {
-        release_dma();
-        g_status = Status::CodecResetFailed;
-        return g_status;
+    pci::write16(address, kPciCommand, static_cast<uint16_t>(command | decode_bits));
+    const uint16_t enabled = pci::read16(address, kPciCommand);
+    if (enabled == UINT16_MAX || (enabled & decode_bits) != decode_bits) {
+        return fail_initialization(Status::DeviceFault, command);
     }
 
-    bus_write32(
-        kPcmOutBdbase,
-        static_cast<uint32_t>(g_bdl_page.physical_address));
-    bus_write8(kPcmOutLvi, 0U);
-    static_cast<void>(bus_read8(kPcmOutCiv));
-    static_cast<void>(bus_read8(kPcmOutPiv));
-    static_cast<void>(bus_read16(kPcmOutPicb));
+    constexpr size_t probe_bytes = 1024U;
+    clear_bytes(g_pcm_page.virtual_address, probe_bytes);
+    start_pcm(probe_bytes / sizeof(int16_t));
+    const bool completed = pcm_probe_completed();
+    if (!reset_pcm_engine()) {
+        // Without an acknowledged engine reset, leave the hardware's DMA
+        // pages pinned even if we asked PCI to disable bus mastering.
+        pci::write16(address, kPciCommand,
+            static_cast<uint16_t>(command & ~kPciBusMaster));
+        terminal::println("[TEST] ac97_pcm_dma: FAIL (engine reset; DMA retained)");
+        g_status = Status::DeviceFault;
+        return g_status;
+    }
+    if (!completed) {
+        terminal::println("[TEST] ac97_pcm_dma: FAIL (no DMA completion)");
+        return fail_initialization(Status::DeviceFault, command);
+    }
+    terminal::println("[TEST] ac97_pcm_dma: PASS");
 
     g_busy = false;
     g_initialized = true;
@@ -278,22 +334,7 @@ Status play_pcm16_stereo(const int16_t* samples, size_t frame_count) {
     const size_t bytes = frame_count * kBytesPerFrame;
     copy_bytes(g_pcm_page.virtual_address, samples, bytes);
 
-    auto* descriptors = static_cast<BufferDescriptor*>(g_bdl_page.virtual_address);
-    clear_bytes(descriptors, 32U * sizeof(BufferDescriptor));
-    const size_t sample_words = bytes / sizeof(int16_t);
-    descriptors[0].address = static_cast<uint32_t>(g_pcm_page.physical_address);
-    descriptors[0].length_control =
-        static_cast<uint32_t>(sample_words) |
-        kDescriptorInterruptOnCompletion |
-        kDescriptorBufferUnderrunPolicy;
-
-    __asm__ volatile("sfence" : : : "memory");
-    bus_write16(kPcmOutStatus, kStatusWriteOneToClear);
-    bus_write32(
-        kPcmOutBdbase,
-        static_cast<uint32_t>(g_bdl_page.physical_address));
-    bus_write8(kPcmOutLvi, 0U);
-    bus_write8(kPcmOutControl, kControlRun);
+    start_pcm(bytes / sizeof(int16_t));
     g_busy = true;
     g_status = Status::Ok;
     return Status::Ok;

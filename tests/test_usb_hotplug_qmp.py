@@ -37,17 +37,22 @@ def check(action, order="before", fail=False):
                     assert read()["execute"] == "qmp_capabilities"
                     send({"return": {}})
                     command = read()
+                    if action == "add":
+                        # This simulated QMP server has no PS/2 input handler.
+                        # A key event while the USB keyboard is absent is invalid.
+                        assert command == {"execute": "device_add", "arguments": {
+                            "driver": "usb-kbd", "bus": "kurogane_xhci.0",
+                            "id": "kurogane_usb_keyboard"}}
+                        if order == "error":
+                            send({"error": {"class": "GenericError", "desc": "cannot add"}})
+                            assert not stream.readline(), "sent input after rejected add"
+                            return
+                        send({"return": {}})
+                        command = read()
                     if action in ("add", "hold-shift"):
                         assert command == {"execute": "input-send-event", "arguments": {
                             "events": [{"type": "key", "data": {"down": action == "hold-shift",
                                 "key": {"type": "qcode", "data": "shift"}}}]}}
-                        send({"return": {}})
-                        if action == "hold-shift":
-                            return
-                        command = read()
-                        assert command["execute"] == "device_add"
-                        assert command["arguments"] == {"driver": "usb-kbd",
-                            "bus": "kurogane_xhci.0", "id": "kurogane_usb_keyboard"}
                         send({"return": {}})
                         return
                     assert command == {"execute": "device_del", "arguments": {
@@ -80,9 +85,10 @@ def check(action, order="before", fail=False):
 
 check("hold-shift")
 check("add")
+check("add", "error", True)
 check("remove", "before")
 check("remove", "after")
 check("remove", "missing", True)
 check("remove", "wrong", True)
 check("remove", "error", True)
-print("USB QMP bounded handshake and removal acknowledgement: PASS (7 cases)")
+print("USB QMP bounded add/input ordering and removal acknowledgement: PASS (8 cases)")
