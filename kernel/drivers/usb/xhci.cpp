@@ -3454,7 +3454,7 @@ bool progress_companion_lifecycle(Controller& controller) {
         const uint32_t port =
             read32(controller.operational, offset);
         if (port == UINT32_MAX) {
-            companion.hid_lifecycle = HidLifecycle::Failed;
+            fail_hotplug(controller, Status::MmioUnavailable);
             return false;
         }
         if ((port & PORT_CONNECTED) == 0U ||

@@ -8,6 +8,7 @@ namespace {
 size_t submitted = 0U;
 drivers::keyboard::KeyEvent delivered[24]{};
 size_t capacity = 24U;
+uint16_t pci_command = 0U;
 }
 namespace input {
 bool submit_key(const drivers::keyboard::KeyEvent& event) {
@@ -28,8 +29,14 @@ void write(Level, const char*, const char*) {}
 void write_u64(Level, const char*, const char*, uint64_t) {}
 }
 namespace pci {
-uint16_t read16(Address, uint8_t) { return 0U; }
-void write16(Address, uint8_t, uint16_t) {}
+uint16_t read16(Address, uint8_t offset) {
+    assert(offset == 0x04U);
+    return pci_command;
+}
+void write16(Address, uint8_t offset, uint16_t value) {
+    assert(offset == 0x04U);
+    pci_command = value;
+}
 }
 namespace terminal {
 void println(const char*) {}
@@ -128,7 +135,7 @@ int main() {
     g_controller.owner_driver = 7U;
     assert(register_keyboard(g_controller));
     const auto old_handle = device::handle_for(g_controller.keyboard_device);
-    alignas(4) uint8_t operational[OP_PORTS + PORT_STRIDE]{};
+    alignas(4) uint8_t operational[OP_PORTS + 2U * PORT_STRIDE]{};
     alignas(4096) Trb commands[RING_TRB_COUNT]{};
     alignas(4096) uint64_t dcbaa[512]{};
     g_controller.operational = operational;
@@ -373,6 +380,62 @@ int main() {
         }
     }
     std::puts("xHCI unsafe companion hub probe quarantines its active slot: PASS");
+
+    // An unreadable companion port must stop a pending primary completion,
+    // even when the primary port remains connected and readable.
+    alignas(4096) uint8_t companion_report_bytes[4096]{};
+    g_controller.operational = operational;
+    g_controller.maximum_ports = 2U;
+    g_controller.initialized = true;
+    g_controller.cleanup_pending = false;
+    g_controller.dma_published = true;
+    g_controller.bus_master_enabled = true;
+    g_controller.hid_kind = HidKind::Keyboard;
+    g_controller.hid_lifecycle = HidLifecycle::Active;
+    g_controller.slot_id = 1U;
+    g_controller.port_id = 1U;
+    g_controller.report_queued = false;
+    assert(register_keyboard(g_controller));
+    const auto retained_keyboard = device::handle_for(g_controller.keyboard_device);
+    companion.hid_kind = HidKind::Mouse;
+    companion.hid_lifecycle = HidLifecycle::Active;
+    companion.port_id = 2U;
+    companion.data_page = {companion_report_bytes, 0xB0000U, true};
+    assert(register_companion_hid(g_controller));
+    const auto retained_mouse = device::handle_for(companion.child_device);
+    dcbaa[1U] = 0x60000U;
+    pci_command = 6U; // Memory decoding and bus mastering.
+    write32(operational, OP_USBCMD, CMD_RUN);
+    write32(operational, OP_USBSTS, STS_HALTED);
+    write32(operational, OP_PORTS, PORT_CONNECTED | PORT_ENABLED);
+    write32(operational, OP_PORTS + PORT_STRIDE, UINT32_MAX);
+    assert(keyboard_ready() && mouse_ready());
+    assert(queue_hid_report(g_controller));
+    report[2U] = 4U;
+    events[0U] = {g_controller.report_trb, success, control};
+    const size_t pending_enqueue = g_controller.interrupt_ring.enqueue;
+    const size_t submitted_before_fault = submitted;
+    doorbells[1U] = UINT32_MAX;
+
+    assert(poll(1U) == 0U);
+    assert(!initialized() && !keyboard_ready() && !mouse_ready());
+    assert(runtime_status() == Status::MmioUnavailable && g_controller.cleanup_pending);
+    assert(!g_controller.dma_published && !g_controller.bus_master_enabled);
+    assert(pci_command == 2U && (read32(operational, OP_USBCMD) & CMD_RUN) == 0U);
+    assert(g_controller.hid_lifecycle == HidLifecycle::Failed);
+    assert(companion.hid_lifecycle == HidLifecycle::Failed);
+    const auto* failed_keyboard = device::resolve(retained_keyboard);
+    const auto* failed_mouse = device::resolve(retained_mouse);
+    assert(failed_keyboard != nullptr && failed_keyboard->status == device::Status::Failed);
+    assert(failed_mouse != nullptr && failed_mouse->status == device::Status::Failed);
+    assert(g_controller.slot_id == 1U && dcbaa[1U] == 0x60000U);
+    assert(companion.slot_id == 2U && dcbaa[2U] == 0xA0000U);
+    assert(g_controller.data_page.allocated && companion.data_page.allocated);
+    assert(poll(1U) == 0U && submitted == submitted_before_fault);
+    assert(g_controller.command_ring.enqueue == 0U && g_controller.event_dequeue == 0U);
+    assert(g_controller.report_queued && g_controller.interrupt_ring.enqueue == pending_enqueue);
+    assert(doorbells[1U] == UINT32_MAX);
+    std::puts("xHCI unreadable companion port contains both HID paths before polling: PASS");
 
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
