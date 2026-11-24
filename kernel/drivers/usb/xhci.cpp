@@ -3239,7 +3239,7 @@ bool probe_downstream_device(Controller& controller, uint8_t port, uint8_t speed
     return true;
 }
 
-// A probe failure is optional unless the child slot cannot be retired.
+// Return false when hub state or child slot retirement cannot be verified.
 bool probe_usb2_hub_ports(Controller& controller, bool companion) {
     const uint8_t speed = companion
         ? controller.companion.port_speed : controller.port_speed;
@@ -3370,6 +3370,23 @@ bool probe_usb2_hub_ports(Controller& controller, bool companion) {
     return true;
 }
 
+void finish_unsupported_companion_probe(Controller& controller, bool is_hub,
+                                        bool probe_safe) {
+    if (!probe_safe) {
+        fail_hotplug(controller, Status::CommandFailed);
+        return;
+    }
+
+    const uint8_t port = controller.companion.port_id;
+    if (!retire_companion_slot(controller)) return;
+    if (is_hub) {
+        controller.deferred_hub_ports[port] = true;
+        terminal::println("[USB] external hub deferred; slot retired");
+    } else {
+        controller.companion.ignored_port_id = port;
+    }
+}
+
 bool attach_companion_hid(Controller& controller) {
     auto& companion = controller.companion;
     if (!companion.allocated || companion.slot_id != 0U) {
@@ -3391,15 +3408,8 @@ bool attach_companion_hid(Controller& controller) {
     }
     bool is_hub = false;
     if (!read_companion_descriptors(controller, is_hub)) {
-        const uint8_t unsupported_port = companion.port_id;
-        if (is_hub) probe_usb2_hub_ports(controller, true);
-        if (!retire_companion_slot(controller)) return false;
-        if (is_hub) {
-            controller.deferred_hub_ports[unsupported_port] = true;
-            terminal::println("[USB] external hub deferred; slot retired");
-        } else {
-            companion.ignored_port_id = unsupported_port;
-        }
+        const bool probe_safe = !is_hub || probe_usb2_hub_ports(controller, true);
+        finish_unsupported_companion_probe(controller, is_hub, probe_safe);
         return false;
     }
     if (!configure_companion_hid_endpoint(controller) ||
@@ -3818,7 +3828,7 @@ Status initialize(
     if (attached != Status::Ok) return fail_initialization(attached);
     g_controller.initialized = true;
     static_cast<void>(progress_companion_lifecycle(g_controller));
-    return Status::Ok;
+    return g_controller.initialized ? Status::Ok : g_controller.runtime_status;
 }
 
 size_t poll(size_t budget) {

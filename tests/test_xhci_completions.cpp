@@ -328,6 +328,52 @@ int main() {
     }
     std::puts("xHCI companion retirement timeout halts polling and retains DMA: PASS");
 
+    // An unsafe hub probe must quarantine the slot even if Disable Slot
+    // could have succeeded. Only a safely probed hub can be deferred.
+    for (bool probe_safe : {true, false}) {
+        clear_bytes(events, sizeof(events));
+        g_controller.initialized = true;
+        g_controller.cleanup_pending = false;
+        g_controller.dma_published = true;
+        g_controller.hid_lifecycle = HidLifecycle::Active;
+        g_controller.event_dequeue = 0U;
+        g_controller.event_cycle = true;
+        g_controller.deferred_event_count = 0U;
+        g_controller.command_ring.enqueue = 0U;
+        g_controller.deferred_hub_ports[1U] = false;
+        write32(stopped_mmio, OP_USBCMD, CMD_RUN);
+        write32(stopped_mmio, OP_USBSTS, STS_HALTED);
+        companion.hid_lifecycle = HidLifecycle::WaitingForDevice;
+        companion.slot_id = 2U;
+        companion.port_id = 1U;
+        companion.ep0_ring.enqueue = 3U;
+        dcbaa[2U] = 0xA0000U;
+        report[0U] = 0xA5U;
+        events[0U] = {0x40000U, success,
+            static_cast<uint32_t>(TRB_COMMAND_COMPLETION) << 10U | 1U};
+
+        finish_unsupported_companion_probe(g_controller, true, probe_safe);
+        if (probe_safe) {
+            assert(initialized() && g_controller.deferred_hub_ports[1U]);
+            assert(g_controller.command_ring.enqueue == 1U && g_controller.event_dequeue == 1U);
+            assert(trb_type(commands[0]) == TRB_DISABLE_SLOT);
+            assert(companion.slot_id == 0U && dcbaa[2U] == 0U);
+        } else {
+            assert(!initialized() && g_controller.cleanup_pending);
+            assert(!g_controller.deferred_hub_ports[1U]);
+            assert(runtime_status() == Status::CommandFailed);
+            assert(g_controller.hid_lifecycle == HidLifecycle::Failed);
+            assert(companion.hid_lifecycle == HidLifecycle::Failed);
+            assert((read32(stopped_mmio, OP_USBCMD) & CMD_RUN) == 0U);
+            assert(companion.slot_id == 2U && dcbaa[2U] == 0xA0000U);
+            assert(companion.data_page.allocated && report[0U] == 0xA5U);
+            assert(companion.ep0_ring.enqueue == 3U);
+            assert(poll(1U) == 0U);
+            assert(g_controller.command_ring.enqueue == 0U && g_controller.event_dequeue == 0U);
+        }
+    }
+    std::puts("xHCI unsafe companion hub probe quarantines its active slot: PASS");
+
     std::puts("xHCI transfer completion ownership regression: PASS");
     std::puts("xHCI bounded input backpressure and exact-once retry: PASS");
     std::puts("xHCI disconnect releases, slot retirement and failure quarantine: PASS");
