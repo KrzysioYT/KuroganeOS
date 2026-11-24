@@ -314,6 +314,42 @@ jobs:
             --require-marker '[TEST] xhci_mass_storage_write_readback: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify NVMe identification and durable block I/O
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_admin_identify: PASS' \
+            --require-marker '[TEST] nvme_namespace_identify: PASS' \
+            --require-marker '[TEST] nvme_io_queues: PASS' \
+            --require-marker '[TEST] nvme_known_read: PASS' \
+            --require-marker '[TEST] nvme_write: PASS' \
+            --require-marker '[TEST] nvme_flush: PASS' \
+            --require-marker '[TEST] nvme_write_readback: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL' "$evidence/serial.log"
+      - name: Install the candidate ISO on AHCI and reboot from disk only
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(bash scripts/read-version.sh common/version.h)
+          python3 scripts/qualification/installer-qemu.py \
+            --iso "dist/KuroganeOS-${version}-x86_64.iso" \
+            --output build/tests/iron-shield-no-nic/ahci-install \
+            --password-profile --timeout 240
+      - name: Retain the tested installer ISO and its manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-test-iso-${{ env.SOURCE_SHA }}
+          path: |
+            dist/KuroganeOS-*-x86_64.iso
+            build/tests/iron-shield-no-nic/source-sha.txt
+            build/tests/iron-shield-no-nic/dist-sha256.txt
+            build/tests/iron-shield-no-nic/ahci-install/result.json
+          if-no-files-found: error
+          retention-days: 30
       - name: Verify HDA codec and PCM DMA on the release image
         shell: bash
         run: |
@@ -438,7 +474,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: iron-shield-no-nic-${{ env.SOURCE_SHA }}
-          path: build/tests/iron-shield-no-nic
+          path: |
+            build/tests/iron-shield-no-nic
+            !build/tests/iron-shield-no-nic/ahci-install/*.img
           if-no-files-found: warn
 
   supported-device-gate:

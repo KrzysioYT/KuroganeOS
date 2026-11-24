@@ -28,11 +28,11 @@ execution and safe resource recovery have been independently qualified.
 
 Existing supported-subset qualification:
 [`qualify-7.0-supported-devices.yml`](../../.github/workflows/qualify-7.0-supported-devices.yml)
-builds a clean release image and requires real guest interactions for
-E1000e + VirtIO block + USB HID + SMP, VirtIO-net + VirtIO block + USB HID + SMP,
-and a no-NIC USB-only fallback. The resulting logs must be tied to the exact
-candidate source SHA. **These three passing QEMU profiles alone do not qualify
-the entire 7.0 milestone.**
+builds release media and exercises E1000, E1000e, VirtIO-net and PCnet with
+VirtIO block, USB HID without PS/2 and SMP. The separate no-NIC job exercises
+loopback and USB input, block devices, audio and selected recovery paths. The
+workflow records the checked-out source SHA and separate hashes for the
+release and instrumented images.
 
 ## Remaining mandatory engineering work
 
@@ -203,3 +203,30 @@ injections do not demonstrate physical DMA recovery, device reset, or
 hardware compatibility. **Realtek remains BLOCKED — PHYSICAL HARDWARE
 REQUIRED.** Confirm these changes against the final source SHA and CI run;
 do not inherit PASS from the previous candidate.
+
+## 2026-11-24 — review of the device matrix
+
+The push and PR runs for `55f7857ce89979a3aac9c632b53641f9973a679b` passed.
+The original release ISO in the push run had SHA-256
+`e58618da5a3fa8f0d92836af80ea5c877351a5bfbe9f465fa5251ff33e5eace1`.
+The artifact records results for direct USB storage, downstream boot-time
+storage with restoration of the scratch disk, HDA PCM and AC’97 fallback
+PCM. It records separate image hashes and patches for the instrumented
+power, root-port hotplug and xHCI retirement trials.
+[Push run](https://github.com/KrzysioYT/KuroganeOS/actions/runs/44559586826) ·
+[Gate evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/44559586826/artifacts/14550155815)
+
+The closeout gate now also includes NVMe Identify, read, write, flush and
+readback, plus installation from ISO to a fresh AHCI disk and two disk-only
+boots. The downloadable test ISO is retained before the workflow rebuilds
+the instrumented images.
+
+A Windows host reports an RTL8168 with PCI ID `10ec:8168`, subsystem
+`17aa:39dc` and revision `15`. Its KuroganeOS runtime result remains
+**BLOCKED** pending a controlled physical boot of an experimental build.
+The test must record the build and image hash, MAC/PHY and link state,
+bidirectional traffic and link recovery, plus whether the driver can verify
+DMA quiescence before releasing resources. The default ISO is suitable for
+checking PCI recognition and fallback. Its experimental RTL81xx path stays
+disabled. Persistent downstream USB binding and hotplug, high-speed hub TT
+scheduling and active-driver PCI power recovery also remain open.
