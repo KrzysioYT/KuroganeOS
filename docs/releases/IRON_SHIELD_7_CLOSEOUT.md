@@ -222,9 +222,15 @@ sectors of a dedicated namespace with a validated scratch header. QEMU
 checks the SHA-256 of the entire raw disk before and after the guest runs.
 A separate boot verifies that the legacy NVMe marker leaves every sector
 unchanged. The gate boots with an untagged 4 KiB namespace and verifies that
-the raw disk stays unchanged. The gate also installs from ISO to a fresh AHCI disk and boots
-twice from that disk alone. The downloadable test ISO is retained before
-the workflow rebuilds the instrumented images.
+the raw disk stays unchanged. It also installs from ISO to a fresh AHCI disk
+and boots twice from that disk alone. The downloadable test ISO is retained
+before the workflow rebuilds the instrumented images.
+
+NVMe shutdown and startup rollback now retain DMA pages and mappings if
+controller reset cannot be verified. The driver attempts to disable bus
+mastering while keeping ownership of resources that may still be used by
+the hardware. The host and UBSan tests cover reset timeout, fatal status,
+PCI identity loss, partial mapping and retry after a failed release.
 
 When a companion hub probe cannot verify the state of the port or its
 transfers, xHCI stops polling and retains the active slot and its DMA

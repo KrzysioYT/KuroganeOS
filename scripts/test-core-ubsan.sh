@@ -29,6 +29,7 @@ run abi -Isdk/include tests/test_sdk_abi.cpp
 run rtl81xx-ring tests/test_rtl81xx_ring.cpp
 run rtl81xx-dma-runtime -ffunction-sections -fdata-sections \
     tests/test_rtl81xx_dma_runtime.cpp -Wl,--gc-sections
+run nvme-retirement tests/test_nvme_retirement.cpp kernel/storage/nvme_protocol.cpp
 run usb-hub-port tests/test_usb_hub_port.cpp
 run usb-hub-ganged-power tests/test_usb_hub_ganged_power.cpp
 
