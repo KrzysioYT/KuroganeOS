@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag|--nvme-4k] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -18,8 +18,7 @@ nic_model="none"
 virtio_vectors=""
 log_dir=""
 audio_model="none"
-nvme=false
-nvme_legacy_tag=false
+nvme_fixture=""
 virtio_block=false
 no_ps2=false
 usb_keyboard=false
@@ -82,8 +81,9 @@ while (($#)); do
         --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
-        --nvme) nvme=true; shift ;;
-        --nvme-legacy-tag) nvme=true; nvme_legacy_tag=true; shift ;;
+        --nvme) nvme_fixture=scratch; shift ;;
+        --nvme-legacy-tag) nvme_fixture=legacy-tag; shift ;;
+        --nvme-4k) nvme_fixture=4k; shift ;;
         --virtio-block) virtio_block=true; shift ;;
         --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
@@ -840,22 +840,23 @@ PY
 fi
 
 nvme_args=()
-if $nvme; then
+if [[ -n "$nvme_fixture" ]]; then
     nvme_image="$tmp/nvme-storage.img"
-    python3 - "$nvme_image" "$nvme_legacy_tag" <<'PY'
+    python3 - "$nvme_image" "$nvme_fixture" <<'PY'
 import struct
 import sys
 
 size = 8 * 1024 * 1024
 header = bytearray(512)
-legacy_tag = sys.argv[2] == "true"
-first_lba, sector_count = (1, 1) if legacy_tag else (8, 8)
-if legacy_tag:
+fixture = sys.argv[2]
+first_lba, sector_count = 1, 1
+if fixture == "legacy-tag":
     # A former 8 MiB NVMe fixture must now remain untouched.
     magic = b"KUROGANE_NVME_RW_V1"
     header[:len(magic)] = magic
     header[len(magic):] = bytes((i * 31 + 5) & 0xFF for i in range(512 - len(magic)))
-else:
+elif fixture == "scratch":
+    first_lba, sector_count = 8, 8
     magic = b"KUROGANE_BLOCK_SCRATCH_V1"
     header[:len(magic)] = magic
     struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512, first_lba, sector_count, 0x4B535431)
@@ -866,11 +867,15 @@ with open(sys.argv[1], "wb") as image:
     image.write(bytes((i * 29 + 7) & 0xFF for i in range(sector_count * 512)))
 PY
     record_scratch_image "$nvme_image" nvme-scratch-sha256.txt
+    nvme_geometry=""
+    if [[ "$nvme_fixture" == 4k ]]; then
+        nvme_geometry=",logical_block_size=4096,physical_block_size=4096"
+    fi
     # A separate signed scratch namespace proves PCI/MMIO/Admin + NVM I/O
     # without changing the IDE system disk or auto-writing arbitrary media.
     nvme_args=(
         -drive "if=none,id=kurogane_nvme_storage,format=raw,file=$nvme_image"
-        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME"
+        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME$nvme_geometry"
     )
 fi
 

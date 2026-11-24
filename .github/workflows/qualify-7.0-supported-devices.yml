@@ -340,6 +340,18 @@ jobs:
             --require-marker '[TEST] nvme_read: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|nvme_write_.*: PASS' "$evidence/serial.log"
+      - name: Boot with an untagged 4 KiB NVMe namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme-4k
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme-4k \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          grep -Eq 'logical sector bytes=[[:space:]]*4096' "$evidence/serial.log"
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"
       - name: Install the candidate ISO on AHCI and reboot from disk only
         shell: bash
         run: |

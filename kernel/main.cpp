@@ -1174,6 +1174,9 @@ void initialize_storage_probe() {
             }
         }
 
+        if (entry.device->sector_size != storage::scratch_test::SCRATCH_SECTOR_SIZE) {
+            continue;
+        }
         const storage::scratch_test::Result scratch_result =
             storage::scratch_test::run(
                 entry.device, &g_scratch_test_workspace);

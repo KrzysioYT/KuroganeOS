@@ -221,7 +221,8 @@ shared block-device test writes, flushes, reads back and restores eight
 sectors of a dedicated namespace with a validated scratch header. QEMU
 checks the SHA-256 of the entire raw disk before and after the guest runs.
 A separate boot verifies that the legacy NVMe marker leaves every sector
-unchanged. The gate also installs from ISO to a fresh AHCI disk and boots
+unchanged. The gate boots with an untagged 4 KiB namespace and verifies that
+the raw disk stays unchanged. The gate also installs from ISO to a fresh AHCI disk and boots
 twice from that disk alone. The downloadable test ISO is retained before
 the workflow rebuilds the instrumented images.
 
