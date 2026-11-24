@@ -88,6 +88,30 @@ struct ResetStep {
     hub::PortStatus reply{};
 };
 
+void test_child_readiness() {
+    bool status_read = false;
+    hub::PortStatus reply{hub::PORT_POWERED | hub::PORT_CONNECTED, 0U};
+    const auto exchange = [&](Request request, hub::PortStatus* status) {
+        assert(request == Request::GetStatus && status != nullptr);
+        *status = reply;
+        return status_read;
+    };
+    const auto no_child = [](bool) { assert(false); return false; };
+
+    assert(!hub::probe_ready_child(exchange, no_child));
+    status_read = true;
+    assert(hub::probe_ready_child(exchange, no_child));
+
+    reply.status |= hub::PORT_ENABLED | hub::PORT_LOW_SPEED;
+    bool child_called = false;
+    const auto child_failure = [&](bool low_speed) {
+        assert(low_speed);
+        child_called = true;
+        return false;
+    };
+    assert(!hub::probe_ready_child(exchange, child_failure) && child_called);
+}
+
 template<size_t N>
 void check_reset_sequence(
     hub::PortStatus initial, const ResetStep (&steps)[N],
@@ -378,6 +402,7 @@ int main() {
     assert(hub::parse_port_status(ready, 4U, nullptr) ==
            hub::PortParse::InvalidArgument);
     assert(port.status == previous.status && port.changed == previous.changed);
+    test_child_readiness();
     test_downstream_reset();
     test_port_power();
     return 0;

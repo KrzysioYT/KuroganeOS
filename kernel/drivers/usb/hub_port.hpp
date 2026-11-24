@@ -242,6 +242,19 @@ PowerResult power_port_for_probe(
         ? PowerResult::Ready : PowerResult::UnsafePort;
 }
 
+template<typename Exchange, typename ProbeChild>
+bool probe_ready_child(Exchange exchange, ProbeChild probe_child) {
+    PortStatus ready{};
+    if (!exchange(PortRequest::GetStatus, &ready)) return false;
+
+    constexpr uint16_t required = PORT_POWERED | PORT_CONNECTED | PORT_ENABLED;
+    constexpr uint16_t blocked = PORT_OVER_CURRENT | PORT_SUSPENDED |
+        PORT_RESET | PORT_HIGH_SPEED;
+    if ((ready.status & required) != required || (ready.status & blocked) != 0U ||
+        (ready.changed & ~CHANGE_ENABLE) != 0U) return true;
+    return probe_child((ready.status & PORT_LOW_SPEED) != 0U);
+}
+
 // Probe one powered, inactive port during controller initialization. The
 // caller may use EP0 after a verified reset. Retire any child slot in that
 // callback before this function disables the port again. A false callback
