@@ -169,6 +169,29 @@ void test_downstream_reset() {
         assert(requests == 1U);
     }
 
+    // A failed control transfer can leave an outstanding EP0 TRB. Do not
+    // issue Disable or any other request on the same ring in that case.
+    const ResetStep unverified_reset[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+    };
+    check_reset_sequence({connected, 0U}, unverified_reset,
+        0U, hub::ResetResult::UnsafePort, false, false, true, 1U);
+
+    const ResetStep unverified_reset_status[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+    };
+    check_reset_sequence({connected, 0U}, unverified_reset_status,
+        1U, hub::ResetResult::UnsafePort, false, false, true, 2U);
+
+    const ResetStep unverified_reset_ack[] = {
+        {Request::GetStatus, {connected, 0U}}, {Request::Reset},
+        {Request::GetStatus, {enabled, hub::CHANGE_RESET}},
+        {Request::ClearResetChange},
+    };
+    check_reset_sequence({connected, 0U}, unverified_reset_ack,
+        1U, hub::ResetResult::UnsafePort, false, false, true, 3U);
+
     const ResetStep no_timer[] = {
         {Request::GetStatus, {connected, 0U}}, {Request::Reset}, {Request::Disable},
         {Request::GetStatus, {connected | hub::PORT_RESET, 0U}},

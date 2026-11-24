@@ -263,24 +263,27 @@ ResetResult probe_port_reset(PortStatus port, Exchange exchange, Wait wait_us, A
     if (!exchange(PortRequest::GetStatus, &port)) return ResetResult::UnsafePort;
     if (!inactive_reset_candidate(port) || port.changed != 0U) return ResetResult::ProbeFailed;
 
+    // An unverified EP0 transfer may still be outstanding. Leave cleanup
+    // to controller containment without submitting another request.
+    if (!exchange(PortRequest::Reset, nullptr)) return ResetResult::UnsafePort;
+    constexpr uint16_t required = PORT_CONNECTED | PORT_POWERED;
     bool completed = false;
-    if (exchange(PortRequest::Reset, nullptr)) {
-        constexpr uint16_t required = PORT_CONNECTED | PORT_POWERED;
-        for (unsigned attempt = 0U; attempt < 10U; ++attempt) {
-            if (!wait_us(10000U) || !exchange(PortRequest::GetStatus, &port) ||
-                (port.status & required) != required ||
-                (port.status & (PORT_OVER_CURRENT | PORT_SUSPENDED)) != 0U ||
-                (port.changed & (CHANGE_CONNECTION | CHANGE_OVER_CURRENT)) != 0U) break;
-            if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
-                (port.changed & CHANGE_RESET) != 0U) {
-                completed = exchange(PortRequest::ClearResetChange, nullptr);
-                if (completed && !after_reset()) return ResetResult::UnsafePort;
-                break;
-            }
+    for (unsigned attempt = 0U; attempt < 10U; ++attempt) {
+        if (!wait_us(10000U)) break;
+        if (!exchange(PortRequest::GetStatus, &port)) return ResetResult::UnsafePort;
+        if ((port.status & required) != required ||
+            (port.status & (PORT_OVER_CURRENT | PORT_SUSPENDED)) != 0U ||
+            (port.changed & (CHANGE_CONNECTION | CHANGE_OVER_CURRENT)) != 0U) break;
+        if ((port.status & (PORT_RESET | PORT_ENABLED)) == PORT_ENABLED &&
+            (port.changed & CHANGE_RESET) != 0U) {
+            if (!exchange(PortRequest::ClearResetChange, nullptr) || !after_reset())
+                return ResetResult::UnsafePort;
+            completed = true;
+            break;
         }
     }
-    // A failed transfer may still have reached the hub; always request
-    // cleanup once a reset was attempted. Only verified cleanup earns PASS.
+    // Disable after an acknowledged reset, including a timer or status abort.
+    // Only verified cleanup earns PASS.
     const bool disabled = exchange(PortRequest::Disable, nullptr);
     if (!disabled || !exchange(PortRequest::GetStatus, &port))
         return ResetResult::UnsafePort;

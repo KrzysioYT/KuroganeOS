@@ -231,12 +231,19 @@ controller reset cannot be verified. The driver attempts to disable bus
 mastering while keeping ownership of resources that may still be used by
 the hardware. The host and UBSan tests cover reset timeout, fatal status,
 PCI identity loss, partial mapping and retry after a failed release.
+At runtime, NVMe serializes submissions and keeps the shared bounce buffer
+untouched after a timeout or mismatched completion until verified teardown.
+The same fixture checks that a matching completion with a command error
+still permits the next request.
 
 When a companion hub probe cannot verify the state of the port or its
 transfers, xHCI stops polling and retains the active slot and its DMA
 allocations. An unreadable port register on an active companion likewise
 contains the controller before it can process a pending primary-device
 completion. Both paths have optimized and UBSan host regressions.
+When Reset, GetStatus or ClearResetChange fails during a hub port reset,
+the driver stops the EP0 sequence and contains the controller. A timer or
+port-state abort after acknowledged transfers still uses verified disable.
 
 The experimental Realtek path verifies live PCI vendor and device identity
 around changes to the PCI Command register and reports RX/TX faults through
