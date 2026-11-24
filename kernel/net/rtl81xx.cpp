@@ -80,14 +80,22 @@ inline void write32(Device& device, size_t offset, uint32_t value) {
 }
 inline void relax() { __asm__ volatile("pause" : : : "memory"); }
 
+bool pci_identity_matches(const pci::Device& device) {
+    const uint32_t expected = static_cast<uint32_t>(device.device_id) << 16U |
+        device.vendor_id;
+    return pci::read32(device, 0x00U) == expected;
+}
+
 bool configure_pci_command(const pci::Device& device, bool enable_dma) {
+    if (!pci_identity_matches(device)) return false;
     const uint16_t current = pci::read16(device, PCI_COMMAND);
     if (current == UINT16_MAX) return false;
     constexpr uint16_t mask = PCI_MEMORY_SPACE | PCI_BUS_MASTER;
     const uint16_t required = enable_dma ? mask : PCI_MEMORY_SPACE;
     pci::write16(device, PCI_COMMAND, static_cast<uint16_t>((current & ~mask) | required));
     const uint16_t applied = pci::read16(device, PCI_COMMAND);
-    return applied != UINT16_MAX && (applied & mask) == required;
+    return applied != UINT16_MAX && (applied & mask) == required &&
+        pci_identity_matches(device);
 }
 
 bool cleanup_before_start(Device* device);
@@ -222,7 +230,6 @@ net::Status transmit(void* context, const uint8_t* data, size_t count) {
             g_device.tx_buffers[index].physical_address,
             index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
         __atomic_store_n(&g_device.faulted, true, __ATOMIC_RELEASE);
-        g_status = Status::DeviceFault;
         __atomic_clear(&g_device.tx_busy, __ATOMIC_RELEASE);
         return net::Status::InterfaceError;
     }
@@ -270,7 +277,6 @@ net::Status receive(void* context, uint8_t* out, size_t capacity,
             g_device.rx_buffers[index].physical_address,
             index + 1U == DESCRIPTOR_COUNT, dma::RX_BUFFER_BYTES)) {
         __atomic_store_n(&g_device.faulted, true, __ATOMIC_RELEASE);
-        g_status = Status::DeviceFault;
         __atomic_clear(&g_device.rx_busy, __ATOMIC_RELEASE);
         return net::Status::InterfaceError;
     }
@@ -314,7 +320,7 @@ Status initialize() {
         // A corrupted live ring is quarantined. Reinitializing here would
         // free or reuse DMA pages while the controller might still own them.
         if (__atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE))
-            return g_status = Status::DeviceFault;
+            return Status::DeviceFault;
         g_status = link_up() ? Status::Ok : Status::LinkDown;
         return g_status;
     }
@@ -402,11 +408,7 @@ bool link_up() {
     if (!g_device.started ||
         __atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE) ||
         g_device.registers == nullptr) return false;
-    const uint32_t expected_identity =
-        static_cast<uint32_t>(g_device.pci_device.device_id) << 16U |
-        g_device.pci_device.vendor_id;
-    if (pci::read32(g_device.pci_device, 0x00U) != expected_identity)
-        return false;
+    if (!pci_identity_matches(g_device.pci_device)) return false;
     const uint16_t pci_command = pci::read16(g_device.pci_device, PCI_COMMAND);
     constexpr uint16_t required = PCI_MEMORY_SPACE | PCI_BUS_MASTER;
     if (pci_command == UINT16_MAX || (pci_command & required) != required)
@@ -420,7 +422,10 @@ bool link_up() {
 }
 bool ready() { return g_device.started && link_up(); }
 NetworkInterface* interface() { return ready() ? &g_device.interface : nullptr; }
-Status last_status() { return g_status; }
+Status last_status() {
+    return __atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE)
+        ? Status::DeviceFault : g_status;
+}
 
 const char* status_message(Status status) {
     switch (status) {

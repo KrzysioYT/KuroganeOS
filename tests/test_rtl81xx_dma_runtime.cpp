@@ -121,6 +121,7 @@ int main() {
     // actual production TX/RX paths. No buffer copy, descriptor publication,
     // ring advance or TX doorbell is permitted. The initialized driver
     // remains quarantined; tests alone clear the state between cases.
+    g_status = Status::Ok;
     for (unsigned fault = 0U; fault < 4U; ++fault) {
         const bool receive_fault = fault >= 2U;
         auto& slot = receive_fault ? rx_descriptors[0] : tx_descriptors[0];
@@ -145,6 +146,7 @@ int main() {
                    net::Status::InterfaceError);
         }
         assert(g_device.faulted && last_status() == Status::DeviceFault);
+        assert(g_status == Status::Ok);
         assert(!ready() && interface() == nullptr);
         assert(g_device.next_tx == before_tx && g_device.next_rx == before_rx);
         assert(g_device.tx_frames == before_tx_frames &&
@@ -158,7 +160,6 @@ int main() {
         slot.address = before_address;
         slot.flags = before_flags;
         g_device.faulted = false; // Independent synthetic test case only.
-        g_status = Status::Ok;
         assert(ready());
     }
     std::puts("RTL81xx corrupt RX/TX DMA bindings quarantine device without mutation: PASS");
