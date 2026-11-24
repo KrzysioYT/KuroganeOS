@@ -305,7 +305,7 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_nvme_retirement.cpp kernel/storage/nvme_protocol.cpp \
   -o "$OUT_DIR/test_nvme_retirement"
-timeout 10 "$OUT_DIR/test_nvme_retirement"
+timeout 20 "$OUT_DIR/test_nvme_retirement"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_storage_registry.cpp kernel/storage/device_registry.cpp \

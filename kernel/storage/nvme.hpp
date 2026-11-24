@@ -24,6 +24,7 @@ enum class Status : uint8_t {
     IoQueueCreationFailed,
     IoCommandFailed,
     ResourceReleaseFailed,
+    DeviceBusy,
 };
 
 struct ControllerInfo {
@@ -43,7 +44,8 @@ struct ControllerInfo {
 };
 
 Status initialize();
-void shutdown();
+// Can be retried if the controller is busy or has not yet stopped.
+Status shutdown();
 
 bool initialized();
 const ControllerInfo* controller_info();

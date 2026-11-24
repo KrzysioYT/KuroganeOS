@@ -78,6 +78,24 @@ struct Controller {
 };
 
 Controller g_controller{};
+// One owner for the queues and shared bounce page, including initialization
+// and shutdown. A contending caller cannot wait on a preempted polling owner.
+bool g_controller_owned = false;
+
+class ControllerGuard {
+public:
+    ControllerGuard() : owned_(!__atomic_test_and_set(
+        &g_controller_owned, __ATOMIC_ACQUIRE)) {}
+    ~ControllerGuard() {
+        if (owned_) __atomic_clear(&g_controller_owned, __ATOMIC_RELEASE);
+    }
+    bool acquired() const { return owned_; }
+    ControllerGuard(const ControllerGuard&) = delete;
+    ControllerGuard& operator=(const ControllerGuard&) = delete;
+
+private:
+    bool owned_;
+};
 
 void clear_bytes(void* destination, size_t count) {
     auto* bytes = static_cast<uint8_t*>(destination);
@@ -391,6 +409,15 @@ bool submit_admin(
     return false;
 }
 
+bool fail_io_queue() {
+    // Without a matching completion the controller can still own the bounce
+    // page. Future callers must leave it untouched until a verified stop.
+    g_controller.io_ready = false;
+    g_controller.cleanup_pending = true;
+    disable_bus_master();
+    return false;
+}
+
 bool submit_io(
     const protocol::Command& command,
     uint16_t command_id,
@@ -441,7 +468,7 @@ bool submit_io(
                 g_controller.io_completion_phase,
                 &completion) != protocol::Status::Ok ||
             completion.submission_queue_id != IO_QUEUE_ID) {
-            return false;
+            return fail_io_queue();
         }
 
         ++g_controller.io_completion_head;
@@ -460,7 +487,7 @@ bool submit_io(
         *output = completion;
         return completion.success;
     }
-    return false;
+    return fail_io_queue();
 }
 
 Status enable_controller() {
@@ -837,9 +864,12 @@ block::Status block_read(
     uint64_t first_block,
     uint64_t block_count,
     void* destination) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return read_blocks(first_block, block_count, destination);
 }
 
@@ -848,16 +878,22 @@ block::Status block_write(
     uint64_t first_block,
     uint64_t block_count,
     const void* source) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return write_blocks(first_block, block_count, source);
 }
 
 block::Status block_flush(void* context) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return flush_namespace();
 }
 
@@ -884,11 +920,13 @@ Status start_controller() {
 } // namespace
 
 Status initialize() {
-    if (g_controller.ready) return Status::AlreadyInitialized;
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
     if (g_controller.cleanup_pending) {
         const Status cleanup = release_resources();
         if (cleanup != Status::Ok) return cleanup;
     }
+    if (g_controller.ready) return Status::AlreadyInitialized;
 
     const pci::Device* source = nullptr;
     for (size_t index = 0U; index < pci::device_count(); ++index) {
@@ -972,8 +1010,10 @@ Status initialize() {
     return Status::Ok;
 }
 
-void shutdown() {
-    static_cast<void>(release_resources());
+Status shutdown() {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
+    return release_resources();
 }
 
 bool initialized() { return g_controller.ready; }
@@ -1017,6 +1057,7 @@ const char* status_message(Status status) {
             return "NVMe I/O command failed";
         case Status::ResourceReleaseFailed:
             return "NVMe resource release failed";
+        case Status::DeviceBusy: return "NVMe controller busy";
     }
     return "unknown NVMe status";
 }

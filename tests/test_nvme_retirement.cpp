@@ -2,9 +2,11 @@
 
 #include <cassert>
 #include <cstring>
+#include <initializer_list>
 
 namespace {
 using namespace storage::nvme;
+namespace block = storage::block;
 
 constexpr uint32_t controller_identity = UINT32_C(0x58451B36);
 constexpr uint32_t replacement_identity = UINT32_C(0x12348086);
@@ -50,6 +52,7 @@ uint32_t& reg(size_t offset) { return registers[offset / sizeof(uint32_t)]; }
 void reset_fixture() {
     g_controller = {};
     std::memset(registers, 0, sizeof(registers));
+    std::memset(frames, 0, sizeof(frames));
     std::memset(live, 0, sizeof(live));
     std::memset(mapped, 0, sizeof(mapped));
     std::memset(release_attempts, 0, sizeof(release_attempts));
@@ -93,7 +96,15 @@ void set_running_controller() {
 
     g_controller.controller_enabled = g_controller.io_ready =
         g_controller.ready = true;
-    g_controller.block.context = &g_controller;
+    g_controller.namespace_id = 1U;
+    g_controller.namespace_info.block_size = 512U;
+    g_controller.namespace_info.capacity_blocks = 32U;
+    g_controller.capabilities.doorbell_stride_bytes = sizeof(uint32_t);
+    g_controller.io_queue_entries = 4U;
+    g_controller.io_completion_phase = true;
+    g_controller.block = {
+        &g_controller, 512U, 32U, block_read, block_write, block_flush,
+    };
     reg(REG_CC) = CC_ENABLE;
     reg(REG_CSTS) = CSTS_READY;
     registry_count = 1U;
@@ -244,6 +255,83 @@ void test_release_and_pci_restore_retry() {
     assert(unmap_attempts[0] == 3U && unmap_attempts[1] == 1U);
     assert(unregister_count == 1U);
 }
+
+void complete_io(size_t slot, uint16_t command_id, uint16_t queue, bool ok) {
+    const uint32_t words[protocol::COMPLETION_DWORDS] = {
+        0U, 0U, static_cast<uint32_t>(queue) << 16U,
+        (ok ? UINT32_C(0x10000) : UINT32_C(0x30000)) | command_id,
+    };
+    auto* completion = static_cast<uint8_t*>(
+        g_controller.io_completion_queue.virtual_address);
+    std::memcpy(completion + slot * sizeof(words), words, sizeof(words));
+}
+
+void test_uncertain_completion_blocks_reuse() {
+    const uint32_t io_tail = REG_DOORBELL_BASE + 2U * sizeof(uint32_t);
+    for (bool wrong_queue : {false, true}) {
+        reset_fixture();
+        set_running_controller();
+        const block::Device* device = block_device();
+        if (wrong_queue) complete_io(0U, 1U, 0U, true);
+
+        uint8_t first[512];
+        uint8_t second[512];
+        std::memset(first, 0x52, sizeof(first));
+        std::memset(second, 0xB1, sizeof(second));
+        assert(device->write(device->context, 1U, 1U, first) ==
+            block::Status::CommandFailed);
+        expect_all_live();
+        assert(command == (driver_command & ~PCI_COMMAND_BUS_MASTER));
+        assert(reg(io_tail) == 1U);
+
+        assert(device->write(device->context, 2U, 1U, second) ==
+            block::Status::ControllerFault);
+        assert(device->read(device->context, 2U, 1U, second) ==
+            block::Status::ControllerFault);
+        assert(device->flush(device->context) == block::Status::ControllerFault);
+        assert(reg(io_tail) == 1U);
+        assert(std::memcmp(g_controller.io_page.virtual_address, first,
+            sizeof(first)) == 0);
+
+        assert(shutdown() == Status::ResourceReleaseFailed);
+        expect_all_live();
+        reg(REG_CSTS) = 0U;
+        assert(shutdown() == Status::Ok);
+        expect_all_released();
+    }
+}
+
+void test_error_completion_is_consumed() {
+    reset_fixture();
+    set_running_controller();
+    const block::Device* device = block_device();
+
+    complete_io(0U, 1U, IO_QUEUE_ID, false);
+    assert(device->flush(device->context) == block::Status::CommandFailed);
+    assert(command == driver_command && command_writes == 0U);
+    complete_io(1U, 2U, IO_QUEUE_ID, true);
+    assert(device->flush(device->context) == block::Status::Ok);
+    assert(g_controller.io_completion_head == 2U);
+}
+
+void test_concurrent_io_cannot_touch_bounce_or_teardown() {
+    reset_fixture();
+    set_running_controller();
+    ControllerGuard owner;
+    assert(owner.acquired());
+    const block::Device* device = block_device();
+    uint8_t sector[512]{};
+    assert(device->read(device->context, 0U, 1U, sector) ==
+        block::Status::DeviceBusy);
+    assert(device->write(device->context, 0U, 1U, sector) ==
+        block::Status::DeviceBusy);
+    assert(device->flush(device->context) == block::Status::DeviceBusy);
+    assert(initialize() == Status::DeviceBusy);
+    assert(shutdown() == Status::DeviceBusy);
+    expect_all_live();
+    assert(reg(REG_CC) == CC_ENABLE && command_writes == 0U);
+}
+
 } // namespace
 
 namespace pci {
@@ -366,4 +454,7 @@ int main() {
     test_startup_failure_after_queue_publication();
     test_unpublished_pages_and_mapping_rollback();
     test_release_and_pci_restore_retry();
+    test_uncertain_completion_blocks_reuse();
+    test_error_completion_is_consumed();
+    test_concurrent_io_cannot_touch_bounce_or_teardown();
 }
