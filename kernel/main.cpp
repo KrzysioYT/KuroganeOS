@@ -1188,6 +1188,9 @@ void initialize_storage_probe() {
             if (entry.backend == storage::device_registry::Backend::VirtioBlock) {
                 terminal::println("[TEST] virtio_block_rw: PASS");
             }
+            if (entry.backend == storage::device_registry::Backend::Nvme) {
+                terminal::println("[TEST] nvme_write_flush_readback_restore: PASS");
+            }
             continue;
         }
 

@@ -801,7 +801,7 @@ block::Status block_flush(void* context) {
     return flush_namespace();
 }
 
-Status qualify_namespace_io() {
+Status probe_namespace_read() {
     auto* io = static_cast<uint8_t*>(g_controller.io_page.virtual_address);
     clear_bytes(io, memory::virtual_memory::PAGE_SIZE);
     if (read_blocks(0U, 1U, io) != block::Status::Ok) {
@@ -809,60 +809,6 @@ Status qualify_namespace_io() {
         return Status::IoCommandFailed;
     }
     terminal::println("[TEST] nvme_read: PASS");
-
-    static constexpr char expected_magic[] = "KUROGANE_NVME_RW_V1";
-    bool known = true;
-    for (size_t index = 0U; index < sizeof(expected_magic) - 1U; ++index) {
-        if (io[index] != static_cast<uint8_t>(expected_magic[index])) {
-            known = false;
-            break;
-        }
-    }
-    if (known) {
-        terminal::println("[TEST] nvme_known_read: PASS");
-    }
-
-    const bool qualification_media =
-        known &&
-        g_controller.namespace_info.block_size == 512U &&
-        g_controller.namespace_info.capacity_blocks == UINT64_C(16384);
-    if (!qualification_media) {
-        return Status::Ok;
-    }
-
-    for (size_t index = 0U;
-         index < g_controller.namespace_info.block_size;
-         ++index) {
-        io[index] = static_cast<uint8_t>((index * 43U + 13U) & 0xFFU);
-    }
-    if (write_blocks(1U, 1U, io) != block::Status::Ok) {
-        terminal::println("[TEST] nvme_write: FAIL");
-        return Status::IoCommandFailed;
-    }
-    terminal::println("[TEST] nvme_write: PASS");
-
-    if (flush_namespace() != block::Status::Ok) {
-        terminal::println("[TEST] nvme_flush: FAIL");
-        return Status::IoCommandFailed;
-    }
-    terminal::println("[TEST] nvme_flush: PASS");
-
-    clear_bytes(io, g_controller.namespace_info.block_size);
-    if (read_blocks(1U, 1U, io) != block::Status::Ok) {
-        terminal::println("[TEST] nvme_write_readback: FAIL");
-        return Status::IoCommandFailed;
-    }
-    for (size_t index = 0U;
-         index < g_controller.namespace_info.block_size;
-         ++index) {
-        const uint8_t expected =
-            static_cast<uint8_t>((index * 43U + 13U) & 0xFFU);
-        if (io[index] != expected) {
-            terminal::println("[TEST] nvme_write_readback: FAIL");
-            return Status::IoCommandFailed;
-        }
-    }
-    terminal::println("[TEST] nvme_write_readback: PASS");
     return Status::Ok;
 }
 
@@ -945,7 +891,7 @@ Status initialize() {
     if (status == Status::Ok) status = identify_controller();
     if (status == Status::Ok) status = identify_namespace();
     if (status == Status::Ok) status = create_io_queues();
-    if (status == Status::Ok) status = qualify_namespace_io();
+    if (status == Status::Ok) status = probe_namespace_read();
     if (status != Status::Ok) {
         const Status cleanup = release_resources(true);
         g_controller = {};

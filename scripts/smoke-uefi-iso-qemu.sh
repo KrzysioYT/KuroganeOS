@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -19,6 +19,7 @@ virtio_vectors=""
 log_dir=""
 audio_model="none"
 nvme=false
+nvme_legacy_tag=false
 virtio_block=false
 no_ps2=false
 usb_keyboard=false
@@ -82,6 +83,7 @@ while (($#)); do
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
         --nvme) nvme=true; shift ;;
+        --nvme-legacy-tag) nvme=true; nvme_legacy_tag=true; shift ;;
         --virtio-block) virtio_block=true; shift ;;
         --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
@@ -287,8 +289,16 @@ qemu_log="$tmp/qemu.log"
 monitor="$tmp/qemu-monitor.sock"
 qmp="$tmp/qemu-qmp.sock"
 pid=""
-usb_hub_scratch_images=()
-usb_hub_scratch_sums=()
+scratch_images=()
+scratch_sums=()
+scratch_evidence=()
+record_scratch_image() {
+    local digest
+    digest="$(sha256sum "$1")"
+    scratch_images+=("$1")
+    scratch_sums+=("${digest%% *}")
+    scratch_evidence+=("$2")
+}
 cleanup() {
     local result=$?
     trap - EXIT INT TERM
@@ -296,18 +306,17 @@ cleanup() {
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
     fi
-    for index in "${!usb_hub_scratch_images[@]}"; do
-        local final_sha="" evidence="hub-scratch-sha256.txt"
-        if final_sha="$(sha256sum "${usb_hub_scratch_images[$index]}")"; then
+    for index in "${!scratch_images[@]}"; do
+        local final_sha="" evidence="${scratch_evidence[$index]}"
+        if final_sha="$(sha256sum "${scratch_images[$index]}")"; then
             final_sha="${final_sha%% *}"
         fi
-        if ((index > 0)); then evidence="hub-scratch-$((index + 1))-sha256.txt"; fi
         if [[ -n "$log_dir" ]]; then
-            printf 'before %s\nafter  %s\n' "${usb_hub_scratch_sums[$index]}" "$final_sha" \
+            printf 'before %s\nafter  %s\n' "${scratch_sums[$index]}" "$final_sha" \
                 > "$log_dir/$evidence" || result=1
         fi
-        if [[ "$final_sha" != "${usb_hub_scratch_sums[$index]}" ]]; then
-            echo "[uefi-qemu] USB hub scratch image $index changed after the guest stopped" >&2
+        if [[ "$final_sha" != "${scratch_sums[$index]}" ]]; then
+            echo "[uefi-qemu] ${scratch_images[$index]##*/} changed after the guest stopped" >&2
             result=1
         fi
     done
@@ -833,15 +842,30 @@ fi
 nvme_args=()
 if $nvme; then
     nvme_image="$tmp/nvme-storage.img"
-    python3 - "$nvme_image" <<'PY'
+    python3 - "$nvme_image" "$nvme_legacy_tag" <<'PY'
+import struct
 import sys
-magic = b"KUROGANE_NVME_RW_V1"
+
+size = 8 * 1024 * 1024
+header = bytearray(512)
+legacy_tag = sys.argv[2] == "true"
+first_lba, sector_count = (1, 1) if legacy_tag else (8, 8)
+if legacy_tag:
+    # A former 8 MiB NVMe fixture must now remain untouched.
+    magic = b"KUROGANE_NVME_RW_V1"
+    header[:len(magic)] = magic
+    header[len(magic):] = bytes((i * 31 + 5) & 0xFF for i in range(512 - len(magic)))
+else:
+    magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+    header[:len(magic)] = magic
+    struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512, first_lba, sector_count, 0x4B535431)
 with open(sys.argv[1], "wb") as image:
-    image.truncate(8 * 1024 * 1024)
-    image.seek(0)
-    image.write(magic)
-    image.write(bytes((index * 31 + 5) & 0xFF for index in range(512 - len(magic))))
+    image.truncate(size)
+    image.write(header)
+    image.seek(first_lba * 512)
+    image.write(bytes((i * 29 + 7) & 0xFF for i in range(sector_count * 512)))
 PY
+    record_scratch_image "$nvme_image" nvme-scratch-sha256.txt
     # A separate signed scratch namespace proves PCI/MMIO/Admin + NVM I/O
     # without changing the IDE system disk or auto-writing arbitrary media.
     nvme_args=(
@@ -926,9 +950,7 @@ with open(sys.argv[1], "wb") as image:
         image.write(bytes((index * 19 + 7) & 0xFF for index in range(512)))
 PY
     if $usb_hub_storage; then
-        usb_hub_scratch_images+=("$usb_storage_image")
-        scratch_sha="$(sha256sum "$usb_storage_image")"
-        usb_hub_scratch_sums+=("${scratch_sha%% *}")
+        record_scratch_image "$usb_storage_image" hub-scratch-sha256.txt
     fi
     # Use scratch media to keep storage probes away from the boot disk.
     usb_args+=(
@@ -944,9 +966,7 @@ import sys
 with open(sys.argv[1], "r+b") as image:
     image.truncate(16 * 1024 * 1024)
 PY2
-        usb_hub_scratch_images+=("$second_image")
-        scratch_sha="$(sha256sum "$second_image")"
-        usb_hub_scratch_sums+=("${scratch_sha%% *}")
+        record_scratch_image "$second_image" hub-scratch-2-sha256.txt
         usb_args+=(
             -drive "if=none,id=kurogane_usb_storage_second,format=raw,file=$second_image"
             -device "usb-storage,drive=kurogane_usb_storage_second,bus=kurogane_xhci.0,id=kurogane_usb_storage_second,port=1.2"

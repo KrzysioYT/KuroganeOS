@@ -314,7 +314,7 @@ jobs:
             --require-marker '[TEST] xhci_mass_storage_write_readback: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' "$evidence/serial.log"
-      - name: Verify NVMe identification and durable block I/O
+      - name: Verify NVMe I/O restores the entire scratch namespace
         shell: bash
         run: |
           set -euo pipefail
@@ -325,11 +325,21 @@ jobs:
             --require-marker '[TEST] nvme_admin_identify: PASS' \
             --require-marker '[TEST] nvme_namespace_identify: PASS' \
             --require-marker '[TEST] nvme_io_queues: PASS' \
-            --require-marker '[TEST] nvme_known_read: PASS' \
-            --require-marker '[TEST] nvme_write: PASS' \
-            --require-marker '[TEST] nvme_flush: PASS' \
-            --require-marker '[TEST] nvme_write_readback: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL' "$evidence/serial.log"
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] nvme_write_flush_readback_restore: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"
+      - name: Verify that a legacy NVMe scratch tag cannot trigger writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme-legacy-tag
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme-legacy-tag \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|nvme_write_.*: PASS' "$evidence/serial.log"
       - name: Install the candidate ISO on AHCI and reboot from disk only
         shell: bash
         run: |

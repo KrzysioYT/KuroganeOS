@@ -216,10 +216,25 @@ power, root-port hotplug and xHCI retirement trials.
 [Push run](https://github.com/KrzysioYT/KuroganeOS/actions/runs/44559586826) ·
 [Gate evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/44559586826/artifacts/14550155815)
 
-The closeout gate now also includes NVMe Identify, read, write, flush and
-readback, plus installation from ISO to a fresh AHCI disk and two disk-only
-boots. The downloadable test ISO is retained before the workflow rebuilds
-the instrumented images.
+The closeout gate now also includes NVMe Identify and namespace reads. The
+shared block-device test writes, flushes, reads back and restores eight
+sectors of a dedicated namespace with a validated scratch header. QEMU
+checks the SHA-256 of the entire raw disk before and after the guest runs.
+A separate boot verifies that the legacy NVMe marker leaves every sector
+unchanged. The gate also installs from ISO to a fresh AHCI disk and boots
+twice from that disk alone. The downloadable test ISO is retained before
+the workflow rebuilds the instrumented images.
+
+When a companion hub probe cannot verify the state of the port or its
+transfers, xHCI stops polling and retains the active slot and its DMA
+allocations. An unreadable port register on an active companion likewise
+contains the controller before it can process a pending primary-device
+completion. Both paths have optimized and UBSan host regressions.
+
+The experimental Realtek path verifies live PCI vendor and device identity
+around changes to the PCI Command register and reports RX/TX faults through
+an atomic flag. Host/UBSan cover identity loss at start and a device fault
+reported by the runtime RX/TX paths.
 
 A Windows host reports an RTL8168 with PCI ID `10ec:8168`, subsystem
 `17aa:39dc` and revision `15`. Its KuroganeOS runtime result remains
