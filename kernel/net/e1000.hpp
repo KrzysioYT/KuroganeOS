@@ -40,6 +40,8 @@ enum class Status : uint8_t {
     LinkDown,
     TransmitTimedOut,
     DeviceError,
+    DmaQuiesceFailed,
+    ResourceReleaseFailed,
 };
 
 Status initialize();

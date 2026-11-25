@@ -108,6 +108,12 @@ bash tests/test_network_smoke_state.sh
   tests/test_intel_gbe_model.cpp \
   -o "$OUT_DIR/test_intel_gbe_model"
 
+# Verify the production 82574L teardown order and resource retention on faults.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_e1000e_retirement.cpp kernel/net/network.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_e1000e_retirement"
+"$OUT_DIR/test_e1000e_retirement"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_rtl81xx_detection.cpp -o "$OUT_DIR/test_rtl81xx_detection"
 
