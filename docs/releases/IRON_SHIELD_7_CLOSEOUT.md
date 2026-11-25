@@ -275,3 +275,12 @@ fixture admission, MAC/PHY/link/DHCP, bidirectional traffic, reconnect, shutdown
 power recovery and evidence. Physical execution remains BLOCKED. The missing
 active shutdown/reinitialize path is an explicit admission blocker; the normal
 image retains its experimental-driver quarantine.
+
+NVMe administrative completions now require SQID 0 and an SQ head within the
+configured admin queue; I/O completions require an in-range SQ head as well
+as the matching SQID/CID. Invalid completions are not acknowledged or consumed.
+The production I/O failure path fences the bounce page until verified shutdown.
+Host/UBSan cover timeout, wrong queue/command ID, head equal to queue depth and
+`0xffff`, retained buffers/pages, rejected later I/O, and delayed safe retirement.
+Valid controller error completions still allow later I/O. These injected tests
+are not physical NVMe removal or power-loss qualification.

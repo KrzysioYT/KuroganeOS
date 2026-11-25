@@ -256,9 +256,10 @@ void test_release_and_pci_restore_retry() {
     assert(unregister_count == 1U);
 }
 
-void complete_io(size_t slot, uint16_t command_id, uint16_t queue, bool ok) {
+void complete_io(size_t slot, uint16_t command_id, uint16_t queue, bool ok,
+                 uint16_t head = 0U) {
     const uint32_t words[protocol::COMPLETION_DWORDS] = {
-        0U, 0U, static_cast<uint32_t>(queue) << 16U,
+        0U, 0U, (static_cast<uint32_t>(queue) << 16U) | head,
         (ok ? UINT32_C(0x10000) : UINT32_C(0x30000)) | command_id,
     };
     auto* completion = static_cast<uint8_t*>(
@@ -268,11 +269,14 @@ void complete_io(size_t slot, uint16_t command_id, uint16_t queue, bool ok) {
 
 void test_uncertain_completion_blocks_reuse() {
     const uint32_t io_tail = REG_DOORBELL_BASE + 2U * sizeof(uint32_t);
-    for (bool wrong_queue : {false, true}) {
+    for (unsigned fault = 0U; fault < 5U; ++fault) {
         reset_fixture();
         set_running_controller();
         const block::Device* device = block_device();
-        if (wrong_queue) complete_io(0U, 1U, 0U, true);
+        if (fault == 1U) complete_io(0U, 1U, 0U, true);
+        if (fault == 2U) complete_io(0U, 2U, IO_QUEUE_ID, true);
+        if (fault == 3U) complete_io(0U, 1U, IO_QUEUE_ID, true, 4U);
+        if (fault == 4U) complete_io(0U, 1U, IO_QUEUE_ID, true, UINT16_MAX);
 
         uint8_t first[512];
         uint8_t second[512];
@@ -283,6 +287,8 @@ void test_uncertain_completion_blocks_reuse() {
         expect_all_live();
         assert(command == (driver_command & ~PCI_COMMAND_BUS_MASTER));
         assert(reg(io_tail) == 1U);
+        assert(g_controller.io_completion_head == 0U);
+        assert(reg(REG_DOORBELL_BASE + 3U * sizeof(uint32_t)) == 0U);
 
         assert(device->write(device->context, 2U, 1U, second) ==
             block::Status::ControllerFault);
@@ -298,6 +304,30 @@ void test_uncertain_completion_blocks_reuse() {
         reg(REG_CSTS) = 0U;
         assert(shutdown() == Status::Ok);
         expect_all_released();
+    }
+}
+
+void test_admin_completion_queue_binding() {
+    for (unsigned fault = 0U; fault < 4U; ++fault) {
+        reset_fixture();
+        set_running_controller();
+        g_controller.queue_entries = 4U;
+        g_controller.completion_phase = true;
+        const uint32_t words[protocol::COMPLETION_DWORDS] = {
+            0U, 0U,
+            fault == 1U ? UINT32_C(0x10000) :
+                fault == 2U ? 4U : fault == 3U ? UINT16_MAX : 3U,
+            UINT32_C(0x10001),
+        };
+        std::memcpy(g_controller.admin_completion_queue.virtual_address,
+                    words, sizeof(words));
+        protocol::Command request{};
+        protocol::Completion result{};
+        assert(submit_admin(request, 1U, &result) == (fault == 0U));
+        assert(g_controller.completion_head == (fault == 0U ? 1U : 0U));
+        assert(reg(REG_DOORBELL_BASE + sizeof(uint32_t)) ==
+               (fault == 0U ? 1U : 0U));
+        expect_all_live();
     }
 }
 
@@ -455,6 +485,7 @@ int main() {
     test_unpublished_pages_and_mapping_rollback();
     test_release_and_pci_restore_retry();
     test_uncertain_completion_blocks_reuse();
+    test_admin_completion_queue_binding();
     test_error_completion_is_consumed();
     test_concurrent_io_cannot_touch_bounce_or_teardown();
 }

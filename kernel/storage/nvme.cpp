@@ -389,7 +389,9 @@ bool submit_admin(
                 words,
                 command_id,
                 g_controller.completion_phase,
-                &completion) != protocol::Status::Ok) {
+                &completion) != protocol::Status::Ok ||
+            completion.submission_queue_id != 0U ||
+            completion.submission_queue_head >= g_controller.queue_entries) {
             return false;
         }
 
@@ -467,7 +469,8 @@ bool submit_io(
                 command_id,
                 g_controller.io_completion_phase,
                 &completion) != protocol::Status::Ok ||
-            completion.submission_queue_id != IO_QUEUE_ID) {
+            completion.submission_queue_id != IO_QUEUE_ID ||
+            completion.submission_queue_head >= g_controller.io_queue_entries) {
             return fail_io_queue();
         }
 
