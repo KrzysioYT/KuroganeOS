@@ -42,7 +42,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_dev_login_profile"
 
 # Keep the strict compiler probe alongside the lifecycle evidence tests.
-"$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
 "$OUT_DIR/test_kernel_log_header"
 
@@ -75,17 +75,17 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_dock_order_state.c -o "$OUT_DIR/test_flux_dock_order_state"
 "$OUT_DIR/test_flux_dock_order_state"
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_dock_persistence.c \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_dock_persistence"
 "$OUT_DIR/test_flux_dock_persistence"
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_launcher_search.c -o "$OUT_DIR/test_flux_launcher_search"
 "$OUT_DIR/test_flux_launcher_search"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_identity.cpp -o "$OUT_DIR/test_flux_app_identity"
 "$OUT_DIR/test_flux_app_identity"
 "$HOST_PYTHON" tests/test_flux8_application_smoke.py
@@ -543,27 +543,27 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_ui_event_queue"
 
 # Verify Files Explorer page bounds and merged signed USB wheel deltas.
-"$HOST_CC" \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
 "$OUT_DIR/test_files_wheel_paging"
 
 # The native Terminal must complete real shell words and keep wheel/PageUp
 # scrollback within its bounded history window (including extreme deltas).
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_terminal_command_completion.c \
   -o "$OUT_DIR/test_terminal_command_completion"
 "$OUT_DIR/test_terminal_command_completion"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -x c++ tests/test_terminal_command_completion.c \
   -o "$OUT_DIR/test_terminal_command_completion_cpp"
 "$OUT_DIR/test_terminal_command_completion_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_terminal_vfs_commands.c \
   -o "$OUT_DIR/test_terminal_vfs_commands"
 "$OUT_DIR/test_terminal_vfs_commands"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_terminal_vfs_commands.c \
   -o "$OUT_DIR/test_terminal_vfs_commands_cpp"
 "$OUT_DIR/test_terminal_vfs_commands_cpp"
@@ -598,55 +598,55 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_keyboard_cpp"
 "$OUT_DIR/test_flux_files_keyboard_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_filter.c \
   -o "$OUT_DIR/test_flux_files_filter"
 "$OUT_DIR/test_flux_files_filter"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_filter.c \
   -o "$OUT_DIR/test_flux_files_filter_cpp"
 "$OUT_DIR/test_flux_files_filter_cpp"
 
 # Files Back/Forward must retain bounded path/filter history, prune forward
 # branches only on a successful visit, and behave identically in C/C++.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_files_history.c \
   -o "$OUT_DIR/test_flux_files_history"
 "$OUT_DIR/test_flux_files_history"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -x c++ tests/test_flux_files_history.c \
   -o "$OUT_DIR/test_flux_files_history_cpp"
 "$OUT_DIR/test_flux_files_history_cpp"
 
 # Only an explicit New Folder confirmation may request a Ring-3 mkdir;
 # reject traversal and unsafe names before building a VFS path.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_folder_creation.c \
   -o "$OUT_DIR/test_flux_files_folder_creation"
 "$OUT_DIR/test_flux_files_folder_creation"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_folder_creation.c \
   -o "$OUT_DIR/test_flux_files_folder_creation_cpp"
 "$OUT_DIR/test_flux_files_folder_creation_cpp"
 
 # Explicit file/folder rename must reject mount/device entries and unsafe
 # path segments before the VFS syscall. Verify identical C and C++ policies.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_rename.c \
   -o "$OUT_DIR/test_flux_files_rename"
 "$OUT_DIR/test_flux_files_rename"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_rename.c \
   -o "$OUT_DIR/test_flux_files_rename_cpp"
 "$OUT_DIR/test_flux_files_rename_cpp"
 
 # Settings can now be traversed without a pointer, including focus reveal
 # for controls outside the native scene viewport.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_settings_navigation.c \
   -o "$OUT_DIR/test_flux_settings_navigation"
 "$OUT_DIR/test_flux_settings_navigation"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_settings_navigation.c \
   -o "$OUT_DIR/test_flux_settings_navigation_cpp"
 "$OUT_DIR/test_flux_settings_navigation_cpp"
@@ -898,17 +898,17 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Wallpaper IDs and Ring-3 query/set packet layout must remain compatible
 # across C11 and C++17, including a safe fallback for invalid persisted IDs.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_background.c -o "$OUT_DIR/test_flux_background"
 "$OUT_DIR/test_flux_background"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_background.c \
   -o "$OUT_DIR/test_flux_background_cpp"
 "$OUT_DIR/test_flux_background_cpp"
 
 # Draw all three actual native wallpapers at 1024x720 and distinguish their
 # pixels, not merely their persisted IDs. No QEMU/GOP hardware is required.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_wallpaper_render.cpp \
   kernel/ui/ui.cpp kernel/drivers/framebuffer.cpp \
   -o "$OUT_DIR/test_flux_wallpaper_render"
