@@ -135,8 +135,8 @@ static ku_status_t fake_pin(ku_desktop_pin_request* r) {
     return KU_STATUS_INVALID_ARGUMENT;
 }
 
-/* Host libc on Linux does not provide the Kurogane userspace strlcpy. */
-static size_t strlcpy(char* out, const char* in, size_t capacity) {
+/* Use a private fixture symbol, including where host libc has strlcpy. */
+static size_t test_strlcpy(char* out, const char* in, size_t capacity) {
     const size_t length = strlen(in);
     if (capacity != 0U) {
         const size_t size = length < capacity - 1U ? length : capacity - 1U;
@@ -145,6 +145,10 @@ static size_t strlcpy(char* out, const char* in, size_t capacity) {
     }
     return length;
 }
+#ifdef strlcpy
+#undef strlcpy
+#endif
+#define strlcpy test_strlcpy
 #define ku_file_stat_path fake_stat
 #define ku_file_create fake_create
 #define ku_file_unlink fake_unlink
@@ -159,6 +163,7 @@ static size_t strlcpy(char* out, const char* in, size_t capacity) {
 #define main launcher_unused_entry
 #include "../userspace/gui/launcher/main.c"
 #undef main
+#undef strlcpy
 
 int main(void) {
     pinned[2] = 1U;
