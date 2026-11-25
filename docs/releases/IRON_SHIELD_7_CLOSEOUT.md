@@ -272,9 +272,21 @@ hardware removal interlock or proof of active DMA shutdown.
 
 The [physical RTL8168 procedure](RTL8168_PHYSICAL_QUALIFICATION.md) specifies
 fixture admission, MAC/PHY/link/DHCP, bidirectional traffic, reconnect, shutdown,
-power recovery and evidence. Physical execution remains BLOCKED. The missing
-active shutdown/reinitialize path is an explicit admission blocker; the normal
-image retains its experimental-driver quarantine.
+power recovery and evidence. The normal image keeps the experimental-driver
+quarantine. The isolated probe tests a first DHCP lease and gateway echo,
+queues a labelled frame, verifies that shutdown succeeds and reinitializes for
+a fresh lease and second gateway echo. The driver accepts MAC XID `0x541` and
+releases DMA only after the RTL8168H FIFO drain, reset, PCI bus-master
+readback and PCIe Transactions Pending checks pass. Host and UBSan exercise
+timeouts, retries, ambiguous identity/BARs and fresh ownership after release.
+Physical execution, cable churn and active PCI power cycling remain BLOCKED.
+
+E1000e 82574L startup rollback checks RX/TX stop and the GIO master-drain
+handshake before releasing DMA. It disables and verifies PCI bus mastering
+after MSI teardown, which restores its saved PCI Command. Host and UBSan
+exercise stuck drain, failed bus-master readback and retained resources.
+This path runs during initialization failure. Active PCI power recovery
+still requires separate runtime and hardware evidence.
 
 NVMe administrative completions now require SQID 0 and an SQ head within the
 configured admin queue; I/O completions require an in-range SQ head as well
@@ -284,3 +296,17 @@ Host/UBSan cover timeout, wrong queue/command ID, head equal to queue depth and
 `0xffff`, retained buffers/pages, rejected later I/O, and delayed safe retirement.
 Valid controller error completions still allow later I/O. These injected tests
 are not physical NVMe removal or power-loss qualification.
+
+## 2026-11-25 software baseline
+
+The push and PR device matrices passed at
+`ae69fd9b94bfc1d5bdd80e820d06a39feb56521d`. The downloaded installer ISO
+has SHA-256
+`db2374965e5e279fbadb76691ae549216e3f150cd3bf28ae407aba39ec145ea8`,
+matching the archive manifest and the AHCI installation report. That same
+ISO reached Home through Try and Login on Windows in a headless VirtualBox
+session. Physical RTL8168, runtime child binding behind USB hubs and
+active-driver PCI power recovery remain open.
+[Push evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573541883) ·
+[PR evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573551676) ·
+[ISO artifact](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573541883/artifacts/15003378796)

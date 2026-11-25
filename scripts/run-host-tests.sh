@@ -476,6 +476,7 @@ timeout 10 "$OUT_DIR/test_xhci_completions"
 "$OUT_DIR/test_usb_hub_ganged_power"
 python3 tests/test_xhci_retirement_injector.py
 python3 tests/test_usb_hub_power_injector.py
+python3 tests/test_rtl8168_physical_injector.py
 python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,

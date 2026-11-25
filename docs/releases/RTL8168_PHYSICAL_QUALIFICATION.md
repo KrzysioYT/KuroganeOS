@@ -19,11 +19,36 @@ experimental build flags, IMG/ISO SHA256 and exact test commands. Preserve
 serial and peer packet captures with timestamps. Never publish private LAN
 traffic or credentials as artifacts. Verify scratch disk hashes before/after.
 
-**Do not admit active DMA testing until the candidate has an executable,
-reviewed driver shutdown/recovery path.** Current RTL initialization and RX/TX
-exist, but explicit active shutdown/reinitialize remains an engineering gap.
-Host checks of pre-start cleanup are not evidence of active DMA quiescence.
-The steps below define acceptance once this prerequisite is implemented.
+Admit active DMA testing only on a reviewed candidate with the dedicated
+shutdown/rebind probe. The RTL8168H test backend checks the live MAC XID
+`0x541`; PCI revision `15` alone is insufficient to establish that match.
+Physical execution must verify the controller's stop and pending-transaction
+readbacks on this fixture.
+
+## Building the isolated probe
+
+From a dedicated Linux or WSL checkout of the candidate commit, initialize
+the recursive submodules, record `git rev-parse HEAD` and keep the checkout
+separate from release builds. Run these commands before boot:
+
+```sh
+python3 scripts/qualification/inject-rtl8168-physical.py
+git diff --check
+git diff --binary -- kernel/main.cpp kernel/net/physical.cpp > rtl8168-bench.patch
+bash scripts/build-media-linux.sh --configuration release --rebuild
+```
+
+Retain `rtl8168-bench.patch` and `dist/SHA256SUMS.txt` alongside the probe
+image. Label the image `RTL8168-BENCH` when moving it into the test evidence.
+Keep the unmodified candidate available for the default-image comparison.
+
+The injected boot code runs before user sessions. It requires the Realtek
+interface, a DHCP lease and gateway echo, queues a marked Ethernet frame
+with EtherType `0x88B5`, calls verified shutdown and then obtains a new lease
+and gateway echo after rebind with the original MAC. Capture ICMP sequences
+`0x8101` and `0x8102` and the Ethernet frame on the isolated peer. The enqueue
+result verifies submission. Peer capture is needed to verify delivery.
+Qualify repeated traffic, cable churn and D3hot/D0 separately.
 
 ## Required sequence and evidence
 
