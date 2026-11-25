@@ -30,6 +30,20 @@ def format_array(values: list[str], indent: str = "    ") -> str:
     )
 
 
+COVERAGE_CHUNK_SIZE = 16320
+
+
+def format_coverage(encoded: str) -> str:
+    # Keep each concatenated literal below the C++ implementation minimum.
+    chunks = []
+    for offset in range(0, len(encoded), COVERAGE_CHUNK_SIZE):
+        chunk = encoded[offset:offset + COVERAGE_CHUNK_SIZE]
+        chunks.append("\n".join(
+            '    "' + chunk[index:index + 96] + '"'
+            for index in range(0, len(chunk), 96)) + ",")
+    return "\n".join(chunks)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--normal", required=True, type=Path)
@@ -147,8 +161,11 @@ constexpr KerningPair kKerningPairs[kKerningPairCount] = {{
 {chr(10).join(kerning_pairs)}
 }};
 constexpr size_t kCoverage4DecodedSize = {len(packed)}U;
-constexpr char kCoverage4Base64[] =
-{chr(10).join('    "' + encoded[offset : offset + 96] + '"' for offset in range(0, len(encoded), 96))};
+constexpr size_t kCoverage4ChunkSize = {COVERAGE_CHUNK_SIZE}U;
+constexpr size_t kCoverage4EncodedSize = {len(encoded)}U;
+constexpr char kCoverage4Base64[][kCoverage4ChunkSize + 1U] = {{
+{format_coverage(encoded)}
+}};
 }} // namespace graphics::font_atlas
 """
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
