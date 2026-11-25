@@ -5,10 +5,18 @@ cd "$(dirname "$0")/.."
 compiler="${HOST_CXX:-c++}"
 out="${HOST_TEST_DIR:-build/tests/core-ubsan}"
 mkdir -p "$out"
+# Driver fixtures compile production x86 instructions, even on Apple Silicon.
+# Use the same native-host target/linker policy as run-host-tests.sh.
+arch_flags=()
+link_flags=(-Wl,--gc-sections)
+if [[ "$(uname -s)" == Darwin ]]; then
+    arch_flags=(-arch x86_64)
+    link_flags=(-Wl,-dead_strip)
+fi
 run() {
     local name="$1"
     shift
-    "$compiler" -std=c++17 -O1 -g -Wall -Wextra -Wpedantic \
+    "$compiler" "${arch_flags[@]}" -std=c++17 -O1 -g -Wall -Wextra -Wpedantic \
         -fsanitize=undefined -fno-sanitize-recover=all "$@" -o "$out/$name"
     "$out/$name"
     echo "[core-ubsan] $name: PASS"
@@ -28,7 +36,11 @@ run abi -Isdk/include tests/test_sdk_abi.cpp
 # containment under UBSan; simulation does not qualify physical hardware.
 run rtl81xx-ring tests/test_rtl81xx_ring.cpp
 run rtl81xx-dma-runtime -ffunction-sections -fdata-sections \
-    tests/test_rtl81xx_dma_runtime.cpp -Wl,--gc-sections
+    tests/test_rtl81xx_dma_runtime.cpp "${link_flags[@]}"
+run rtl81xx-pci-start -ffunction-sections -fdata-sections \
+    tests/test_rtl81xx_pci_start.cpp "${link_flags[@]}"
+run rtl81xx-cleanup -ffunction-sections -fdata-sections \
+    tests/test_rtl81xx_cleanup.cpp "${link_flags[@]}"
 run nvme-retirement tests/test_nvme_retirement.cpp kernel/storage/nvme_protocol.cpp
 run usb-hub-port tests/test_usb_hub_port.cpp
 run usb-hub-ganged-power tests/test_usb_hub_ganged_power.cpp
@@ -38,4 +50,4 @@ run xhci-completions -ffunction-sections -fdata-sections \
     kernel/drivers/usb/hid_report.cpp kernel/drivers/usb/mass_storage_protocol.cpp \
     kernel/drivers/usb/xhci_bulk.cpp kernel/drivers/core/device_manager.cpp \
     kernel/storage/device_registry.cpp kernel/storage/scratch_test.cpp \
-    kernel/core/system_metrics.cpp -Wl,--gc-sections
+    kernel/core/system_metrics.cpp "${link_flags[@]}"

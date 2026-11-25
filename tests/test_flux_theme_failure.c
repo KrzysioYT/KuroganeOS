@@ -83,10 +83,15 @@ static ku_status_t fake_theme(ku_desktop_theme_request* request) {
 #define ku_service_close fake_close
 #define ku_settings_connect fake_connect
 #define ku_desktop_theme fake_theme
+/* macOS fortified headers define strlcpy as a function-like macro. */
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy test_strlcpy
 #define main settings_main
 #include "../userspace/gui/settings/main.c"
 #undef main
+#undef strlcpy
 
 static int apply(settings_client* client) {
     return apply_appearance_choice(client, UI_THEME_KEY, KU_FLUX_THEME_VIOLET,
