@@ -41,6 +41,8 @@ run rtl81xx-pci-start -ffunction-sections -fdata-sections \
     tests/test_rtl81xx_pci_start.cpp "${link_flags[@]}"
 run rtl81xx-cleanup -ffunction-sections -fdata-sections \
     tests/test_rtl81xx_cleanup.cpp "${link_flags[@]}"
+run rtl81xx-retirement -ffunction-sections -fdata-sections \
+    tests/test_rtl81xx_retirement.cpp "${link_flags[@]}"
 run nvme-retirement tests/test_nvme_retirement.cpp kernel/storage/nvme_protocol.cpp
 run usb-hub-port tests/test_usb_hub_port.cpp
 run usb-hub-ganged-power tests/test_usb_hub_ganged_power.cpp

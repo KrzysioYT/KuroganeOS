@@ -16,14 +16,19 @@ enum class Status : uint8_t {
     DmaAllocationFailed,
     LinkDown,
     DeviceFault,
-    ResourceReleaseFailed
+    ResourceReleaseFailed,
+    Busy,
+    UnsupportedRevision,
+    DmaQuiescenceUnverified
 };
 
 Status initialize();
+Status shutdown();
 bool ready();
 bool link_up();
 NetworkInterface* interface();
 Status last_status();
+uint16_t mac_xid();
 const char* status_message(Status status);
 
 } // namespace net::rtl81xx

@@ -133,6 +133,11 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_rtl81xx_cleanup"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_retirement.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_retirement"
+"$OUT_DIR/test_rtl81xx_retirement"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -ffunction-sections -fdata-sections tests/test_iron_shield_nic_fallback.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_iron_shield_nic_fallback"
 "$OUT_DIR/test_iron_shield_nic_fallback"
