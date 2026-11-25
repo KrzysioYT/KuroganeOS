@@ -8,8 +8,18 @@
 namespace {
 uint32_t pci_identity = UINT32_C(0x816810EC);
 uint16_t pci_command = 6U;
+uint64_t live_bar = 0x8000U;
+bool live_bar_io = false;
+bool replace_during_bar_read = false;
 }
 namespace pci {
+uint64_t bar_address(const Device&, uint8_t index, bool* io) {
+    assert(index == 2U);
+    *io = live_bar_io;
+    if (replace_during_bar_read) pci_identity = UINT32_MAX;
+    return live_bar;
+}
+
 uint32_t read32(Address, uint8_t offset) {
     assert(offset == 0U);
     return pci_identity;
@@ -32,6 +42,8 @@ int main() {
     g_device = {};
     g_device.pci_device.vendor_id = 0x10ECU;
     g_device.pci_device.device_id = 0x8168U;
+    g_device.bar_physical = 0x8000U;
+    g_device.bar_index = 2U;
     g_device.registers = mmio;
     g_device.started = true;
     g_device.tx_ring_page.virtual_address = tx_descriptors;
@@ -90,6 +102,41 @@ int main() {
     pci_command = 6U;
     g_device.registers = mmio;
     std::puts("RTL81xx PCI removal, identity and DMA decode loss reject I/O before MMIO: PASS");
+    // Keep PCI identity and command valid while the selected BAR disappears,
+    // relocates (including above 4 GiB), changes type or races with removal.
+    const struct { uint64_t address; bool io; bool replace; } bars[] = {
+        {0U, false, false}, {0x9000U, false, false},
+        {UINT64_C(0x100008000), false, false}, {UINT64_MAX, false, false},
+        {0x8000U, true, false}, {0x8000U, false, true},
+    };
+    for (auto bar : bars) {
+        live_bar = bar.address;
+        live_bar_io = bar.io;
+        replace_during_bar_read = bar.replace;
+        pci_identity = 0x816810ECU;
+        g_device.registers = reinterpret_cast<volatile uint8_t*>(1U);
+        uint8_t output[128];
+        std::memset(output, 0x5AU, sizeof(output));
+        size_t copied = 99U;
+        assert(!ready() && interface() == nullptr);
+        assert(transmit(&g_device, short_frame, sizeof(short_frame)) ==
+               net::Status::InterfaceError);
+        assert(receive(&g_device, output, sizeof(output), &copied) ==
+               net::Status::InterfaceError);
+        assert(copied == 0U && g_device.next_rx == 0U && g_device.next_tx == 0U);
+        assert(g_device.rx_frames == 0U && g_device.tx_frames == 0U);
+        assert(tx_descriptors[0].flags == 0U);
+        assert(rx_descriptors[0].flags == dma::rx_rearm(false, dma::RX_BUFFER_BYTES));
+        assert(g_device.tx_ring_page.virtual_address == tx_descriptors);
+        assert(g_device.rx_ring_page.virtual_address == rx_descriptors);
+        assert(mmio[REG_TX_POLL] == 0U && tx_data[0][0] == 0U);
+        for (uint8_t byte : output) assert(byte == 0x5AU);
+    }
+    live_bar = 0x8000U;
+    live_bar_io = replace_during_bar_read = false;
+    pci_identity = 0x816810ECU;
+    g_device.registers = mmio;
+    std::puts("RTL81xx BAR loss/relocation/type and removal race reject I/O before MMIO: PASS");
     const uint8_t unavailable_commands[] = {
         0U, CMD_RX, CMD_TX, CMD_RESET,
         static_cast<uint8_t>(CMD_RESET | CMD_RX | CMD_TX), UINT8_MAX,

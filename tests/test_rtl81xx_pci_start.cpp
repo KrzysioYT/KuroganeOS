@@ -14,6 +14,12 @@ unsigned writes;
 }
 
 namespace pci {
+uint64_t bar_address(const Device&, uint8_t index, bool* io) {
+    assert(index == 2U || index == 0U);
+    *io = false;
+    return 0x8000U;
+}
+
 uint32_t read32(Address, uint8_t offset) {
     assert(offset == 0U);
     return pci_identity;
@@ -85,6 +91,8 @@ int main() {
     replace_after_write = 0U;
     g_device.pci_device = device;
     command = 6U;
+    g_device.bar_physical = 0x8000U;
+    g_device.bar_index = 2U;
     g_device.registers = mmio;
     g_device.started = true;
     assert(!link_up());
@@ -92,7 +100,11 @@ int main() {
     assert(!link_up()); // Carrier cannot make a stopped DMA engine ready.
     mmio[REG_CHIP_CMD] = CMD_RX | CMD_TX;
     assert(link_up());
+    g_device.bar_index = 0U;
+    assert(link_up()); // Selected BAR0 fallback is also validated live.
     command = 2U;
+    assert(registers_available(false));
+    assert(!registers_available(true));
     assert(!link_up());
     command = 4U;
     assert(!link_up());

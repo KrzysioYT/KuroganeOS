@@ -44,6 +44,8 @@ struct Device {
     pci::Device pci_device;
     volatile uint8_t* registers;
     size_t mapped_pages;
+    uint64_t bar_physical;
+    uint8_t bar_index;
     storage::dma::Page rx_ring_page;
     storage::dma::Page tx_ring_page;
     storage::dma::Page rx_buffers[DESCRIPTOR_COUNT];
@@ -96,6 +98,21 @@ bool configure_pci_command(const pci::Device& device, bool enable_dma) {
     const uint16_t applied = pci::read16(device, PCI_COMMAND);
     return applied != UINT16_MAX && (applied & mask) == required &&
         pci_identity_matches(device);
+}
+
+// Validate the selected live BAR before dereferencing its cached mapping.
+// A relocated/unreadable BAR must not redirect I/O or replace DMA ownership.
+bool registers_available(bool require_dma) {
+    if (g_device.registers == nullptr || g_device.bar_physical == 0U ||
+        !pci_identity_matches(g_device.pci_device)) return false;
+    bool io_space = false;
+    const uint64_t live_bar = pci::bar_address(
+        g_device.pci_device, g_device.bar_index, &io_space);
+    if (io_space || live_bar != g_device.bar_physical) return false;
+    const uint16_t command = pci::read16(g_device.pci_device, PCI_COMMAND);
+    const uint16_t required = PCI_MEMORY_SPACE | (require_dma ? PCI_BUS_MASTER : 0U);
+    return command != UINT16_MAX && (command & required) == required &&
+        pci_identity_matches(g_device.pci_device);
 }
 
 bool cleanup_before_start(Device* device);
@@ -331,18 +348,21 @@ Status initialize() {
     g_device.pci_device = *found;
 
     bool io_space = false;
-    uint64_t bar = pci::bar_address(*found, 2U, &io_space);
+    g_device.bar_index = 2U;
+    uint64_t bar = pci::bar_address(*found, g_device.bar_index, &io_space);
     if (bar == 0U || io_space) {
-        bar = pci::bar_address(*found, 0U, &io_space);
+        g_device.bar_index = 0U;
+        bar = pci::bar_address(*found, g_device.bar_index, &io_space);
         if (bar == 0U || io_space) return g_status = Status::InvalidBar;
     }
+    g_device.bar_physical = bar;
     if (!map_registers(bar, &g_device))
         return g_status = g_device.mapped_pages == 0U
             ? Status::MappingFailed : Status::ResourceReleaseFailed;
 
     /* Firmware may leave memory decoding off or bus mastering on. Both
      * bits must be confirmed before touching registers or allocating rings. */
-    if (!configure_pci_command(*found, false)) {
+    if (!configure_pci_command(*found, false) || !registers_available(false)) {
         return fail_before_start(Status::DeviceFault);
     }
     write16(g_device, REG_INT_MASK, 0U);
@@ -392,6 +412,8 @@ Status initialize() {
             return fail_before_start(Status::DeviceFault);
         return g_status = Status::DeviceFault;
     }
+    // Rings are published: ambiguous BAR state must retain their ownership.
+    if (!registers_available(true)) return g_status = Status::DeviceFault;
     write8(g_device, REG_CHIP_CMD, static_cast<uint8_t>(CMD_RX | CMD_TX));
 
     g_device.interface = {&g_device, transmit, receive, g_device.mac, ETHERNET_MTU};
@@ -408,11 +430,7 @@ bool link_up() {
     if (!g_device.started ||
         __atomic_load_n(&g_device.faulted, __ATOMIC_ACQUIRE) ||
         g_device.registers == nullptr) return false;
-    if (!pci_identity_matches(g_device.pci_device)) return false;
-    const uint16_t pci_command = pci::read16(g_device.pci_device, PCI_COMMAND);
-    constexpr uint16_t required = PCI_MEMORY_SPACE | PCI_BUS_MASTER;
-    if (pci_command == UINT16_MAX || (pci_command & required) != required)
-        return false;
+    if (!registers_available(true)) return false;
     const uint8_t command = read8(g_device, REG_CHIP_CMD);
     constexpr uint8_t mask = CMD_RESET | CMD_RX | CMD_TX;
     if (command == UINT8_MAX || (command & mask) != (CMD_RX | CMD_TX))

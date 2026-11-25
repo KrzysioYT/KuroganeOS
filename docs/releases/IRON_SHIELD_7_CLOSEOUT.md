@@ -259,3 +259,19 @@ DMA quiescence before releasing resources. The default ISO is suitable for
 checking PCI recognition and fallback. Its experimental RTL81xx path stays
 disabled. Persistent downstream USB binding and hotplug, high-speed hub TT
 scheduling and active-driver PCI power recovery also remain open.
+
+## Selected BAR validation and physical acceptance procedure
+
+RTL81xx now pins its chosen BAR index/address and validates the live BAR before
+initial MMIO access, engine start, readiness and production RX/TX. Lost,
+relocated or I/O-space BARs reject I/O without dereferencing the cached mapping;
+PCI identity is rechecked after the BAR/config reads. Host fault injection uses
+an inaccessible MMIO pointer and checks unchanged descriptors, buffers, ring
+positions and DMA ownership. This is a bounded configuration check, not a
+hardware removal interlock or proof of active DMA shutdown.
+
+The [physical RTL8168 procedure](RTL8168_PHYSICAL_QUALIFICATION.md) specifies
+fixture admission, MAC/PHY/link/DHCP, bidirectional traffic, reconnect, shutdown,
+power recovery and evidence. Physical execution remains BLOCKED. The missing
+active shutdown/reinitialize path is an explicit admission blocker; the normal
+image retains its experimental-driver quarantine.
