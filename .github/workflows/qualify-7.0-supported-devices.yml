@@ -310,10 +310,27 @@ jobs:
             --require-marker '[TEST] xhci_mass_storage_bot_transport: PASS' \
             --require-marker '[TEST] xhci_mass_storage_inquiry: PASS' \
             --require-marker '[TEST] xhci_mass_storage_scsi_geometry: PASS' \
-            --require-marker '[TEST] xhci_mass_storage_known_read: PASS' \
-            --require-marker '[TEST] xhci_mass_storage_write_readback: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_read10: PASS' \
+            --require-marker '[TEST] usb_storage_write_flush_readback_restore: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL' "$evidence/serial.log"
+          if grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"; then
+            exit 1
+          fi
+          test -s "$evidence/usb-storage-sha256.txt"
+      - name: Boot with a legacy USB read fixture and verify the whole disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/usb-legacy-tag
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --usb-storage-legacy-tag \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] xhci_mass_storage_known_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          if grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL|usb_storage_write_flush_readback_restore: PASS' "$evidence/serial.log"; then
+            exit 1
+          fi
+          test -s "$evidence/usb-storage-sha256.txt"
       - name: Verify NVMe I/O restores the entire scratch namespace
         shell: bash
         run: |

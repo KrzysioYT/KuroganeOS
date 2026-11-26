@@ -310,3 +310,13 @@ active-driver PCI power recovery remain open.
 [Push evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573541883) ·
 [PR evidence](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573551676) ·
 [ISO artifact](https://github.com/KrzysioYT/KuroganeOS/actions/runs/45573541883/artifacts/15003378796)
+
+## USB media preservation
+
+Direct USB enumeration reads sector zero and publishes the disk. The old
+8 MiB read fixture used to trigger an overwrite of sector one at boot. Only
+the unified storage scratch runner now performs the direct qualification
+write. Its header specifies the test region and geometry, and it restores
+and verifies every original sector. The device matrix boots both the tagged
+scratch disk and an old read fixture containing nonzero data in sector one.
+It compares SHA-256 over each entire raw disk after QEMU exits.

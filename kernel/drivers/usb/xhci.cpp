@@ -1972,60 +1972,8 @@ bool initialize_mass_storage_block_device(Controller& controller) {
         terminal::println("[TEST] xhci_mass_storage_known_read: PASS");
     }
 
-    // Never perform a destructive qualification write on arbitrary media.
-    // Only the dedicated 8 MiB / 512-byte-sector QEMU scratch image carries
-    // this signature and exact geometry.
-    const bool qualification_media =
-        known &&
-        controller.mass_storage_block_size == 512U &&
-        controller.mass_storage_block_count == UINT64_C(16384);
-    if (qualification_media) {
-        auto* io = static_cast<uint8_t*>(
-            controller.storage_io_page.virtual_address);
-        for (size_t index = 0U; index < controller.mass_storage_block_size;
-             ++index) {
-            io[index] = static_cast<uint8_t>((index * 29U + 7U) & 0xFFU);
-        }
-        if (write_mass_storage_blocks(
-                controller, 1U, 1U, io) != storage::block::Status::Ok) {
-            terminal::println("[TEST] xhci_mass_storage_write10: FAIL");
-            controller.mass_storage_block = {};
-            return false;
-        }
-        terminal::println("[TEST] xhci_mass_storage_write10: PASS");
-
-        if (synchronize_mass_storage(controller) != storage::block::Status::Ok) {
-            terminal::println("[TEST] xhci_mass_storage_sync_cache: FAIL");
-            controller.mass_storage_block = {};
-            return false;
-        }
-        terminal::println("[TEST] xhci_mass_storage_sync_cache: PASS");
-
-        clear_bytes(io, controller.mass_storage_block_size);
-        if (read_mass_storage_blocks(controller, 1U, 1U, io) !=
-            storage::block::Status::Ok) {
-            terminal::println("[TEST] xhci_mass_storage_write_readback: FAIL");
-            controller.mass_storage_block = {};
-            return false;
-        }
-        bool matches = true;
-        for (size_t index = 0U; index < controller.mass_storage_block_size;
-             ++index) {
-            const uint8_t expected =
-                static_cast<uint8_t>((index * 29U + 7U) & 0xFFU);
-            if (io[index] != expected) {
-                matches = false;
-                break;
-            }
-        }
-        if (!matches) {
-            terminal::println("[TEST] xhci_mass_storage_write_readback: FAIL");
-            controller.mass_storage_block = {};
-            return false;
-        }
-        terminal::println("[TEST] xhci_mass_storage_write_readback: PASS");
-    }
-
+    // Enumeration only reads the medium. The unified storage layer owns the
+    // opt-in scratch test, including preservation of the original sectors.
     controller.mass_storage_block_ready = true;
     if (!storage::device_registry::register_device(
             storage::device_registry::Backend::UsbMassStorage,

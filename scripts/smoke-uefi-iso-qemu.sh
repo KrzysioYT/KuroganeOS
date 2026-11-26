@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag|--nvme-4k] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag|--nvme-4k] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage|--usb-storage-legacy-tag] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -25,6 +25,7 @@ usb_keyboard=false
 usb_mouse=false
 usb_tablet=false
 usb_storage=false
+usb_storage_legacy=false
 usb_controller=false
 usb_hotplug=false
 usb_root_hub=false
@@ -91,6 +92,7 @@ while (($#)); do
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
         --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
         --usb-storage) usb_controller=true; usb_storage=true; shift ;;
+        --usb-storage-legacy-tag) usb_controller=true; usb_storage=true; usb_storage_legacy=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
         --usb-root-hub) usb_controller=true; usb_root_hub=true; shift ;;
         --usb-hub-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; shift ;;
@@ -193,6 +195,10 @@ if $flux_lifecycle; then
         exit 2
     fi
     require_markers+=('[SESSION] flux_home_first_frame: PASS')
+fi
+if $usb_storage_legacy && $usb_hub_storage; then
+    echo "--usb-storage-legacy-tag requires a directly attached USB disk" >&2
+    exit 2
 fi
 if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
     echo "--persistent-disk requires --disk" >&2
@@ -935,27 +941,40 @@ if $usb_storage; then
     if $usb_hub_unsupported; then
         usb_storage_port=",port=1.2"
     fi
-    python3 - "$usb_storage_image" "$usb_hub_storage" <<'PY'
+    python3 - "$usb_storage_image" "$usb_hub_storage" "$usb_storage_legacy" <<'PYUSB'
 import struct
 import sys
 
 size = 8 * 1024 * 1024
+hub = sys.argv[2] == "true"
+legacy = sys.argv[3] == "true"
 with open(sys.argv[1], "wb") as image:
     image.truncate(size)
-    image.seek(0)
-    image.write(b"KUROGANE_USB_READ_V1")
-    image.write(bytes((index * 37 + 11) & 0xFF for index in range(512 - 20)))
-    if sys.argv[2] == "true":
-        # Physical LBA 1 is LBA 0 of the driver's scratch-test view.
+    if hub or legacy:
+        # An old read fixture has no permission to write any sector.
+        marker = b"KUROGANE_USB_READ_V1"
+        image.write(marker)
+        image.write(bytes((i * 37 + 11) & 0xff for i in range(512 - len(marker))))
+    if legacy:
+        image.write(bytes((i * 17 + 3) & 0xff for i in range(512)))
+    else:
+        # The hub boot probe uses a view starting at physical LBA 1.
+        offset = 1 if hub else 0
+        first, count = (1, 1) if hub else (8, 8)
         header = bytearray(512)
         magic = b"KUROGANE_BLOCK_SCRATCH_V1"
         header[:len(magic)] = magic
-        struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512 - 1, 1, 1, 0x4B535431)
+        struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512 - offset,
+                         first, count, 0x4B535431)
+        image.seek(offset * 512)
         image.write(header)
-        image.write(bytes((index * 19 + 7) & 0xFF for index in range(512)))
-PY
+        image.seek((offset + first) * 512)
+        image.write(bytes((i * 19 + 7) & 0xff for i in range(count * 512)))
+PYUSB
     if $usb_hub_storage; then
         record_scratch_image "$usb_storage_image" hub-scratch-sha256.txt
+    else
+        record_scratch_image "$usb_storage_image" usb-storage-sha256.txt
     fi
     # Use scratch media to keep storage probes away from the boot disk.
     usb_args+=(
