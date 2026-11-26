@@ -12,19 +12,20 @@ int main() {
     controller.operational = registers;
     controller.maximum_ports = 255U;
 
-    assert(first_connected_port(controller) == 0U);
-    assert(!reset_connected_port(controller));
+    uint8_t speed = 0U;
+    assert(first_unclaimed_connected_port(controller) == 0U);
+    assert(!reset_port(controller, 0U, &speed));
     assert(controller.port_id == 0U);
 
     // Last legal port must be found without probing a wrapped port zero.
     write32(controller.operational, OP_PORTS + 254U * PORT_STRIDE,
             PORT_CONNECTED);
-    assert(first_connected_port(controller) == 255U);
+    assert(first_unclaimed_connected_port(controller) == 255U);
     controller.maximum_ports = 254U;
-    assert(first_connected_port(controller) == 0U);
+    assert(first_unclaimed_connected_port(controller) == 0U);
 
     write32(controller.operational, OP_PORTS, PORT_CONNECTED);
-    assert(first_connected_port(controller) == 1U);
+    assert(first_unclaimed_connected_port(controller) == 1U);
 
     // Multi-HID enumeration must skip a port already owned by the primary
     // slot and return the second connected device without wrapping/scanning
@@ -42,9 +43,24 @@ int main() {
     controller.companion.slot_id = 0U;
     controller.companion.port_id = 0U;
 
+    // A deferred hub cannot monopolize either lane, and the ignore bit
+    // applies to its physical attachment, not to the port forever.
+    controller.deferred_hub_ports[1U] = true;
+    assert(first_unclaimed_connected_port(controller) == 2U);
+    write32(controller.operational, OP_PORTS, UINT32_MAX);
+    assert(first_unclaimed_connected_port(controller) == 2U);
+    assert(controller.deferred_hub_ports[1U]);
+    write32(controller.operational, OP_PORTS, PORT_CONNECTED | PORT_CONNECT_CHANGED);
+    assert(first_unclaimed_connected_port(controller) == 1U);
+    assert(!controller.deferred_hub_ports[1U]);
+    controller.deferred_hub_ports[1U] = true;
+    write32(controller.operational, OP_PORTS, 0U);
+    assert(first_unclaimed_connected_port(controller) == 2U);
+    assert(!controller.deferred_hub_ports[1U]);
+
     controller.maximum_ports = 0U;
-    assert(first_connected_port(controller) == 0U);
-    assert(!reset_connected_port(controller));
+    assert(first_unclaimed_connected_port(controller) == 0U);
+    assert(!reset_port(controller, 1U, &speed));
 
     std::puts("xHCI bounded port scan: PASS");
     return 0;

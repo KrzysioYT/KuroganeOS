@@ -11,6 +11,7 @@ enum class Driver : uint8_t {
     VirtioNet,
     E1000,
     Pcnet,
+    Realtek,
 };
 
 enum class Status : uint8_t {
@@ -18,9 +19,11 @@ enum class Status : uint8_t {
     AlreadyInitialized,
     NotFound,
     DeviceUnavailable,
+    UnsupportedRealtek,
 };
 
 Status initialize();
+Status last_status();
 bool ready();
 bool link_up();
 bool detected();

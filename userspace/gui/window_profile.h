@@ -166,6 +166,16 @@ static inline int gui_window_profile_save(
     if (!gui_window_profile_encode(geometry, value) ||
         gui_window_settings_request(profile->key, KU_SETTINGS_SET, value, &response) !=
             KU_STATUS_OK) return 0;
+    /* A service can acknowledge SET without applying it (for example after
+     * a failed recovery). Only advance the baseline after an independent GET
+     * confirms the exact geometry record was committed. */
+    ku_settings_response verified = {0};
+    if (gui_window_settings_request(profile->key, KU_SETTINGS_GET, NULL, &verified) !=
+            KU_STATUS_OK ||
+        verified.type != KU_SETTINGS_TYPE_STRING ||
+        verified.value_size != GUI_WINDOW_PROFILE_LENGTH ||
+        memcmp(verified.value, value, GUI_WINDOW_PROFILE_LENGTH) != 0)
+        return 0;
     profile->baseline = *geometry;
     printf("[WINDOW] geometry_saved key=%s x=%u y=%u w=%u h=%u\n",
            profile->key, (unsigned)geometry->x, (unsigned)geometry->y,

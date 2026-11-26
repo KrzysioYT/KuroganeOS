@@ -13,6 +13,10 @@ constexpr size_t MMIO_BYTES = 128U * 1024U;
 constexpr uint64_t MMIO_VIRTUAL_BASE = UINT64_C(0xFFFFB10000000000);
 constexpr size_t DESCRIPTOR_COUNT = 8U;
 constexpr uint32_t RESET_BUDGET = 1000000U;
+constexpr uint32_t MASTER_DRAIN_BUDGET = 1000000U;
+constexpr uint8_t PCI_COMMAND = 0x04U;
+constexpr uint16_t PCI_MEMORY_ENABLE = UINT16_C(1) << 1U;
+constexpr uint16_t PCI_BUS_MASTER_ENABLE = UINT16_C(1) << 2U;
 
 constexpr size_t REG_CTRL = 0x0000U;
 constexpr size_t REG_STATUS = 0x0008U;
@@ -36,9 +40,11 @@ constexpr size_t REG_TDT = 0x3818U;
 constexpr size_t REG_RAL = 0x5400U;
 constexpr size_t REG_RAH = 0x5404U;
 
+constexpr uint32_t CTRL_GIO_MASTER_DISABLE = UINT32_C(1) << 2U;
 constexpr uint32_t CTRL_SLU = UINT32_C(1) << 6U;
 constexpr uint32_t CTRL_RST = UINT32_C(1) << 26U;
 constexpr uint32_t STATUS_LU = UINT32_C(1) << 1U;
+constexpr uint32_t STATUS_GIO_MASTER_ENABLE = UINT32_C(1) << 19U;
 constexpr uint32_t RCTL_EN = UINT32_C(1) << 1U;
 constexpr uint32_t RCTL_BAM = UINT32_C(1) << 15U;
 constexpr uint32_t RCTL_SECRC = UINT32_C(1) << 26U;
@@ -82,6 +88,7 @@ struct Device {
     pci::Device pci_device;
     Model model;
     volatile uint8_t* registers;
+    uint64_t bar_physical;
     uintptr_t mapped_base;
     size_t mapped_pages;
     storage::dma::Page rx_ring_page;
@@ -100,6 +107,10 @@ struct Device {
     uint32_t last_interrupt_causes;
     bool msi_active;
     bool initialized;
+    bool quiescing;
+    // A failed retirement retains the binding until a verified recovery path
+    // exists. initialize() must not overwrite ownership or map a new endpoint.
+    bool resources_retained;
 };
 
 Device g_device{};
@@ -145,7 +156,8 @@ void write_register(Device& device, size_t offset, uint32_t value) {
 }
 
 void interrupt_handler(arch::x86_64::interrupts::InterruptFrame&) {
-    if (g_device.registers == nullptr) return;
+    if (__atomic_load_n(&g_device.quiescing, __ATOMIC_ACQUIRE) ||
+        g_device.registers == nullptr) return;
     const uint32_t causes = read_register(g_device, REG_ICR);
     if (causes == 0U) return;
     __atomic_fetch_or(
@@ -154,8 +166,24 @@ void interrupt_handler(arch::x86_64::interrupts::InterruptFrame&) {
         &g_device.interrupt_count, UINT64_C(1), __ATOMIC_RELEASE);
 }
 
+bool unmap_mmio(Device& device) {
+    if (device.mapped_pages == 0U) return true;
+    auto* address_space = memory::kernel_virtual_memory::address_space();
+    if (address_space == nullptr) return false;
+    while (device.mapped_pages != 0U) {
+        if (memory::virtual_memory::unmap_page(address_space,
+                device.mapped_base + (device.mapped_pages - 1U) *
+                    memory::virtual_memory::PAGE_SIZE) !=
+                memory::virtual_memory::Status::Ok) return false;
+        --device.mapped_pages;
+    }
+    device.registers = nullptr;
+    return true;
+}
+
 bool map_mmio(uint64_t physical, Device* device) {
-    if (device == nullptr) return false;
+    if (device == nullptr || physical == 0U ||
+        physical > UINT64_MAX - (MMIO_BYTES - 1U)) return false;
     auto* address_space = memory::kernel_virtual_memory::address_space();
     if (address_space == nullptr) return false;
     constexpr uint64_t page_size = memory::virtual_memory::PAGE_SIZE;
@@ -171,7 +199,8 @@ bool map_mmio(uint64_t physical, Device* device) {
         memory::virtual_memory::MapFlags::WriteThrough |
         memory::virtual_memory::MapFlags::CacheDisable |
         memory::virtual_memory::MapFlags::NoExecute;
-    size_t mapped = 0U;
+    device->mapped_base = MMIO_VIRTUAL_BASE;
+    size_t& mapped = device->mapped_pages;
     for (; mapped < page_count; ++mapped) {
         memory::virtual_memory::Mapping existing{};
         if (memory::virtual_memory::query_page(
@@ -187,56 +216,117 @@ bool map_mmio(uint64_t physical, Device* device) {
         }
     }
     if (mapped != page_count) {
-        while (mapped != 0U) {
-            --mapped;
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                address_space, MMIO_VIRTUAL_BASE + mapped * page_size));
-        }
+        device->resources_retained = !unmap_mmio(*device);
         return false;
     }
-    device->mapped_base = MMIO_VIRTUAL_BASE;
-    device->mapped_pages = page_count;
+    device->bar_physical = physical;
     device->registers = reinterpret_cast<volatile uint8_t*>(
         MMIO_VIRTUAL_BASE + offset);
     return true;
 }
 
-void release_resources(Device* device) {
-    if (device == nullptr) return;
-    if (device->registers != nullptr) {
-        write_register(*device, REG_IMC, UINT32_MAX);
-        static_cast<void>(read_register(*device, REG_ICR));
+bool pci_binding_matches(const Device& device) {
+    const uint32_t expected =
+        (static_cast<uint32_t>(device.pci_device.device_id) << 16U) |
+        device.pci_device.vendor_id;
+    const auto& pci_device = device.pci_device;
+    if (pci::read32(pci_device.address, 0x00U) != expected ||
+        pci::read8(pci_device.address, 0x08U) != pci_device.revision) return false;
+    bool is_io = false;
+    return pci::bar_address(pci_device, 0U, &is_io) == device.bar_physical &&
+        !is_io && device.bar_physical != 0U;
+}
+
+// I82574L datasheet 3.1.3.10 and 5.4.4.2.3 require the device-side
+// master-disable handshake before clearing PCI Command.Bus Master Enable.
+bool drain_e1000e_dma(Device& device) {
+    if (device.registers == nullptr || !pci_binding_matches(device)) return false;
+    const uint16_t command = pci::read16(device.pci_device.address, PCI_COMMAND);
+    if (command == UINT16_MAX || (command & PCI_MEMORY_ENABLE) == 0U)
+        return false;
+
+    const uint32_t control = read_register(device, REG_CTRL);
+    const uint32_t receive = read_register(device, REG_RCTL);
+    const uint32_t transmit = read_register(device, REG_TCTL);
+    if (control == UINT32_MAX || (control & CTRL_RST) != 0U ||
+        receive == UINT32_MAX || transmit == UINT32_MAX) return false;
+
+    write_register(device, REG_IMC, UINT32_MAX);
+    static_cast<void>(read_register(device, REG_ICR));
+    write_register(device, REG_RCTL, receive & ~RCTL_EN);
+    write_register(device, REG_TCTL, transmit & ~TCTL_EN);
+    if ((read_register(device, REG_RCTL) & RCTL_EN) != 0U ||
+        (read_register(device, REG_TCTL) & TCTL_EN) != 0U) return false;
+    write_register(device, REG_CTRL, control | CTRL_GIO_MASTER_DISABLE);
+    const uint32_t disabled = read_register(device, REG_CTRL);
+    if (disabled == UINT32_MAX || (disabled & CTRL_GIO_MASTER_DISABLE) == 0U)
+        return false;
+
+    for (uint32_t attempt = 0U; attempt < MASTER_DRAIN_BUDGET; ++attempt) {
+        const uint32_t status = read_register(device, REG_STATUS);
+        if (status == UINT32_MAX) return false;
+        if ((status & STATUS_GIO_MASTER_ENABLE) == 0U)
+            return pci_binding_matches(device);
+        relax();
     }
-    if (device->msi_active) {
-        static_cast<void>(pci::msi::disable(&device->msi_route));
-        device->msi_active = false;
+    return false;
+}
+
+bool disable_pci_bus_master(const Device& device) {
+    if (!pci_binding_matches(device)) return false;
+    const auto& address = device.pci_device.address;
+    const uint16_t command = pci::read16(address, PCI_COMMAND);
+    if (command == UINT16_MAX || (command & PCI_MEMORY_ENABLE) == 0U)
+        return false;
+    pci::write16(address, PCI_COMMAND,
+        static_cast<uint16_t>(command & ~PCI_BUS_MASTER_ENABLE));
+    const uint16_t applied = pci::read16(address, PCI_COMMAND);
+    return applied != UINT16_MAX && (applied & PCI_BUS_MASTER_ENABLE) == 0U &&
+        pci_binding_matches(device);
+}
+
+bool release_page(storage::dma::Page& page) {
+    return !page.allocated ||
+        storage::dma::release_page(&page) == storage::dma::Status::Ok;
+}
+
+Status release_resources(Device& device) {
+    // Called only during initialize(), before interface publication.
+    // Block software tail updates and MMIO in the interrupt handler even
+    // when retirement must retain DMA.
+    device.initialized = false;
+    __atomic_store_n(&device.quiescing, true, __ATOMIC_RELEASE);
+    if (device.model == Model::I82574L) {
+        if (!drain_e1000e_dma(device)) return Status::DmaQuiesceFailed;
+    } else if (device.registers != nullptr) {
+        write_register(device, REG_IMC, UINT32_MAX);
+        static_cast<void>(read_register(device, REG_ICR));
     }
+    if (device.msi_route.active) {
+        if (pci::msi::disable(&device.msi_route) != pci::msi::Status::Ok)
+            return Status::ResourceReleaseFailed;
+        device.msi_active = false;
+    }
+    // MSI teardown restores its saved Command word. Drop Bus Master after it
+    // finishes so that restoration cannot turn DMA back on before page release.
+    if (device.model == Model::I82574L && !disable_pci_bus_master(device))
+        return Status::DmaQuiesceFailed;
     for (size_t index = 0U; index < DESCRIPTOR_COUNT; ++index) {
-        if (device->rx_buffers[index].allocated) {
-            static_cast<void>(storage::dma::release_page(
-                &device->rx_buffers[index]));
-        }
-        if (device->tx_buffers[index].allocated) {
-            static_cast<void>(storage::dma::release_page(
-                &device->tx_buffers[index]));
-        }
+        if (!release_page(device.rx_buffers[index]) ||
+            !release_page(device.tx_buffers[index]))
+            return Status::ResourceReleaseFailed;
     }
-    if (device->rx_ring_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&device->rx_ring_page));
-    }
-    if (device->tx_ring_page.allocated) {
-        static_cast<void>(storage::dma::release_page(&device->tx_ring_page));
-    }
-    auto* address_space = memory::kernel_virtual_memory::address_space();
-    if (address_space != nullptr) {
-        for (size_t index = 0U; index < device->mapped_pages; ++index) {
-            static_cast<void>(memory::virtual_memory::unmap_page(
-                address_space,
-                device->mapped_base +
-                    index * memory::virtual_memory::PAGE_SIZE));
-        }
-    }
-    *device = {};
+    if (!release_page(device.rx_ring_page) || !release_page(device.tx_ring_page) ||
+        !unmap_mmio(device)) return Status::ResourceReleaseFailed;
+    device = {};
+    return Status::Ok;
+}
+
+Status fail_initialize(Status cause) {
+    const Status retirement = release_resources(g_device);
+    g_device.resources_retained = retirement != Status::Ok;
+    g_status = g_device.resources_retained ? retirement : cause;
+    return g_status;
 }
 
 ReceiveDescriptor* rx_ring(Device& device) {
@@ -393,6 +483,7 @@ bool allocate_dma(Device* device) {
 } // namespace
 
 Status initialize() {
+    if (g_device.resources_retained) return g_status;
     if (g_device.initialized) {
         return Status::AlreadyInitialized;
     }
@@ -412,16 +503,29 @@ Status initialize() {
         return g_status;
     }
     if (!map_mmio(bar, &g_device)) {
-        g_status = Status::MmioMapFailed;
+        g_status = g_device.resources_retained
+            ? Status::ResourceReleaseFailed : Status::MmioMapFailed;
+        return g_status;
+    }
+    if (detected_model == Model::I82574L && !pci_binding_matches(g_device)) {
+        g_device.resources_retained = !unmap_mmio(g_device);
+        g_status = g_device.resources_retained
+            ? Status::ResourceReleaseFailed : Status::InvalidBar;
         return g_status;
     }
     pci::enable_bus_mastering(*pci_device);
+    if (detected_model == Model::I82574L) {
+        const uint16_t command = pci::read16(pci_device->address, PCI_COMMAND);
+        constexpr uint16_t required = PCI_MEMORY_ENABLE | PCI_BUS_MASTER_ENABLE;
+        if (command == UINT16_MAX || (command & required) != required ||
+            !pci_binding_matches(g_device)) return fail_initialize(Status::DeviceError);
+    }
+    const uint32_t control = read_register(g_device, REG_CTRL);
+    if (detected_model == Model::I82574L && control == UINT32_MAX)
+        return fail_initialize(Status::DeviceError);
     write_register(g_device, REG_IMC, UINT32_MAX);
     static_cast<void>(read_register(g_device, REG_ICR));
-    write_register(
-        g_device,
-        REG_CTRL,
-        read_register(g_device, REG_CTRL) | CTRL_RST);
+    write_register(g_device, REG_CTRL, control | CTRL_RST);
     bool reset_complete = false;
     for (uint32_t attempt = 0U; attempt < RESET_BUDGET; ++attempt) {
         if ((read_register(g_device, REG_CTRL) & CTRL_RST) == 0U) {
@@ -430,11 +534,7 @@ Status initialize() {
         }
         relax();
     }
-    if (!reset_complete) {
-        release_resources(&g_device);
-        g_status = Status::ResetTimedOut;
-        return g_status;
-    }
+    if (!reset_complete) return fail_initialize(Status::ResetTimedOut);
     write_register(g_device, REG_IMC, UINT32_MAX);
     static_cast<void>(read_register(g_device, REG_ICR));
 
@@ -446,16 +546,8 @@ Status initialize() {
     g_device.mac.bytes[3] = static_cast<uint8_t>(ral >> 24U);
     g_device.mac.bytes[4] = static_cast<uint8_t>(rah);
     g_device.mac.bytes[5] = static_cast<uint8_t>(rah >> 8U);
-    if (!valid_mac(g_device.mac)) {
-        release_resources(&g_device);
-        g_status = Status::InvalidMac;
-        return g_status;
-    }
-    if (!allocate_dma(&g_device)) {
-        release_resources(&g_device);
-        g_status = Status::DmaAllocationFailed;
-        return g_status;
-    }
+    if (!valid_mac(g_device.mac)) return fail_initialize(Status::InvalidMac);
+    if (!allocate_dma(&g_device)) return fail_initialize(Status::DmaAllocationFailed);
 
     write_register(g_device, REG_RDBAL,
         static_cast<uint32_t>(g_device.rx_ring_page.physical_address));
@@ -500,20 +592,19 @@ Status initialize() {
         g_device.mac,
         ETHERNET_MTU,
     };
-    g_device.initialized = true;
     bool link_up = false;
     for (uint32_t attempt = 0U; attempt < RESET_BUDGET; ++attempt) {
-        if ((read_register(g_device, REG_STATUS) & STATUS_LU) != 0U) {
+        const uint32_t status = read_register(g_device, REG_STATUS);
+        if (detected_model == Model::I82574L && status == UINT32_MAX)
+            return fail_initialize(Status::DeviceError);
+        if ((status & STATUS_LU) != 0U) {
             link_up = true;
             break;
         }
         relax();
     }
-    if (!link_up) {
-        g_status = Status::LinkDown;
-        return g_status;
-    }
-    g_status = Status::Ok;
+    g_device.initialized = true;
+    g_status = link_up ? Status::Ok : Status::LinkDown;
     return g_status;
 }
 
@@ -610,6 +701,8 @@ const char* status_message(Status status) {
         case Status::LinkDown: return "Intel GbE link is down";
         case Status::TransmitTimedOut: return "Intel GbE transmit timed out";
         case Status::DeviceError: return "Intel GbE device error";
+        case Status::DmaQuiesceFailed: return "E1000e DMA did not quiesce";
+        case Status::ResourceReleaseFailed: return "Intel GbE resources retained";
     }
     return "unknown E1000 status";
 }

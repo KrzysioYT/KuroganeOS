@@ -67,12 +67,9 @@ jobs:
             --require-marker '[TEST] nvme_namespace_identify: PASS' \
             --require-marker '[TEST] nvme_io_queues: PASS' \
             --require-marker '[TEST] nvme_read: PASS' \
-            --require-marker '[TEST] nvme_known_read: PASS' \
-            --require-marker '[TEST] nvme_write: PASS' \
-            --require-marker '[TEST] nvme_flush: PASS' \
-            --require-marker '[TEST] nvme_write_readback: PASS' \
+            --require-marker '[TEST] nvme_write_flush_readback_restore: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL' \
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|unified_storage_.*: FAIL' \
             build/tests/nvme-admin/serial.log
 
       - name: Retain NVMe runtime logs

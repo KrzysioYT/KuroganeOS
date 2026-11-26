@@ -6,6 +6,7 @@
 
 static ku_ui_window_geometry shown, requested;
 static ku_status_t geometry_status, settings_status, write_status;
+static int ignore_set_once;
 static ku_settings_request last_request;
 static unsigned writes;
 static char stored[43];
@@ -41,7 +42,10 @@ static ku_status_t fake_receive(ku_service_connection_t connection, ku_service_m
     } else {
         assert(last_request.value_size == sizeof(stored));
         response.status = write_status;
-        if (write_status == KU_STATUS_OK) memcpy(stored, last_request.value, sizeof(stored));
+        if (write_status == KU_STATUS_OK) {
+            if (ignore_set_once != 0) --ignore_set_once;
+            else memcpy(stored, last_request.value, sizeof(stored));
+        }
     }
     message->data_size = sizeof(response);
     memcpy(message->data, &response, sizeof(response));
@@ -106,6 +110,18 @@ static void test_profile_lifecycle(void) {
     assert(writes == 2 && gui_window_profile_decode(stored, sizeof(stored), &restored));
     assert(gui_window_same_geometry(&restored, &shown));
 
+    /* A successful SET reply is insufficient when a stale service silently
+     * ignores the write. The next flush must retry rather than losing it. */
+    shown.y += 20;
+    char verified_record[sizeof(stored)];
+    memcpy(verified_record, stored, sizeof(stored));
+    ignore_set_once = 1;
+    gui_window_profile_flush(&profile, window);
+    assert(writes == 3 && memcmp(stored, verified_record, sizeof(stored)) == 0);
+    gui_window_profile_flush(&profile, window);
+    assert(writes == 4 && gui_window_profile_decode(stored, sizeof(stored), &restored));
+    assert(gui_window_same_geometry(&restored, &shown));
+
     settings_status = KU_STATUS_NOT_FOUND;
     shown = (ku_ui_window_geometry){sizeof(shown), 100, 80, 500, 350, 0, 0};
     assert(gui_window_profile_open(&profile, "window.example", "Example",
@@ -114,7 +130,7 @@ static void test_profile_lifecycle(void) {
     for (unsigned i = 0; i < 4U * GUI_WINDOW_POLL_TICKS; ++i)
         gui_window_profile_tick(&profile, window);
     gui_window_profile_flush(&profile, window);
-    assert(writes == 2);
+    assert(writes == 4);
 }
 
 int main(void) {

@@ -14,6 +14,7 @@
 #include "../memory/allocator.hpp"
 #include "../memory/physical_memory.hpp"
 #include "../net/service.hpp"
+#include "../net/physical.hpp"
 #include "../storage/device_registry.hpp"
 #include "../task/scheduler.hpp"
 #include "../terminal.hpp"
@@ -704,6 +705,11 @@ void command_network(bool ping) {
     terminal::write(" gateway=");
     write_ipv4(config->gateway);
     terminal::println();
+    if (!net::service::physical_interface() &&
+        net::physical::last_status() == net::physical::Status::UnsupportedRealtek) {
+        terminal::println("physical NIC: Realtek RTL8111/8168 detected; "
+                          "driver not operational (loopback only)");
+    }
     terminal::write("tx=");
     terminal::write_u64(stats.frames_transmitted);
     terminal::write(" rx=");

@@ -683,6 +683,8 @@ void initialize_device_framework(bool safe_mode) {
             "DRIVER",
             kstatus_message(bind_status));
     }
+    terminal::write("[AUDIO] backend=");
+    terminal::println(drivers::audio::backend_name());
     log::write_u64(
         log::Level::Info,
         "DEVICE",
@@ -1172,6 +1174,9 @@ void initialize_storage_probe() {
             }
         }
 
+        if (entry.device->sector_size != storage::scratch_test::SCRATCH_SECTOR_SIZE) {
+            continue;
+        }
         const storage::scratch_test::Result scratch_result =
             storage::scratch_test::run(
                 entry.device, &g_scratch_test_workspace);
@@ -1185,6 +1190,12 @@ void initialize_storage_probe() {
                 "[TEST] unified_storage_write_flush_readback_restore: PASS");
             if (entry.backend == storage::device_registry::Backend::VirtioBlock) {
                 terminal::println("[TEST] virtio_block_rw: PASS");
+            }
+            if (entry.backend == storage::device_registry::Backend::UsbMassStorage) {
+                terminal::println("[TEST] usb_storage_write_flush_readback_restore: PASS");
+            }
+            if (entry.backend == storage::device_registry::Backend::Nvme) {
+                terminal::println("[TEST] nvme_write_flush_readback_restore: PASS");
             }
             continue;
         }

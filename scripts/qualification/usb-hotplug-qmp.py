@@ -47,6 +47,11 @@ def run(path: str, action: str) -> None:
                 raise RuntimeError(f"QMP deadline exceeded: {command}")
 
             request("qmp_capabilities")
+            # With no PS/2 device, adding the USB keyboard creates the only
+            # input handler. Send key-up only after that handler exists.
+            if action == "add":
+                request("device_add", {"driver": "usb-kbd", "bus": "kurogane_xhci.0",
+                                       "id": "kurogane_usb_keyboard"})
             if action in ("hold-shift", "add"):
                 request("input-send-event", {"events": [{"type": "key", "data": {
                     "down": action == "hold-shift", "key": {"type": "qcode", "data": "shift"}
@@ -64,9 +69,6 @@ def run(path: str, action: str) -> None:
                     receive()
                 if not deleted:
                     raise RuntimeError("DEVICE_DELETED acknowledgement missing")
-            elif action == "add":
-                request("device_add", {"driver": "usb-kbd", "bus": "kurogane_xhci.0",
-                                       "id": "kurogane_usb_keyboard"})
     print(f"[qmp] USB {action}: acknowledged")
 
 

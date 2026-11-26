@@ -50,6 +50,17 @@ void test_interface_parser() {
     assert(found.bulk_out_maximum_packet_size == 512U);
 
     const BulkOnlyInterface sentinel{9U, 8U, 0x87U, 64U, 0x06U, 32U};
+    // A complete HID configuration must not be accepted as BOT/SCSI.
+    const uint8_t hid_configuration[] = {
+        9, 2, 34, 0, 1, 1, 0, 0x80, 50,
+        9, 4, 0, 0, 1, 3, 0, 0, 0,
+        9, 0x21, 0x11, 0x01, 0, 1, 0x22, 50, 0,
+        7, 5, 0x81, 3, 8, 0, 10,
+    };
+    found = sentinel;
+    assert(!find_bulk_only_scsi_interface(
+        hid_configuration, sizeof(hid_configuration), &found));
+    assert(same_interface(found, sentinel));
     uint8_t malformed[sizeof(configuration)]{};
     std::memcpy(malformed, configuration, sizeof(configuration));
 

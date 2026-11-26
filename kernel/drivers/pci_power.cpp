@@ -19,6 +19,22 @@ bool valid_capability_offset(uint8_t offset) {
         (offset & 0x03U) == 0U;
 }
 
+Status read_identity(Address address, const ConfigAccess& access, uint32_t& identity) {
+    const uint16_t vendor = access.read16(address, 0x00U, access.context);
+    if (vendor == UINT16_MAX) return Status::DeviceAbsent;
+    const uint16_t device = access.read16(address, 0x02U, access.context);
+    if (device == UINT16_MAX) return Status::DeviceAbsent;
+    identity = static_cast<uint32_t>(device) << 16U | vendor;
+    return Status::Ok;
+}
+
+Status verify_identity(const ConfigAccess& access, const Transaction& transaction) {
+    uint32_t observed = 0U;
+    const Status status = read_identity(transaction.address, access, observed);
+    if (status != Status::Ok) return status;
+    return observed == transaction.device_identity ? Status::Ok : Status::DeviceChanged;
+}
+
 State decode_state(uint16_t pmcsr) {
     return static_cast<State>(pmcsr & PMCSR_POWER_STATE_MASK);
 }
@@ -86,7 +102,9 @@ Status change_state(
     const bool power_state_changed = from != target;
     const bool pme_enable_changed =
         ((current ^ controls) & PMCSR_PME_ENABLE) != 0U;
-    if (!power_state_changed && !pme_enable_changed) return Status::Ok;
+    if (!power_state_changed && !pme_enable_changed) {
+        return verify_identity(access, *transaction);
+    }
     if (power_state_changed && target != State::D0 &&
         bus_master_active(transaction->address, access)) {
         return Status::BusMasterActive;
@@ -95,16 +113,24 @@ Status change_state(
     if (delay != 0U && access.wait_us == nullptr) {
         return Status::DelayUnavailable;
     }
+    const Status identity = verify_identity(access, *transaction);
+    if (identity != Status::Ok) return identity;
     const uint8_t offset =
         static_cast<uint8_t>(transaction->capability_offset + 4U);
     // Retain the restore token before writing: failed verification does not
     // prove that hardware has not changed state.
     transaction->active = true;
     transaction->pending_delay_us = delay;
+    // Restore only the owned controls. Other writable fields, such as Data
+    // Select, may have changed while the transaction was active.
+    const uint16_t value = static_cast<uint16_t>(
+        (current & ~PMCSR_PME_ENABLE) | (controls & PMCSR_PME_ENABLE));
     access.write16(transaction->address, offset,
-        safe_pmcsr_value(controls, target), access.context);
+        safe_pmcsr_value(value, target), access.context);
     const Status waited = finish_delay(access, transaction);
     if (waited != Status::Ok) return waited;
+    const Status settled_identity = verify_identity(access, *transaction);
+    if (settled_identity != Status::Ok) return settled_identity;
     const uint16_t observed =
         access.read16(transaction->address, offset, access.context);
     // PME Enable is writable even when the power state is unchanged.
@@ -175,6 +201,8 @@ Status transition(
     }
     if (output->active) return Status::AlreadyActive;
     *output = {};
+    const Status identity = read_identity(address, access, output->device_identity);
+    if (identity != Status::Ok) return identity;
     CapabilityInfo info{};
     const Status inspect =
         inspect_capability(address, capability_offset, access, &info);
@@ -208,6 +236,8 @@ Status restore(
 
     const Status waited = finish_delay(access, transaction);
     if (waited != Status::Ok) return waited;
+    const Status identity = verify_identity(access, *transaction);
+    if (identity != Status::Ok) return identity;
     CapabilityInfo info{};
     const Status inspected = inspect_capability(transaction->address,
         transaction->capability_offset, access, &info);
@@ -252,6 +282,8 @@ const char* status_name(Status status) {
         case Status::InvalidTransition: return "INVALID_TRANSITION";
         case Status::DelayUnavailable: return "DELAY_UNAVAILABLE";
         case Status::DelayFailed: return "DELAY_FAILED";
+        case Status::DeviceAbsent: return "DEVICE_ABSENT";
+        case Status::DeviceChanged: return "DEVICE_CHANGED";
     }
     return "UNKNOWN";
 }

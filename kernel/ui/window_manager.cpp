@@ -50,6 +50,7 @@ constexpr size_t MODERN_RAIL_COUNT = 6U;
 // Sidebar order follows the web Red Flux desktop; public app IDs and the
 // Ctrl+Alt+F1..F8 ABI keep their existing order and meaning.
 constexpr size_t kModernRailApps[MODERN_RAIL_COUNT] = {0U, 2U, 6U, 1U, 4U, 3U};
+#ifndef KUROGANE_HOST_TEST
 constexpr const char* kModernRailLabels[MODERN_RAIL_COUNT] = {
     "HOME", "VAULT", "SYSTEM", "TERMINAL", "DOCS", "TOOLS",
 };
@@ -57,6 +58,7 @@ constexpr ui::DockIcon kModernRailIcons[MODERN_RAIL_COUNT] = {
     ui::DockIcon::Home, ui::DockIcon::Files, ui::DockIcon::Settings,
     ui::DockIcon::Terminal, ui::DockIcon::Docs, ui::DockIcon::Tools,
 };
+#endif
 constexpr size_t DOCK_PIN_COUNT = 8U;
 constexpr uint32_t DESKTOP_PIN_QUERY = 0U;
 constexpr uint32_t DESKTOP_PIN_SET = 1U;

@@ -42,7 +42,7 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_dev_login_profile"
 
 # Keep the strict compiler probe alongside the lifecycle evidence tests.
-"$HOST_CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
   tests/test_kernel_log_header.cpp -o "$OUT_DIR/test_kernel_log_header"
 "$OUT_DIR/test_kernel_log_header"
 
@@ -63,6 +63,11 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$OUT_DIR/test_settings_persistence"
 
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -Isdk/include -ffunction-sections -fdata-sections tests/test_gui_window_profile.c \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_gui_window_profile"
+"$OUT_DIR/test_gui_window_profile"
+
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_theme_failure.c \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_theme_failure"
 "$OUT_DIR/test_flux_theme_failure"
@@ -70,17 +75,17 @@ echo "[host-tests] python:       $HOST_PYTHON"
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -DKUROGANE_HOST_TEST tests/test_flux_dock_smoke.cpp -o "$OUT_DIR/test_flux_dock_smoke"
 "$OUT_DIR/test_flux_dock_smoke"
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_dock_order_state.c -o "$OUT_DIR/test_flux_dock_order_state"
 "$OUT_DIR/test_flux_dock_order_state"
 "$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -ffunction-sections -fdata-sections tests/test_flux_dock_persistence.c \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_flux_dock_persistence"
 "$OUT_DIR/test_flux_dock_persistence"
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_launcher_search.c -o "$OUT_DIR/test_flux_launcher_search"
 "$OUT_DIR/test_flux_launcher_search"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_app_identity.cpp -o "$OUT_DIR/test_flux_app_identity"
 "$OUT_DIR/test_flux_app_identity"
 "$HOST_PYTHON" tests/test_flux8_application_smoke.py
@@ -102,6 +107,56 @@ bash tests/test_network_smoke_state.sh
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_intel_gbe_model.cpp \
   -o "$OUT_DIR/test_intel_gbe_model"
+
+# Verify the production 82574L teardown order and resource retention on faults.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_e1000e_retirement.cpp kernel/net/network.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_e1000e_retirement"
+"$OUT_DIR/test_e1000e_retirement"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_rtl81xx_detection.cpp -o "$OUT_DIR/test_rtl81xx_detection"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_rtl81xx_ring.cpp -o "$OUT_DIR/test_rtl81xx_ring"
+"$OUT_DIR/test_rtl81xx_ring"
+
+# Exercise real RTL81xx RX/TX logic with injected MMIO and DMA rings,
+# including surprise link loss, queue backpressure and malformed frames.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_dma_runtime.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_dma_runtime"
+"$OUT_DIR/test_rtl81xx_dma_runtime"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_pci_start.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_pci_start"
+"$OUT_DIR/test_rtl81xx_pci_start"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_cleanup.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_cleanup"
+"$OUT_DIR/test_rtl81xx_cleanup"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_rtl81xx_retirement.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_rtl81xx_retirement"
+"$OUT_DIR/test_rtl81xx_retirement"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -ffunction-sections -fdata-sections tests/test_iron_shield_nic_fallback.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_iron_shield_nic_fallback"
+"$OUT_DIR/test_iron_shield_nic_fallback"
+
+# Exercise the identical production selector with explicit experimental
+# opt-in; the normal build above proves no unqualified Realtek DMA probing.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  -DKUROGANE_EXPERIMENTAL_RTL81XX=1 -ffunction-sections -fdata-sections \
+  tests/test_iron_shield_nic_fallback.cpp \
+  "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_iron_shield_nic_experimental"
+"$OUT_DIR/test_iron_shield_nic_experimental"
+
+"$OUT_DIR/test_rtl81xx_detection"
 "$OUT_DIR/test_intel_gbe_model"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
@@ -264,6 +319,11 @@ bash tests/test_network_smoke_state.sh
 "$OUT_DIR/test_nvme_protocol"
 
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_nvme_retirement.cpp kernel/storage/nvme_protocol.cpp \
+  -o "$OUT_DIR/test_nvme_retirement"
+timeout 20 "$OUT_DIR/test_nvme_retirement"
+
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_storage_registry.cpp kernel/storage/device_registry.cpp \
   -o "$OUT_DIR/test_storage_registry"
 "$OUT_DIR/test_storage_registry"
@@ -341,6 +401,23 @@ bash tests/test_network_smoke_state.sh
   -o "$OUT_DIR/test_usb_protocol"
 "$OUT_DIR/test_usb_protocol"
 
+# Class-specific USB2 hub descriptor validation is protocol-only: it does
+# not qualify xHCI downstream ports, hub topology or hotplug runtime.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_protocol.cpp -o "$OUT_DIR/test_usb_hub_protocol"
+"$OUT_DIR/test_usb_hub_protocol"
+
+# USB2 class control requests and port status/change safety protocol:
+# this does not qualify hub attachment or downstream enumeration.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_port.cpp -o "$OUT_DIR/test_usb_hub_port"
+"$OUT_DIR/test_usb_hub_port"
+
+# Exact xHCI slot-context routing, root ports and downstream five-tier routes.
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_xhci_route.cpp -o "$OUT_DIR/test_xhci_route"
+"$OUT_DIR/test_xhci_route"
+
 "$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_usb_hid_report.cpp kernel/drivers/usb/hid_report.cpp \
   -o "$OUT_DIR/test_usb_hid_report"
@@ -391,8 +468,15 @@ timeout 10 "$OUT_DIR/test_xhci_rings"
   kernel/drivers/usb/xhci_bulk.cpp \
   kernel/drivers/core/device_manager.cpp \
   kernel/storage/device_registry.cpp \
+  kernel/storage/scratch_test.cpp kernel/core/system_metrics.cpp \
   "${HOST_LINK_FLAGS[@]}" -o "$OUT_DIR/test_xhci_completions"
 timeout 10 "$OUT_DIR/test_xhci_completions"
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+  tests/test_usb_hub_ganged_power.cpp -o "$OUT_DIR/test_usb_hub_ganged_power"
+"$OUT_DIR/test_usb_hub_ganged_power"
+python3 tests/test_xhci_retirement_injector.py
+python3 tests/test_usb_hub_power_injector.py
+python3 tests/test_rtl8168_physical_injector.py
 python3 tests/test_usb_hotplug_qmp.py
 
 # Fault-inject the production cleanup path: no DMA release before halt,
@@ -471,27 +555,27 @@ python3 tests/test_flux8_virtualbox_runner.py
 "$OUT_DIR/test_ui_event_queue"
 
 # Verify Files Explorer page bounds and merged signed USB wheel deltas.
-"$HOST_CC" \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" \
   -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_files_wheel_paging.c -o "$OUT_DIR/test_files_wheel_paging"
 "$OUT_DIR/test_files_wheel_paging"
 
 # The native Terminal must complete real shell words and keep wheel/PageUp
 # scrollback within its bounded history window (including extreme deltas).
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_terminal_command_completion.c \
   -o "$OUT_DIR/test_terminal_command_completion"
 "$OUT_DIR/test_terminal_command_completion"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -x c++ tests/test_terminal_command_completion.c \
   -o "$OUT_DIR/test_terminal_command_completion_cpp"
 "$OUT_DIR/test_terminal_command_completion_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_terminal_vfs_commands.c \
   -o "$OUT_DIR/test_terminal_vfs_commands"
 "$OUT_DIR/test_terminal_vfs_commands"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_terminal_vfs_commands.c \
   -o "$OUT_DIR/test_terminal_vfs_commands_cpp"
 "$OUT_DIR/test_terminal_vfs_commands_cpp"
@@ -526,55 +610,55 @@ python3 tests/test_flux8_virtualbox_runner.py
   -o "$OUT_DIR/test_flux_files_keyboard_cpp"
 "$OUT_DIR/test_flux_files_keyboard_cpp"
 
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_filter.c \
   -o "$OUT_DIR/test_flux_files_filter"
 "$OUT_DIR/test_flux_files_filter"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_filter.c \
   -o "$OUT_DIR/test_flux_files_filter_cpp"
 "$OUT_DIR/test_flux_files_filter_cpp"
 
 # Files Back/Forward must retain bounded path/filter history, prune forward
 # branches only on a successful visit, and behave identically in C/C++.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   tests/test_flux_files_history.c \
   -o "$OUT_DIR/test_flux_files_history"
 "$OUT_DIR/test_flux_files_history"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -x c++ tests/test_flux_files_history.c \
   -o "$OUT_DIR/test_flux_files_history_cpp"
 "$OUT_DIR/test_flux_files_history_cpp"
 
 # Only an explicit New Folder confirmation may request a Ring-3 mkdir;
 # reject traversal and unsafe names before building a VFS path.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_folder_creation.c \
   -o "$OUT_DIR/test_flux_files_folder_creation"
 "$OUT_DIR/test_flux_files_folder_creation"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_folder_creation.c \
   -o "$OUT_DIR/test_flux_files_folder_creation_cpp"
 "$OUT_DIR/test_flux_files_folder_creation_cpp"
 
 # Explicit file/folder rename must reject mount/device entries and unsafe
 # path segments before the VFS syscall. Verify identical C and C++ policies.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_files_rename.c \
   -o "$OUT_DIR/test_flux_files_rename"
 "$OUT_DIR/test_flux_files_rename"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_files_rename.c \
   -o "$OUT_DIR/test_flux_files_rename_cpp"
 "$OUT_DIR/test_flux_files_rename_cpp"
 
 # Settings can now be traversed without a pointer, including focus reveal
 # for controls outside the native scene viewport.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_settings_navigation.c \
   -o "$OUT_DIR/test_flux_settings_navigation"
 "$OUT_DIR/test_flux_settings_navigation"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_settings_navigation.c \
   -o "$OUT_DIR/test_flux_settings_navigation_cpp"
 "$OUT_DIR/test_flux_settings_navigation_cpp"
@@ -826,17 +910,17 @@ python3 tests/test_flux8_virtualbox_runner.py
 
 # Wallpaper IDs and Ring-3 query/set packet layout must remain compatible
 # across C11 and C++17, including a safe fallback for invalid persisted IDs.
-"$HOST_CC" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CC" "${HOST_ARCH_FLAGS[@]}" -std=c11 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_background.c -o "$OUT_DIR/test_flux_background"
 "$OUT_DIR/test_flux_background"
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include -x c++ tests/test_flux_background.c \
   -o "$OUT_DIR/test_flux_background_cpp"
 "$OUT_DIR/test_flux_background_cpp"
 
 # Draw all three actual native wallpapers at 1024x720 and distinguish their
 # pixels, not merely their persisted IDs. No QEMU/GOP hardware is required.
-"$HOST_CXX" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
+"$HOST_CXX" "${HOST_ARCH_FLAGS[@]}" -std=c++17 -O2 -Wall -Wextra -Wpedantic -Werror \
   -Isdk/include tests/test_flux_wallpaper_render.cpp \
   kernel/ui/ui.cpp kernel/drivers/framebuffer.cpp \
   -o "$OUT_DIR/test_flux_wallpaper_render"

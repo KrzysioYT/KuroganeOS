@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/qualification/network-smoke-state.sh"
 
 usage() {
-    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda] [--nvme] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
+    echo "usage: ./scripts/smoke-uefi-iso-qemu.sh MEDIA [--disk] [--persistent-disk] [--flux-lifecycle] [--flux-settings-write] [--flux-dock-order] [--flux-geometry-verify X,Y,W,H] [--accel tcg|kvm] [--cpu-model MODEL] [--smp CPUS] [--timeout SECONDS] [--nic none|e1000|e1000e|pcnet|virtio] [--virtio-vectors 0..2048] [--log-dir DIR] [--audio none|ac97|hda|ac97-fallback] [--nvme|--nvme-legacy-tag|--nvme-4k] [--virtio-block] [--no-ps2] [--usb-controller] [--usb-keyboard] [--usb-mouse] [--usb-tablet] [--usb-storage|--usb-storage-legacy-tag] [--usb-root-hub] [--usb-hub-storage] [--usb-hub-two-storage] [--usb-hub-power] [--usb-hub-unsupported] [--usb-hotplug] [--usb-late-attach] [--require-network] [--require-tls] [--send-key-after-marker TEXT KEY] [--send-key-after-marker-count TEXT COUNT KEY ...] [--click-after-marker TEXT X Y ...] [--click-after-marker-count TEXT COUNT X Y ...] [--wheel-after-marker TEXT X Y up|down ...] [--screendump-after-marker TEXT OUTPUT.ppm] [--require-marker TEXT ...] [--require-marker-count TEXT COUNT ...]" >&2
     exit 2
 }
 
@@ -18,15 +18,21 @@ nic_model="none"
 virtio_vectors=""
 log_dir=""
 audio_model="none"
-nvme=false
+nvme_fixture=""
 virtio_block=false
 no_ps2=false
 usb_keyboard=false
 usb_mouse=false
 usb_tablet=false
 usb_storage=false
+usb_storage_legacy=false
 usb_controller=false
 usb_hotplug=false
+usb_root_hub=false
+usb_hub_storage=false
+usb_hub_two_storage=false
+usb_hub_power=false
+usb_hub_unsupported=false
 usb_hotplug_phase=0
 usb_hotplug_cycles=0
 require_network=false
@@ -76,7 +82,9 @@ while (($#)); do
         --virtio-vectors) [[ $# -ge 2 && -n "$2" ]] || usage; virtio_vectors="$2"; shift 2 ;;
         --log-dir) [[ $# -ge 2 && -n "$2" ]] || usage; log_dir="$2"; shift 2 ;;
         --audio) [[ $# -ge 2 ]] || usage; audio_model="$2"; shift 2 ;;
-        --nvme) nvme=true; shift ;;
+        --nvme) nvme_fixture=scratch; shift ;;
+        --nvme-legacy-tag) nvme_fixture=legacy-tag; shift ;;
+        --nvme-4k) nvme_fixture=4k; shift ;;
         --virtio-block) virtio_block=true; shift ;;
         --no-ps2) no_ps2=true; shift ;;
         --usb-controller) usb_controller=true; shift ;;
@@ -84,7 +92,13 @@ while (($#)); do
         --usb-mouse) usb_controller=true; usb_mouse=true; shift ;;
         --usb-tablet) usb_controller=true; usb_tablet=true; shift ;;
         --usb-storage) usb_controller=true; usb_storage=true; shift ;;
+        --usb-storage-legacy-tag) usb_controller=true; usb_storage=true; usb_storage_legacy=true; shift ;;
         --usb-hotplug) usb_controller=true; usb_keyboard=true; usb_hotplug=true; shift ;;
+        --usb-root-hub) usb_controller=true; usb_root_hub=true; shift ;;
+        --usb-hub-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; shift ;;
+        --usb-hub-two-storage) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_two_storage=true; shift ;;
+        --usb-hub-power) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_power=true; shift ;;
+        --usb-hub-unsupported) usb_controller=true; usb_root_hub=true; usb_storage=true; usb_hub_storage=true; usb_hub_unsupported=true; shift ;;
         --usb-late-attach) usb_controller=true; usb_keyboard=false; usb_hotplug=true; usb_hotplug_phase=-2; shift ;;
         --require-network) require_network=true; shift ;;
         --require-tls) require_tls=true; require_network=true; shift ;;
@@ -182,6 +196,10 @@ if $flux_lifecycle; then
     fi
     require_markers+=('[SESSION] flux_home_first_frame: PASS')
 fi
+if $usb_storage_legacy && $usb_hub_storage; then
+    echo "--usb-storage-legacy-tag requires a directly attached USB disk" >&2
+    exit 2
+fi
 if $persistent_disk && [[ "$media_kind" != "disk" ]]; then
     echo "--persistent-disk requires --disk" >&2
     exit 2
@@ -213,7 +231,7 @@ if [[ -n "$cpu_model_override" ]]; then
     cpu_model="$cpu_model_override"
 fi
 case "$audio_model" in
-    none|ac97|hda) ;;
+    none|ac97|hda|ac97-fallback) ;;
     *) echo "invalid audio model: $audio_model" >&2; usage ;;
 esac
 send_key_pattern='^[A-Za-z0-9_-]+(\+[A-Za-z0-9_-]+)*$'
@@ -277,6 +295,16 @@ qemu_log="$tmp/qemu.log"
 monitor="$tmp/qemu-monitor.sock"
 qmp="$tmp/qemu-qmp.sock"
 pid=""
+scratch_images=()
+scratch_sums=()
+scratch_evidence=()
+record_scratch_image() {
+    local digest
+    digest="$(sha256sum "$1")"
+    scratch_images+=("$1")
+    scratch_sums+=("${digest%% *}")
+    scratch_evidence+=("$2")
+}
 cleanup() {
     local result=$?
     trap - EXIT INT TERM
@@ -284,6 +312,20 @@ cleanup() {
         kill "$pid" >/dev/null 2>&1 || true
         wait "$pid" >/dev/null 2>&1 || true
     fi
+    for index in "${!scratch_images[@]}"; do
+        local final_sha="" evidence="${scratch_evidence[$index]}"
+        if final_sha="$(sha256sum "${scratch_images[$index]}")"; then
+            final_sha="${final_sha%% *}"
+        fi
+        if [[ -n "$log_dir" ]]; then
+            printf 'before %s\nafter  %s\n' "${scratch_sums[$index]}" "$final_sha" \
+                > "$log_dir/$evidence" || result=1
+        fi
+        if [[ "$final_sha" != "${scratch_sums[$index]}" ]]; then
+            echo "[uefi-qemu] ${scratch_images[$index]##*/} changed after the guest stopped" >&2
+            result=1
+        fi
+    done
     if [[ -n "$log_dir" ]]; then
         for log in "$serial" "$qemu_log"; do
             if [[ -f "$log" ]]; then
@@ -747,13 +789,17 @@ if [[ "$nic_model" != "none" ]]; then
 fi
 
 audio_args=()
-if [[ "$audio_model" == "ac97" ]]; then
+if [[ "$audio_model" == "ac97" || "$audio_model" == "ac97-fallback" ]]; then
     # The null backend keeps CI headless while still exposing a real PCI
     # Intel AC97 device to KuroganeOS. Guest DMA/mixer programming remains real.
     audio_args=(
         -audiodev none,id=kurogane_audio
         -device AC97,audiodev=kurogane_audio
     )
+fi
+if [[ "$audio_model" == "ac97-fallback" ]]; then
+    # Present an HDA controller with an empty codec bus alongside AC'97.
+    audio_args+=(-device intel-hda,id=kurogane_hda)
 fi
 if [[ "$audio_model" == "hda" ]]; then
     # Headless backend: controller/codec/DMA traffic remains real while CI
@@ -800,41 +846,78 @@ PY
 fi
 
 nvme_args=()
-if $nvme; then
+if [[ -n "$nvme_fixture" ]]; then
     nvme_image="$tmp/nvme-storage.img"
-    python3 - "$nvme_image" <<'PY'
+    python3 - "$nvme_image" "$nvme_fixture" <<'PY'
+import struct
 import sys
-magic = b"KUROGANE_NVME_RW_V1"
+
+size = 8 * 1024 * 1024
+header = bytearray(512)
+fixture = sys.argv[2]
+first_lba, sector_count = 1, 1
+if fixture == "legacy-tag":
+    # A former 8 MiB NVMe fixture must now remain untouched.
+    magic = b"KUROGANE_NVME_RW_V1"
+    header[:len(magic)] = magic
+    header[len(magic):] = bytes((i * 31 + 5) & 0xFF for i in range(512 - len(magic)))
+elif fixture == "scratch":
+    first_lba, sector_count = 8, 8
+    magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+    header[:len(magic)] = magic
+    struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512, first_lba, sector_count, 0x4B535431)
 with open(sys.argv[1], "wb") as image:
-    image.truncate(8 * 1024 * 1024)
-    image.seek(0)
-    image.write(magic)
-    image.write(bytes((index * 31 + 5) & 0xFF for index in range(512 - len(magic))))
+    image.truncate(size)
+    image.write(header)
+    image.seek(first_lba * 512)
+    image.write(bytes((i * 29 + 7) & 0xFF for i in range(sector_count * 512)))
 PY
+    record_scratch_image "$nvme_image" nvme-scratch-sha256.txt
+    nvme_geometry=""
+    if [[ "$nvme_fixture" == 4k ]]; then
+        nvme_geometry=",logical_block_size=4096,physical_block_size=4096"
+    fi
     # A separate signed scratch namespace proves PCI/MMIO/Admin + NVM I/O
     # without changing the IDE system disk or auto-writing arbitrary media.
     nvme_args=(
         -drive "if=none,id=kurogane_nvme_storage,format=raw,file=$nvme_image"
-        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME"
+        -device "nvme,drive=kurogane_nvme_storage,serial=KUROGANE-NVME$nvme_geometry"
     )
 fi
 
 usb_args=()
+usb_keyboard_port=""
+usb_mouse_port=""
 if $usb_controller; then
     usb_args=(-device qemu-xhci,id=kurogane_xhci)
+fi
+if $usb_root_hub; then
+    # Keep HID on separate root ports so it can prove isolation of the hub.
+    usb_hub_ports=""
+    if $usb_hub_storage; then
+        # QEMU's default eight-port model emits a one-byte power mask,
+        # while its removable bitmap and the USB2 layout require two.
+        usb_hub_ports=",ports=4"
+    fi
+    if $usb_hub_power; then
+        usb_hub_ports+=",port-power=on"
+    fi
+    usb_args+=(-device "usb-hub,bus=kurogane_xhci.0,port=1,id=kurogane_usb_hub$usb_hub_ports")
+    usb_keyboard_port=",port=2"
+    usb_mouse_port=",port=3"
 fi
 if $usb_keyboard; then
     # A real emulated xHCI + HID device: guest reset, enumeration, transfer
     # rings and input decoding run unchanged. This is not a PS/2-only proof.
     usb_args+=(
-        -device usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard
+        -device "usb-kbd,bus=kurogane_xhci.0,id=kurogane_usb_keyboard$usb_keyboard_port"
     )
 fi
 if $usb_mouse; then
     # The smoke helper selects this exact QEMU USB mouse before generating
     # pointer input, so the guest marker cannot be satisfied by the PS/2 path.
     usb_args+=(
-        -device usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse
+        -device "usb-mouse,bus=kurogane_xhci.0,id=kurogane_usb_mouse$usb_mouse_port"
     )
 fi
 if $usb_tablet; then
@@ -844,22 +927,75 @@ if $usb_tablet; then
         -device usb-tablet,bus=kurogane_xhci.0,id=kurogane_usb_tablet
     )
 fi
+if $usb_hub_unsupported; then
+    usb_args+=(
+        -device "usb-tablet,bus=kurogane_xhci.0,id=kurogane_unsupported_tablet,port=1.1"
+    )
+fi
 if $usb_storage; then
     usb_storage_image="$tmp/usb-storage.img"
-    python3 - "$usb_storage_image" <<'PY'
+    usb_storage_port=""
+    if $usb_hub_storage; then
+        usb_storage_port=",port=1.1"
+    fi
+    if $usb_hub_unsupported; then
+        usb_storage_port=",port=1.2"
+    fi
+    python3 - "$usb_storage_image" "$usb_hub_storage" "$usb_storage_legacy" <<'PYUSB'
+import struct
 import sys
+
+size = 8 * 1024 * 1024
+hub = sys.argv[2] == "true"
+legacy = sys.argv[3] == "true"
 with open(sys.argv[1], "wb") as image:
-    image.truncate(8 * 1024 * 1024)
-    image.seek(0)
-    image.write(b"KUROGANE_USB_READ_V1")
-    image.write(bytes((index * 37 + 11) & 0xFF for index in range(512 - 20)))
-PY
-    # Separate scratch media proves real xHCI Mass Storage enumeration without
-    # exposing the system disk or relying on the IDE boot path.
+    image.truncate(size)
+    if hub or legacy:
+        # An old read fixture has no permission to write any sector.
+        marker = b"KUROGANE_USB_READ_V1"
+        image.write(marker)
+        image.write(bytes((i * 37 + 11) & 0xff for i in range(512 - len(marker))))
+    if legacy:
+        image.write(bytes((i * 17 + 3) & 0xff for i in range(512)))
+    else:
+        # The hub boot probe uses a view starting at physical LBA 1.
+        offset = 1 if hub else 0
+        first, count = (1, 1) if hub else (8, 8)
+        header = bytearray(512)
+        magic = b"KUROGANE_BLOCK_SCRATCH_V1"
+        header[:len(magic)] = magic
+        struct.pack_into("<IIQQII", header, 32, 1, 64, size // 512 - offset,
+                         first, count, 0x4B535431)
+        image.seek(offset * 512)
+        image.write(header)
+        image.seek((offset + first) * 512)
+        image.write(bytes((i * 19 + 7) & 0xff for i in range(count * 512)))
+PYUSB
+    if $usb_hub_storage; then
+        record_scratch_image "$usb_storage_image" hub-scratch-sha256.txt
+    else
+        record_scratch_image "$usb_storage_image" usb-storage-sha256.txt
+    fi
+    # Use scratch media to keep storage probes away from the boot disk.
     usb_args+=(
         -drive "if=none,id=kurogane_usb_storage,format=raw,file=$usb_storage_image"
-        -device usb-storage,drive=kurogane_usb_storage,bus=kurogane_xhci.0,id=kurogane_usb_storage
+        -device "usb-storage,drive=kurogane_usb_storage,bus=kurogane_xhci.0,id=kurogane_usb_storage$usb_storage_port"
     )
+    if $usb_hub_two_storage; then
+        second_image="$tmp/usb-storage-second.img"
+        cp -- "$usb_storage_image" "$second_image"
+        # A different capacity proves that enumeration reached the second disk.
+        python3 - "$second_image" <<'PY2'
+import sys
+with open(sys.argv[1], "r+b") as image:
+    image.truncate(16 * 1024 * 1024)
+PY2
+        record_scratch_image "$second_image" hub-scratch-2-sha256.txt
+        usb_args+=(
+            -drive "if=none,id=kurogane_usb_storage_second,format=raw,file=$second_image"
+            -device "usb-storage,drive=kurogane_usb_storage_second,bus=kurogane_xhci.0,id=kurogane_usb_storage_second,port=1.2"
+        )
+    fi
 fi
 
 media_args=()

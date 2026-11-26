@@ -1,27 +1,59 @@
 name: Qualify 7.0 supported-device integration
 
 on:
+  pull_request:
+    branches:
+      - integration/flux8-reconciliation
+    paths:
+      - '.github/workflows/qualify-7.0-supported-devices.yml'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
+      - 'docs/releases/IRON_SHIELD_7_CLOSEOUT.md'
   push:
     branches:
       - codex/road-to-15-stability
+      - agent/iron-shield-7-closeout-20261117
+      - integration/flux8-reconciliation
     paths:
       - '.github/workflows/qualify-7.0-supported-devices.yml'
-      - 'kernel/drivers/usb/**'
-      - 'kernel/drivers/virtio/**'
-      - 'kernel/drivers/pci_power.*'
-      - 'kernel/net/**'
-      - 'kernel/storage/**'
-      - 'kernel/main.cpp'
-      - 'tests/test_usb_hid_report.cpp'
-      - 'tests/test_virtio_pci_transport.cpp'
-      - 'tests/test_pci_power.cpp'
-      - 'scripts/run-host-tests.sh'
-      - 'scripts/smoke-uefi-iso-qemu.sh'
-      - 'scripts/build-media-linux.sh'
+      - '.gitmodules'
+      - 'Makefile'
+      - 'linker.ld'
+      - 'boot/**'
+      - 'common/**'
+      - 'config/**'
+      - 'kernel/**'
+      - 'rootfs/**'
+      - 'sdk/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'third_party/**'
+      - 'userspace/**'
   workflow_dispatch:
+
+# Only the newest candidate on a branch needs an expensive full QEMU
+# matrix; stale queued runs cannot qualify the current release head.
+concurrency:
+  # Keep required PR checks distinct from push checks for the same branch.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   integrated-hardware:
@@ -32,20 +64,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - nic: e1000
+            marker: e1000_link
           - nic: e1000e
             marker: e1000e_link
+          - nic: pcnet
+            marker: pcnet_link
           - nic: virtio
             marker: virtio_net_link
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           submodules: recursive
       - name: Verify exact dev identity and static regressions
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
           git diff --check
           bash -n scripts/smoke-uefi-iso-qemu.sh
@@ -63,6 +100,11 @@ jobs:
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
           test -s build/install.pkg
+      - name: Record source and boot image identities
+        run: |
+          mkdir -p build/tests/iron-shield-integrated-${{ matrix.nic }}
+          git rev-parse HEAD > build/tests/iron-shield-integrated-${{ matrix.nic }}/source-sha.txt
+          sha256sum build/images/KuroganeOS-linux.img > build/tests/iron-shield-integrated-${{ matrix.nic }}/media-sha256.txt
       - name: Simultaneous USB HID / networking / VirtIO block / SMP
         shell: bash
         run: |
@@ -70,7 +112,7 @@ jobs:
           bash scripts/smoke-uefi-iso-qemu.sh \
             build/images/KuroganeOS-linux.img --disk --smp 4 \
             --nic "${{ matrix.nic }}" --require-network --virtio-block \
-            --usb-keyboard --usb-mouse \
+            --usb-keyboard --usb-mouse --no-ps2 \
             --log-dir build/tests/iron-shield-integrated-${{ matrix.nic }} \
             --timeout 240 \
             --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
@@ -85,25 +127,50 @@ jobs:
             --require-marker '[TEST] dhcp_lease: PASS' \
             --require-marker '[TEST] network_gateway_icmp: PASS' \
             --require-marker '[TEST] scheduler2_topology: PASS' \
+            --require-marker '[TEST] smp_scheduler: PASS' \
             --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
           ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|virtio_block_.*: FAIL|dhcp_lease: FAIL' \
             build/tests/iron-shield-integrated-${{ matrix.nic }}/serial.log
+      - name: Cycle E1000e PCI power before bind and verify network recovery
+        if: matrix.nic == 'e1000e'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-integrated-e1000e/pci-power
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-pci-power-runtime.py
+          git diff --check HEAD -- kernel/net/e1000.cpp
+          git diff HEAD -- kernel/net/e1000.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 \
+            --nic e1000e --require-network --timeout 180 --log-dir "$evidence" \
+            --require-marker-count '[PCI-PM-TEST] D0 -> D3hot -> D0 cycle: PASS' 4 \
+            --require-marker '[TEST] pci_power_cycle: PASS' \
+            --require-marker '[TEST] e1000e_link: PASS' \
+            --require-marker '[TEST] dhcp_lease: PASS' \
+            --require-marker '[TEST] network_gateway_icmp: PASS' \
+            --require-marker '[TEST] ALL_REQUIRED_TESTS_PASSED'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|pci_power_cycle: FAIL' "$evidence/serial.log"
       - name: Retain serial evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: iron-shield-integrated-${{ matrix.nic }}-${{ github.sha }}
+          name: iron-shield-integrated-${{ matrix.nic }}-${{ env.SOURCE_SHA }}
           path: build/tests/iron-shield-integrated-*
           if-no-files-found: warn
 
   no-nic-fallback:
-    name: USB desktop without NIC
+    name: USB HID, loopback and audio without NIC
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           submodules: recursive
       - name: Install build and QEMU dependencies
@@ -111,11 +178,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential binutils python3 \
             qemu-system-x86 ovmf mtools dosfstools gdisk xorriso
+      - name: Validate candidate, run UBSan, and build Debug kernel and userspace
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(bash scripts/read-version.sh common/version.h)" = "7.0.0-dev"
+          bash scripts/test-core-ubsan.sh
+          for test in cleanup dma_runtime pci_start; do
+            g++ -std=c++17 -O1 -g -Wall -Wextra -Wpedantic -Werror \
+              -fsanitize=undefined -fno-sanitize-recover=all \
+              -ffunction-sections -fdata-sections "tests/test_rtl81xx_${test}.cpp" \
+              -Wl,--gc-sections -o "build/tests/rtl81xx-${test}-ubsan"
+            "build/tests/rtl81xx-${test}-ubsan"
+          done
+          bash scripts/build-linux.sh --configuration debug --rebuild --no-image
       - name: Build release image
         run: |
           bash scripts/build-media-linux.sh --configuration release --rebuild
           test -s build/images/KuroganeOS-linux.img
-      - name: Boot and operate USB-only desktop without a NIC
+      - name: Record candidate source and media identities
+        run: |
+          mkdir -p build/tests/iron-shield-no-nic
+          git rev-parse HEAD > build/tests/iron-shield-no-nic/source-sha.txt
+          sha256sum build/images/KuroganeOS-linux.img > build/tests/iron-shield-no-nic/media-sha256.txt
+          (cd dist && sha256sum -c SHA256SUMS.txt)
+          cp dist/SHA256SUMS.txt build/tests/iron-shield-no-nic/dist-sha256.txt
+      - name: Verify USB-only input at Login without a NIC
         shell: bash
         run: |
           set -euo pipefail
@@ -128,15 +215,307 @@ jobs:
             --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
             --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
             --require-marker '[TEST] usb_hid_mouse_input: PASS' \
+            --require-marker '[TEST] network_loopback: PASS' \
             --require-marker '[TEST] red_flux_login_surface: PASS'
-          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' \
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL|dhcp_lease: PASS|network_gateway_icmp: PASS' \
             build/tests/iron-shield-no-nic/serial.log
+      - name: Verify downstream scratch restore and keep direct USB HID active
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/root-hub
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-storage --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
+            --require-marker '[TEST] xhci_downstream_read10: PASS' \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify unsupported downstream HID isolation before supported storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/unsupported-hub
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-unsupported --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 unsupported downstream interface; slot retired at port: 1' \
+            --require-marker 'USB2 hub downstream port connected: 2' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
+            --require-marker '[TEST] xhci_downstream_read10: PASS' \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 2' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify two downstream storage devices with distinct capacities
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/two-storage-hub
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-two-storage --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 hub downstream port connected: 2' \
+            --require-marker 'USB2 downstream block count: 16384' \
+            --require-marker 'USB2 downstream block count: 32768' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker-count '[TEST] xhci_downstream_scsi_inquiry: PASS' 2 \
+            --require-marker-count '[TEST] xhci_downstream_read10: PASS' 2 \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 2' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+          test -s "$evidence/hub-scratch-2-sha256.txt"
+      - name: Verify direct USB storage after bulk transport changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/direct-usb-storage
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --usb-storage \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] xhci_mass_storage_bot_transport: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_inquiry: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_scsi_geometry: PASS' \
+            --require-marker '[TEST] xhci_mass_storage_read10: PASS' \
+            --require-marker '[TEST] usb_storage_write_flush_readback_restore: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          if grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"; then
+            exit 1
+          fi
+          test -s "$evidence/usb-storage-sha256.txt"
+      - name: Boot with a legacy USB read fixture and verify the whole disk
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/usb-legacy-tag
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --usb-storage-legacy-tag \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] xhci_mass_storage_known_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          if grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_.*: FAIL|usb_storage_write_flush_readback_restore: PASS' "$evidence/serial.log"; then
+            exit 1
+          fi
+          test -s "$evidence/usb-storage-sha256.txt"
+      - name: Verify NVMe I/O restores the entire scratch namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_admin_identify: PASS' \
+            --require-marker '[TEST] nvme_namespace_identify: PASS' \
+            --require-marker '[TEST] nvme_io_queues: PASS' \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] nvme_write_flush_readback_restore: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"
+      - name: Verify that a legacy NVMe scratch tag cannot trigger writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme-legacy-tag
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme-legacy-tag \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|nvme_write_.*: PASS' "$evidence/serial.log"
+      - name: Boot with an untagged 4 KiB NVMe namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/nvme-4k
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --nvme-4k \
+            --log-dir "$evidence" --timeout 120 \
+            --require-marker '[TEST] nvme_read: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          grep -Eq 'logical sector bytes=[[:space:]]*4096' "$evidence/serial.log"
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|nvme_.*: FAIL|unified_storage_.*: FAIL' "$evidence/serial.log"
+      - name: Install the candidate ISO on AHCI and reboot from disk only
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(bash scripts/read-version.sh common/version.h)
+          python3 scripts/qualification/installer-qemu.py \
+            --iso "dist/KuroganeOS-${version}-x86_64.iso" \
+            --output build/tests/iron-shield-no-nic/ahci-install \
+            --password-profile --timeout 240
+      - name: Retain the tested installer ISO and its manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: iron-shield-test-iso-${{ env.SOURCE_SHA }}
+          path: |
+            dist/KuroganeOS-*-x86_64.iso
+            build/tests/iron-shield-no-nic/source-sha.txt
+            build/tests/iron-shield-no-nic/dist-sha256.txt
+            build/tests/iron-shield-no-nic/ahci-install/result.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Verify HDA codec and PCM DMA on the release image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/hda
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --audio hda \
+            --log-dir "$evidence" --timeout 180 \
+            --require-marker '[TEST] hda_controller_reset: PASS' \
+            --require-marker '[TEST] hda_codec_identify: PASS' \
+            --require-marker '[TEST] hda_pcm_path: PASS' \
+            --require-marker '[TEST] hda_pcm_dma: PASS' \
+            --require-marker '[AUDIO] backend=hda' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|hda_.*: FAIL' "$evidence/serial.log"
+      - name: Verify AC97 PCM fallback when HDA has no codec
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/ac97-fallback
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --nic none --audio ac97-fallback \
+            --log-dir "$evidence" --timeout 180 \
+            --require-marker '[WARN][HDA][CPU0][KERNEL] Intel HDA codec not present' \
+            --require-marker '[TEST] ac97_pcm_dma: PASS' \
+            --require-marker '[AUDIO] backend=ac97' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|ac97_.*: FAIL|\[AUDIO\] backend=hda' "$evidence/serial.log"
+      - name: Verify individually powered hub ports before downstream storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/powered-hub
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-usb-hub-power.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hub-power --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --send-key-after-marker '[TEST] red_flux_login_surface: PASS' f12 \
+            --click-after-marker '[TEST] red_flux_login_surface: PASS' 40 40 \
+            --require-marker '[USB] USB2 hub descriptor read' \
+            --require-marker 'USB2 hub port power off verified: 1' \
+            --require-marker 'USB2 hub port power off verified: 2' \
+            --require-marker 'USB2 hub port power off verified: 3' \
+            --require-marker 'USB2 hub port power off verified: 4' \
+            --require-marker 'USB2 hub port power verified: 1' \
+            --require-marker 'USB2 hub port power verified: 2' \
+            --require-marker 'USB2 hub port power verified: 3' \
+            --require-marker 'USB2 hub port power verified: 4' \
+            --require-marker 'USB2 hub downstream port connected: 1' \
+            --require-marker 'USB2 downstream descriptor read; slot retired; VID/PID: 1190395905' \
+            --require-marker '[TEST] xhci_downstream_scsi_inquiry: PASS' \
+            --require-marker '[TEST] xhci_downstream_read10: PASS' \
+            --require-marker '[TEST] xhci_downstream_known_sector: PASS' \
+            --require-marker '[TEST] xhci_downstream_write_flush_readback_restore: PASS' \
+            --require-marker 'USB2 hub downstream reset and disable verified: 1' \
+            --require-marker '[USB] external hub deferred; slot retired' \
+            --require-marker '[TEST] xhci_multi_hid_enumeration: PASS' \
+            --require-marker '[TEST] usb_hid_keyboard_input: PASS' \
+            --require-marker '[TEST] usb_hid_mouse_input: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+          git restore --worktree -- kernel/drivers/usb/xhci.cpp
+      - name: Verify three root-port keyboard detach and reattach cycles
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/usb-hotplug
+          mkdir -p "$evidence"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-usb-hid-runtime.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-hotplug --no-ps2 --log-dir "$evidence" --timeout 180 \
+            --require-marker '[TEST] red_flux_login_surface: PASS' \
+            --require-marker-count '[TEST] xhci_keyboard_enumeration: PASS' 4 \
+            --require-marker-count '[TEST] usb_hid_shift_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect_release: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_disconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_reconnect: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_press: PASS' 3 \
+            --require-marker-count '[TEST] usb_hid_f12_release: PASS' 3
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|usb_hid_.*: FAIL|xhci_.*: FAIL' "$evidence/serial.log"
+      - name: Verify live companion retirement failure contains real xHCI DMA
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence=build/tests/iron-shield-no-nic/retirement-failure
+          mkdir -p "$evidence"
+          git restore --worktree -- kernel/drivers/usb/xhci.cpp
+          trap 'git restore --worktree -- kernel/drivers/usb/xhci.cpp' EXIT
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git rev-parse HEAD > "$evidence/source-sha.txt"
+          python3 scripts/qualification/inject-xhci-retirement-failure.py
+          git diff --check HEAD -- kernel/drivers/usb/xhci.cpp
+          git diff HEAD -- kernel/drivers/usb/xhci.cpp > "$evidence/qualification.patch"
+          bash scripts/build-media-linux.sh --configuration release --rebuild
+          sha256sum build/images/KuroganeOS-linux.img > "$evidence/qualification-img-sha256.txt"
+          bash scripts/smoke-uefi-iso-qemu.sh \
+            build/images/KuroganeOS-linux.img --disk --smp 4 --nic none \
+            --usb-keyboard --usb-mouse --no-ps2 \
+            --log-dir "$evidence" --timeout 180 \
+            --require-marker '[TEST] xhci_keyboard_enumeration: PASS' \
+            --require-marker '[TEST] xhci_mouse_enumeration: PASS' \
+            --require-marker '[TEST] xhci_companion_retirement_containment: PASS' \
+            --require-marker '[TEST] network_loopback: PASS' \
+            --require-marker '[TEST] red_flux_login_surface: PASS'
+          ! grep -Eq 'PANIC_BEGIN|FATAL ERROR|xhci_companion_retirement_containment: FAIL' "$evidence/serial.log"
       - name: Retain no-NIC serial evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: iron-shield-no-nic-${{ github.sha }}
-          path: build/tests/iron-shield-no-nic
+          name: iron-shield-no-nic-${{ env.SOURCE_SHA }}
+          path: |
+            build/tests/iron-shield-no-nic
+            !build/tests/iron-shield-no-nic/ahci-install/*.img
           if-no-files-found: warn
 
   supported-device-gate:
@@ -153,4 +532,4 @@ jobs:
           set -euo pipefail
           test "$INTEGRATED" = success
           test "$NO_NIC" = success
-          echo "Iron Shield 7.0 supported-device integration: PASS"
+          echo "Iron Shield 7.0 QEMU supported-device subset: PASS ($SOURCE_SHA)"

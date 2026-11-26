@@ -155,8 +155,10 @@ bool decode_font_coverage() {
     uint32_t accumulator = 0U;
     uint32_t bits = 0U;
     size_t produced = 0U;
-    for (size_t index = 0U; font_atlas::kCoverage4Base64[index] != '\0'; ++index) {
-        const char character = font_atlas::kCoverage4Base64[index];
+    for (size_t index = 0U; index < font_atlas::kCoverage4EncodedSize; ++index) {
+        const char character = font_atlas::kCoverage4Base64
+            [index / font_atlas::kCoverage4ChunkSize]
+            [index % font_atlas::kCoverage4ChunkSize];
         if (character == '=') break;
         const int value = base64_value(character);
         if (value < 0) return false;

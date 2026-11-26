@@ -1,13 +1,38 @@
 #include "pci.hpp"
 
 #include "../arch/x86_64/io.hpp"
+#include "../sync/spinlock.hpp"
 
 namespace pci {
 
 namespace {
 constexpr size_t kMaximumDevices = 128;
+constexpr uint64_t kInterruptFlag = UINT64_C(1) << 9U;
 Device g_devices[kMaximumDevices]{};
 size_t g_device_count = 0;
+sync::TicketSpinLock g_config_lock;
+
+class ConfigPortGuard {
+public:
+    ConfigPortGuard()
+        : interrupts_enabled_((arch::read_flags() & kInterruptFlag) != 0U) {
+        // The address selector is shared. Exclude both another core and a
+        // local interrupt between programming CF8 and accessing CFC.
+        arch::disable_interrupts();
+        g_config_lock.lock();
+    }
+
+    ~ConfigPortGuard() {
+        g_config_lock.unlock();
+        if (interrupts_enabled_) arch::enable_interrupts();
+    }
+
+    ConfigPortGuard(const ConfigPortGuard&) = delete;
+    ConfigPortGuard& operator=(const ConfigPortGuard&) = delete;
+
+private:
+    bool interrupts_enabled_;
+};
 
 uint32_t configuration_address(Address address, uint8_t offset) {
     return 0x80000000u |
@@ -60,6 +85,7 @@ void record_function(Address address) {
 } // namespace
 
 uint32_t read32(Address address, uint8_t offset) {
+    const ConfigPortGuard guard;
     arch::out32(0xCF8, configuration_address(address, offset));
     return arch::in32(0xCFC);
 }
@@ -77,6 +103,7 @@ uint8_t read8(Address address, uint8_t offset) {
 }
 
 void write32(Address address, uint8_t offset, uint32_t value) {
+    const ConfigPortGuard guard;
     arch::out32(0xCF8, configuration_address(address, offset));
     arch::out32(0xCFC, value);
 }
@@ -84,6 +111,7 @@ void write32(Address address, uint8_t offset, uint32_t value) {
 void write16(Address address, uint8_t offset, uint16_t value) {
     // The adjacent word may contain write-one-to-clear status bits. Never
     // replay it in a read/modify/write when updating Command or MSI controls.
+    const ConfigPortGuard guard;
     arch::out32(0xCF8, configuration_address(address, offset));
     arch::out16(static_cast<uint16_t>(0xCFCu + (offset & 2u)), value);
 }

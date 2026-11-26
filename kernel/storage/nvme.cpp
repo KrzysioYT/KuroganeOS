@@ -15,6 +15,7 @@ namespace {
 constexpr uint8_t PCI_CLASS_MASS_STORAGE = UINT8_C(0x01);
 constexpr uint8_t PCI_SUBCLASS_NVM = UINT8_C(0x08);
 constexpr uint8_t PCI_PROG_IF_NVME = UINT8_C(0x02);
+constexpr uint8_t PCI_IDENTITY_OFFSET = UINT8_C(0x00);
 constexpr uint8_t PCI_COMMAND_OFFSET = UINT8_C(0x04);
 constexpr uint16_t PCI_COMMAND_MEMORY_SPACE = UINT16_C(1) << 1U;
 constexpr uint16_t PCI_COMMAND_BUS_MASTER = UINT16_C(1) << 2U;
@@ -68,13 +69,33 @@ struct Controller {
     bool io_completion_phase;
     size_t mapped_pages;
     bool pci_enabled;
+    bool pci_identity_lost;
     bool controller_enabled;
+    bool cleanup_pending;
     bool io_ready;
     bool ready;
     ControllerInfo info;
 };
 
 Controller g_controller{};
+// One owner for the queues and shared bounce page, including initialization
+// and shutdown. A contending caller cannot wait on a preempted polling owner.
+bool g_controller_owned = false;
+
+class ControllerGuard {
+public:
+    ControllerGuard() : owned_(!__atomic_test_and_set(
+        &g_controller_owned, __ATOMIC_ACQUIRE)) {}
+    ~ControllerGuard() {
+        if (owned_) __atomic_clear(&g_controller_owned, __ATOMIC_RELEASE);
+    }
+    bool acquired() const { return owned_; }
+    ControllerGuard(const ControllerGuard&) = delete;
+    ControllerGuard& operator=(const ControllerGuard&) = delete;
+
+private:
+    bool owned_;
+};
 
 void clear_bytes(void* destination, size_t count) {
     auto* bytes = static_cast<uint8_t*>(destination);
@@ -155,6 +176,61 @@ bool wait_ready(bool expected) {
     return false;
 }
 
+bool same_pci_function() {
+    if (g_controller.pci_identity_lost) return false;
+    const auto& device = g_controller.pci_device;
+    const uint32_t identity = static_cast<uint32_t>(device.vendor_id) |
+        static_cast<uint32_t>(device.device_id) << 16U;
+    if (pci::read32(device, PCI_IDENTITY_OFFSET) != identity) {
+        g_controller.pci_identity_lost = true;
+        return false;
+    }
+    return true;
+}
+
+bool read_pci_command(uint16_t* command) {
+    if (!same_pci_function()) return false;
+    *command = pci::read16(g_controller.pci_device, PCI_COMMAND_OFFSET);
+    return same_pci_function() && *command != UINT16_MAX;
+}
+
+bool write_pci_command(uint16_t command) {
+    if (!same_pci_function()) return false;
+    pci::write16(g_controller.pci_device, PCI_COMMAND_OFFSET, command);
+    uint16_t actual = 0U;
+    return read_pci_command(&actual) && actual == command;
+}
+
+bool controller_mmio_accessible() {
+    uint16_t command = 0U;
+    return g_controller.registers != nullptr && read_pci_command(&command) &&
+        (command & PCI_COMMAND_MEMORY_SPACE) != 0U;
+}
+
+bool stop_controller() {
+    if (!controller_mmio_accessible()) return false;
+    const uint32_t cc = read32(REG_CC);
+    if (cc == UINT32_MAX) return false;
+    if ((cc & CC_ENABLE) != 0U) {
+        // An enable still in progress cannot be cancelled by clearing EN
+        // while RDY is zero (NVMe Controller Configuration, CC.EN).
+        if (!wait_ready(true)) return false;
+        if (!controller_mmio_accessible()) return false;
+        write32(REG_CC, cc & ~CC_ENABLE);
+    }
+    return wait_ready(false) && (read32(REG_CC) & CC_ENABLE) == 0U &&
+        controller_mmio_accessible();
+}
+
+void disable_bus_master() {
+    uint16_t command = 0U;
+    if (read_pci_command(&command) &&
+        (command & PCI_COMMAND_BUS_MASTER) != 0U) {
+        static_cast<void>(write_pci_command(static_cast<uint16_t>(
+            command & ~PCI_COMMAND_BUS_MASTER)));
+    }
+}
+
 bool map_mmio(uint64_t physical_address) {
     if ((physical_address & (memory::virtual_memory::PAGE_SIZE - 1U)) != 0U) {
         return false;
@@ -181,14 +257,6 @@ bool map_mmio(uint64_t physical_address) {
                     static_cast<uint64_t>(index) *
                         memory::virtual_memory::PAGE_SIZE,
                 flags) != memory::virtual_memory::Status::Ok) {
-            while (g_controller.mapped_pages != 0U) {
-                --g_controller.mapped_pages;
-                static_cast<void>(memory::virtual_memory::unmap_page(
-                    space,
-                    MMIO_VIRTUAL_BASE +
-                        static_cast<uint64_t>(g_controller.mapped_pages) *
-                            memory::virtual_memory::PAGE_SIZE));
-            }
             return false;
         }
         ++g_controller.mapped_pages;
@@ -202,20 +270,20 @@ bool unmap_mmio() {
     if (g_controller.mapped_pages == 0U) return true;
     auto* space = memory::kernel_virtual_memory::address_space();
     if (space == nullptr) return false;
-    bool ok = true;
     while (g_controller.mapped_pages != 0U) {
-        --g_controller.mapped_pages;
+        const size_t index = g_controller.mapped_pages - 1U;
         if (memory::virtual_memory::unmap_page(
                 space,
                 MMIO_VIRTUAL_BASE +
-                    static_cast<uint64_t>(g_controller.mapped_pages) *
+                    static_cast<uint64_t>(index) *
                         memory::virtual_memory::PAGE_SIZE) !=
             memory::virtual_memory::Status::Ok) {
-            ok = false;
+            return false;
         }
+        --g_controller.mapped_pages;
     }
     g_controller.registers = nullptr;
-    return ok;
+    return true;
 }
 
 bool release_dma_page_owned(dma::Page* page) {
@@ -223,10 +291,20 @@ bool release_dma_page_owned(dma::Page* page) {
         dma::release_page(page) == dma::Status::Ok;
 }
 
-Status release_resources(bool restore_pci) {
-    if (g_controller.registers != nullptr && g_controller.controller_enabled) {
-        write32(REG_CC, read32(REG_CC) & ~CC_ENABLE);
-        static_cast<void>(wait_ready(false));
+Status release_resources() {
+    g_controller.cleanup_pending = true;
+    if (g_controller.ready) {
+        g_controller.ready = false;
+        static_cast<void>(device_registry::unregister_device(&g_controller.block));
+    }
+    g_controller.io_ready = false;
+    if (g_controller.controller_enabled) {
+        if (!stop_controller()) {
+            // Disabling bus mastering limits new requests. PCI can still
+            // have in-flight DMA, so keep the mappings and all DMA pages.
+            disable_bus_master();
+            return Status::ResourceReleaseFailed;
+        }
         g_controller.controller_enabled = false;
     }
 
@@ -239,18 +317,17 @@ Status release_resources(bool restore_pci) {
     if (!release_dma_page_owned(&g_controller.admin_submission_queue)) ok = false;
     if (!unmap_mmio()) ok = false;
 
-    if (restore_pci && g_controller.pci_enabled) {
-        pci::write16(
-            g_controller.pci_device,
-            PCI_COMMAND_OFFSET,
-            g_controller.original_pci_command);
-        if (pci::read16(g_controller.pci_device, PCI_COMMAND_OFFSET) !=
-            g_controller.original_pci_command) {
-            ok = false;
-        }
-        g_controller.pci_enabled = false;
+    if (!ok || (g_controller.pci_enabled &&
+        !write_pci_command(g_controller.original_pci_command))) {
+        return Status::ResourceReleaseFailed;
     }
-    return ok ? Status::Ok : Status::ResourceReleaseFailed;
+    g_controller = {};
+    return Status::Ok;
+}
+
+Status fail_initialization(Status failure) {
+    const Status cleanup = release_resources();
+    return cleanup == Status::Ok ? failure : cleanup;
 }
 
 uint16_t next_command_id() {
@@ -312,7 +389,9 @@ bool submit_admin(
                 words,
                 command_id,
                 g_controller.completion_phase,
-                &completion) != protocol::Status::Ok) {
+                &completion) != protocol::Status::Ok ||
+            completion.submission_queue_id != 0U ||
+            completion.submission_queue_head >= g_controller.queue_entries) {
             return false;
         }
 
@@ -329,6 +408,15 @@ bool submit_admin(
         *output = completion;
         return completion.success;
     }
+    return false;
+}
+
+bool fail_io_queue() {
+    // Without a matching completion the controller can still own the bounce
+    // page. Future callers must leave it untouched until a verified stop.
+    g_controller.io_ready = false;
+    g_controller.cleanup_pending = true;
+    disable_bus_master();
     return false;
 }
 
@@ -381,8 +469,9 @@ bool submit_io(
                 command_id,
                 g_controller.io_completion_phase,
                 &completion) != protocol::Status::Ok ||
-            completion.submission_queue_id != IO_QUEUE_ID) {
-            return false;
+            completion.submission_queue_id != IO_QUEUE_ID ||
+            completion.submission_queue_head >= g_controller.io_queue_entries) {
+            return fail_io_queue();
         }
 
         ++g_controller.io_completion_head;
@@ -401,7 +490,7 @@ bool submit_io(
         *output = completion;
         return completion.success;
     }
-    return false;
+    return fail_io_queue();
 }
 
 Status enable_controller() {
@@ -418,10 +507,7 @@ Status enable_controller() {
         return Status::UnsupportedController;
     }
 
-    if ((read32(REG_CC) & CC_ENABLE) != 0U) {
-        write32(REG_CC, read32(REG_CC) & ~CC_ENABLE);
-        if (!wait_ready(false)) return Status::ControllerResetTimeout;
-    }
+    if (!stop_controller()) return Status::ControllerResetTimeout;
 
     const uint32_t maximum_entries =
         g_controller.capabilities.maximum_queue_entries;
@@ -460,6 +546,9 @@ Status enable_controller() {
         g_controller.identify_page.virtual_address,
         memory::virtual_memory::PAGE_SIZE);
 
+    // The queues are now visible to the controller. Their pages stay
+    // owned until rollback or shutdown verifies a controller stop.
+    g_controller.controller_enabled = true;
     write32(REG_AQA, aqa);
     write64(
         REG_ASQ,
@@ -474,8 +563,9 @@ Status enable_controller() {
     g_controller.next_command_id = 0U;
 
     write32(REG_CC, cc);
-    g_controller.controller_enabled = true;
-    if (!wait_ready(true)) return Status::ControllerStartTimeout;
+    if (!wait_ready(true) || !controller_mmio_accessible()) {
+        return Status::ControllerStartTimeout;
+    }
     return Status::Ok;
 }
 
@@ -777,9 +867,12 @@ block::Status block_read(
     uint64_t first_block,
     uint64_t block_count,
     void* destination) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return read_blocks(first_block, block_count, destination);
 }
 
@@ -788,20 +881,26 @@ block::Status block_write(
     uint64_t first_block,
     uint64_t block_count,
     const void* source) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return write_blocks(first_block, block_count, source);
 }
 
 block::Status block_flush(void* context) {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return block::Status::DeviceBusy;
     if (context != &g_controller || !g_controller.ready) {
         return block::Status::NoDevice;
     }
+    if (!g_controller.io_ready) return block::Status::ControllerFault;
     return flush_namespace();
 }
 
-Status qualify_namespace_io() {
+Status probe_namespace_read() {
     auto* io = static_cast<uint8_t*>(g_controller.io_page.virtual_address);
     clear_bytes(io, memory::virtual_memory::PAGE_SIZE);
     if (read_blocks(0U, 1U, io) != block::Status::Ok) {
@@ -809,66 +908,27 @@ Status qualify_namespace_io() {
         return Status::IoCommandFailed;
     }
     terminal::println("[TEST] nvme_read: PASS");
-
-    static constexpr char expected_magic[] = "KUROGANE_NVME_RW_V1";
-    bool known = true;
-    for (size_t index = 0U; index < sizeof(expected_magic) - 1U; ++index) {
-        if (io[index] != static_cast<uint8_t>(expected_magic[index])) {
-            known = false;
-            break;
-        }
-    }
-    if (known) {
-        terminal::println("[TEST] nvme_known_read: PASS");
-    }
-
-    const bool qualification_media =
-        known &&
-        g_controller.namespace_info.block_size == 512U &&
-        g_controller.namespace_info.capacity_blocks == UINT64_C(16384);
-    if (!qualification_media) {
-        return Status::Ok;
-    }
-
-    for (size_t index = 0U;
-         index < g_controller.namespace_info.block_size;
-         ++index) {
-        io[index] = static_cast<uint8_t>((index * 43U + 13U) & 0xFFU);
-    }
-    if (write_blocks(1U, 1U, io) != block::Status::Ok) {
-        terminal::println("[TEST] nvme_write: FAIL");
-        return Status::IoCommandFailed;
-    }
-    terminal::println("[TEST] nvme_write: PASS");
-
-    if (flush_namespace() != block::Status::Ok) {
-        terminal::println("[TEST] nvme_flush: FAIL");
-        return Status::IoCommandFailed;
-    }
-    terminal::println("[TEST] nvme_flush: PASS");
-
-    clear_bytes(io, g_controller.namespace_info.block_size);
-    if (read_blocks(1U, 1U, io) != block::Status::Ok) {
-        terminal::println("[TEST] nvme_write_readback: FAIL");
-        return Status::IoCommandFailed;
-    }
-    for (size_t index = 0U;
-         index < g_controller.namespace_info.block_size;
-         ++index) {
-        const uint8_t expected =
-            static_cast<uint8_t>((index * 43U + 13U) & 0xFFU);
-        if (io[index] != expected) {
-            terminal::println("[TEST] nvme_write_readback: FAIL");
-            return Status::IoCommandFailed;
-        }
-    }
-    terminal::println("[TEST] nvme_write_readback: PASS");
     return Status::Ok;
+}
+
+Status start_controller() {
+    Status status = enable_controller();
+    if (status == Status::Ok) status = identify_controller();
+    if (status == Status::Ok) status = identify_namespace();
+    if (status == Status::Ok) status = create_io_queues();
+    if (status == Status::Ok) status = probe_namespace_read();
+    return status == Status::Ok ? status : fail_initialization(status);
 }
 
 } // namespace
 
 Status initialize() {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
+    if (g_controller.cleanup_pending) {
+        const Status cleanup = release_resources();
+        if (cleanup != Status::Ok) return cleanup;
+    }
     if (g_controller.ready) return Status::AlreadyInitialized;
 
     const pci::Device* source = nullptr;
@@ -886,21 +946,13 @@ Status initialize() {
 
     g_controller = {};
     g_controller.pci_device = *source;
-    g_controller.original_pci_command =
-        pci::read16(*source, PCI_COMMAND_OFFSET);
-
-    pci::write16(
-        *source,
-        PCI_COMMAND_OFFSET,
-        static_cast<uint16_t>(
-            g_controller.original_pci_command &
-            ~pci::bar::COMMAND_DECODE_MASK));
-    if ((pci::read16(*source, PCI_COMMAND_OFFSET) &
-         pci::bar::COMMAND_DECODE_MASK) != 0U) {
-        pci::write16(
-            *source, PCI_COMMAND_OFFSET,
-            g_controller.original_pci_command);
+    if (!read_pci_command(&g_controller.original_pci_command)) {
         return Status::PciCommandRejected;
+    }
+    g_controller.pci_enabled = true;
+    if (!write_pci_command(static_cast<uint16_t>(
+            g_controller.original_pci_command & ~pci::bar::COMMAND_DECODE_MASK))) {
+        return fail_initialization(Status::PciCommandRejected);
     }
 
     const auto bar_status =
@@ -908,31 +960,19 @@ Status initialize() {
     if (bar_status != pci::bar::Status::Ok ||
         g_controller.bar.kind == pci::bar::Kind::Io ||
         g_controller.bar.size < MMIO_REQUIRED_BYTES) {
-        pci::write16(
-            *source, PCI_COMMAND_OFFSET,
-            g_controller.original_pci_command);
-        return Status::BarUnavailable;
+        return fail_initialization(Status::BarUnavailable);
     }
 
     const uint16_t enabled_command = static_cast<uint16_t>(
         g_controller.original_pci_command |
         PCI_COMMAND_MEMORY_SPACE |
         PCI_COMMAND_BUS_MASTER);
-    pci::write16(*source, PCI_COMMAND_OFFSET, enabled_command);
-    if ((pci::read16(*source, PCI_COMMAND_OFFSET) &
-         (PCI_COMMAND_MEMORY_SPACE | PCI_COMMAND_BUS_MASTER)) !=
-        (PCI_COMMAND_MEMORY_SPACE | PCI_COMMAND_BUS_MASTER)) {
-        pci::write16(
-            *source, PCI_COMMAND_OFFSET,
-            g_controller.original_pci_command);
-        return Status::PciCommandRejected;
+    if (!write_pci_command(enabled_command)) {
+        return fail_initialization(Status::PciCommandRejected);
     }
-    g_controller.pci_enabled = true;
 
     if (!map_mmio(g_controller.bar.physical_address)) {
-        static_cast<void>(release_resources(true));
-        g_controller = {};
-        return Status::MmioMappingFailed;
+        return fail_initialization(Status::MmioMappingFailed);
     }
 
     g_controller.info.pci_bus = source->address.bus;
@@ -941,16 +981,8 @@ Status initialize() {
     g_controller.info.device_id = source->device_id;
     g_controller.info.version = read32(REG_VS);
 
-    Status status = enable_controller();
-    if (status == Status::Ok) status = identify_controller();
-    if (status == Status::Ok) status = identify_namespace();
-    if (status == Status::Ok) status = create_io_queues();
-    if (status == Status::Ok) status = qualify_namespace_io();
-    if (status != Status::Ok) {
-        const Status cleanup = release_resources(true);
-        g_controller = {};
-        return cleanup == Status::Ok ? status : cleanup;
-    }
+    const Status status = start_controller();
+    if (status != Status::Ok) return status;
 
     g_controller.info.admin_queue_entries = g_controller.queue_entries;
     g_controller.info.io_queue_entries = g_controller.io_queue_entries;
@@ -975,21 +1007,16 @@ Status initialize() {
             0U,
             &g_controller.block,
             model)) {
-        static_cast<void>(release_resources(true));
-        g_controller = {};
-        return Status::ResourceReleaseFailed;
+        return fail_initialization(Status::ResourceReleaseFailed);
     }
     g_controller.ready = true;
     return Status::Ok;
 }
 
-void shutdown() {
-    if (g_controller.block.context != nullptr) {
-        static_cast<void>(
-            device_registry::unregister_device(&g_controller.block));
-    }
-    static_cast<void>(release_resources(true));
-    g_controller = {};
+Status shutdown() {
+    ControllerGuard ownership;
+    if (!ownership.acquired()) return Status::DeviceBusy;
+    return release_resources();
 }
 
 bool initialized() { return g_controller.ready; }
@@ -1033,6 +1060,7 @@ const char* status_message(Status status) {
             return "NVMe I/O command failed";
         case Status::ResourceReleaseFailed:
             return "NVMe resource release failed";
+        case Status::DeviceBusy: return "NVMe controller busy";
     }
     return "unknown NVMe status";
 }
